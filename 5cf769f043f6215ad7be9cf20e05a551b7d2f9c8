@@ -1,0 +1,47 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  75b8b25325377d2e 281,294
+chrome-crx/src/options.tsx
+  75b8b25325377d2e 220,229,236,311,344,403,676,687,703,705,710,720,733,764,770-771,776,781,787,792,798,803,818,824,1172
+chrome-crx/src/sidepanel/WorkflowModeSelectionModal.tsx
+  75b8b25325377d2e 169,174
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  75b8b25325377d2e 440,442,10269-10274,10279-10283,10723,10816-10820,10823,10829,10845,10861
+chrome-crx/src/sidepanel/RichTextInput.tsx
+  75b8b25325377d2e 109,184
+chrome-crx/i18n/en-US.json
+  75b8b25325377d2e 799-821
+chrome-crx/i18n/zh-CN.json
+  75b8b25325377d2e 799-821
+chrome-crx/src/components/TasksTab.tsx
+  75b8b25325377d2e 697,718,788
+chrome-crx/blocked.html
+  75b8b25325377d2e 49,53-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "5cf769f043f6215ad7be9cf20e05a551b7d2f9c8",
+  "prompts": {
+    "75b8b25325377d2e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "662a9636-e0a1-4ea4-b489-5eaa6e118299",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "蒋浩 <jianghao@cvte.com>",
+      "messages": [],
+      "total_additions": 191,
+      "total_deletions": 56,
+      "accepted_lines": 135,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/48e7213bbcc1c839faf06618537cfa87cf4351669e1c0b05ad9861f428b5c5b9",
+      "token_usage": {
+        "input_tokens": 211823,
+        "output_tokens": 36498,
+        "cache_read_tokens": 17184992,
+        "cache_creation_tokens": 10554670,
+        "total_cost": null
+      }
+    }
+  }
+}
