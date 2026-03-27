@@ -1,0 +1,31 @@
+chrome-crx/src/mcp-runtime/tabState.ts
+  03e15e888f893a7f 285-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "b419aff00e3267c06124691d57c093c22e6ab33e",
+  "prompts": {
+    "03e15e888f893a7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cec6f0e-b1da-41c3-ba9f-9f8a99d18e5a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 10,
+      "accepted_lines": 6,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/5c3557e8b2c0a6c288386536d19c2d8f6ffabc8c6cc45d62be41ee747dd988be",
+      "token_usage": {
+        "input_tokens": 6056,
+        "output_tokens": 3212,
+        "cache_read_tokens": 375045,
+        "cache_creation_tokens": 504137,
+        "total_cost": null
+      }
+    }
+  }
+}
