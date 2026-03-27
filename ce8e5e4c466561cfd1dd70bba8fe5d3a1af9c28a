@@ -1,0 +1,30 @@
+chrome-crx/src/agent-visual-indicator.ts
+  440d1d4a0cbd64c2 26-29,33-36,40-67,91-93,95-140,142-180,182-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "ce8e5e4c466561cfd1dd70bba8fe5d3a1af9c28a",
+  "prompts": {
+    "440d1d4a0cbd64c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9cf8010f-1e6e-421d-8344-f71505952c62",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 186,
+      "total_deletions": 68,
+      "accepted_lines": 131,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 53137,
+        "output_tokens": 6674,
+        "cache_read_tokens": 1064395,
+        "cache_creation_tokens": 78289,
+        "total_cost": null
+      }
+    }
+  }
+}
