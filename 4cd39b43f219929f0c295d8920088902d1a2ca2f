@@ -1,0 +1,36 @@
+chrome-crx/i18n/en-US.json
+  c3b4646e6877e25a 821-834
+chrome-crx/i18n/zh-CN.json
+  c3b4646e6877e25a 821-834
+chrome-crx/src/agent-visual-indicator.ts
+  c3b4646e6877e25a 2-37,42-43,247-248,283-287,296-297,417-428,470,640,642,645,647-648,742-746,848-856,867-875,877,880,883,886,889,898,901-904,907,910-920,924,947,971-972,974,976,980,982,986,988
+chrome-crx/src/mcp-runtime/tabState.ts
+  c3b4646e6877e25a 1449
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "4cd39b43f219929f0c295d8920088902d1a2ca2f",
+  "prompts": {
+    "c3b4646e6877e25a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55792e9c-9e80-44e8-8068-e8349bfb9d56",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 267,
+      "total_deletions": 159,
+      "accepted_lines": 178,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 74814,
+        "output_tokens": 35708,
+        "cache_read_tokens": 9203288,
+        "cache_creation_tokens": 3312786,
+        "total_cost": null
+      }
+    }
+  }
+}
