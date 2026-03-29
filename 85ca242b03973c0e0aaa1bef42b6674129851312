@@ -1,0 +1,82 @@
+chrome-crx/src/styles/sidepanel.css
+  be11bc9499471a38 8-13,16-17,19-52
+  45a01b9caa67cc5f 2,4-5
+  0cf4f098c3e08a5d 3,6-7,14-15,18
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  be11bc9499471a38 6218
+chrome-crx/src/sidepanel/components/MarkdownComponents.tsx
+  be11bc9499471a38 297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "85ca242b03973c0e0aaa1bef42b6674129851312",
+  "prompts": {
+    "0cf4f098c3e08a5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "388d4e51-3ce6-4986-92df-036a3e251bbb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 76,
+      "total_deletions": 74,
+      "accepted_lines": 15,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 4139,
+        "output_tokens": 12366,
+        "cache_read_tokens": 2466502,
+        "cache_creation_tokens": 1709764,
+        "total_cost": null
+      }
+    },
+    "45a01b9caa67cc5f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa32e78a-e55d-4dd6-b48f-4c3d62e583cd",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 22,
+      "total_deletions": 17,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 4907,
+        "output_tokens": 10366,
+        "cache_read_tokens": 2729746,
+        "cache_creation_tokens": 1967179,
+        "total_cost": null
+      }
+    },
+    "6df45af5ae84a451": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3975-2c5c-7522-8a28-db064fec7bc8",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "be11bc9499471a38": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d398f-fd43-7d82-b191-860312a9e4b9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 45,
+      "total_deletions": 12,
+      "accepted_lines": 45,
+      "overriden_lines": 0
+    }
+  }
+}
