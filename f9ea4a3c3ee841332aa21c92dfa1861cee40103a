@@ -1,0 +1,94 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  a4b3472c3f732b71 7153-7154,10747-10748,10750
+chrome-crx/src/sidepanel/WorkflowRecordingInterface.tsx
+  1b463d1636da9946 97-98,110
+  a4b3472c3f732b71 1,4,25-26,44,54-58,70-85,93-96,99-109,156,162-164,182-189,191-212,214-216,234
+  325912693ce5bf07 190,213
+chrome-crx/src/sidepanel/WorkflowStepsList.tsx
+  a4b3472c3f732b71 4-5,30,41,51-52,69-75,228-238,240-253,255-260,262-304,306-308,311-333,335-350,352-353
+  325912693ce5bf07 239
+chrome-crx/src/sidepanel/stores.ts
+  a4b3472c3f732b71 91,110
+chrome-crx/src/sidepanel/useWorkflowRecording.ts
+  a4b3472c3f732b71 19,893-909,1084
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "f9ea4a3c3ee841332aa21c92dfa1861cee40103a",
+  "prompts": {
+    "1b463d1636da9946": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "557b1139-d78d-4c5f-b5ff-91faf0b2460b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 450,
+      "total_deletions": 298,
+      "accepted_lines": 21,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 9978,
+        "output_tokens": 53066,
+        "cache_read_tokens": 10216340,
+        "cache_creation_tokens": 3925604,
+        "total_cost": null
+      }
+    },
+    "325912693ce5bf07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1a29e6d-ef8a-40b8-8a08-d6e3ef0573fc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 15,
+      "accepted_lines": 7,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 2548,
+        "output_tokens": 4797,
+        "cache_read_tokens": 946141,
+        "cache_creation_tokens": 290664,
+        "total_cost": null
+      }
+    },
+    "a4b3472c3f732b71": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3a2c-9501-72f1-9df4-340131380ac1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 460,
+      "total_deletions": 472,
+      "accepted_lines": 379,
+      "overriden_lines": 0
+    },
+    "f2ce8990010c6191": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6dbd4c9f-70eb-44f8-a5f3-ef4626e8c877",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 253,
+      "total_deletions": 32,
+      "accepted_lines": 169,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 7998,
+        "output_tokens": 34626,
+        "cache_read_tokens": 9111846,
+        "cache_creation_tokens": 4605739,
+        "total_cost": null
+      }
+    }
+  }
+}
