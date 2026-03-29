@@ -1,0 +1,61 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "c2dcb4174dcf0de062ca88c43898853982a2a00f",
+  "prompts": {
+    "323a3ae834899a5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "09351a37-48f1-48e3-8de7-b27b42796c8f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 189,
+      "total_deletions": 90,
+      "accepted_lines": 14,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 4702,
+        "output_tokens": 24272,
+        "cache_read_tokens": 3590884,
+        "cache_creation_tokens": 2607872,
+        "total_cost": null
+      }
+    },
+    "4bee1b683c9c93cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3825-1d8c-7e91-a6b5-b6ced03761b4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 420,
+      "total_deletions": 576,
+      "accepted_lines": 53,
+      "overriden_lines": 0
+    },
+    "ec5aebe81335d79d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "44076009-5904-4dd8-b94e-aa021b773bde",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 149,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 10037,
+        "output_tokens": 76223,
+        "cache_read_tokens": 8999056,
+        "cache_creation_tokens": 6063909,
+        "total_cost": null
+      }
+    }
+  }
+}
