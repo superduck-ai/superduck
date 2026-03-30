@@ -1,0 +1,34 @@
+chrome-crx/src/sidepanel/WorkflowModeSelectionModal.tsx
+  0fa7c04561ac100e 67-68,70-82
+chrome-crx/src/sidepanel/WorkflowRecordingInterface.tsx
+  0fa7c04561ac100e 88-100
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  0fa7c04561ac100e 2355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "ee17418f5bc263780852da9f043234d664116a3c",
+  "prompts": {
+    "0fa7c04561ac100e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4c14a369-24a6-4a5a-93b8-a9a1db8f765d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 29,
+      "total_deletions": 12,
+      "accepted_lines": 29,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 1093,
+        "output_tokens": 4289,
+        "cache_read_tokens": 561859,
+        "cache_creation_tokens": 457115,
+        "total_cost": null
+      }
+    }
+  }
+}
