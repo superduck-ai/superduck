@@ -1,0 +1,46 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  141ae08a14f3c6c1 469-481,507
+  0e75b63eb4ce4db8 232,242,371-393,428,436-437,441-454,456,460-461,463-464,482,487-494,496,500,505-506,508,656-658,675-676,814,819-822,825-877
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "73f0c7267a018f5e9b9c3fb9e94ce3ca8df36cd1",
+  "prompts": {
+    "0e75b63eb4ce4db8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "2380614d-3478-4e46-adcb-3bc9190b3404",
+        "model": "premium"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 160,
+      "total_deletions": 120,
+      "accepted_lines": 126,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/3062eeb840fa115edc4d6c3dc99843a33638fa826ffa199ab5e4181744e4457c"
+    },
+    "141ae08a14f3c6c1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "54884ca5-c464-47c3-8d6a-d370d75785e9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 15,
+      "accepted_lines": 14,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/c7a3115eb29232799d949eff60a8b24b734408591d7478be5edf35080acb6a75",
+      "token_usage": {
+        "input_tokens": 126144,
+        "output_tokens": 4112,
+        "cache_read_tokens": 364129,
+        "cache_creation_tokens": 90301,
+        "total_cost": null
+      }
+    }
+  }
+}
