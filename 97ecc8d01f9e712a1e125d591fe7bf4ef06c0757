@@ -1,0 +1,31 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  dd06c31d67ea84e3 574-575,580,586-590,595-597,604-624,628-634,640-660,662-674,714-715
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "97ecc8d01f9e712a1e125d591fe7bf4ef06c0757",
+  "prompts": {
+    "dd06c31d67ea84e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68675ffc-a20a-4dbe-b5f6-cac569e6f7de",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 130,
+      "total_deletions": 91,
+      "accepted_lines": 78,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/3ca317b6a6c231355157fb2b96e45aa2ff4f6512b6999698edd6c5ef0a31b751",
+      "token_usage": {
+        "input_tokens": 48253,
+        "output_tokens": 30111,
+        "cache_read_tokens": 9256101,
+        "cache_creation_tokens": 1203540,
+        "total_cost": null
+      }
+    }
+  }
+}
