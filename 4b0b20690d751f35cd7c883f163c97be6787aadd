@@ -1,0 +1,86 @@
+chrome-crx/src/agent-visual-indicator.ts
+  c3b4646e6877e25a 882-886,918,921,924,927-928,930,932-933,938,994,996,998,1000
+  eb61ad50c0e86e63 985
+  080f158d730801af 773-775,887-901,904,908,911-912
+chrome-crx/src/mcp-runtime/core.ts
+  eb61ad50c0e86e63 570,604,621,666
+chrome-crx/src/mcp-runtime/pageTools.ts
+  eb61ad50c0e86e63 263,390,1221,1253
+chrome-crx/src/mcp-runtime/tabState.ts
+  080f158d730801af 1452
+chrome-crx/src/mcp-runtime/inputTools.ts
+  9b6c519055039ae4 928,930-936,938-940,942-949
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "4b0b20690d751f35cd7c883f163c97be6787aadd",
+  "prompts": {
+    "080f158d730801af": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8ff52dad-14e2-406b-8874-ca82a37ce242",
+        "model": "premium"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 5,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    },
+    "9b6c519055039ae4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4407-6047-7f01-ae73-84d3f90b43e6",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 16,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    },
+    "c3b4646e6877e25a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55792e9c-9e80-44e8-8068-e8349bfb9d56",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 18,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 74814,
+        "output_tokens": 35708,
+        "cache_read_tokens": 9203288,
+        "cache_creation_tokens": 3312786,
+        "total_cost": null
+      }
+    },
+    "eb61ad50c0e86e63": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "361e9970-dfa0-4bf0-9cd4-66bf1f0f7333",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 46199,
+        "output_tokens": 7022,
+        "cache_read_tokens": 1709615,
+        "cache_creation_tokens": 487294,
+        "total_cost": null
+      }
+    }
+  }
+}
