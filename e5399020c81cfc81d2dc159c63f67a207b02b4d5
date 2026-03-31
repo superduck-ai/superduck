@@ -1,0 +1,64 @@
+chrome-crx/src/assets/IconCalenderSparkle.svg
+  8ba3d138b15421e7 1-2
+chrome-crx/src/sidepanel/icons.tsx
+  8ba3d138b15421e7 3,320-331,333-334
+chrome-crx/src/assets/IconSettingsSliderHor.svg
+  8ba3d138b15421e7 1-2
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  8ba3d138b15421e7 5-9,71,76-81,85-86,96,307,346,352,814
+chrome-crx/src/assets/IconCursorAi.svg
+  8ba3d138b15421e7 1-2
+chrome-crx/src/assets/IconRunShortcut.svg
+  8ba3d138b15421e7 1-2
+chrome-crx/src/assets/IconBroomSparkle.svg
+  8ba3d138b15421e7 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "e5399020c81cfc81d2dc159c63f67a207b02b4d5",
+  "prompts": {
+    "8ba3d138b15421e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7a08e23-e629-403e-8b20-dcc27019c770",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 54,
+      "total_deletions": 49,
+      "accepted_lines": 44,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/1ed03a66bd791bced72f981410408e8ff2a8c582264a81d8e8e7ec4d3efbbc51",
+      "token_usage": {
+        "input_tokens": 124257,
+        "output_tokens": 17714,
+        "cache_read_tokens": 4841412,
+        "cache_creation_tokens": 457764,
+        "total_cost": null
+      }
+    },
+    "a38b0cdec0d4070b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f33c8c00-f52b-49c4-b5b5-a116799c95a7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 9,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/717e2eb51ddebc00a7fa13b651156c0feca26eca379a62cd43e4c2b345805c75",
+      "token_usage": {
+        "input_tokens": 1955,
+        "output_tokens": 10646,
+        "cache_read_tokens": 1024713,
+        "cache_creation_tokens": 172121,
+        "total_cost": null
+      }
+    }
+  }
+}
