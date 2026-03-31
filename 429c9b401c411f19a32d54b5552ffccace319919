@@ -1,0 +1,57 @@
+chrome-crx/src/mcp-runtime/core.ts
+  d909d14c1728c072 179,185,223,251
+chrome-crx/src/sidepanel/useWorkflowRecording.ts
+  822174c2aa240551 2,160-214,234,278,331,335-341,344,348,352-355,359-362,372-380,384-387,391-394,397-400,406-416,421-426,431-435,442,446,448-454,456,460,465-474,484,488,491-495,534-537,637-639,702,744-751,796-799,813-820,1060-1067
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  822174c2aa240551 1725,1774-1775,1834-1864,1866-1879,1905,1910-1911,1918,1920,1922,1924,1926,1931,1933,1939,1943,1947-1951,1956-1958,1963,1965,1967,1969,1971-1976,1983,1986-1992,1998,2000,2003,2008-2011,2013,2019-2022,2024,2029,2035,2037,2043,2047,2050,2053,2055,2059,2061,2063,2065,2067,2079,2082,2084,2087,2093-2096,2099,2102,2105,2581,2595-2597,2599-2607,2670,2710,2719-2724,4987,5033-5040,5184,5220-5223,5405,5412,5415-5438,5444-5447,5478,5560,5608,5754,5803-5804,5900-5902,6132-6137,6139-6144,6146-6151,6201,6253-6255,6265-6269,6277-6280,6286-6292,6296-6299,6304-6310,6314-6317,6364-6366,8012-8014,8019,8027,8045,10272-10289
+chrome-crx/i18n/en-US.json
+  822174c2aa240551 834-866
+chrome-crx/i18n/zh-CN.json
+  822174c2aa240551 225,237-239,834-866
+chrome-crx/src/mcp-runtime/analytics.ts
+  d909d14c1728c072 287-288,290,304,314,322,1696,1698,1761,1786
+chrome-crx/src/sidepanel/WorkflowRecordingInterface.tsx
+  822174c2aa240551 156-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "429c9b401c411f19a32d54b5552ffccace319919",
+  "prompts": {
+    "822174c2aa240551": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3f8b-fb81-78b2-8183-64d6f8676b72",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 550,
+      "total_deletions": 209,
+      "accepted_lines": 537,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/15cc4642b49c5d60af809acc1741f5a68fa1cb896063332f287083136e98a4fc"
+    },
+    "d909d14c1728c072": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39c9c8f3-ca7b-47a6-9c2f-aabb10ca9c51",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 13,
+      "accepted_lines": 14,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/18ec5701863eeaaec5670611cf06d06ac8714fac1c417664546914926e6f5dfe",
+      "token_usage": {
+        "input_tokens": 107693,
+        "output_tokens": 4312,
+        "cache_read_tokens": 3384659,
+        "cache_creation_tokens": 274484,
+        "total_cost": null
+      }
+    }
+  }
+}
