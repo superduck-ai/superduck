@@ -1,0 +1,464 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  2015bcc6770c7893 42,46-47,137-138,145,149,151,154,158,160,207,209-210,214,250,369-371,373-374,425-426,542,558,588,738,743,751,771,780-783,830-833,848,861
+  4d12209a04d2f296 10-12,73,76,82,255-279,352-354,358-359,417-420,564,765,814,857,867,872,875
+  fc70cd09b85e7a26 1,3,32,35,43-45,48-54,59,103,117-118,126-128,132-133,135-136,141-144,159,163,167-168,175,183-184,186,193,195,199-200,202,208,239-243,245-246,251,254,308,319,325,336,341,350-351,355-357,360,365,367-368,391,422-424,427-435,437-453,455,457-461,466,483,485,493-494,525,529-530,537-541,543-557,559-563,565-566,570-587,589-592,597,604,613,621-622,646,657-658,696,698-700,706-708,712,720-721,723-726,728,737,741-742,744,748,753,757-761,763-764,767-768,770,772,774-779,784-787,789-802,805,809,816-818,820-829,834-842,845,847,849,852-856,859,862-864,869-870
+  8ba3d138b15421e7 5-9,68,74-75,77-78,83,93,326,366,372,819
+  141ae08a14f3c6c1 495-507,509,533,535
+  dd06c31d67ea84e3 593-596,599,601,605-611,614-618,623-645,647-655,659-695,733-734
+  6d2cec466b6b37f1 31,33-34,36-37,39-41,171-173,176-182,185,187-192,194,196-198,201,203-206,211-213,215-219,237,244,286-290,292-293,304-306,315-316,339,361-363,377,381,512,523,527,709-711,716,730,745,769,808,810-813,846,850-851,858
+  108e09b88daffebd 16,24-30,55-58,60-67,69-72,79-81,84-92,94-102,104-116,119-125,129-131,134,139-140,146-148,150,152-153,155-156,161-162,220-223,253,309-311,314,320-322,364,375-376,378-380,382,602-603,612,619-620,656,697,701-705,729,807
+  bc88d199543e61cd 323-324,327-335,337-338,340,342-347,349,383-388,392,436,511,727,746-747,749-750,752,766,788
+  0e75b63eb4ce4db8 238,247-248,393-416,421,454,456,462-465,467-482,484,486-492,508,510,513-522,524,526,528,531-532,534,536,713-715,732,754-756,860,865-866,868,871,873-874,876-914,917,919
+chrome-crx/i18n/en-US.json
+  108e09b88daffebd 113,591
+chrome-crx/src/assets/IconBroomSparkle.svg
+  bc88d199543e61cd 1-3
+chrome-crx/src/sidepanel/RichTextInput.tsx
+  108e09b88daffebd 53-54,61,72
+chrome-crx/src/sidepanel/sessionPool.tsx
+  108e09b88daffebd 1245-1269,1273,1277-1278,1289-1300,1303-1304
+  4d12209a04d2f296 19
+chrome-crx/src/assets/IconSettingsSliderHor.svg
+  bc88d199543e61cd 1-3
+chrome-crx/src/styles/index.css
+  2015bcc6770c7893 8455,8459-8462
+chrome-crx/src/vite-env.d.ts
+  108e09b88daffebd 6-10
+chrome-crx/src/sidepanel/useWorkflowRecording.ts
+  4d12209a04d2f296 7
+chrome-crx/src/sidepanel/WorkflowRecordingInterface.tsx
+  4d12209a04d2f296 9
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  108e09b88daffebd 98,8082-8088,8638,10535,10569
+  4d12209a04d2f296 97
+chrome-crx/package.json
+  bc88d199543e61cd 31
+chrome-crx/src/assets/IconCalenderSparkle.svg
+  bc88d199543e61cd 1-3
+chrome-crx/src/sidepanel/icons.tsx
+  bc88d199543e61cd 3,320,324-325,327,329,333,346-347
+  4d12209a04d2f296 321-323,326,328,330-332,335-345
+chrome-crx/src/assets/IconRunShortcut.svg
+  bc88d199543e61cd 1-3
+chrome-crx/src/utils/locale.ts
+  4d12209a04d2f296 1-3
+chrome-crx/i18n/zh-CN.json
+  108e09b88daffebd 113,591
+chrome-crx/src/assets/IconCursorAi.svg
+  bc88d199543e61cd 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "24b1129341e36ea3b6b93f758b3f7504fbdcd4f0",
+  "prompts": {
+    "0ad9bd51a407bbec": {
+      "agent_id": {
+        "tool": "gemini",
+        "id": "d33036ce-c590-4795-81b9-01e27ddae081",
+        "model": "gemini-3-flash-preview"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 277,
+      "total_deletions": 221,
+      "accepted_lines": 51,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 4943564,
+        "output_tokens": 29170,
+        "cache_read_tokens": 4519219,
+        "cache_creation_tokens": null,
+        "total_cost": null
+      }
+    },
+    "0e75b63eb4ce4db8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "2380614d-3478-4e46-adcb-3bc9190b3404",
+        "model": "premium"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 139,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/3062eeb840fa115edc4d6c3dc99843a33638fa826ffa199ab5e4181744e4457c"
+    },
+    "0fa7c04561ac100e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4c14a369-24a6-4a5a-93b8-a9a1db8f765d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 29,
+      "total_deletions": 12,
+      "accepted_lines": 29,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 1093,
+        "output_tokens": 4289,
+        "cache_read_tokens": 561859,
+        "cache_creation_tokens": 457115,
+        "total_cost": null
+      }
+    },
+    "108e09b88daffebd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4190-7f21-71d1-82c7-fc90aebf76ed",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 186,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/c53640661807cbe48a263ad7d900fba19816a7563ae921605175a78f3d73f23d"
+    },
+    "141ae08a14f3c6c1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "54884ca5-c464-47c3-8d6a-d370d75785e9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 16,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/c7a3115eb29232799d949eff60a8b24b734408591d7478be5edf35080acb6a75",
+      "token_usage": {
+        "input_tokens": 126144,
+        "output_tokens": 4112,
+        "cache_read_tokens": 364129,
+        "cache_creation_tokens": 90301,
+        "total_cost": null
+      }
+    },
+    "1b463d1636da9946": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "557b1139-d78d-4c5f-b5ff-91faf0b2460b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 9978,
+        "output_tokens": 53066,
+        "cache_read_tokens": 10216340,
+        "cache_creation_tokens": 3925604,
+        "total_cost": null
+      }
+    },
+    "2015bcc6770c7893": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "2281b23e-21f6-4359-899b-aec476896890",
+        "model": "gemini-3.1-pro-preview"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 46,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/becc31f7ec0cd17b2fdd500633801b52da54e5719bdd7bc4aa207e0ff9e58fb0"
+    },
+    "325912693ce5bf07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1a29e6d-ef8a-40b8-8a08-d6e3ef0573fc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 2548,
+        "output_tokens": 4797,
+        "cache_read_tokens": 946141,
+        "cache_creation_tokens": 290664,
+        "total_cost": null
+      }
+    },
+    "3b87acd00a72eac2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "50dc6913-01c4-4e7e-adfa-ffe77612896c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 15,
+      "accepted_lines": 19,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 97483,
+        "output_tokens": 2405,
+        "cache_read_tokens": 1674515,
+        "cache_creation_tokens": 139100,
+        "total_cost": null
+      }
+    },
+    "4d12209a04d2f296": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1e58b41a-918b-4cc0-ae42-a7b56918e779",
+        "model": "premium"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 94,
+      "total_deletions": 90,
+      "accepted_lines": 73,
+      "overriden_lines": 0
+    },
+    "5bc786bd7ac22d9a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "64f636c5-17c8-47da-9af8-c70724beb041",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/dd8f76f73044d68e943946eda68344c3699188e77e691965a63cfe55ccaa6499",
+      "token_usage": {
+        "input_tokens": 15713,
+        "output_tokens": 2420,
+        "cache_read_tokens": 894113,
+        "cache_creation_tokens": 47924,
+        "total_cost": null
+      }
+    },
+    "6297cadb65ff47a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3f6b-56c3-7ba3-b320-6617d4f7460c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 4,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "6d2cec466b6b37f1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d41c3-59e6-7852-9a71-9639fc8e8951",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 96,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/3179669514fbcdb473b28afd84847f09fdb7d57c65fde6337058c1b3f65c2272"
+    },
+    "822174c2aa240551": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3f8b-fb81-78b2-8183-64d6f8676b72",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 550,
+      "total_deletions": 209,
+      "accepted_lines": 537,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/15cc4642b49c5d60af809acc1741f5a68fa1cb896063332f287083136e98a4fc"
+    },
+    "8ba3d138b15421e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7a08e23-e629-403e-8b20-dcc27019c770",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 16,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/1ed03a66bd791bced72f981410408e8ff2a8c582264a81d8e8e7ec4d3efbbc51",
+      "token_usage": {
+        "input_tokens": 124257,
+        "output_tokens": 17714,
+        "cache_read_tokens": 4841412,
+        "cache_creation_tokens": 457764,
+        "total_cost": null
+      }
+    },
+    "a4b3472c3f732b71": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3a2c-9501-72f1-9df4-340131380ac1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 265,
+      "overriden_lines": 0
+    },
+    "a862cc1f26d5bada": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4167-c174-7402-afab-3416a3e8a434",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 43,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/fb26adccdf9643e9c48c61d9d34ed24f07f7a0051a7dc8c37fcc40f3ff010e36"
+    },
+    "bc88d199543e61cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d432e-8510-7e33-aa9d-f90a0f3299c2",
+        "model": "unknown"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 12,
+      "accepted_lines": 145,
+      "overriden_lines": 0
+    },
+    "be11bc9499471a38": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d398f-fd43-7d82-b191-860312a9e4b9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "c3b4646e6877e25a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55792e9c-9e80-44e8-8068-e8349bfb9d56",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 267,
+      "total_deletions": 159,
+      "accepted_lines": 178,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 74814,
+        "output_tokens": 35708,
+        "cache_read_tokens": 9203288,
+        "cache_creation_tokens": 3312786,
+        "total_cost": null
+      }
+    },
+    "c8bf28bc201b5a98": {
+      "agent_id": {
+        "tool": "gemini",
+        "id": "b14f84cf-7fe1-4674-aa50-7a47543cd5e2",
+        "model": "gemini-3-flash-preview"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 183,
+      "total_deletions": 92,
+      "accepted_lines": 148,
+      "overriden_lines": 2,
+      "token_usage": {
+        "input_tokens": 2403419,
+        "output_tokens": 33234,
+        "cache_read_tokens": 2100469,
+        "cache_creation_tokens": null,
+        "total_cost": null
+      }
+    },
+    "dd06c31d67ea84e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68675ffc-a20a-4dbe-b5f6-cac569e6f7de",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 91,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/3ca317b6a6c231355157fb2b96e45aa2ff4f6512b6999698edd6c5ef0a31b751",
+      "token_usage": {
+        "input_tokens": 48253,
+        "output_tokens": 30111,
+        "cache_read_tokens": 9256101,
+        "cache_creation_tokens": 1203540,
+        "total_cost": null
+      }
+    },
+    "f81f4b105a100475": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "54377acc-b7cc-41cd-be98-2b8db1744046",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 18,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/1da787bea1050340a683e52a80bf5dcb0bea8ed31cd5ae9c1a1b5b0ad82da416",
+      "token_usage": {
+        "input_tokens": 2245,
+        "output_tokens": 6521,
+        "cache_read_tokens": 752770,
+        "cache_creation_tokens": 564659,
+        "total_cost": null
+      }
+    },
+    "fc70cd09b85e7a26": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "55f00c5a-2229-4906-9ab1-95752a66f31e",
+        "model": "premium"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 269,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/7d5078f92992e5063d81cbdd823733d167bde520ef589008ce1ef7e6617828ec"
+    }
+  }
+}
