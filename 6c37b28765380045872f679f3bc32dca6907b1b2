@@ -1,0 +1,157 @@
+chrome-crx/src/sidepanel/RichTextInput.tsx
+  108e09b88daffebd 53-54,61,72
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  108e09b88daffebd 97,8081-8087,8637,10534,10568
+chrome-crx/src/sidepanel/sessionPool.tsx
+  108e09b88daffebd 1244-1272,1276,1280-1281,1292-1303,1306-1307
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  2015bcc6770c7893 6,38,42-43,131-132,139,143,145,201,203-204,208,242,296,335-342,345-350,372-373,378-379,418-422,435,439,463,469,485,524,547,605,635,640,645,653,658,681,690-693,741,744-747,774,788,802-805,834-837
+  108e09b88daffebd 5,8,12,20-25,55-58,60-67,69-83,85-86,88,90-96,98-102,104-108,113-119,123-124,128,133-134,140-141,144,146-147,214-217,245,279-281,284,333,351-352,354,535-537,541-543,549-550,572-573,595,599-601,632,721,844,846
+  fc70cd09b85e7a26 1,3,28,39-41,44-50,59,68,87,97,111-112,122,126-127,129-130,137,153,157,161,169,177-178,180,189,193-194,196,202,232-236,238-240,278,295,311,320-329,334,343-344,367,369-371,374-377,380-388,390-417,423-434,436-438,440-448,452-454,457-458,460-462,464-468,470-484,486-500,504-523,525-532,538-540,544-546,548,551-571,574-594,596-598,604,606,610-618,623-624,626,628-629,631,636,639,643-644,646,650,655-657,659-663,665-666,678,680,682,684-689,694-701,703-716,719,723,730-740,742-743,748-756,763,766-770,773,775-787,789-801,806-833,838-840
+  6d2cec466b6b37f1 7,27,29-30,32,36-37,165-167,170-174,179,181-186,190-192,197-198,205-207,209-213,231,237,256-260,262-263,275-276,285,309,330-332,353,449,451,455-456,459,607-609,619,633,647,679,722,724-728,760,764-765,772,841
+chrome-crx/src/vite-env.d.ts
+  108e09b88daffebd 6-10
+chrome-crx/src/assets/icon-broom.svg
+  6d2cec466b6b37f1 1-5
+chrome-crx/src/styles/index.css
+  2015bcc6770c7893 8455,8459-8462
+chrome-crx/i18n/en-US.json
+  108e09b88daffebd 113,591
+chrome-crx/src/assets/icon-run-shortcut.svg
+  6d2cec466b6b37f1 1-3
+chrome-crx/i18n/zh-CN.json
+  108e09b88daffebd 113,591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "6c37b28765380045872f679f3bc32dca6907b1b2",
+  "prompts": {
+    "108e09b88daffebd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4190-7f21-71d1-82c7-fc90aebf76ed",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 175,
+      "overriden_lines": 23,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/c53640661807cbe48a263ad7d900fba19816a7563ae921605175a78f3d73f23d"
+    },
+    "2015bcc6770c7893": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "2281b23e-21f6-4359-899b-aec476896890",
+        "model": "gemini-3.1-pro-preview"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 117,
+      "total_deletions": 92,
+      "accepted_lines": 76,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/becc31f7ec0cd17b2fdd500633801b52da54e5719bdd7bc4aa207e0ff9e58fb0"
+    },
+    "5bc786bd7ac22d9a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "64f636c5-17c8-47da-9af8-c70724beb041",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 9,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/dd8f76f73044d68e943946eda68344c3699188e77e691965a63cfe55ccaa6499",
+      "token_usage": {
+        "input_tokens": 15713,
+        "output_tokens": 2420,
+        "cache_read_tokens": 894113,
+        "cache_creation_tokens": 47924,
+        "total_cost": null
+      }
+    },
+    "6d2cec466b6b37f1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d41c3-59e6-7852-9a71-9639fc8e8951",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 333,
+      "total_deletions": 228,
+      "accepted_lines": 164,
+      "overriden_lines": 22,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/3179669514fbcdb473b28afd84847f09fdb7d57c65fde6337058c1b3f65c2272"
+    },
+    "a862cc1f26d5bada": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4167-c174-7402-afab-3416a3e8a434",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 43,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/fb26adccdf9643e9c48c61d9d34ed24f07f7a0051a7dc8c37fcc40f3ff010e36"
+    },
+    "e9eb99b40bb18136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d41e9-1360-7863-a66b-633261d6072f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 183,
+      "total_deletions": 188,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/e04e19882b9ad7b672146f5e252946e9dbce169beca156cc1fe341fba9478a1f"
+    },
+    "f81f4b105a100475": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "54377acc-b7cc-41cd-be98-2b8db1744046",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 18,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/1da787bea1050340a683e52a80bf5dcb0bea8ed31cd5ae9c1a1b5b0ad82da416",
+      "token_usage": {
+        "input_tokens": 2245,
+        "output_tokens": 6521,
+        "cache_read_tokens": 752770,
+        "cache_creation_tokens": 564659,
+        "total_cost": null
+      }
+    },
+    "fc70cd09b85e7a26": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "55f00c5a-2229-4906-9ab1-95752a66f31e",
+        "model": "premium"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 699,
+      "total_deletions": 396,
+      "accepted_lines": 411,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/7d5078f92992e5063d81cbdd823733d167bde520ef589008ce1ef7e6617828ec"
+    }
+  }
+}
