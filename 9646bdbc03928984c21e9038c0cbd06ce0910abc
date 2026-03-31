@@ -1,0 +1,36 @@
+chrome-crx/i18n/en-US.json
+  108e09b88daffebd 113,591
+chrome-crx/i18n/zh-CN.json
+  108e09b88daffebd 113,591
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  108e09b88daffebd 97,8081-8087,8637,10534,10568
+chrome-crx/src/sidepanel/RichTextInput.tsx
+  108e09b88daffebd 53-54,61,72
+chrome-crx/src/sidepanel/sessionPool.tsx
+  108e09b88daffebd 1244-1273,1277-1278,1289-1300,1303-1304
+chrome-crx/src/vite-env.d.ts
+  108e09b88daffebd 6-10
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  108e09b88daffebd 1,3-6,19,26-169,182,185-186,211-212,214,218-241,243-253,259-263,266-278,280-281,283-287,289-305,307-310,320-327,334-338,341,348-360,362,364-375,377-404,408-433,435,439,441
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "9646bdbc03928984c21e9038c0cbd06ce0910abc",
+  "prompts": {
+    "108e09b88daffebd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4190-7f21-71d1-82c7-fc90aebf76ed",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 460,
+      "total_deletions": 256,
+      "accepted_lines": 413,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/c53640661807cbe48a263ad7d900fba19816a7563ae921605175a78f3d73f23d"
+    }
+  }
+}
