@@ -1,0 +1,26 @@
+chrome-crx/src/sidepanel/RichTextInput.tsx
+  22a78b5d8e960f69 6,12-20,76,83-119,206-211
+chrome-crx/src/sidepanel/RichTextInput.css
+  22a78b5d8e960f69 36-37,39,41-47,50-51,54-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "f23b9eed0167ffefd9419b2569209dfe89c8a313",
+  "prompts": {
+    "22a78b5d8e960f69": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d46da-4d5a-7520-aed5-26ec7b0befe2",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 90,
+      "total_deletions": 19,
+      "accepted_lines": 82,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/6008669410bff73430c24afc79f150301059c599809afe584831859eee97c4cf"
+    }
+  }
+}
