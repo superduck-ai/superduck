@@ -1,0 +1,47 @@
+chrome-crx/i18n/zh-CN.json
+  3e0e69e273558567 473-475
+chrome-crx/i18n/en-US.json
+  3e0e69e273558567 473-475
+chrome-crx/src/sidepanel/CreateShortcutModal.tsx
+  3e0e69e273558567 5,40,49-56,60,114,116-117,124-125,145-154,208,242,259,296,330,344,354-359,404-407,420-421,427-429,495-496,519,543,547-550,555-566,569,571-587,589-615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "df3bd9862597c04cbefce3295e0e3f60cde4730c",
+  "prompts": {
+    "3e0e69e273558567": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d499f-7880-7173-ace0-a9eac53babc0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 140,
+      "total_deletions": 85,
+      "accepted_lines": 122,
+      "overriden_lines": 0
+    },
+    "dc15a882874407b8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cafcd51-0369-4cc9-b649-e98c757d5fac",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 61,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 247717,
+        "output_tokens": 4385,
+        "cache_read_tokens": 1006676,
+        "cache_creation_tokens": 179802,
+        "total_cost": null
+      }
+    }
+  }
+}
