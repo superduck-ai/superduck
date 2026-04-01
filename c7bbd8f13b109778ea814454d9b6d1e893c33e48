@@ -1,0 +1,30 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  89bfd8a0e1e3a36e 10166-10167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "c7bbd8f13b109778ea814454d9b6d1e893c33e48",
+  "prompts": {
+    "89bfd8a0e1e3a36e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9849090-2fcd-4645-b220-411d6ed09c9d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 1,
+      "accepted_lines": 2,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 88,
+        "output_tokens": 1995,
+        "cache_read_tokens": 534446,
+        "cache_creation_tokens": 339900,
+        "total_cost": null
+      }
+    }
+  }
+}
