@@ -1,0 +1,24 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  3fe247296aca68ac 256,395-410,423-424,546,555,565,569,579,581-583,600,613,622,630,654-659,663,669,676,700-704,708,718,730,736,762,836-838,840-842,845,849-875,877-950,952-953
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "df19204d3e8e52cf9e3ace14cf0b127047529c74",
+  "prompts": {
+    "3fe247296aca68ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4847-541d-7863-8df0-3b8e83d33b3a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 170,
+      "total_deletions": 135,
+      "accepted_lines": 170,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/a84cb9d44168e3352d6fce9aa0d9124342b9c00f882496a4b6eeccddad616699"
+    }
+  }
+}
