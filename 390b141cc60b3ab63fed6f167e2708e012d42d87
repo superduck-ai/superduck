@@ -1,0 +1,53 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  b87cfbc49e0dd55d 10043-10044,10046-10048,10058-10062,11035-11041,11044-11076
+  86778002669b1862 10049-10057
+chrome-crx/src/sidepanel/ScrollContainer.tsx
+  b87cfbc49e0dd55d 118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "390b141cc60b3ab63fed6f167e2708e012d42d87",
+  "prompts": {
+    "86778002669b1862": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d46d8-cf09-75c0-8ef5-f725617c3e67",
+        "model": "unknown"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 16,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    },
+    "94ecb144f509b89c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4679-f8ef-7b71-a8b4-9e3437e35627",
+        "model": "unknown"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 2,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "b87cfbc49e0dd55d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d466f-8fbd-7b72-9d9c-2eb263c1f8db",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 175,
+      "total_deletions": 161,
+      "accepted_lines": 51,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/7119061d101958ae22d21ab9fe2b1f138cbb97bded104994b8b285f16ef7cb44"
+    }
+  }
+}
