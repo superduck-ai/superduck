@@ -1,0 +1,30 @@
+chrome-crx/src/sidepanel/useWorkflowRecording.ts
+  d6aeb1afcf535afb 117,961-964,973-976,979
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "4ab052d74c1030ea89cb979175392b7e7f90d5ca",
+  "prompts": {
+    "d6aeb1afcf535afb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b130bd9c-8fa1-4915-9093-afa7a0a503c8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 8,
+      "accepted_lines": 13,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 90489,
+        "output_tokens": 3379,
+        "cache_read_tokens": 543130,
+        "cache_creation_tokens": 25235,
+        "total_cost": null
+      }
+    }
+  }
+}
