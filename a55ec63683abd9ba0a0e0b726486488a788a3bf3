@@ -1,0 +1,52 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  3fe247296aca68ac 259,413-428,441-442,564,573,583,592,594-596,613,626,635,643,667-672,676,683,690,714-718,722,732,744,750,776,871-873,875-877,880,884-886,893-915,917-944,973-994,996-997
+  9ae50cd56160371b 43,152-154,263,328-333,360-362,375-380,386-391,447-450,499,584,678-679,782-783,785-796,801-802,807,811,813-817,835-836,887-892,945-972
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "a55ec63683abd9ba0a0e0b726486488a788a3bf3",
+  "prompts": {
+    "208da45f1c98256d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4879-58ee-7540-8e5c-c50923eaca79",
+        "model": "unknown"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "3fe247296aca68ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4847-541d-7863-8df0-3b8e83d33b3a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 134,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/a84cb9d44168e3352d6fce9aa0d9124342b9c00f882496a4b6eeccddad616699"
+    },
+    "9ae50cd56160371b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4877-5d1a-7b32-b4c0-9e3a29a4fd75",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 115,
+      "total_deletions": 75,
+      "accepted_lines": 94,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/00cde64abb5464c6d7c2e01f8190452e74ab611d3a752d8b5408610981bf25c1"
+    }
+  }
+}
