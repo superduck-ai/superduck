@@ -1,0 +1,60 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  9ae50cd56160371b 43,152-154,263,328-333,360-362,375-380,386-391,505,590,684-685,789-790,792,794,797-798,801,804-805,810-811,816,820,822-826,844-845,896-901,954-981
+  9bc065a629b74258 444-451,456,676-677,723-725,793,795-796,799-800,802-803,936-937
+  3fe247296aca68ac 259,413-428,441-442,570,579,589,598,600-602,619,632,641,649,673-675,678,682,689,696,720-722,729,739,751,757,783,880-882,884-886,889,893-895,902-924,926-935,938-953,982-1003,1005-1006
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "43715e87e01a02b899235d12fd743040599a5bdc",
+  "prompts": {
+    "3fe247296aca68ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4847-541d-7863-8df0-3b8e83d33b3a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 128,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/a84cb9d44168e3352d6fce9aa0d9124342b9c00f882496a4b6eeccddad616699"
+    },
+    "9ae50cd56160371b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4877-5d1a-7b32-b4c0-9e3a29a4fd75",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 84,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/00cde64abb5464c6d7c2e01f8190452e74ab611d3a752d8b5408610981bf25c1"
+    },
+    "9bc065a629b74258": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "986878b7-3f36-4a95-a783-e244c6e60fb0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 18,
+      "accepted_lines": 24,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 434188,
+        "output_tokens": 7231,
+        "cache_read_tokens": 2773323,
+        "cache_creation_tokens": 1839255,
+        "total_cost": null
+      }
+    }
+  }
+}
