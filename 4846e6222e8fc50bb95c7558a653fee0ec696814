@@ -1,0 +1,56 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "4846e6222e8fc50bb95c7558a653fee0ec696814",
+  "prompts": {
+    "22a78b5d8e960f69": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d46da-4d5a-7520-aed5-26ec7b0befe2",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 52,
+      "total_deletions": 5,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/0914eea4953eb4b97e4b6cd9b4700e14e062fd7887e42fd4232f8459d6a9b343"
+    },
+    "37af3eb7cd15f581": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3bf58323-9906-4452-bd20-a6f0291710c6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 17,
+      "accepted_lines": 0,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/7d3d874cbad19feaa5fb9ae62dfd18155f458551662fa7e5f5d7f21baea042ff",
+      "token_usage": {
+        "input_tokens": 81026,
+        "output_tokens": 19222,
+        "cache_read_tokens": 2204631,
+        "cache_creation_tokens": 1170596,
+        "total_cost": null
+      }
+    },
+    "d7475fb3217b3c5a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d46f0-9a70-71a1-b1c0-3dbcee65dd1f",
+        "model": "unknown"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 52,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
