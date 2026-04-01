@@ -1,0 +1,26 @@
+chrome-crx/src/sidepanel/RichTextInput.tsx
+  53ea429b45c061af 128,214-215
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  53ea429b45c061af 9576-9578,9585,9590-9592,10551-10553
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "a24469988cdcf11defe0cf80a01673fffa220d90",
+  "prompts": {
+    "53ea429b45c061af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d476a-0754-7820-ac82-c1611b340178",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 3,
+      "accepted_lines": 14,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/2ad8eea88c4e25436c0fa17a143e29c89c61d42beda7021d05daa4d0d2ee1757"
+    }
+  }
+}
