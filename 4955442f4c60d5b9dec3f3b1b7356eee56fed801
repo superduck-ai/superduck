@@ -1,0 +1,66 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  37af3eb7cd15f581 10654-10657,10659-10661,10669,10671-10677,10679,10682-10684,10687-10692,10694-10695
+  04c1f1ee573e462f 59,151,691-693,7442-7461,7988-8011,8017-8029,8033-8042,8044-8046,8052,8160-8161,9568-9594,10658,10662,10664,10670,10678,10680-10681,10685-10686,10693
+chrome-crx/src/sidepanel/CreateShortcutModal.tsx
+  37af3eb7cd15f581 11,54,239,274,310,521-581,602
+  04c1f1ee573e462f 1,7-10,13,18,26,46,93-135,223-226,236,271,281-283,286,288,290,292,296,311,582-601,621-622,625
+chrome-crx/src/SavedPromptsService.ts
+  04c1f1ee573e462f 1138-1139,1155,1162,1164-1166
+  37af3eb7cd15f581 1115-1116,1121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "4955442f4c60d5b9dec3f3b1b7356eee56fed801",
+  "prompts": {
+    "04c1f1ee573e462f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4822-2568-79a1-84d8-372133579fce",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 212,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/8b9d1d256b4dbd96e4039e8d743168882447c9bf43e97880206bddec2bdc7965"
+    },
+    "37af3eb7cd15f581": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3bf58323-9906-4452-bd20-a6f0291710c6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 97,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/367fc3e5b09461096168e624172f4a16d65a81cdf0cfb742353fb7ad12d0d551",
+      "token_usage": {
+        "input_tokens": 798509,
+        "output_tokens": 46750,
+        "cache_read_tokens": 11165130,
+        "cache_creation_tokens": 2701788,
+        "total_cost": null
+      }
+    },
+    "53ea429b45c061af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d476a-0754-7820-ac82-c1611b340178",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 20,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/2ad8eea88c4e25436c0fa17a143e29c89c61d42beda7021d05daa4d0d2ee1757"
+    }
+  }
+}
