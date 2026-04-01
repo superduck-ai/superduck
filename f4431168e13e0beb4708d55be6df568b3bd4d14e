@@ -1,0 +1,43 @@
+chrome-crx/claude_icon.svg
+  801b579c06a70e15 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "f4431168e13e0beb4708d55be6df568b3bd4d14e",
+  "prompts": {
+    "801b579c06a70e15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "216b6c64-d637-4a77-a382-3becab62385e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 22,
+      "total_deletions": 34,
+      "accepted_lines": 16,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 472544,
+        "output_tokens": 9719,
+        "cache_read_tokens": 3441865,
+        "cache_creation_tokens": 1063018,
+        "total_cost": null
+      }
+    },
+    "d093849944eaad22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4953-1b30-7532-b775-8ce905388d1f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904 <jh464062919@gmail.com>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 15,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
