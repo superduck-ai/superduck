@@ -1,0 +1,45 @@
+chrome-crx/i18n/zh-CN.json
+  9eae8f127b13dca9 581
+chrome-crx/src/components/SchedulingFields.tsx
+  9eae8f127b13dca9 2187,2222-2225,2242-2290,2292-2342,2344-2348,2352-2354,2357-2360,2362-2369,2376-2380
+chrome-crx/i18n/en-US.json
+  9eae8f127b13dca9 581
+chrome-crx/src/components/TasksTab.tsx
+  55969ba532717376 96-104,215,218-219,221,458-459
+  9eae8f127b13dca9 4,216-217,220,319-328,330-333,456-457,460
+chrome-crx/src/options.tsx
+  9eae8f127b13dca9 15,1221-1227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "c0335d9a4cc61c17da8f56f77630b5393eb67781",
+  "prompts": {
+    "55969ba532717376": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4e3e-f539-7df1-af38-6bab6eedb7b8",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 22,
+      "total_deletions": 15,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    },
+    "9eae8f127b13dca9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4e3f-6cc5-7fa2-9450-92b9c8de7692",
+        "model": "unknown"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 168,
+      "total_deletions": 172,
+      "accepted_lines": 162,
+      "overriden_lines": 0
+    }
+  }
+}
