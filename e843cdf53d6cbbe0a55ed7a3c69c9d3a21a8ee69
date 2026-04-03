@@ -1,0 +1,38 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  e516fba64d4f06fd 105,1139,1141,1143,1151-1154,1160,1166,1176,1242-1244,1250-1252,1582-1584,8302-8304
+chrome-crx/src/sidepanel/compactionPrompts.ts
+  e516fba64d4f06fd 1-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "e843cdf53d6cbbe0a55ed7a3c69c9d3a21a8ee69",
+  "prompts": {
+    "32ce4b8545280d20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89609bb8-26f1-4506-9712-7456f6ae2acb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 2,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "e516fba64d4f06fd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc77cb92-af82-45c3-b9c6-63ec3ad499c8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 2530,
+      "total_deletions": 18,
+      "accepted_lines": 178,
+      "overriden_lines": 0
+    }
+  }
+}
