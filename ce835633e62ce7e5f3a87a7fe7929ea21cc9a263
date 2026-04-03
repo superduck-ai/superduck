@@ -1,0 +1,29 @@
+chrome-crx/src/sidepanel/RotatingTips.tsx
+  ce4615de7d793ae8 1-36
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  ce4615de7d793ae8 119,9955-9966,11066-11070,11076
+chrome-crx/i18n/zh-CN.json
+  ce4615de7d793ae8 894-899
+chrome-crx/i18n/en-US.json
+  ce4615de7d793ae8 894-899
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "ce835633e62ce7e5f3a87a7fe7929ea21cc9a263",
+  "prompts": {
+    "ce4615de7d793ae8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a0a70af0-312f-49ed-86fb-19b59f1dc634",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 88,
+      "total_deletions": 34,
+      "accepted_lines": 67,
+      "overriden_lines": 0
+    }
+  }
+}
