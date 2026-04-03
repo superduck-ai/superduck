@@ -1,0 +1,23 @@
+chrome-crx/src/sidepanel/ShortcutsMenu.tsx
+  b0790274e0c03410 315,342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "a81621c7bc685b5325ac19507aa08e6759981361",
+  "prompts": {
+    "b0790274e0c03410": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aaa2e2c9-a4b8-41f1-9099-e5ff5d45efca",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
