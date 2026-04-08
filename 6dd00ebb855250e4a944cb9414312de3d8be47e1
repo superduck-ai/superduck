@@ -1,0 +1,26 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  7711b6e0aeaf7773 8985,8987-8990,9051-9056,10047-10051
+chrome-crx/src/mcp-runtime/tabState.ts
+  7711b6e0aeaf7773 1805-1808
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "6dd00ebb855250e4a944cb9414312de3d8be47e1",
+  "prompts": {
+    "7711b6e0aeaf7773": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed737a5b-c15c-4763-b2de-224f8576e180",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 3,
+      "accepted_lines": 20,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/b4eaf188ea5ead4e0a61641adc3e62bd406da66148341325405c9d3af416e45f"
+    }
+  }
+}
