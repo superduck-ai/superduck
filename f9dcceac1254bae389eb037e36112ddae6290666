@@ -1,0 +1,26 @@
+chrome-crx/src/components/SchedulingFields.tsx
+  8a5089e500a133d2 5,1874-1879,2286-2294,2441-2442,2454,2456-2464,2469-2472,2476-2480,2486
+chrome-crx/src/components/TasksTab.tsx
+  8a5089e500a133d2 439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.10",
+  "base_commit_sha": "f9dcceac1254bae389eb037e36112ddae6290666",
+  "prompts": {
+    "8a5089e500a133d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d7569-82a2-7203-9c33-6dc31bcea3ac",
+        "model": "gpt-5.4"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 42,
+      "total_deletions": 10,
+      "accepted_lines": 39,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/55bcd3d255fed9f142bb1fba31a6f5bdebd83380b2e03ef437df2147b97a78ea"
+    }
+  }
+}
