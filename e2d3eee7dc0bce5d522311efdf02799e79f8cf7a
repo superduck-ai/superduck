@@ -1,0 +1,24 @@
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  1536a761f5f58901 5502
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.1",
+  "base_commit_sha": "e2d3eee7dc0bce5d522311efdf02799e79f8cf7a",
+  "prompts": {
+    "1536a761f5f58901": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "22007b7f-38d3-4469-846d-43ac26d16909",
+        "model": "claude-opus-4.6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/e74c4203f42bc5ba67bbce3a7412470f85e50a87b0263c2b632a6860c9cffeae"
+    }
+  }
+}
