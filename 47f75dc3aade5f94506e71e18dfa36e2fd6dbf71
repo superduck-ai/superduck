@@ -1,0 +1,71 @@
+chrome-crx/src/mcp-runtime/cdp.ts
+  fd2c18bf8d7e78aa 582-588
+chrome-native-host/scripts/install.sh
+  85b7eb65c34c1d8e 6-8,27
+chrome-crx/src/mcp-runtime/pageTools.ts
+  fd2c18bf8d7e78aa 4,1009-1013,1023-1027,1029-1033,1035-1060
+  ea3012814072da65 1015,1017-1018,1020,1028
+  2b0b4e30ce89c005 5,1014,1016,1021-1022
+chrome-crx/src/mcp-runtime/inputTools.ts
+  2b0b4e30ce89c005 11,396-407,449-450,471,483-499,501-502,1307,1319-1320
+  ea3012814072da65 415-429,431-436,438-442,444-446,448,451-463,470,472-482,500,503-507,1145,1150,1296-1300,1308-1318,1321-1324,1327
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "47f75dc3aade5f94506e71e18dfa36e2fd6dbf71",
+  "prompts": {
+    "2b0b4e30ce89c005": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8ac9b7c-8565-472d-863c-9ea11be9922b",
+        "model": "claude-opus-4.6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 508,
+      "total_deletions": 416,
+      "accepted_lines": 490,
+      "overriden_lines": 1
+    },
+    "85b7eb65c34c1d8e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a5040daf-ebb8-4e6e-b139-79a7f7e6c31e",
+        "model": "claude-opus-4.6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 37,
+      "total_deletions": 4,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    },
+    "ea3012814072da65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aad5307f-337b-4811-99c9-516ba44b0303",
+        "model": "claude-opus-4.6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 724,
+      "total_deletions": 315,
+      "accepted_lines": 434,
+      "overriden_lines": 0
+    },
+    "fd2c18bf8d7e78aa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "148f8368-8310-4736-9103-e2752904f36f",
+        "model": "claude-opus-4.6"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 736,
+      "total_deletions": 24,
+      "accepted_lines": 701,
+      "overriden_lines": 0
+    }
+  }
+}
