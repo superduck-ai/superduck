@@ -1,0 +1,197 @@
+chrome-native-host/cmd/superduck/cmd_fetch.go
+  2b00edd3825ca115 1-19,25-48,50-51,54-61,65,73,75-82,84,88-94,96-107
+  a86315d98413f6cb 20-24,49,52-53,63-64,66-72,74,83,85-87,95
+  e378c69719376fe4 62
+chrome-native-host/cmd/superduck/cmd_press.go
+  a86315d98413f6cb 31-32
+  2b00edd3825ca115 1-30,33-48
+chrome-native-host/internal/cliclient/client.go
+  c34fbea3bb546f54 96,98-99
+  a86315d98413f6cb 9,100-122,129,136-137,139,142-143
+  2b00edd3825ca115 1,16-22,24-26,31-33,35-36,38,41-45,50,56-58,66-68,79,82,90-95,97,123-124,126,128,130-131,135,145-148,150-151,154-155
+  fb1d5015710b388f 2-8,10-15,23,27-30,34,37,39-40,46-49,51-55,59-65,69-78,80-81,83-89,125,127,132-134,138,140-141,144,149,152-153,156
+chrome-native-host/cmd/superduck/cmd_tabs.go
+  2b00edd3825ca115 1-18,21-57
+  a86315d98413f6cb 19-20
+chrome-native-host/cmd/superduck/cmd_context.go
+  a86315d98413f6cb 27-28,31-40,42-45
+  2b00edd3825ca115 1-26,29-30,41,46-84
+npm/packages/superduck-linux-x64/package.json
+  2b00edd3825ca115 1-2,4,14-15
+  a86315d98413f6cb 3,5-13
+chrome-native-host/cmd/superduck/cmd_setup.go
+  a86315d98413f6cb 13,16-20,33,44,86,88,91-93,102,104-106,110,113-116,118
+  2b00edd3825ca115 1-12,14-15,21-32,34-43,45-85,87,89-90,94-101,103,107-109,111-112,117,119-168
+.gitignore
+  83390c8031e2316a 16-22
+chrome-crx/src/mcp-runtime/core.ts
+  2b00edd3825ca115 62,831-832,857-858,861
+npm/bin/superduck.js
+  2b00edd3825ca115 1-38
+npm/SKILL.md
+  2b00edd3825ca115 1-52
+chrome-native-host/cmd/superduck/cmd_open.go
+  e378c69719376fe4 28
+  a86315d98413f6cb 29-30
+  2b00edd3825ca115 1-27,31-47
+chrome-crx/src/mcp-runtime/superduckTools.ts
+  2b00edd3825ca115 4-27,29-54,56-65,67-77,80-90,92-146,148-173,175-231,236-320,322-330,332-351,353-390,392-416,418-455,457-483,485-516
+  83390c8031e2316a 1-3,55,91,321,331,352,391,417,456,484
+  a86315d98413f6cb 28,66,78-79,147,174,232-235
+npm/packages/superduck-darwin-x64/package.json
+  2b00edd3825ca115 1-2,4,14-15
+  a86315d98413f6cb 3,5-13
+npm/package.json
+  a86315d98413f6cb 2-3,17-20,25-31
+  2b00edd3825ca115 1,4-16,21-24,32-33
+chrome-native-host/Makefile
+  2b00edd3825ca115 1,6,18-22,26,28,30,32,34,36
+  a86315d98413f6cb 23-25,27,29,31,33,35
+chrome-native-host/cmd/superduck/flags.go
+  a86315d98413f6cb 5,11,24,34,46-48,54-61
+  2b00edd3825ca115 1-4,6-9,12-23,25-33,35-45,49-53,62-85
+  e378c69719376fe4 10
+chrome-native-host/cmd/superduck/main.go
+  fb1d5015710b388f 1-11,18,60-61,67-68,72-73,78,83-84,116,121-123,131,137-138,141
+  2b00edd3825ca115 13-17,19,21-55,62-63,65-66,69-71,74-77,80-82,85-101,103-115,117-120,124-130,132-136,139-140
+  e378c69719376fe4 56-59,64,79
+  a86315d98413f6cb 12,20,102
+chrome-native-host/cmd/superduck/cmd_log.go
+  83390c8031e2316a 14,18-20,35-37,46-47,49-50,55-60
+  a86315d98413f6cb 54
+  2b00edd3825ca115 1-13,15-17,21-34,38-45,48,51-53,61-63
+npm/README.md
+  2b00edd3825ca115 1-45
+chrome-native-host/cmd/superduck/cmd_doctor.go
+  83390c8031e2316a 42-55
+  2b00edd3825ca115 1-41,56-93
+chrome-native-host/cmd/superduck/cmd_fill.go
+  2b00edd3825ca115 1-33,36-51
+  a86315d98413f6cb 34-35
+chrome-native-host/cmd/superduck/cmd_click.go
+  a86315d98413f6cb 37-38
+  2b00edd3825ca115 1-36,39-54
+chrome-native-host/internal/cliclient/audit.go
+  2b00edd3825ca115 1-4,6-28,47-70
+  a86315d98413f6cb 5,29-46
+npm/packages/superduck-linux-arm64/package.json
+  a86315d98413f6cb 3,5-13
+  2b00edd3825ca115 1-2,4,14-15
+npm/packages/superduck-darwin-arm64/package.json
+  a86315d98413f6cb 3,5-13
+  2b00edd3825ca115 1-2,4,14-15
+chrome-native-host/cmd/superduck/VISION.md
+  e35122807533a024 5,7-9,11,13,15-58,60,62-67,69,71-83,85-94,97,99,101-103,105-106,108-110,112-119,121,123,125-127,129,131-137,142-143
+  880ee742c170002b 1-4,6,10,12,14,59,61,68,70,84,95-96,98,100,104,107,111,120,122,124,128,130,138-141,144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.3",
+  "base_commit_sha": "2e0fa5b26ac2ecc01ca7a7d0e7cb45a4d23fe58b",
+  "prompts": {
+    "2b00edd3825ca115": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9e800ba-208b-41ac-85d8-63ee8f64a535",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1630,
+      "overriden_lines": 0
+    },
+    "83390c8031e2316a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b050145-0304-4659-9230-6514f4a0abad",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 185,
+      "total_deletions": 84,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    },
+    "880ee742c170002b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "064afdc6-a2eb-4e0a-a688-8888850bf806",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 30,
+      "overriden_lines": 0
+    },
+    "a86315d98413f6cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f6cd083-342a-4092-bfe9-ad7f7a77f2c0",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 2614,
+      "total_deletions": 296,
+      "accepted_lines": 715,
+      "overriden_lines": 0
+    },
+    "c34fbea3bb546f54": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e6f12ada-8b9e-4081-ab85-0afd2ed6fb4c",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "e35122807533a024": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6847230a-4df5-44ce-8e6a-0333bb1b1c1d",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 114,
+      "overriden_lines": 0
+    },
+    "e378c69719376fe4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "864bd04a-36a7-4e2e-8d57-0f11b8a68f98",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 22,
+      "total_deletions": 46,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    },
+    "fb1d5015710b388f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6fbbcb37-9fc0-4dfa-99dd-abd4ce7d409a",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 99,
+      "overriden_lines": 0
+    }
+  }
+}
