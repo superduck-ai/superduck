@@ -56,6 +56,19 @@ var knownValueFlags = map[string]bool{
 	"-H": true, "--header": true,
 	"-d": true, "--data": true,
 	"--selector": true, "--text": true,
+	"--modifiers": true, "--ref": true,
+	"--direction": true, "--amount": true,
+	"--repeat": true,
+	"--output": true,
+	"--file":   true,
+	"--pattern": true, "--limit": true,
+	"--url-pattern": true, "--filter": true,
+	"--depth":     true,
+	"--max-chars": true,
+	"--value":     true,
+	"--image-id":  true, "--filename": true,
+	"--coord": true, "--command": true, "--id": true,
+	"--quality": true,
 }
 
 func reorderFlagsFirst(in []string) []string {

@@ -21,10 +21,47 @@ COMMANDS:
   context           Read url/title/selection/text from the current active Chrome tab
   fetch <url>       HTTP request using current Chrome's cookies (default same eTLD+1)
   tabs              List all Chrome tabs
-  open <url>        Navigate the active tab (--new-tab opens a new tab instead)
+  group <sub>       MCP tab group ops (context [--create] | create)
+  open <url>        Navigate the active tab to a URL
+  screenshot --tab <id> [--output PATH]  Capture a screenshot (PNG/JPEG)
   click             Click an element by --selector or --text (or positional <text>)
   fill <sel> <val>  Set the value of a form field and dispatch input/change events
   press <key>       Dispatch a keyboard event (Enter, Tab, Escape, ArrowDown, ...)
+
+MOUSE/KEYBOARD (all require --tab <id>):
+  left_click <x> <y> [--modifiers M] [--ref R]
+  right_click <x> <y> [--modifiers M] [--ref R]
+  double_click <x> <y> [--modifiers M] [--ref R]
+  triple_click <x> <y> [--modifiers M] [--ref R]
+  hover <x> <y> [--ref R]
+  type <text>
+  key "<keys>" [--repeat N]
+  wait <seconds>
+  scroll <x> <y> --direction <up|down|left|right> [--amount N]
+  left_click_drag <x1> <y1> <x2> <y2>
+  zoom <x0> <y0> <x1> <y1> [--output PATH]
+  scroll_to --ref <refId>
+
+PAGE / DOM:
+  exec <js> | --file PATH | --stdin       Eval JS in page (no 'return')
+  page_text                               Extract main article text
+  find "<query>"                          Natural-language element search
+  read_page [--filter interactive|all] [--depth N] [--ref R] [--max-chars N]
+  form_input --ref <r> --value <v> [--string]
+
+OBSERVABILITY:
+  console [--pattern P] [--only-errors] [--clear] [--limit N]
+  network [--url-pattern P] [--clear] [--limit N]
+
+WINDOW / NAV:
+  resize <w> <h>
+  navigate <url|back|forward>
+
+UPLOAD / SHORTCUTS / GIF:
+  upload --image-id <id> (--ref R | --coord x,y) [--filename N]
+  shortcuts <list|execute --id I --command C>
+  gif <start|stop|export|clear> [--download] [--filename N] [--no-* ...] [--quality N]
+
   doctor            Health check: binary, manifest, native-host, extension
   log               Show audit log (~/.superduck/audit.jsonl)
   version           Print version
@@ -41,8 +78,10 @@ EXAMPLES:
   superduck fetch https://api.example.com/me
   superduck fetch https://other.com/x --allow-cross-origin
   superduck tabs --json
+  superduck group context --create
+  superduck group create
   superduck open https://www.bilibili.com/
-  superduck open https://example.com --new-tab
+  superduck screenshot --tab 123 --output /tmp/
   superduck click "Login"
   superduck click --selector 'button[type=submit]'
   superduck fill 'input[name=q]' "claude code"
@@ -91,14 +130,66 @@ func main() {
 		err = cmdFetch(rest)
 	case "tabs":
 		err = cmdTabs(rest)
+	case "group":
+		err = cmdGroup(rest)
 	case "open":
 		err = cmdOpen(rest)
+	case "screenshot":
+		err = cmdScreenshot(rest)
 	case "click":
 		err = cmdClick(rest)
 	case "fill":
 		err = cmdFill(rest)
 	case "press":
 		err = cmdPress(rest)
+	case "left_click":
+		err = cmdLeftClick(rest)
+	case "right_click":
+		err = cmdRightClick(rest)
+	case "double_click":
+		err = cmdDoubleClick(rest)
+	case "triple_click":
+		err = cmdTripleClick(rest)
+	case "hover":
+		err = cmdHover(rest)
+	case "type":
+		err = cmdTypeText(rest)
+	case "key":
+		err = cmdKey(rest)
+	case "wait":
+		err = cmdWait(rest)
+	case "scroll":
+		err = cmdScroll(rest)
+	case "left_click_drag":
+		err = cmdLeftClickDrag(rest)
+	case "zoom":
+		err = cmdZoom(rest)
+	case "scroll_to":
+		err = cmdScrollTo(rest)
+	case "exec":
+		err = cmdExec(rest)
+	case "page_text":
+		err = cmdPageText(rest)
+	case "find":
+		err = cmdFind(rest)
+	case "read_page":
+		err = cmdReadPage(rest)
+	case "form_input":
+		err = cmdFormInput(rest)
+	case "console":
+		err = cmdConsole(rest)
+	case "network":
+		err = cmdNetwork(rest)
+	case "resize":
+		err = cmdResize(rest)
+	case "navigate":
+		err = cmdNavigate(rest)
+	case "upload":
+		err = cmdUpload(rest)
+	case "shortcuts":
+		err = cmdShortcuts(rest)
+	case "gif":
+		err = cmdGif(rest)
 	case "init", "setup":
 		err = cmdSetup(rest)
 	case "doctor":
