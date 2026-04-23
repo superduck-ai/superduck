@@ -1,0 +1,98 @@
+chrome-crx/src/sidepanel/EmptyState.tsx
+  f894cd3402695afd 10,276-277,280,287-289
+  f80719d056bd15fd 249,263,268-275,278-279,281-286
+chrome-crx/src/sidepanel/HandwritingAnimation.tsx
+  f894cd3402695afd 1-67,69-126,128-190
+  f80719d056bd15fd 68,127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.9",
+  "base_commit_sha": "f3885d7b03c1231b12792f0df3c25163d7e7dc96",
+  "prompts": {
+    "82ed2367f2ee949a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55a96a74-6bc1-488c-8ae4-5cbbe5809ad8",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 200,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/7d329e6c84b7132a21720dc2cc679d160f927b80f49773131df9c470ac937de2"
+    },
+    "83390c8031e2316a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b050145-0304-4659-9230-6514f4a0abad",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 12,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/f58ed89c4f59b0b94f240b6e609d515545ca5ca92bde77a346db0861420034a2"
+    },
+    "a86315d98413f6cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f6cd083-342a-4092-bfe9-ad7f7a77f2c0",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 504,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/befc792a81676889edc1f026b2cc7f095587b2f80b98de52ba669ac9f209497a"
+    },
+    "c6465b00072c8bc5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "76bff8fb-cf94-4cca-86c4-be7d988e575f",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 49,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/06081357f1b783d606568e4ad788f2171601c17b49e73fc7abc63ad1b3a251fe"
+    },
+    "f80719d056bd15fd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "610a8d32-6909-43cd-b48a-22d6e16b8f29",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 45,
+      "total_deletions": 42,
+      "accepted_lines": 33,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/8bf707c6c79e4b83f0d346eb7304b937fb93069187fe924606d3e5a39257bf38"
+    },
+    "f894cd3402695afd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70992563-181f-4fcf-aa8b-77debc6d4b5a",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 275,
+      "total_deletions": 65,
+      "accepted_lines": 195,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/0a5937d014faf8a0137f094d2a7d94247ec030c2b7176948aa751a2f0377417d"
+    }
+  }
+}
