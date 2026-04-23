@@ -29,7 +29,7 @@ func runClickLike(action string, argv []string, allowModifiers bool) error {
 			if allowModifiers {
 				usage += " [--modifiers MODS]"
 			}
-			return fmt.Errorf(usage)
+			return fmt.Errorf("%s", usage)
 		}
 		args["coordinate"] = []float64{c[0], c[1]}
 	}

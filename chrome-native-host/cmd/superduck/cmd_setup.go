@@ -16,7 +16,7 @@ const nativeHostName = "com.me.superduck_browser_extension"
 // Pinned extension ID — derived from the public "key" field baked into
 // chrome-crx/manifest.json. Same ID regardless of how the extension is loaded
 // (Web Store, load-unpacked, dev), so `superduck init` works without flags.
-const defaultExtensionID = "fcoeoabgfenejglbffodgkkbkcdhcgfn"
+const defaultExtensionID = "onpjjodappojoekckagpfjckoamcmhbn"
 
 type nmManifest struct {
 	Name           string   `json:"name"`

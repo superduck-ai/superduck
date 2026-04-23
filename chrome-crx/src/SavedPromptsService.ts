@@ -81,7 +81,7 @@ const SEGMENT_KEYS = {
   development: { SEGMENT_WRITE_KEY: "hNex10EGp3coubOXQI1BIElYaZcA1o0u" },
 };
 
-const PRODUCTION_EXTENSION_ID = "fcoeoabgfenejglbffodgkkbkcdhcgfn";
+const PRODUCTION_EXTENSION_ID = "onpjjodappojoekckagpfjckoamcmhbn";
 
 const BASE_OAUTH_CONFIG = {
   AUTHORIZE_URL: "https://claude.ai/oauth/authorize",
