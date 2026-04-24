@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>superduck CLI test page</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 24px; max-width: 900px; color: #222; }
+  h1 { margin-top: 0; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 16px 0; }
+  section h2 { margin-top: 0; font-size: 16px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { padding: 6px 12px; font-size: 14px; cursor: pointer; }
+  input[type=text], textarea { padding: 6px 8px; font-size: 14px; }
+  .box { width: 120px; height: 120px; border: 2px dashed #888; display: flex; align-items: center; justify-content: center; user-select: none; }
+  .drop { background: #fafafa; }
+  .dragged { background: #dfe; border-color: #4a4; }
+  #hoverBox { width: 160px; height: 48px; background: #eee; display: flex; align-items: center; justify-content: center; }
+  #hoverBox.hot { background: #fc6; }
+  #tooltip { display: none; position: absolute; background: #333; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+  #scrollArea { height: 200px; overflow: auto; border: 1px solid #bbb; padding: 8px; }
+  #scrollArea .item { padding: 6px 0; border-bottom: 1px dotted #ccc; }
+  #farBottom { margin-top: 1600px; padding: 12px; background: #ffe; border: 1px solid #cc9; }
+  pre#log { background: #111; color: #0f0; padding: 10px; border-radius: 6px; min-height: 80px; max-height: 200px; overflow: auto; font-size: 12px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: #d33; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .dot.ok { background: #3a3; }
+  [id$="Status"] { font-weight: 700; font-size: 16px; }
+  [id$="Status"].ok-bg { background: #d4f5d4; padding: 2px 6px; border-radius: 4px; }
+  kbd { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 1px 5px; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<h1>superduck CLI test page</h1>
+<p>Open this file in a Chrome tab tracked by the SuperDuck extension, grab the <code>tabId</code> via <code>./superduck tabs</code>, and run the commands below against it. Each widget shows whether it received the expected event.</p>
+
+<section id="sec-click">
+  <h2>1. Clicks (left / right / double / triple)</h2>
+  <div class="row">
+    <button id="btnLeft">Left click me</button>
+    <button id="btnRight" oncontextmenu="event.preventDefault(); markEvent('right', this);">Right-click me</button>
+    <button id="btnDouble" ondblclick="markEvent('double', this);">Double-click me</button>
+    <button id="btnTriple">Triple-click (selects text)</button>
+    <span id="tripleTarget">Triple-click selects this whole sentence to verify the browser saw 3 clicks.</span>
+  </div>
+  <p>Status: <span id="clickStatus"><span class="dot"></span>waiting</span></p>
+</section>
+
+<section id="sec-hover">
+  <h2>2. Hover</h2>
+  <div id="hoverBox">Hover me</div>
+  <div id="tooltip">you hovered!</div>
+  <p>Status: <span id="hoverStatus"><span class="dot"></span>waiting</span></p>
+</section>
+
+<section id="sec-type">
+  <h2>3. Type &amp; Key</h2>
+  <div class="row">
+    <input id="typeInput" type="text" placeholder="type something" size="30">
+    <span>Use <kbd>cmd+a</kbd> / <kbd>ctrl+a</kbd> via <code>superduck key</code> to select all.</span>
+  </div>
+  <p>Last event: <span id="keyStatus">—</span></p>
+</section>
+
+<section id="sec-drag">
+  <h2>4. Drag (left_click_drag)</h2>
+  <div class="row">
+    <div id="dragSrc" class="box" draggable="true">DRAG</div>
+    <div id="dragDst" class="box drop">DROP HERE</div>
+  </div>
+  <p>Status: <span id="dragStatus"><span class="dot"></span>waiting</span></p>
+</section>
+
+<section id="sec-scroll">
+  <h2>5. Scroll (viewport)</h2>
+  <p>Call <code>superduck scroll &lt;x&gt; &lt;y&gt; --direction down --amount 5</code> — then check the bottom box.</p>
+  <div id="farBottom">you reached the bottom ✅ (scroll position: <span id="scrollY">0</span>)</div>
+</section>
+
+<section id="sec-scroll-to">
+  <h2>6. scroll_to (via ref)</h2>
+  <p>Use a tool that produces ref ids (e.g. <code>read_page</code>) to scroll to this element: <span data-testid="scrollTarget" id="scrollTarget" style="display:inline-block; padding:6px 10px; background:#eef;">📍 scroll target</span></p>
+</section>
+
+<section id="sec-zoom">
+  <h2>7. Zoom (region screenshot)</h2>
+  <p>Capture this red pixel grid with <code>superduck zoom 40 40 220 220 --output /tmp/</code>.</p>
+  <div id="zoomTarget" style="width:200px; height:200px; background:
+      repeating-linear-gradient(45deg, #f33 0 10px, #fff 10px 20px);
+      border: 2px solid #900;"></div>
+</section>
+
+<section id="sec-form-input">
+  <h2>8. form_input target (use read_page to get refs)</h2>
+  <form id="formArea" onsubmit="event.preventDefault(); log('form submit: '+JSON.stringify(Object.fromEntries(new FormData(this))))">
+    <label>Name <input data-testid="form-name" name="name" type="text"></label>
+    <label>Age <input data-testid="form-age" name="age" type="number"></label>
+    <label><input data-testid="form-agree" name="agree" type="checkbox"> agree?</label>
+    <label>Color
+      <select data-testid="form-color" name="color">
+        <option value="red">red</option>
+        <option value="green">green</option>
+        <option value="blue">blue</option>
+      </select>
+    </label>
+    <button type="submit">submit</button>
+  </form>
+  <p>Last submit shown in event log.</p>
+</section>
+
+<section id="sec-console-net">
+  <h2>9. console / network playground</h2>
+  <button id="btnLog">console.log</button>
+  <button id="btnErr">console.error</button>
+  <button id="btnFetch">fetch /api/ping</button>
+  <p>Use <code>superduck console --pattern superduck</code> and <code>superduck network --url-pattern /api/</code>.</p>
+</section>
+
+<section id="sec-log">
+  <h2>Event log</h2>
+  <pre id="log"></pre>
+  <button onclick="document.getElementById('log').textContent=''">clear log</button>
+</section>
+
+<script>
+function log(msg) {
+  const el = document.getElementById('log');
+  el.textContent += `[${new Date().toISOString().substr(11,12)}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+function setStatus(id, text, ok=true) {
+  const s = document.getElementById(id);
+  s.innerHTML = `<span class="dot ${ok?'ok':''}"></span>${text}`;
+  if (ok) s.classList.add('ok-bg');
+}
+function markEvent(kind, el) {
+  log(`event: ${kind} on #${el.id || el.tagName}`);
+  setStatus('clickStatus', `got ${kind}-click ✓`);
+}
+
+// Clicks
+document.getElementById('btnLeft').addEventListener('click', e => markEvent('left', e.target));
+document.getElementById('btnTriple').addEventListener('click', e => {
+  markEvent('click', e.target);
+  if (e.detail === 3) {
+    const r = document.createRange();
+    r.selectNodeContents(document.getElementById('tripleTarget'));
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    setStatus('clickStatus', 'got triple-click, text selected ✓');
+  }
+});
+
+// Hover
+const hb = document.getElementById('hoverBox');
+const tip = document.getElementById('tooltip');
+hb.addEventListener('mouseenter', e => {
+  hb.classList.add('hot');
+  tip.style.display = 'block';
+  const rect = hb.getBoundingClientRect();
+  tip.style.left = (rect.left + window.scrollX) + 'px';
+  tip.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
+  log('hover: mouseenter');
+  setStatus('hoverStatus', 'mouseenter received ✓');
+});
+hb.addEventListener('mouseleave', () => {
+  hb.classList.remove('hot'); tip.style.display = 'none';
+  log('hover: mouseleave');
+});
+
+// Type / Key
+const ti = document.getElementById('typeInput');
+ti.addEventListener('input', e => {
+  document.getElementById('keyStatus').textContent = `input="${e.target.value}"`;
+  log('input: ' + e.target.value);
+});
+document.addEventListener('keydown', e => {
+  const combo = [e.metaKey&&'cmd', e.ctrlKey&&'ctrl', e.shiftKey&&'shift', e.altKey&&'alt', e.key].filter(Boolean).join('+');
+  document.getElementById('keyStatus').textContent = 'keydown: ' + combo;
+  log('keydown: ' + combo);
+});
+
+// Drag
+const src = document.getElementById('dragSrc');
+const dst = document.getElementById('dragDst');
+src.addEventListener('dragstart', e => { log('dragstart'); e.dataTransfer.setData('text/plain','DRAG'); });
+dst.addEventListener('dragover', e => { e.preventDefault(); });
+dst.addEventListener('drop', e => {
+  e.preventDefault();
+  dst.classList.add('dragged'); dst.textContent = 'DROPPED ✓';
+  setStatus('dragStatus', 'drop received ✓');
+  log('drop');
+});
+// Fallback: also accept mouse move/up if DnD doesn't trigger (CDP-synthesized events often behave like mouse).
+let mouseDown = false;
+src.addEventListener('mousedown', () => { mouseDown = true; log('mousedown on src'); });
+window.addEventListener('mouseup', e => {
+  if (!mouseDown) return;
+  mouseDown = false;
+  const r = dst.getBoundingClientRect();
+  if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+    dst.classList.add('dragged'); dst.textContent = 'DROPPED (mouseup) ✓';
+    setStatus('dragStatus', 'mouseup in dst ✓');
+    log('mouseup in dst @ ' + e.clientX + ',' + e.clientY);
+  } else {
+    log('mouseup outside dst @ ' + e.clientX + ',' + e.clientY);
+  }
+});
+
+// Scroll
+window.addEventListener('scroll', () => {
+  document.getElementById('scrollY').textContent = Math.round(window.scrollY);
+}, {passive:true});
+
+log('ready');
+
+document.getElementById('btnLog').addEventListener('click', () => console.log('superduck console.log @', Date.now()));
+document.getElementById('btnErr').addEventListener('click', () => console.error('superduck console.error @', Date.now()));
+document.getElementById('btnFetch').addEventListener('click', () =>
+  fetch('/api/ping?ts=' + Date.now()).catch(e => log('fetch err (expected for file://): ' + e.message)));
+</script>
+</body>
+</html>

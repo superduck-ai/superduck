@@ -15,78 +15,122 @@ const usage = `superduck %s — your browser's session, callable as a tool.
 
 USAGE:
   superduck <command> [flags]
+  superduck --tab <id> <command> [flags]      most browser commands need --tab
 
-COMMANDS:
-  init              Install native messaging manifest and start native-host (run once after npm install)
-  context           Read url/title/selection/text from the current active Chrome tab
-  fetch <url>       HTTP request using current Chrome's cookies (default same eTLD+1)
-  tabs              List all Chrome tabs
-  group <sub>       MCP tab group ops (context [--create] | create)
-  open <url>        Navigate the active tab to a URL
-  screenshot --tab <id> [--output PATH]  Capture a screenshot (PNG/JPEG)
-  click             Click an element by --selector or --text (or positional <text>)
-  fill <sel> <val>  Set the value of a form field and dispatch input/change events
-  press <key>       Dispatch a keyboard event (Enter, Tab, Escape, ArrowDown, ...)
+WORKFLOW:
+  1. superduck tab_group list --create-if-empty   ensure an MCP tab group exists
+  2. TAB=$(superduck tab_group new ...)           create a fresh tab, grab its tabId
+  3. superduck --tab $TAB navigate <url>          drive that tab from the CLI
 
-MOUSE/KEYBOARD (all require --tab <id>):
+SETUP / DIAGNOSTICS:
+  init                       Install native messaging manifest and start the native-host
+                             (run once after 'npm install -g superduck-cli')
+  doctor                     Health-check binary, manifest, native-host UDS, extension
+  log [--tail N] [--json]    Tail the audit log (~/.superduck/audit.jsonl)
+  version                    Print CLI version
+
+ACTIVE-TAB UTILITIES (no --tab required):
+  context [--full]           Read url/title/selection/visible text from the active tab
+  tabs                       List every Chrome tab the extension can see
+
+MCP TAB GROUP (each conversation usually owns one group of tabs):
+  tab_group list [--create-if-empty]
+                             Show the MCP tab group's tabs; --create-if-empty makes one
+                             if missing. Run this once before any --tab command.
+  tab_group new              Create a new empty tab inside the MCP tab group and print
+                             its tabId; pair with 'navigate' to load a URL.
+
+MOUSE / KEYBOARD (all require --tab <id>):
   left_click <x> <y> [--modifiers M] [--ref R]
+                             Single left-click at viewport (x,y). --ref clicks an element id
+                             returned by read_page/find instead of coordinates.
   right_click <x> <y> [--modifiers M] [--ref R]
+                             Right-click (opens context menu in real apps).
   double_click <x> <y> [--modifiers M] [--ref R]
+                             Double-click — useful for selecting a word, opening rows, etc.
   triple_click <x> <y> [--modifiers M] [--ref R]
-  hover <x> <y> [--ref R]
-  type <text>
-  key "<keys>" [--repeat N]
-  wait <seconds>
-  scroll <x> <y> --direction <up|down|left|right> [--amount N]
+                             Triple-click — selects the entire line / paragraph.
+  hover <x> <y> [--ref R]    Move the cursor over a point/element to reveal tooltips & hover UI.
   left_click_drag <x1> <y1> <x2> <y2>
+                             Press at (x1,y1), drag to (x2,y2), release. Drag-and-drop, sliders.
+  type <text>                Type literal text into the focused element.
+  key "<combo>" [--repeat N] Press a key or shortcut: "Enter", "Backspace", "cmd+a",
+                             "ctrl+shift+t". Use --repeat to press multiple times.
+  scroll <x> <y> --direction <up|down|left|right> [--amount N]
+                             Scroll wheel ticks at (x,y); --amount is wheel ticks (default 3).
+  scroll_to --ref <refId>    Scroll a specific element (from read_page/find refs) into view.
+  wait <seconds>             Pause the CLI between actions (e.g. wait 0.5).
   zoom <x0> <y0> <x1> <y1> [--output PATH]
-  scroll_to --ref <refId>
+                             Capture a rectangular region as a PNG/JPEG (good for icon inspection).
 
-PAGE / DOM:
-  exec <js> | --file PATH | --stdin       Eval JS in page (no 'return')
-  page_text                               Extract main article text
-  find "<query>"                          Natural-language element search
+PAGE / DOM (require --tab <id>):
+  exec <js> | --file PATH | --stdin
+                             Evaluate JS in the page context. The last expression's value is
+                             returned (do NOT use 'return'). Use for assertions and debugging.
+  page_text                  Extract the main article text (skips chrome/nav, like Reader Mode).
+  find "<query>"             Natural-language element search; returns up to 20 refs you can pass
+                             to click/scroll_to/form_input.
   read_page [--filter interactive|all] [--depth N] [--ref R] [--max-chars N]
+                             Accessibility-tree snapshot with stable ref ids. Filter to
+                             'interactive' for buttons/links/inputs only.
   form_input --ref <r> --value <v> [--string]
+                             Set a form field by ref. Booleans toggle checkboxes; option text
+                             or value selects a <select>. --string forces string interpretation.
+  screenshot [--output PATH] Capture the visible viewport as PNG/JPEG. PATH may be a directory.
 
-OBSERVABILITY:
+OBSERVABILITY (require --tab <id>):
   console [--pattern P] [--only-errors] [--clear] [--limit N]
+                             Read browser console messages from the current page (only those
+                             since the last --clear). Always pass --pattern to filter noise.
   network [--url-pattern P] [--clear] [--limit N]
+                             List XHR/fetch/document requests captured for this tab.
 
-WINDOW / NAV:
-  resize <w> <h>
+WINDOW / NAV (require --tab <id>):
+  resize <w> <h>             Resize the browser window — useful for responsive testing.
   navigate <url|back|forward>
+                             Load a URL, or move through history. Pair with 'tab_group new'
+                             to drive a freshly created blank tab.
 
-UPLOAD / SHORTCUTS / GIF:
+UPLOAD / SHORTCUTS / GIF (require --tab <id>):
   upload --image-id <id> (--ref R | --coord x,y) [--filename N]
-  shortcuts <list|execute --id I --command C>
-  gif <start|stop|export|clear> [--download] [--filename N] [--no-* ...] [--quality N]
-
-  doctor            Health check: binary, manifest, native-host, extension
-  log               Show audit log (~/.superduck/audit.jsonl)
-  version           Print version
+                             Drop a previously captured image onto a file input or drag target
+                             (works for hidden <input type=file>).
+  shortcuts list             List Claude in Chrome shortcuts/workflows available on this tab.
+  shortcuts execute --id I [--command C]
+                             Execute a shortcut/workflow by id (or by --command name).
+  gif start                  Begin recording browser actions for the current tab group.
+  gif stop                   Stop recording (frames retained — call export or clear).
+  gif export [--download] [--filename N] [--quality N] [--no-clicks] [--no-labels] [--no-progress] [--no-watermark]
+                             Render the captured frames into a GIF; --download saves a file.
+  gif clear                  Discard captured frames without exporting.
 
 GLOBAL FLAGS:
   --json            Machine-readable output (stdout = single JSON object)
-  --tab <id>        Override active-tab resolution
-  --socket <path>   UDS path (default %s)
+  --tab <id>        Target a specific tab (overrides active-tab resolution).
+                    Required for almost every browser command.
+  --socket <path>   Native-host UDS path (default %s)
   --timeout <s>     Per-request timeout in seconds (default 30)
 
 EXAMPLES:
-  superduck context
+  # discover / create a tab to drive
+  superduck tab_group list --create-if-empty
+  TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)
+  superduck --tab $TAB navigate https://example.com/
+
+  # drive the page
+  superduck --tab $TAB screenshot --output /tmp/
+  superduck --tab $TAB left_click 120 240
+  superduck --tab $TAB type "hello"
+  superduck --tab $TAB key "cmd+a"
+  superduck --tab $TAB exec "document.title"
+
+  # observe
+  superduck --tab $TAB console --pattern error --limit 20
+  superduck --tab $TAB network --url-pattern /api/ --limit 10
+
+  # active-tab shortcuts (no --tab needed)
   superduck context --full | head -50
-  superduck fetch https://api.example.com/me
-  superduck fetch https://other.com/x --allow-cross-origin
   superduck tabs --json
-  superduck group context --create
-  superduck group create
-  superduck open https://www.bilibili.com/
-  superduck screenshot --tab 123 --output /tmp/
-  superduck click "Login"
-  superduck click --selector 'button[type=submit]'
-  superduck fill 'input[name=q]' "claude code"
-  superduck press Enter
-  superduck log --tail 5
 
 Run 'superduck <command> --help' for command-specific flags.
 `
@@ -126,22 +170,12 @@ func main() {
 	switch cmd {
 	case "context":
 		err = cmdContext(rest)
-	case "fetch":
-		err = cmdFetch(rest)
 	case "tabs":
 		err = cmdTabs(rest)
-	case "group":
-		err = cmdGroup(rest)
-	case "open":
-		err = cmdOpen(rest)
+	case "tab_group":
+		err = cmdTabGroup(rest)
 	case "screenshot":
 		err = cmdScreenshot(rest)
-	case "click":
-		err = cmdClick(rest)
-	case "fill":
-		err = cmdFill(rest)
-	case "press":
-		err = cmdPress(rest)
 	case "left_click":
 		err = cmdLeftClick(rest)
 	case "right_click":
