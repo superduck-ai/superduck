@@ -1,0 +1,70 @@
+chrome-native-host/cmd/superduck/cmd_shortcuts.go
+  8ad2f9dd27d7ff5c 4,6-12,15-30,33-42,44-182,184,186-361,363,365-378
+chrome-crx/src/mcp-runtime/shared.ts
+  8ad2f9dd27d7ff5c 1-2,53-55,57-62
+npm/packages/superduck-darwin-arm64/package.json
+  268207c7e0d2d1fb 3
+chrome-crx/src/mcp-runtime/core.ts
+  8ad2f9dd27d7ff5c 673-687,691,697-702,728,733-808,927,954,959,1460-1467
+chrome-native-host/cmd/superduck/main.go
+  268207c7e0d2d1fb 12
+  8ad2f9dd27d7ff5c 96-98
+chrome-native-host/cmd/mcp-server/tool_definitions_test.go
+  44cde29043d81bc6 10
+npm/packages/superduck-linux-arm64/package.json
+  268207c7e0d2d1fb 3
+npm/package.json
+  268207c7e0d2d1fb 3,17-20
+npm/packages/superduck-linux-x64/package.json
+  268207c7e0d2d1fb 3
+npm/packages/superduck-darwin-x64/package.json
+  268207c7e0d2d1fb 3
+chrome-native-host/cmd/mcp-server/tool_definitions.go
+  8ad2f9dd27d7ff5c 307-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "c3dcc8d21fb2398ef5fd6cf8584f582448812f37",
+  "prompts": {
+    "268207c7e0d2d1fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e856faf2-5ad8-475e-a668-fc20f41a7e31",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 12,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    },
+    "44cde29043d81bc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc47e-f906-79a0-94ce-22a69d67c50f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "8ad2f9dd27d7ff5c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8dd08177-4644-44af-924f-cce843e59759",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 731,
+      "total_deletions": 271,
+      "accepted_lines": 500,
+      "overriden_lines": 0
+    }
+  }
+}
