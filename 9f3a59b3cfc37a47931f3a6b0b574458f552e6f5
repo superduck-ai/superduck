@@ -1,0 +1,104 @@
+chrome-crx/tsconfig.json
+  def5401d7d19cc64 9
+chrome-crx/src/sidepanel/compactionPrompts.ts
+  def5401d7d19cc64 137-138
+chrome-crx/src/sidepanel/useTabStatusListener.ts
+  def5401d7d19cc64 6
+chrome-crx/src/agent-visual-indicator.ts
+  def5401d7d19cc64 22-23
+chrome-crx/src/mcp-runtime/superduckTools.ts
+  def5401d7d19cc64 280-282
+chrome-crx/src/sidepanel/useWorkflowRecording.ts
+  def5401d7d19cc64 103,112,128,762
+chrome-crx/src/mcp-runtime/cdp.ts
+  def5401d7d19cc64 405,409
+chrome-crx/src/vite-env.d.ts
+  def5401d7d19cc64 15-54
+chrome-crx/src/sidepanel/components/MarkdownComponents.tsx
+  def5401d7d19cc64 718,743-744
+chrome-crx/src/sidepanel/WorkflowRecordingInterface.tsx
+  def5401d7d19cc64 218
+chrome-crx/src/sidepanel/WorkflowStepsList.tsx
+  def5401d7d19cc64 313
+chrome-crx/src/sidepanel/useScreenCapture.ts
+  def5401d7d19cc64 33
+chrome-crx/src/options.tsx
+  def5401d7d19cc64 587-589,1093,1095-1096
+chrome-crx/src/sidepanel/CreateShortcutModal.tsx
+  def5401d7d19cc64 471,539,559
+chrome-crx/src/sidepanel/SidepanelApp.tsx
+  def5401d7d19cc64 1234,1236,2059-2062,5389,6417,8295,9647,9669-9672
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "9f3a59b3cfc37a47931f3a6b0b574458f552e6f5",
+  "prompts": {
+    "22a9b5bd7654b720": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "095bd1d5-707c-4fdf-9fe0-de2297c1ec19",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 44,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 91004,
+        "output_tokens": 10450,
+        "cache_read_tokens": 1207724,
+        "cache_creation_tokens": 0,
+        "total_cost": null
+      }
+    },
+    "c1e0da728982d146": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33777490-217b-419f-ad48-5f64b6bb4ae7",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 328,
+      "overriden_lines": 0,
+      "token_usage": {
+        "input_tokens": 55206,
+        "output_tokens": 7950,
+        "cache_read_tokens": 694169,
+        "cache_creation_tokens": 0,
+        "total_cost": null
+      }
+    },
+    "cd31fcb059e247bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf19c484-6239-4845-9395-5e82e30c6f69",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "def5401d7d19cc64": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5fc2b775-39fe-4f14-8496-a6fa0febda69",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 1337,
+      "total_deletions": 19934,
+      "accepted_lines": 85,
+      "overriden_lines": 0
+    }
+  }
+}
