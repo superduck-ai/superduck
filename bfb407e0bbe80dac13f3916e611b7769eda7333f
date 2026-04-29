@@ -1,0 +1,26 @@
+chrome-crx/src/agent-visual-indicator.ts
+  7603385cba219f83 314-318,321-353
+chrome-crx/src/mcp-runtime/inputTools.ts
+  7603385cba219f83 772-776,853-856,986-1024,1159-1171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "bfb407e0bbe80dac13f3916e611b7769eda7333f",
+  "prompts": {
+    "7603385cba219f83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e0871c1d-2303-47f5-b53e-f653ccbb1d67",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 99,
+      "total_deletions": 73,
+      "accepted_lines": 99,
+      "overriden_lines": 0,
+      "messages_url": "https://gitai.gz.cvte.cn/cas/1bb231a439806de1333d00d2f577a97f19cf2d84d9803f7148e4169dbe2f3e31"
+    }
+  }
+}
