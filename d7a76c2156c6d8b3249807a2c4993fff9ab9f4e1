@@ -1,0 +1,27 @@
+chrome-native-host/.golangci.yml
+  c1e0da728982d146 1-62
+AGENTS.md
+  c1e0da728982d146 56-97
+chrome-crx/eslint.config.js
+  c1e0da728982d146 33-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "d7a76c2156c6d8b3249807a2c4993fff9ab9f4e1",
+  "prompts": {
+    "c1e0da728982d146": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33777490-217b-419f-ad48-5f64b6bb4ae7",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 145,
+      "total_deletions": 0,
+      "accepted_lines": 145,
+      "overriden_lines": 0
+    }
+  }
+}
