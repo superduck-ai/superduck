@@ -1,0 +1,46 @@
+AGENTS.md
+  22a9b5bd7654b720 49-63
+package.json
+  22a9b5bd7654b720 1-24
+scripts/lint-staged-prettier.sh
+  22a9b5bd7654b720 1-11
+scripts/lint-staged-eslint.sh
+  22a9b5bd7654b720 1-10
+scripts/lint-staged-govet.sh
+  22a9b5bd7654b720 1-7
+.husky/pre-commit
+  22a9b5bd7654b720 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "8e505c191c41a78755e0e5dd32d7979f8c730341",
+  "prompts": {
+    "22a9b5bd7654b720": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "095bd1d5-707c-4fdf-9fe0-de2297c1ec19",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 106,
+      "total_deletions": 14,
+      "accepted_lines": 68,
+      "overriden_lines": 0
+    },
+    "c1e0da728982d146": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33777490-217b-419f-ad48-5f64b6bb4ae7",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 328,
+      "total_deletions": 0,
+      "accepted_lines": 328,
+      "overriden_lines": 0
+    }
+  }
+}
