@@ -1,0 +1,55 @@
+chrome-native-host/.golangci.yml
+  cd31fcb059e247bb 1,5,10-45,47-58,62-68
+chrome-native-host/Makefile
+  cd31fcb059e247bb 1-4,57-74
+AGENTS.md
+  cd31fcb059e247bb 45-47
+.github/workflows/lint-go.yml
+  cd31fcb059e247bb 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "c9ce9c73a9474d3c15e748a66952064eade22f3f",
+  "prompts": {
+    "22a9b5bd7654b720": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "095bd1d5-707c-4fdf-9fe0-de2297c1ec19",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "c1e0da728982d146": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33777490-217b-419f-ad48-5f64b6bb4ae7",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 328,
+      "overriden_lines": 0
+    },
+    "cd31fcb059e247bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf19c484-6239-4845-9395-5e82e30c6f69",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 179,
+      "total_deletions": 52,
+      "accepted_lines": 117,
+      "overriden_lines": 0
+    }
+  }
+}
