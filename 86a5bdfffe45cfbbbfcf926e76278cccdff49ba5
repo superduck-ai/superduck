@@ -1,0 +1,48 @@
+chrome-native-host/cmd/superduck/cmd_network.go
+  cd31fcb059e247bb 9,18
+chrome-native-host/cmd/superduck/cmd_console.go
+  cd31fcb059e247bb 6-7,12,24
+chrome-native-host/internal/protocol/chrome.go
+  cd31fcb059e247bb 53
+chrome-native-host/internal/cliclient/audit.go
+  cd31fcb059e247bb 29,63-64
+.github/workflows/lint-go.yml
+  cd31fcb059e247bb 31
+chrome-native-host/cmd/superduck/cmd_tabs_mcp.go
+  cd31fcb059e247bb 104-106,125-127
+chrome-native-host/cmd/native-host/main.go
+  cd31fcb059e247bb 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.10",
+  "base_commit_sha": "86a5bdfffe45cfbbbfcf926e76278cccdff49ba5",
+  "prompts": {
+    "c1e0da728982d146": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33777490-217b-419f-ad48-5f64b6bb4ae7",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 328,
+      "overriden_lines": 0
+    },
+    "cd31fcb059e247bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf19c484-6239-4845-9395-5e82e30c6f69",
+        "model": "claude-opus-4.7"
+      },
+      "human_author": "jh0904",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 241,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    }
+  }
+}
