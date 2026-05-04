@@ -1,0 +1,13 @@
+// SuperDuck Go workspace.
+//
+// Defines all Go modules in this monorepo so contributors can develop the
+// CLI / native-host / MCP server (and future Go subprojects like coworkd)
+// together with a single `go build ./...` from the repo root, and so
+// editors / agents pick up the right module roots automatically.
+//
+// Toolchain pin matches chrome-native-host/go.mod and the version installed
+// in .devcontainer. Bump both in lockstep when upgrading Go.
+
+go 1.25
+
+use ./chrome-native-host

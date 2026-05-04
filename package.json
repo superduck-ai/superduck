@@ -1,7 +1,11 @@
 {
   "name": "superduck-monorepo",
   "private": true,
-  "description": "Root tooling for SuperDuck — installs git pre-commit hooks via husky + lint-staged across chrome-crx (TS) and chrome-native-host (Go).",
+  "description": "Root tooling for SuperDuck — installs git pre-commit hooks via husky + lint-staged across chrome-crx (TS) and chrome-native-host (Go). Declares Bun/npm workspaces so all JS sub-packages share a single lockfile.",
+  "workspaces": [
+    "chrome-crx",
+    "npm"
+  ],
   "scripts": {
     "prepare": "husky"
   },

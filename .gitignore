@@ -31,7 +31,7 @@ npm/packages/*/bin/chrome-native-host.exe
 *.dylib
 *.test
 *.out
-go.work
+# go.work is committed (defines the monorepo workspace). go.work.sum is local.
 go.work.sum
 
 # IDE
