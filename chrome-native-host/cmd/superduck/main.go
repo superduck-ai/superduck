@@ -9,6 +9,7 @@ import (
 
 	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/cliclient"
+	"chrome-native-host/internal/errortrack"
 )
 
 const version = "0.2.3"
@@ -158,6 +159,12 @@ var errNoArgs = errors.New("no command")
 
 func main() {
 	tracker := analytics.New(analytics.Options{})
+	errortrack.SetRelease(version)
+	errs := errortrack.New(errortrack.Options{
+		ComponentTag: "cli",
+		Release:      version,
+	})
+	defer errs.Recover()
 	commandStart := time.Now()
 
 	if len(os.Args) < 2 {
@@ -250,6 +257,26 @@ func main() {
 
 	emitAndFlush(tracker, cmd, sub, "", commandStart, err)
 	if err != nil {
+		errs.AddBreadcrumb(errortrack.Breadcrumb{
+			Category: "cli",
+			Message:  "command finished with error",
+			Level:    errortrack.LevelError,
+			Data: map[string]any{
+				"command":     cmd,
+				"subcommand":  sub,
+				"json_mode":   gflags.JSON,
+				"tab_present": gflags.Tab != 0,
+				"duration_ms": time.Since(commandStart).Milliseconds(),
+			},
+		})
+		errs.Capture(err, map[string]any{
+			"command":    cmd,
+			"subcommand": sub,
+			"version":    version,
+		})
+		flushCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		errs.Flush(flushCtx)
+		cancel()
 		fmt.Fprintln(os.Stderr, "error:", err)
 		if errors.Is(err, cliclient.ErrNotConnected) {
 			fmt.Fprintln(os.Stderr, "hint: SuperDuck native host not reachable. Make sure Chrome is running with the SuperDuck extension loaded, then try `superduck doctor`.")

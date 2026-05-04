@@ -109,6 +109,9 @@ node scripts/validate-agents-md.mjs
 | `SUPERDUCK_POSTHOG_KEY` | chrome-native-host | PostHog write key,留空则不发送埋点 |
 | `SUPERDUCK_POSTHOG_HOST` | chrome-native-host | 自定义 PostHog 域名,默认 `https://us.i.posthog.com` |
 | `SUPERDUCK_ANALYTICS_DISABLED` | chrome-native-host | `1/true` 强制关闭埋点 |
+| `SUPERDUCK_SENTRY_DSN` | chrome-native-host | Sentry/GlitchTip DSN,留空则不上报错误 |
+| `SUPERDUCK_ERRORTRACK_DISABLED` | chrome-native-host | `1/true` 强制关闭错误上报 |
+| `SUPERDUCK_ENV` | chrome-native-host | 错误上报的 environment tag,默认 `production` |
 | `POSTHOG_KEY` | chrome-native-host Makefile | release 构建时通过 `-ldflags -X` 注入到二进制 |
 | `SLOW_TEST_MS` / `TOP_N` / `FAIL_OVER_MS` | chrome-crx 测试报告 | `chrome-crx/scripts/test-perf-report.mjs` 的阈值与门禁 |
 | `CI` | 通用 | CI 环境自动注入,本地不要手动设置 |
