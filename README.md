@@ -74,6 +74,10 @@ bun run lint        # Lint
 
 React 19 · TypeScript 5 · Vite 7 · Tailwind CSS 4 · Zustand · Framer Motion · Tiptap · @anthropic-ai/sdk · MCP SDK · react-intl
 
+## Runbooks / Incident Response
+
+Operational runbooks for on-call and AI agents live in [`runbooks/`](runbooks/) — covering extension crashes, native host disconnects, MCP server hangs, release rollback, CI failures, and secret-leak response. See [runbooks/README.md](runbooks/README.md) for the index.
+
 ## Contributing
 
 Contributions welcome! Fork → branch → commit → PR.

@@ -164,6 +164,21 @@ node scripts/validate-agents-md.mjs
 
 新代码若违反 TS 命名规则会触发 ESLint warning;Go 侧请在提交前跑 `go vet ./...`。
 
+## 事故响应 / Runbooks
+
+仓库根目录的 [`runbooks/`](runbooks/) 目录收录了各组件的事故响应手册,值班工程师与代理在排障时优先查阅:
+
+| 场景 | Runbook |
+|---|---|
+| Chrome 扩展崩溃 / side panel 打不开 | [runbooks/chrome-extension-crash.md](runbooks/chrome-extension-crash.md) |
+| Native messaging host 断连 | [runbooks/native-host-disconnect.md](runbooks/native-host-disconnect.md) |
+| MCP server 无响应 | [runbooks/mcp-server-unresponsive.md](runbooks/mcp-server-unresponsive.md) |
+| 发布回滚 | [runbooks/release-rollback.md](runbooks/release-rollback.md) |
+| CI pipeline 持续失败 | [runbooks/ci-pipeline-failure.md](runbooks/ci-pipeline-failure.md) |
+| 密钥泄露应急 | [runbooks/secrets-leak-response.md](runbooks/secrets-leak-response.md) |
+
+入口索引见 [runbooks/README.md](runbooks/README.md);新增事故类型时请补充 runbook 并在该索引登记。
+
 ## 目录入口速查
 
 - 扩展 MCP runtime / CDP 桥: [chrome-crx/src/mcp-runtime/cdp.ts](chrome-crx/src/mcp-runtime/cdp.ts)
