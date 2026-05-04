@@ -31,7 +31,6 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-toggle-group": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.1.0",
-    "@segment/analytics-node": "^3.1.0",
     "@sentry/browser": "^10.22.0",
     "@statsig/js-client": "^3.32.0",
     "@statsig/react-bindings": "^3.32.0",
@@ -54,7 +53,6 @@
     "punycode": "^2.3.1",
     "react": "^19.2.4",
     "react-calendar": "^6.0.1",
-    "react-currency-input-field": "^4.0.5",
     "react-dom": "^19.2.4",
     "react-intl": "^7.1.0",
     "react-markdown": "^10.1.0",
@@ -64,7 +62,6 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "tippy.js": "^6.3.7",
-    "zod": "^4.4.1",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
