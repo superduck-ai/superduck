@@ -14,10 +14,10 @@
     "postinstall": "node bin/superduck.js --postinstall || true"
   },
   "optionalDependencies": {
-    "superduck-darwin-arm64": "0.2.3",
-    "superduck-darwin-x64": "0.2.3",
-    "superduck-linux-arm64": "0.2.3",
-    "superduck-linux-x64": "0.2.3"
+    "superduck-darwin-arm64": "0.2.4",
+    "superduck-darwin-x64": "0.2.4",
+    "superduck-linux-arm64": "0.2.4",
+    "superduck-linux-x64": "0.2.4"
   },
   "engines": {
     "node": ">=16"
