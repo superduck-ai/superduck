@@ -18,11 +18,11 @@
 - 每个 runbook 以**症状 (Symptoms)** 开头,确保值班人能快速定位是否命中。
 - **诊断 (Diagnose)** 列出可直接复制的命令,按从快到慢、从无副作用到有副作用排序。
 - **缓解 (Mitigate)** 优先于根因分析:先恢复用户,再回头查根因。
-- **跟进 (Follow-up)** 收集需要在事故后开 issue / PR 的工作项,使用 `type: incident` + `priority: P1` 标签。
+- **跟进 (Follow-up)** 收集需要在事故后开 issue / PR 的工作项,使用 `incident` + `type: bug` 标签。
 
 ## 外部链接
 
-- 事故记录与时间线: 仓库 Issues 中带 `type: incident` 标签的条目
+- 事故记录与时间线: 仓库 Issues 中带 `incident` 标签的条目
 - 监控仪表盘: 见 [chrome-crx Honeycomb dataset](https://ui.honeycomb.io) (内部链接)
 - 状态页: TODO — 接入公开 status page 后在此补充
 

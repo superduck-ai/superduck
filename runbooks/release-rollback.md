@@ -44,7 +44,7 @@
 
 ## Follow-up
 
-- 在 Issues 中开 `type: incident` + `priority: P0` 记录时间线
+- 在 Issues 中开 `incident` + `type: bug` + `priority: P0` 记录时间线
 - PR 修复时关联 incident issue,要求 reviewer 显式 ack
 - 评估是否需要在 release workflow 增加 canary 阶段(如灰度 5% 用户 24h)
 

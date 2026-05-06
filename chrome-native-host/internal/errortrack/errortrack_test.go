@@ -235,3 +235,52 @@ func TestRecoverReportsAndRepanics(t *testing.T) {
 	defer c.Recover()
 	panic("kaboom")
 }
+
+func TestParseDSNRejectsEmptyPublicKey(t *testing.T) {
+	t.Setenv(envCI, "")
+	t.Setenv(envDisabled, "")
+	if _, err := parseDSN("https://@sentry.example.com/42"); err == nil {
+		t.Fatalf("expected error for empty public key")
+	}
+	c := New(Options{DSN: "https://@sentry.example.com/42"})
+	if c.Enabled() {
+		t.Fatalf("expected disabled for empty public key DSN")
+	}
+}
+
+func TestRedactMapRecursive(t *testing.T) {
+	redact := map[string]struct{}{"token": {}, "secret": {}}
+	in := map[string]any{
+		"ok": true,
+		"headers": map[string]any{
+			"authorization": "keep",
+			"token":         "leaked",
+			"nested": map[string]any{
+				"secret": "deep",
+			},
+		},
+	}
+	out := redactMap(in, redact)
+	headers := out["headers"].(map[string]any)
+	if headers["token"] != "[REDACTED]" {
+		t.Errorf("nested token not redacted: %v", headers["token"])
+	}
+	nested := headers["nested"].(map[string]any)
+	if nested["secret"] != "[REDACTED]" {
+		t.Errorf("deep nested secret not redacted: %v", nested["secret"])
+	}
+	if headers["authorization"] != "keep" {
+		t.Errorf("non-redact key lost: %v", headers["authorization"])
+	}
+}
+
+func TestRedactStringScrubbsSecrets(t *testing.T) {
+	msg := "failed: Bearer sk-abc123 at https://user:pass@host.com/api"
+	out := redactString(msg)
+	if strings.Contains(out, "sk-abc123") {
+		t.Errorf("Bearer token not redacted: %s", out)
+	}
+	if strings.Contains(out, "user:pass@") {
+		t.Errorf("URL credentials not redacted: %s", out)
+	}
+}

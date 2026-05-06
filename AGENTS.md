@@ -21,7 +21,7 @@ SuperDuck 是一个浏览器 AI 助手,由多个子项目组成:
 
 仓库根用两套 workspace 工具把多个子项目绑成一个 monorepo,新增子模块时请同步登记:
 
-- **JS/TS** — 根 `package.json` 声明 `"workspaces": ["chrome-crx", "npm"]`,Bun / npm / yarn 任一都能识别。在仓库根 `bun install` 会同时安装所有子包依赖,并把 husky / lint-staged 等开发工具集中放在根 `node_modules/`。
+- **JS/TS** — 根 `package.json` 声明 `"workspaces": ["chrome-crx", "npm/packages/*"]`,Bun / npm / yarn 任一都能识别。在仓库根 `bun install` 会同时安装所有子包依赖,并把 husky / lint-staged 等开发工具集中放在根 `node_modules/`。
 - **Go** — 仓库根 [`go.work`](go.work) 通过 `use` 指令把 `./chrome-native-host` 纳入工作区。在仓库根直接 `go build ./...` / `go test ./...` 就能跨模块编译,IDE / 代理也能基于此识别每个 Go 子项目的 module 边界。新增 Go 模块(例如未来真正落地 `coworkd/`)时,先 `cd <dir> && go mod init <name>`,再在 `go.work` 的 `use (...)` 块中追加路径并提交,不要让多模块项目散落在根 module 之外。
 - `go.work.sum` 是本地缓存,**不**提交;`go.work` 是工作区契约,**必须**提交。
 

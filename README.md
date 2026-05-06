@@ -50,16 +50,16 @@ Set a custom API endpoint in Settings, then map each slot to your preferred mode
 
 1. Download the latest release or [build from source](#build-from-source)
 2. Go to `chrome://extensions/` → enable **Developer mode**
-3. Click **Load unpacked** → select the `dist/` folder
+3. Click **Load unpacked** → select the `chrome-crx/dist/` folder
 4. Pin SuperDuck to your toolbar 📌
 
 ## Build from Source
 
 ```bash
-git clone https://github.com/arthur-zhang/superduck-crx.git
-cd superduck-crx
+git clone https://github.com/superduck-ai/superduck.git
+cd superduck/chrome-crx
 bun install
-bun run build      # Output in dist/
+bun run build      # Output in chrome-crx/dist/
 ```
 
 Development:

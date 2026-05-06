@@ -175,5 +175,8 @@ func FromContext(ctx context.Context) *slog.Logger {
 // IntoContext returns a derived context that carries l so callees can pull it
 // back out via FromContext.
 func IntoContext(ctx context.Context, l *slog.Logger) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return context.WithValue(ctx, ctxKey{}, l)
 }

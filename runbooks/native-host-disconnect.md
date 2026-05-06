@@ -45,7 +45,7 @@
    ```bash
    cd chrome-native-host
    make
-   ./scripts/install-native-host.sh   # 若不存在,见 README 的注册命令
+   ./scripts/install.sh   # 若不存在,见 README 的注册命令
    ```
 
 2. **重启 Chrome** (扩展会重新启动 service worker 与 native host)

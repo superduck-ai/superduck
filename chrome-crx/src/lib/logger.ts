@@ -46,7 +46,7 @@ const DEFAULT_REDACT_KEYS: ReadonlyArray<string> = [
 
 let currentLevel: LogLevel = 'info';
 const reporters: LogReporter[] = [];
-let redactKeys: Set<string> = new Set(DEFAULT_REDACT_KEYS);
+let redactKeys: Set<string> = new Set(DEFAULT_REDACT_KEYS.map((k) => k.toLowerCase()));
 
 export function setLevel(level: LogLevel): void {
   currentLevel = level;
@@ -65,7 +65,7 @@ export function addReporter(reporter: LogReporter): () => void {
 }
 
 export function setRedactKeys(keys: Iterable<string>): void {
-  redactKeys = new Set(keys);
+  redactKeys = new Set([...keys].map((k) => k.toLowerCase()));
 }
 
 export function clearReporters(): void {
@@ -82,7 +82,7 @@ function redact(value: unknown, depth = 0): unknown {
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (redactKeys.has(k)) {
+      if (redactKeys.has(k.toLowerCase())) {
         out[k] = '[REDACTED]';
       } else {
         out[k] = redact(v, depth + 1);
@@ -111,8 +111,18 @@ function emit(
     record.fields = redact(fields) as Record<string, unknown>;
   }
 
-  // One JSON line per record so log processors can parse easily.
-  const line = JSON.stringify(record);
+  let line: string;
+  try {
+    line = JSON.stringify(record);
+  } catch {
+    line = JSON.stringify({
+      ts: record.ts,
+      level: record.level,
+      component: record.component,
+      msg: record.msg,
+      error: 'unserializable fields'
+    });
+  }
   switch (level) {
     case 'error':
       console.error(line);

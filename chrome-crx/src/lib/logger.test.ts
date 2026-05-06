@@ -91,4 +91,29 @@ describe('logger', () => {
     const log = createLogger('safe');
     expect(() => log.info('still works')).not.toThrow();
   });
+
+  it('redacts keys case-insensitively', () => {
+    setRedactKeys(['apikey', 'token']);
+    const log = createLogger('auth');
+    log.info('req', { Authorization: 'Bearer xxx', ApiKey: 'secret', user: 'bob' });
+    const parsed = JSON.parse(infoSpy.mock.calls[0][0] as string);
+    expect(parsed.fields.ApiKey).toBe('[REDACTED]');
+    expect(parsed.fields.user).toBe('bob');
+  });
+
+  it('handles circular references without throwing', () => {
+    const log = createLogger('circ');
+    const obj: Record<string, unknown> = { a: 1 };
+    obj.self = obj;
+    expect(() => log.info('circular', obj)).not.toThrow();
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    const parsed = JSON.parse(infoSpy.mock.calls[0][0] as string);
+    expect(parsed.error).toBe('unserializable fields');
+  });
+
+  it('handles bigint without throwing', () => {
+    const log = createLogger('big');
+    expect(() => log.info('big', { n: BigInt(42) })).not.toThrow();
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+  });
 });

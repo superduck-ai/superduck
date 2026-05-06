@@ -26,7 +26,7 @@
 3. **检查最近一次构建**
    ```bash
    cd chrome-crx
-   git log -10 --oneline dist/
+   git log -10 --oneline -- chrome-crx/src
    bun run build
    ```
    若 build 失败,通常是上游 commit 引入了类型错误。

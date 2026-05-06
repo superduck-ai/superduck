@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -116,8 +117,8 @@ type Client struct {
 
 	mu          sync.Mutex
 	breadcrumbs []Breadcrumb
-
-	pending sync.WaitGroup
+	inflight    int
+	cond        *sync.Cond
 }
 
 // New constructs a Client. If error tracking is disabled (env opt-out, CI, or
@@ -132,6 +133,7 @@ func New(opts Options) *Client {
 		componentTag: strings.TrimSpace(opts.ComponentTag),
 		maxCrumbs:    opts.MaxCrumbs,
 	}
+	c.cond = sync.NewCond(&c.mu)
 	if c.maxCrumbs <= 0 {
 		c.maxCrumbs = defaultMaxCrumb
 	}
@@ -276,7 +278,11 @@ func (c *Client) Flush(ctx context.Context) {
 	}
 	done := make(chan struct{})
 	go func() {
-		c.pending.Wait()
+		c.mu.Lock()
+		for c.inflight > 0 {
+			c.cond.Wait()
+		}
+		c.mu.Unlock()
 		close(done)
 	}()
 	select {
@@ -291,9 +297,16 @@ func (c *Client) captureInternal(err error, extras map[string]any, user *User, l
 	if jerr != nil {
 		return
 	}
-	c.pending.Add(1)
+	c.mu.Lock()
+	c.inflight++
+	c.mu.Unlock()
 	go func() {
-		defer c.pending.Done()
+		defer func() {
+			c.mu.Lock()
+			c.inflight--
+			c.cond.Broadcast()
+			c.mu.Unlock()
+		}()
 		c.send(body)
 	}()
 }
@@ -319,6 +332,8 @@ func (c *Client) buildEvent(err error, extras map[string]any, user *User, level 
 	if message == "" {
 		message = err.Error()
 	}
+	message = redactString(message)
+	errValue := redactString(err.Error())
 	tags := map[string]string{}
 	if c.componentTag != "" {
 		tags["component"] = c.componentTag
@@ -347,7 +362,7 @@ func (c *Client) buildEvent(err error, extras map[string]any, user *User, level 
 			"values": []map[string]any{
 				{
 					"type":  classify(err),
-					"value": err.Error(),
+					"value": errValue,
 				},
 			},
 		},
@@ -375,7 +390,11 @@ var DefaultRedactKeys = []string{
 }
 
 func redactMap(in map[string]any, redact map[string]struct{}) map[string]any {
-	if len(in) == 0 {
+	return redactMapDepth(in, redact, 0)
+}
+
+func redactMapDepth(in map[string]any, redact map[string]struct{}, depth int) map[string]any {
+	if len(in) == 0 || depth > 4 {
 		return in
 	}
 	out := make(map[string]any, len(in))
@@ -384,9 +403,50 @@ func redactMap(in map[string]any, redact map[string]struct{}) map[string]any {
 			out[k] = "[REDACTED]"
 			continue
 		}
-		out[k] = v
+		switch nested := v.(type) {
+		case map[string]any:
+			out[k] = redactMapDepth(nested, redact, depth+1)
+		case map[string]string:
+			m := make(map[string]any, len(nested))
+			for kk, vv := range nested {
+				m[kk] = vv
+			}
+			out[k] = redactMapDepth(m, redact, depth+1)
+		case map[string][]string:
+			m := make(map[string]any, len(nested))
+			for kk, vv := range nested {
+				m[kk] = vv
+			}
+			out[k] = redactMapDepth(m, redact, depth+1)
+		case http.Header:
+			m := make(map[string]any, len(nested))
+			for kk, vv := range nested {
+				m[kk] = vv
+			}
+			out[k] = redactMapDepth(m, redact, depth+1)
+		case url.Values:
+			m := make(map[string]any, len(nested))
+			for kk, vv := range nested {
+				m[kk] = vv
+			}
+			out[k] = redactMapDepth(m, redact, depth+1)
+		default:
+			out[k] = v
+		}
 	}
 	return out
+}
+
+const maxMessageLen = 1024
+
+var secretPatterns = regexp.MustCompile(`(?i)(Bearer\s+\S+|Basic\s+\S+|token[=:]\S+|api_key[=:]\S+|password[=:]\S+|https?://[^@\s]+@)`)
+
+func redactString(s string) string {
+	s = secretPatterns.ReplaceAllString(s, "[REDACTED]")
+	if len(s) > maxMessageLen {
+		s = s[:maxMessageLen] + "...(truncated)"
+	}
+	return s
 }
 
 func classify(err error) string {
@@ -426,6 +486,9 @@ func parseDSN(raw string) (parsedDSN, error) {
 	}
 	if u.Scheme == "" || u.Host == "" || u.User == nil {
 		return parsedDSN{}, errors.New("errortrack: DSN must include scheme, host and public key")
+	}
+	if strings.TrimSpace(u.User.Username()) == "" {
+		return parsedDSN{}, errors.New("errortrack: DSN missing public key")
 	}
 	pid := strings.Trim(u.Path, "/")
 	if pid == "" {
