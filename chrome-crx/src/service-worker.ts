@@ -20,7 +20,6 @@ import {
   sendMcpNotificationViaBridge,
   syncPermissions,
 } from "./mcpPermissions";
-import { initSentry } from "./PermissionManager";
 import { initModelMappingListener } from "./utils/modelMapping";
 
 // --- Native Messaging State ---
