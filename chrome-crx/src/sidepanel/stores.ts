@@ -75,7 +75,6 @@ interface UIState {
   showWorkflowModeSelectionModal: boolean;
   showSkipPermissionsOverlay: boolean;
   showShareWarningModal: boolean;
-  showAntBuildUpsell: boolean;
   showFeedbackForm: boolean;
   showNotificationBanner: boolean;
   announcementDismissed: boolean;
@@ -95,7 +94,6 @@ interface UIState {
   setShowWorkflowModeSelectionModal: (show: boolean) => void;
   setShowSkipPermissionsOverlay: (show: boolean) => void;
   setShowShareWarningModal: (show: boolean) => void;
-  setShowAntBuildUpsell: (show: boolean) => void;
   setShowFeedbackForm: (show: boolean) => void;
   setShowNotificationBanner: (show: boolean) => void;
   setAnnouncementDismissed: (dismissed: boolean) => void;
@@ -121,7 +119,6 @@ export const useUIStore = create<UIState>((set) => ({
   showWorkflowModeSelectionModal: false,
   showSkipPermissionsOverlay: false,
   showShareWarningModal: false,
-  showAntBuildUpsell: false,
   showFeedbackForm: false,
   showNotificationBanner: false,
   announcementDismissed: false,
@@ -144,7 +141,6 @@ export const useUIStore = create<UIState>((set) => ({
   setShowSkipPermissionsOverlay: (showSkipPermissionsOverlay) =>
     set({ showSkipPermissionsOverlay }),
   setShowShareWarningModal: (showShareWarningModal) => set({ showShareWarningModal }),
-  setShowAntBuildUpsell: (showAntBuildUpsell) => set({ showAntBuildUpsell }),
   setShowFeedbackForm: (showFeedbackForm) => set({ showFeedbackForm }),
   setShowNotificationBanner: (showNotificationBanner) => set({ showNotificationBanner }),
   setAnnouncementDismissed: (announcementDismissed) => set({ announcementDismissed }),

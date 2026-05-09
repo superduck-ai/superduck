@@ -92,7 +92,7 @@
     outline-color: var(--button-focus-outline)
 }
 
-._claude_1ht0i_108 {
+._superduck_1ht0i_108 {
     --button-bg: hsl(var(--accent-main-000));
     --button-text: hsl(var(--oncolor-100));
     --button-border: transparent;
@@ -106,13 +106,13 @@
     border-color: var(--button-border)
 }
 
-._claude_1ht0i_108:hover:not(:disabled) {
+._superduck_1ht0i_108:hover:not(:disabled) {
     background-color: var(--button-hover-bg);
     color: var(--button-hover-text);
     border-color: var(--button-hover-border)
 }
 
-._claude_1ht0i_108:focus-visible {
+._superduck_1ht0i_108:focus-visible {
     outline-color: var(--button-focus-outline)
 }
 

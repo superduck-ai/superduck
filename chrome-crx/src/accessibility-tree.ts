@@ -24,8 +24,8 @@ interface TreeLineContext {
 
 declare global {
   interface Window {
-    __claudeElementMap?: Record<string, WeakRef<Element>>;
-    __claudeRefCounter?: number;
+    __superduckElementMap?: Record<string, WeakRef<Element>>;
+    __superduckRefCounter?: number;
     __generateAccessibilityTree?: (
       filter?: TreeFilter,
       depth?: number,
@@ -316,19 +316,19 @@ declare global {
   }
 
   function getOrCreateElementMap(): Record<string, WeakRef<Element>> {
-    if (!window.__claudeElementMap) {
-      window.__claudeElementMap = {};
+    if (!window.__superduckElementMap) {
+      window.__superduckElementMap = {};
     }
 
-    return window.__claudeElementMap;
+    return window.__superduckElementMap;
   }
 
   function getOrCreateRefCounter(): number {
-    if (!window.__claudeRefCounter) {
-      window.__claudeRefCounter = 0;
+    if (!window.__superduckRefCounter) {
+      window.__superduckRefCounter = 0;
     }
 
-    return window.__claudeRefCounter;
+    return window.__superduckRefCounter;
   }
 
   function findExistingRef(
@@ -349,7 +349,7 @@ declare global {
     element: Element
   ): string {
     const nextRefCounter = getOrCreateRefCounter() + 1;
-    window.__claudeRefCounter = nextRefCounter;
+    window.__superduckRefCounter = nextRefCounter;
 
     const refId = `ref_${nextRefCounter}`;
     elementMap[refId] = new WeakRef(element);

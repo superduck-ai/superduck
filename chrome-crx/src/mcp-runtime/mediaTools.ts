@@ -151,11 +151,11 @@ const fileUploadTool: ToolDefinition = {
       const securityCheck = await checkUrlSecurity(tab.id!, originalUrl, 'file upload action');
       if (securityCheck) return securityCheck;
 
-      const uploadAttr = `data-claude-upload-${Date.now()}`;
+      const uploadAttr = `data-superduck-upload-${Date.now()}`;
       const markResult = await chrome.scripting.executeScript({
         target: { tabId: tab.id! },
         func: (ref: string, attr: string) => {
-          const elementMap = (window as any).__claudeElementMap;
+          const elementMap = (window as any).__superduckElementMap;
           if (!elementMap?.[ref])
             return {
               error: `Element ref not found: "${ref}". The element may have been removed from the page.`
@@ -214,7 +214,7 @@ const fileUploadTool: ToolDefinition = {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id! },
         func: (ref: string, attr: string) => {
-          const elementMap = (window as any).__claudeElementMap;
+          const elementMap = (window as any).__superduckElementMap;
           if (!elementMap?.[ref]) return;
           const element = elementMap[ref].deref();
           if (element) element.removeAttribute(attr);
@@ -243,7 +243,7 @@ const fileUploadTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'file_upload',
     description:
       'Upload one or multiple files from the local filesystem to a file input element on the page. Do not click on file upload buttons or file inputs — clicking opens a native file picker dialog that you cannot see or interact with. Instead, use read_page or find to locate the file input element, then use this tool with its ref to upload files directly. The paths must be absolute file paths on the local machine.',
@@ -397,10 +397,10 @@ const uploadImageTool: ToolDefinition = {
               }
             } else {
               if (!ref) return { error: 'Neither coordinate nor elementRef provided' };
-              if ((window as any).__claudeElementMap && (window as any).__claudeElementMap[ref]) {
-                targetElement = (window as any).__claudeElementMap[ref].deref() || null;
+              if ((window as any).__superduckElementMap && (window as any).__superduckElementMap[ref]) {
+                targetElement = (window as any).__superduckElementMap[ref].deref() || null;
                 if (!targetElement || !document.contains(targetElement)) {
-                  delete (window as any).__claudeElementMap[ref];
+                  delete (window as any).__superduckElementMap[ref];
                   targetElement = null;
                 }
               }
@@ -529,7 +529,7 @@ const uploadImageTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'upload_image',
     description:
       'Upload a previously captured screenshot or user-uploaded image to a file input or drag & drop target. Supports two approaches: (1) ref - for targeting specific elements, especially hidden file inputs, (2) coordinate - for drag & drop to visible locations like Google Docs. Provide either ref or coordinate, not both.',
@@ -973,7 +973,7 @@ const gifCreatorTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'gif_creator',
     description:
       "Manage GIF recording and export for browser automation sessions. Control when to start/stop recording browser actions (clicks, scrolls, navigation), then export as an animated GIF with visual overlays (click indicators, action labels, progress bar, watermark). All operations are scoped to the tab's group. When starting recording, take a screenshot immediately after to capture the initial state as the first frame. When stopping recording, take a screenshot immediately before to capture the final state as the last frame. For export, either provide 'coordinate' to drag/drop upload to a page element, or set 'download: true' to download the GIF.",

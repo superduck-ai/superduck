@@ -804,7 +804,7 @@ function countIndent(line: string): number {
 /**
  * 按 tabId 串行化 AX 扫描 + cursor-interactive 扫描。
  * 即便上层调度是串行的，也能防止未来引入并发（或 resolveStaleRef 与 takeSnapshot
- * 同时跑）时 data-__sd-ci 标记、__claudeRefCounter 等共享状态互相踩。
+ * 同时跑）时 data-__sd-ci 标记、__superduckRefCounter 等共享状态互相踩。
  */
 const snapshotLocks = new Map<number, Promise<unknown>>();
 

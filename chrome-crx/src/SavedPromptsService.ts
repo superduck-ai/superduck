@@ -123,7 +123,7 @@ export enum StorageKeys {
   TOKEN_EXPIRY = "tokenExpiry",
   OAUTH_STATE = "oauthState",
   CODE_VERIFIER = "codeVerifier",
-  ANTHROPIC_API_KEY = "anthropicApiKey",
+  API_KEY = "anthropicApiKey",
   SELECTED_MODEL = "selectedModel",
   SELECTED_MODEL_QUICK_MODE = "selectedModelQuickMode",
   SYSTEM_PROMPT = "systemPrompt",
@@ -394,7 +394,7 @@ export async function handleOAuthRedirect(
     );
     if (tokenResult.success) {
       await saveTokens(tokenResult, state || undefined);
-      const successUrl = "https://claude.ai/chrome/installed";
+      const successUrl = "https://superduck-ai.github.io/superduck/";
       if (tabId) await chrome.tabs.update(tabId, { url: successUrl });
       return { success: true, message: "Authentication successful!" };
     }
@@ -1351,6 +1351,6 @@ export class SavedPromptsService {
 
 export const savedPromptsService = SavedPromptsService;
 
-export const loginWithAnthropic = openOnboardingPage;
+export const loginWithProvider = openOnboardingPage;
 
 export const E = { SavedPromptsService };

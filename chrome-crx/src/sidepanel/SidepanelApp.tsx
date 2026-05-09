@@ -21,7 +21,7 @@ import {
   buildRehypePlugins
 } from './components/MarkdownComponents';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ClaudeAvatar } from './ClaudeAvatar';
+import { SuperDuckAvatar } from './SuperDuckAvatar';
 // Radix Tooltip import removed — replaced with CSS-only tooltip to avoid React 19 crash
 import {
   ArrowUp,
@@ -93,7 +93,7 @@ import {
   javascriptTool,
   cdpDebugger
 } from '../mcpPermissions';
-import { Anthropic } from '../mcpServersStore';
+import { MessagesClient } from '../mcpServersStore';
 import {
   generateConversationTitle as generateConversationTitleFunction,
   generateQuote,
@@ -217,7 +217,7 @@ interface RuntimeMessage {
   mainTabId?: number;
   secondaryTabId?: number;
   request_id?: string;
-  client_type?: 'claude-code' | 'desktop' | string;
+  client_type?: string;
   current_name?: string;
 }
 
@@ -258,7 +258,7 @@ interface BlockedTabInfo {
 
 interface SessionSnapshot {
   uiMessages: ChatMessage[];
-  anthropicMessages: any[];
+  apiMessages: any[];
   selectedModel: string;
   permissionMode: PermissionMode;
   createdAt?: number;
@@ -400,7 +400,7 @@ function getModelDisplayName(model: string, config: any): string {
     const family = match[1].toLowerCase();
     if (family === 'opus') return `Deep (${match[2]})`;
     if (family === 'haiku') return `Flash (${match[2]})`;
-    return `Claude Sonnet ${match[2]}`;
+    return `Sonnet ${match[2]}`;
   }
   return model;
 }
@@ -455,7 +455,7 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
     value: 'follow_a_plan',
     labelId: 'ask_before_acting',
     labelDefault: 'Ask before acting',
-    descriptionId: 'claude_aligns_on_its_approach_before_taking_actions',
+    descriptionId: 'superduck_aligns_on_its_approach_before_taking_actions',
     descriptionDefault: 'SuperDuck aligns on its approach before taking actions',
     Icon: Hand
   },
@@ -463,7 +463,7 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
     value: 'skip_all_permission_checks',
     labelId: 'act_without_asking',
     labelDefault: 'Act without asking',
-    descriptionId: 'claude_takes_actions_without_asking_for_permission',
+    descriptionId: 'superduck_takes_actions_without_asking_for_permission',
     descriptionDefault: 'SuperDuck takes actions without asking for permission',
     Icon: ChevronsRight
   }
@@ -954,11 +954,11 @@ function getMessageLimitBannerState(
   const isMax20x = accountInfo?.rateLimitTier === 'default_claude_max_20x';
   const canUpgrade = !isTeamOrg && !isMax20x;
   const upgradeUrl = accountInfo?.hasPro
-    ? 'https://claude.ai/upgrade?hide_pro=true'
-    : 'https://claude.ai/upgrade?hide_free=true';
+    ? 'https://superduck-ai.github.io/superduck/'
+    : 'https://superduck-ai.github.io/superduck/';
   const upgradeLabel = accountInfo?.hasPro ? 'Subscribe to Max' : 'Upgrade';
-  const settingsUsageUrl = 'https://claude.ai/settings/usage';
-  const settingsBillingUrl = 'https://claude.ai/settings/billing';
+  const settingsUsageUrl = 'https://superduck-ai.github.io/superduck/';
+  const settingsBillingUrl = 'https://superduck-ai.github.io/superduck/';
 
   if (isOverageScenario) {
     if (isOverageBlocking) {
@@ -1630,7 +1630,7 @@ function ConversationSummary({ message }: { message: any }) {
       </button>
       {expanded && (
         <div className="px-4 pt-2 pb-4 bg-bg-000">
-          <div className="font-claude-response text-xs text-text-200 whitespace-pre-wrap">
+          <div className="font-superduck-response text-xs text-text-200 whitespace-pre-wrap">
             {summaryText}
           </div>
         </div>
@@ -3681,13 +3681,13 @@ function useLightningMode({
       const cfg = getConfig();
       const baseUrl = merged.apiBaseUrl || cfg.apiBaseUrl;
       if (apiKey) {
-        clientRef.current = new Anthropic({
+        clientRef.current = new MessagesClient({
           baseURL: baseUrl,
           apiKey,
           dangerouslyAllowBrowser: true
         });
       } else if (authToken) {
-        clientRef.current = new Anthropic({
+        clientRef.current = new MessagesClient({
           baseURL: baseUrl,
           authToken,
           dangerouslyAllowBrowser: true
@@ -3762,8 +3762,8 @@ function useLightningMode({
     return () => chrome.storage.onChanged.removeListener(listener);
   }, [enabled, buildSystemPrompt]);
 
-  /** Create Anthropic message (non-streaming, for external callers) — bundle's ie */
-  const createAnthropicMessage = useCallback(
+  /** Create API message (non-streaming, for external callers). */
+  const createApiMessage = useCallback(
     async (params: { model?: string; maxTokens: number; messages: any[]; system: any }) => {
       if (!clientRef.current) throw new Error('Client not initialized');
       const fast = isFastModel();
@@ -3802,7 +3802,7 @@ function useLightningMode({
         if (appName) props.app = appName;
       }
       if (extra) Object.assign(props, extra);
-      analyticsRef.current?.track('claude_chrome.chat.tool_called', props);
+      analyticsRef.current?.track('superduck.chat.tool_called', props);
     },
     [permissionMode]
   );
@@ -4763,11 +4763,11 @@ function useLightningMode({
         const errMsg = err instanceof Error ? err.message : 'An unexpected error occurred.';
         if (errMsg.toLowerCase().includes('extra usage is required for fast mode')) {
           setLnError(
-            'Extra usage must be enabled to use this model in quick mode. Open claude.ai/settings/usage to enable it.'
+            'Extra usage must be enabled to use this model in quick mode. Open superduck-ai.github.io/superduck/ to enable it.'
           );
           chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             const id = tabs[0]?.id;
-            if (id) chrome.tabs.update(id, { url: 'https://claude.ai/settings/usage' });
+            if (id) chrome.tabs.update(id, { url: 'https://superduck-ai.github.io/superduck/' });
           });
         } else {
           setLnError(errMsg);
@@ -4852,7 +4852,7 @@ function useLightningMode({
     messageLimit: WITHIN_LIMIT_RESULT,
     setMessages: setLnMessages,
     tokensSaved: null,
-    createAnthropicMessage,
+    createApiMessage,
     lastStopReason: lnLastStopReason,
     currentStatus: lnCurrentStatus,
     conversationUuid: null
@@ -4932,7 +4932,7 @@ function PlanApprovalModal({
         <div className="flex items-center gap-2">
           <ChecklistIcon size={20} className="text-text-100" />
           <h3 className="font-base text-text-100">
-            <MemoizedFormattedMessage id="claudes_plan" defaultMessage="SuperDuck's plan" />
+            <MemoizedFormattedMessage id="superducks_plan" defaultMessage="SuperDuck's plan" />
           </h3>
         </div>
         {isReadOnly && onClose && (
@@ -4986,7 +4986,7 @@ function PlanApprovalModal({
                     {isForceAsk && (
                       <Tooltip
                         tooltipContent={intl.formatMessage({
-                          id: 'you_must_approve_any_claude_action_on_this',
+                          id: 'you_must_approve_any_superduck_action_on_this',
                           defaultMessage: 'You must approve any SuperDuck action on this site'
                         })}
                         side="top"
@@ -5050,7 +5050,7 @@ function PlanApprovalModal({
           </PermissionActionButton>
           <p className="font-small text-text-500 pt-1 px-1">
             <MemoizedFormattedMessage
-              id="claude_will_only_use_the_sites_listed_youll"
+              id="superduck_will_only_use_the_sites_listed_youll"
               defaultMessage="SuperDuck will only use the sites listed. You'll be asked before accessing anything else."
             />
           </p>
@@ -5530,7 +5530,7 @@ function ScrollToBottomButton({
 
 // Safe-use tips URL for high-risk permission mode warning
 const SAFE_USE_TIPS_URL =
-  'https://support.claude.com/en/articles/12012173-getting-started-with-claude-for-chrome#h_91c6e5a1ee';
+  'https://superduck-ai.github.io/superduck/';
 
 /** AnnouncementIcon — custom sparkle/megaphone SVG matching bundle's Hy icon */
 function AnnouncementIcon({ size = 16 }: { size?: number }) {
@@ -6301,7 +6301,7 @@ const BlockRenderer = React.memo(function BlockRenderer({
 
     return (
       <div
-        className={`font-claude-response text-sm leading-[1.65rem] ${textColor || 'text-text-100'} break-words`}
+        className={`font-superduck-response text-sm leading-[1.65rem] ${textColor || 'text-text-100'} break-words`}
       >
         <div className={`standard-markdown ${STANDARD_MARKDOWN_GRID_CLASS}`}>
           <ReactMarkdown
@@ -6534,7 +6534,7 @@ function AssistantMessageRow({
 
   return (
     <div className="flex items-start group">
-      <div className="max-w-4xl claude-response w-full break-words">
+      <div className="max-w-4xl superduck-response w-full break-words">
         <ContentBlocksRenderer
           blocks={processedBlocks}
           isStreaming={isStreaming}
@@ -6638,8 +6638,8 @@ function StreamingTextBlock({ store }: { store: StreamingTextStore }) {
 
   return (
     <div className="flex items-start group">
-      <div className="max-w-4xl claude-response w-full break-words">
-        <div className="font-claude-response text-sm leading-[1.65rem] text-text-100 break-words">
+      <div className="max-w-4xl superduck-response w-full break-words">
+        <div className="font-superduck-response text-sm leading-[1.65rem] text-text-100 break-words">
           <div className={`standard-markdown streaming-markdown ${STANDARD_MARKDOWN_GRID_CLASS}`}>
             <ReactMarkdown
               remarkPlugins={remarkPlugins}
@@ -6656,12 +6656,12 @@ function StreamingTextBlock({ store }: { store: StreamingTextStore }) {
 }
 
 const MessageList = React.memo(function MessageList({
-  anthropicMessages,
+  apiMessages,
   streamingTextStore,
   isAgentRunning,
   scrollRefs
 }: {
-  anthropicMessages: any[];
+  apiMessages: any[];
   streamingTextStore: StreamingTextStore;
   isAgentRunning: boolean;
   scrollRefs?: {
@@ -6688,8 +6688,8 @@ const MessageList = React.memo(function MessageList({
   const groups = useMemo(() => {
     const result: any[] = [];
 
-    for (let i = 0; i < anthropicMessages.length; i++) {
-      const msg = anthropicMessages[i];
+    for (let i = 0; i < apiMessages.length; i++) {
+      const msg = apiMessages[i];
 
       // Handle compaction messages
       if (msg.isCompactionMessage || msg.isCompactSummary) {
@@ -6755,7 +6755,7 @@ const MessageList = React.memo(function MessageList({
     }
 
     return result;
-  }, [anthropicMessages]);
+  }, [apiMessages]);
 
   // displayGroups is now just groups — streaming text is rendered separately by StreamingTextBlock
   const displayGroups = groups;
@@ -6799,7 +6799,7 @@ const MessageList = React.memo(function MessageList({
           <AssistantMessageRow
             blocks={group.assistantBlocks}
             isStreaming={isStreamingGroup}
-            allMessages={anthropicMessages}
+            allMessages={apiMessages}
           />
         )}
         {isStreamingGroup && <StreamingTextBlock store={streamingTextStore} />}
@@ -6932,7 +6932,7 @@ function VersionBlockedView({
           className="px-4 py-2 rounded-lg bg-accent-main-100 text-oncolor-100"
           onClick={() =>
             chrome.tabs.create({
-              url: 'https://chromewebstore.google.com/detail/claude/komnjkkihimgafgblijcchlgeiogpjgi'
+              url: 'https://superduck-ai.github.io/superduck/'
             })
           }
         >
@@ -7283,7 +7283,7 @@ function InlinePermissionPrompt({
     <div className="p-4">
       <div className="text-sm text-text-300 mb-1">
         <MemoizedFormattedMessage
-          id="claude_wants_to"
+          id="superduck_wants_to"
           defaultMessage="SuperDuck wants to {toolAction}:"
           values={{
             toolAction: <span className="font-medium text-text-100">{actionText}</span>
@@ -7371,7 +7371,7 @@ export function SidepanelApp() {
   }
 
   useEffect(() => {
-    void trackEvent('claude_chrome.sidebar.opened', {});
+    void trackEvent('superduck.sidebar.opened', {});
   }, []);
 
   const query = useQueryState();
@@ -7395,7 +7395,7 @@ export function SidepanelApp() {
   const [activeRemoteSessionId, setActiveRemoteSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [anthropicMessages, setAnthropicMessages] = useState<any[]>([]);
+  const [apiMessages, setApiMessages] = useState<any[]>([]);
   const [messageHistory, setMessageHistory] = useState<any[]>([]);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('skip_all_permission_checks');
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -7630,12 +7630,12 @@ export function SidepanelApp() {
   const inputValueRef = useRef(input);
   inputValueRef.current = input;
 
-  // Ref-based stable wrapper for createAnthropicMessage to avoid hook ordering issues.
-  // createAnthropicMessage is defined later (after anthropicClient), but useWorkflowRecording
+  // Ref-based stable wrapper for createApiMessage to avoid hook ordering issues.
+  // createApiMessage is defined later (after messagesClient), but useWorkflowRecording
   // needs it. We use a ref so the wrapper identity is stable across renders.
-  const createAnthropicMessageRef = useRef<((...args: any[]) => Promise<any>) | null>(null);
+  const createApiMessageRef = useRef<((...args: any[]) => Promise<any>) | null>(null);
   const stableCreateMessage = useCallback(async (request: any) => {
-    const fn = createAnthropicMessageRef.current;
+    const fn = createApiMessageRef.current;
     if (!fn) throw new Error('Client not initialized');
     return fn(request);
   }, []);
@@ -7727,12 +7727,12 @@ export function SidepanelApp() {
             ? eventsPayload
             : [];
 
-        const anthropicMessages: any[] = [];
+        const apiMessages: any[] = [];
         const uiMessages: ChatMessage[] = [];
         for (const event of events) {
           const message = pickEventMessage(event);
           if (!message) continue;
-          anthropicMessages.push(message);
+          apiMessages.push(message);
 
           const text =
             typeof message.content === 'string'
@@ -7746,7 +7746,7 @@ export function SidepanelApp() {
           });
         }
 
-        if (anthropicMessages.length === 0) {
+        if (apiMessages.length === 0) {
           return undefined;
         }
 
@@ -7761,7 +7761,7 @@ export function SidepanelApp() {
 
         return {
           uiMessages,
-          anthropicMessages,
+          apiMessages,
           selectedModel: restoredModel,
           permissionMode: permissionModeRef.current,
           createdAt: Date.now(),
@@ -7790,7 +7790,7 @@ export function SidepanelApp() {
         ...prev,
         ...visibleEntries.map(({ role, text }) => ({ id: createId(), role, text }))
       ]);
-      setAnthropicMessages((prev) => [
+      setApiMessages((prev) => [
         ...prev,
         ...visibleEntries.map(({ role, text }) => ({
           role,
@@ -7829,7 +7829,7 @@ export function SidepanelApp() {
       const [tokenResult, keyResult, storedCustomApiUrlResult, storedCustomApiKeyResult] =
         await Promise.allSettled([
           getAccessToken(),
-          getStorageValue(StorageKeys.ANTHROPIC_API_KEY, ''),
+          getStorageValue(StorageKeys.API_KEY, ''),
           getStorageValue(CUSTOM_API_URL_KEY, ''),
           getStorageValue(CUSTOM_API_KEY_KEY, '')
         ]);
@@ -7876,7 +7876,7 @@ export function SidepanelApp() {
         StorageKeys.ACCESS_TOKEN in changes ||
         StorageKeys.REFRESH_TOKEN in changes ||
         StorageKeys.TOKEN_EXPIRY in changes ||
-        StorageKeys.ANTHROPIC_API_KEY in changes ||
+        StorageKeys.API_KEY in changes ||
         CUSTOM_API_URL_KEY in changes ||
         CUSTOM_API_KEY_KEY in changes
       ) {
@@ -8131,9 +8131,9 @@ export function SidepanelApp() {
     }));
   }, [versionInfo]);
 
-  const anthropicClient = useMemo(() => {
+  const messagesClient = useMemo(() => {
     if (!authToken && !apiKey) return null;
-    return new Anthropic({
+    return new MessagesClient({
       baseURL: apiBaseUrl,
       dangerouslyAllowBrowser: true,
       ...(authToken ? { authToken } : { apiKey })
@@ -8148,11 +8148,11 @@ export function SidepanelApp() {
   } | null>(null);
   const serverContextLengthRef = useRef<number>(CONTEXT_WINDOW);
   useEffect(() => {
-    if (!anthropicClient) return;
+    if (!messagesClient) return;
     const ctrl = new AbortController();
     (async () => {
       try {
-        const page = await (anthropicClient as any).models.list(
+        const page = await (messagesClient as any).models.list(
           {},
           { signal: ctrl.signal }
         );
@@ -8167,7 +8167,7 @@ export function SidepanelApp() {
       }
     })();
     return () => ctrl.abort();
-  }, [anthropicClient]);
+  }, [messagesClient]);
 
   const systemPrompt = useMemo(() => {
     const isMac = navigator.platform.toUpperCase().includes('MAC');
@@ -8187,9 +8187,9 @@ export function SidepanelApp() {
     ];
   }, [permissionMode, selectedModel]);
 
-  const createAnthropicMessage = useCallback(
+  const createApiMessage = useCallback(
     async (params: any, _parentSpan?: unknown, _spanName?: string) => {
-      if (!anthropicClient) throw new Error('Client not initialized');
+      if (!messagesClient) throw new Error('Client not initialized');
 
       // Destructure fields that need special handling (matching compiled Ze)
       const {
@@ -8220,7 +8220,7 @@ export function SidepanelApp() {
         ? await resolveShortcutMarkersInMessages(rawMessages)
         : rawMessages;
 
-      return anthropicClient.beta.messages.create(
+      return messagesClient.beta.messages.create(
         {
           ...rest,
           messages,
@@ -8231,11 +8231,11 @@ export function SidepanelApp() {
         undefined
       );
     },
-    [anthropicClient, authToken, selectedModel, modelConfig]
+    [messagesClient, authToken, selectedModel, modelConfig]
   );
 
   // Keep the ref in sync so the stable wrapper always calls the latest version
-  createAnthropicMessageRef.current = createAnthropicMessage;
+  createApiMessageRef.current = createApiMessage;
 
   // --- Permission allow/deny handlers (matching bundle's Qt/Xt) ---
   const handlePermissionAllow = useCallback(
@@ -8329,7 +8329,7 @@ export function SidepanelApp() {
           tabId: query.tabId,
           permissionMode: permissionModeRef.current,
           toolUseId: toolUse.id,
-          anthropicClient,
+          messagesClient,
           onPermissionRequired: async (permissionData: any, permTabId: number) => {
             return onPermissionRequired(permissionData as PermissionPromptData);
           }
@@ -8352,13 +8352,13 @@ export function SidepanelApp() {
         };
       }
     },
-    [permissionMode, query.tabId, onPermissionRequired, anthropicClient]
+    [permissionMode, query.tabId, onPermissionRequired, messagesClient]
   );
 
   const compactConversation = useCallback(
     async (manual = false, options?: { visibleCommandText?: string }) => {
       const visibleCommandText = options?.visibleCommandText?.trim();
-      const messagesToCompact = anthropicMessages.filter((msg: any) => !msg.isLocalOnlyMessage);
+      const messagesToCompact = apiMessages.filter((msg: any) => !msg.isLocalOnlyMessage);
 
       if (messagesToCompact.length === 0) {
         if (visibleCommandText) {
@@ -8367,14 +8367,14 @@ export function SidepanelApp() {
             { role: 'assistant', text: '没有可清理的对话历史' }
           ]);
         }
-        return anthropicMessages;
+        return apiMessages;
       }
 
-      if (isCompacting) return anthropicMessages;
+      if (isCompacting) return apiMessages;
 
       if (visibleCommandText) {
         pushMessage('user', visibleCommandText);
-        setAnthropicMessages((prev) => [
+        setApiMessages((prev) => [
           ...prev,
           { role: 'user', content: visibleCommandText, isLocalOnlyMessage: true }
         ]);
@@ -8383,7 +8383,7 @@ export function SidepanelApp() {
       setIsCompacting(true);
       try {
         const compactor = new ConversationCompactor(
-          async (params) => createAnthropicMessage(params),
+          async (params) => createApiMessage(params),
           intl.locale,
           serverContextLengthRef.current
         );
@@ -8393,7 +8393,7 @@ export function SidepanelApp() {
           !manual
         );
         setMessageHistory(messagesToCompact);
-        setAnthropicMessages(
+        setApiMessages(
           visibleCommandText
             ? [
                 {
@@ -8421,15 +8421,15 @@ export function SidepanelApp() {
         const errorText = `Compaction failed: ${getErrorMessage(error)}`;
         pushMessage('system', errorText);
         appendVisibleLocalMessages([{ role: 'assistant', text: errorText }]);
-        return anthropicMessages;
+        return apiMessages;
       } finally {
         setIsCompacting(false);
       }
     },
     [
-      anthropicMessages,
+      apiMessages,
       appendVisibleLocalMessages,
-      createAnthropicMessage,
+      createApiMessage,
       isCompacting,
       pushMessage
     ]
@@ -8444,7 +8444,7 @@ export function SidepanelApp() {
     try {
       await chrome.notifications.create(`notification_${Date.now()}`, {
         type: 'basic',
-        iconUrl: chrome.runtime.getURL('claude_icon.svg'),
+        iconUrl: chrome.runtime.getURL('superduck_icon.svg'),
         title: 'SuperDuck is done',
         message: 'Your task is completed. Ready to check in?',
         priority: 2
@@ -8462,7 +8462,7 @@ export function SidepanelApp() {
         const localeInstruction = getStatusSummaryLanguageInstruction(
           intl.locale as SupportedLocale
         );
-        const response = await createAnthropicMessage({
+        const response = await createApiMessage({
           messages: [
             {
               role: 'user',
@@ -8492,7 +8492,7 @@ export function SidepanelApp() {
         // silently fail status generation
       }
     },
-    [createAnthropicMessage, intl.locale]
+    [createApiMessage, intl.locale]
   );
 
   // Generate a conversation title from the first user message (matches original In)
@@ -8502,7 +8502,7 @@ export function SidepanelApp() {
       try {
         const title = await generateConversationTitleFunction(
           userMessage,
-          (params) => createAnthropicMessage(params),
+          (params) => createApiMessage(params),
           intl.locale as SupportedLocale
         );
 
@@ -8514,7 +8514,7 @@ export function SidepanelApp() {
         // silently fail title generation
       }
     },
-    [createAnthropicMessage, query.tabId, intl.locale]
+    [createApiMessage, query.tabId, intl.locale]
   );
 
   const sendPrompt = useCallback(
@@ -8525,7 +8525,7 @@ export function SidepanelApp() {
       const trimmed = text.trim();
       const attachments = options?.attachments ?? [];
       if (!trimmed && attachments.length === 0) return;
-      if (!anthropicClient) {
+      if (!messagesClient) {
         setRuntimeError('Not authenticated. Please sign in first.');
         return;
       }
@@ -8574,7 +8574,7 @@ export function SidepanelApp() {
         pm.clearTurnApprovedDomains();
       }
       if (
-        anthropicMessages.length === 0 &&
+        apiMessages.length === 0 &&
         notificationsEnabled === undefined &&
         notificationBannerTimerRef.current === null
       ) {
@@ -8589,7 +8589,7 @@ export function SidepanelApp() {
       pushMessage('user', trimmed || '[Image input]');
 
       try {
-        let baseMessages = anthropicMessages;
+        let baseMessages = apiMessages;
         if (
           calculateMessageLimitFromUsage(
             baseMessages[baseMessages.length - 1]?.usage,
@@ -8649,7 +8649,7 @@ export function SidepanelApp() {
         }
 
         let workingMessages = [...baseMessages, { role: 'user', content: userContent }];
-        setAnthropicMessages(workingMessages);
+        setApiMessages(workingMessages);
 
         const MAX_STREAM_RETRIES = 10;
         let continueLoop = true;
@@ -8719,7 +8719,7 @@ export function SidepanelApp() {
               // Apply model mapping if custom API is configured
               const mappedModel = await mapModelName(selectedModel || DEFAULT_MODEL);
 
-              const stream = anthropicClient.beta.messages.stream(
+              const stream = messagesClient.beta.messages.stream(
                 {
                   model: mappedModel,
                   max_tokens: MAX_TOKENS,
@@ -8816,7 +8816,7 @@ export function SidepanelApp() {
               ];
 
               // 实时更新状态，让 UI 能看到 tool_use
-              setAnthropicMessages(workingMessages);
+              setApiMessages(workingMessages);
 
               setLastStopReason({
                 reason: (response as any).stop_reason || 'end_turn',
@@ -8998,7 +8998,7 @@ export function SidepanelApp() {
               workingMessages = [...workingMessages, { role: 'user', content: toolResults }];
 
               // 实时更新状态，让 UI 能看到 tool_result
-              setAnthropicMessages(workingMessages);
+              setApiMessages(workingMessages);
 
               // In-loop auto compaction: prevent token overflow during long agentic runs
               const lastAssistantMsg = [...workingMessages]
@@ -9012,7 +9012,7 @@ export function SidepanelApp() {
                 if (limitState.type === 'exceeded_limit' || limitState.type === 'approaching_limit') {
                   try {
                     const compactor = new ConversationCompactor(
-                      async (params: any) => createAnthropicMessage(params),
+                      async (params: any) => createApiMessage(params),
                       intl.locale,
                       serverContextLengthRef.current
                     );
@@ -9022,7 +9022,7 @@ export function SidepanelApp() {
                       true
                     );
                     workingMessages = compactResult.messagesAfterCompacting;
-                    setAnthropicMessages(workingMessages);
+                    setApiMessages(workingMessages);
                     pushMessage('system', 'Conversation compacted to save context.');
                   } catch (compactError) {
                     console.warn('[Agentic Loop] In-loop compaction failed:', compactError);
@@ -9068,7 +9068,7 @@ export function SidepanelApp() {
           } while (shouldRetry);
         }
 
-        setAnthropicMessages(workingMessages);
+        setApiMessages(workingMessages);
       } catch (error) {
         const message = getErrorMessage(error);
         const lowerMessage = message.toLowerCase();
@@ -9119,8 +9119,8 @@ export function SidepanelApp() {
       }
     },
     [
-      anthropicClient,
-      anthropicMessages,
+      messagesClient,
+      apiMessages,
       authToken,
       compactConversation,
       executeToolUse,
@@ -9140,8 +9140,8 @@ export function SidepanelApp() {
   // When isPurlMode is active and lightningResult is available, route through lightning mode.
   // The effective* variables are used downstream instead of the raw normal-mode state.
   const effectiveMessages = isPurlMode && lightningResult ? lightningResult.messages : messages;
-  const effectiveAnthropicMessages =
-    isPurlMode && lightningResult ? lightningResult.messages : anthropicMessages;
+  const effectiveApiMessages =
+    isPurlMode && lightningResult ? lightningResult.messages : apiMessages;
   const effectiveIsAgentRunning =
     isPurlMode && lightningResult ? lightningResult.isLoading : isAgentRunning;
   const effectiveCurrentStatus =
@@ -9149,14 +9149,14 @@ export function SidepanelApp() {
   const effectiveRuntimeError =
     isPurlMode && lightningResult ? lightningResult.error : runtimeError;
   useEffect(() => {
-    const msg = effectiveRuntimeError || lnError;
+    const msg = effectiveRuntimeError;
     if (!msg) return;
-    void trackEvent('claude_chrome.sidebar.error_shown', {
+    void trackEvent('superduck.sidebar.error_shown', {
       // Truncate to keep PostHog cardinality bounded and avoid leaking user content.
       message: msg.slice(0, 80),
-      source: lnError ? 'chat' : 'runtime'
+      source: isPurlMode && lightningResult?.error ? 'chat' : 'runtime'
     });
-  }, [effectiveRuntimeError, lnError]);
+  }, [effectiveRuntimeError, isPurlMode, lightningResult?.error]);
   const effectiveSetMessages =
     isPurlMode && lightningResult ? lightningResult.setMessages : setMessages;
   const effectiveHasInteractiveTools = isPurlMode && lightningResult ? false : hasInteractiveTools;
@@ -9196,7 +9196,7 @@ export function SidepanelApp() {
     }
     // Always clear normal mode state too
     setMessages([]);
-    setAnthropicMessages([]);
+    setApiMessages([]);
     setMessageHistory([]);
     setRuntimeError(null);
     setCurrentStatus('');
@@ -9433,7 +9433,7 @@ export function SidepanelApp() {
     let active = true;
     (async () => {
       setMessages([]);
-      setAnthropicMessages([]);
+      setApiMessages([]);
       setMessageHistory([]);
       setRuntimeError(null);
       setLastStopReason(null);
@@ -9501,8 +9501,8 @@ export function SidepanelApp() {
       if (snapshot?.uiMessages) {
         setMessages(snapshot.uiMessages);
       }
-      if (snapshot?.anthropicMessages) {
-        setAnthropicMessages(snapshot.anthropicMessages);
+      if (snapshot?.apiMessages) {
+        setApiMessages(snapshot.apiMessages);
       }
       if (snapshot?.selectedModel) {
         console.log('[Snapshot Restore] Snapshot has model:', snapshot.selectedModel);
@@ -9560,7 +9560,7 @@ export function SidepanelApp() {
         .find((message) => message.role === 'user' && message.text.trim())?.text;
       const snapshot: SessionSnapshot = {
         uiMessages: messages,
-        anthropicMessages,
+        apiMessages,
         selectedModel,
         permissionMode,
         createdAt: sessionCreatedAtRef.current,
@@ -9614,7 +9614,7 @@ export function SidepanelApp() {
     activeConversationUuid,
     activeRemoteSessionId,
     activeSessionId,
-    anthropicMessages,
+    apiMessages,
     historyStorageKey,
     messages,
     permissionMode,
@@ -9751,7 +9751,7 @@ export function SidepanelApp() {
     };
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [anthropicMessages.length]);
+  }, [apiMessages.length]);
 
   useEffect(() => {
     const listener = (
@@ -10021,7 +10021,7 @@ export function SidepanelApp() {
     }
 
     const attachmentsToSend = pendingAttachments;
-    void trackEvent('claude_chrome.sidebar.message_sent', {
+    void trackEvent('superduck.sidebar.message_sent', {
       input_length: value.length,
       attachment_count: attachmentsToSend.length,
       has_attachment: attachmentsToSend.length > 0,
@@ -10041,7 +10041,7 @@ export function SidepanelApp() {
   }, [input, pendingAttachments, effectiveSendPrompt, effectiveIsAgentRunning, authToken, apiKey]);
 
   const insertShortcutChip = useCallback((command: string, label?: string) => {
-    void trackEvent('claude_chrome.sidebar.shortcut_used', { command });
+    void trackEvent('superduck.sidebar.shortcut_used', { command });
     inputRef.current?.clear();
     inputRef.current?.insertShortcut(command, label || command);
     inputRef.current?.focus();
@@ -10221,7 +10221,7 @@ export function SidepanelApp() {
       tabGroupManager.setTabIndicatorState(query.tabId, 'none').catch(() => {});
     }
     setMessages([]);
-    setAnthropicMessages([]);
+    setApiMessages([]);
     setMessageHistory([]);
     setTokensSaved(null);
     setRuntimeError(null);
@@ -10346,7 +10346,7 @@ export function SidepanelApp() {
       }
 
       console.log('[Model Change] Switching to:', nextModel);
-      void trackEvent('claude_chrome.sidebar.model_switched', {
+      void trackEvent('superduck.sidebar.model_switched', {
         from: selectedModel || '',
         to: nextModel
       });
@@ -10512,7 +10512,7 @@ export function SidepanelApp() {
     setRefusalFeedbackSent(true);
     try {
       await chrome.runtime.sendMessage({
-        type: 'claude_chrome.chat.feedback',
+        type: 'superduck.chat.feedback',
         category: 'sc/false_positive',
         sentiment: 'negative',
         sessionId: activeSessionId,
@@ -10523,14 +10523,14 @@ export function SidepanelApp() {
       // swallow missing listeners
     }
     chrome.tabs.create({
-      url: 'https://support.anthropic.com/en/articles/8525154-claude-is-providing-incorrect-or-misleading-responses-what-s-going-on'
+      url: 'https://superduck-ai.github.io/superduck/'
     });
   }, [activeSessionId, fallbackConfig?.fallbackModelName, selectedModel]);
 
   const handleStartWorkflowRecording = useCallback(async () => {
     setShowWorkflowModeSelectionModal(false);
 
-    void trackEvent('claude_chrome.sidebar.workflow_record_started', {});
+    void trackEvent('superduck.sidebar.workflow_record_started', {});
     await startRecording(true);
   }, [setShowWorkflowModeSelectionModal, startRecording]);
 
@@ -10585,8 +10585,8 @@ export function SidepanelApp() {
     const ctxWindow = serverModelInfo?.contextLength ?? CONTEXT_WINDOW;
     const budget = Math.max(1, ctxWindow - MAX_TOKENS);
     let lastUsage: any = null;
-    for (let i = anthropicMessages.length - 1; i >= 0; i--) {
-      const msg = anthropicMessages[i];
+    for (let i = apiMessages.length - 1; i >= 0; i--) {
+      const msg = apiMessages[i];
       if (msg?.role === 'assistant' && msg?.usage) {
         lastUsage = msg.usage;
         break;
@@ -10609,7 +10609,7 @@ export function SidepanelApp() {
       remaining,
       percentUsed
     };
-  }, [debugMode, anthropicMessages, serverModelInfo]);
+  }, [debugMode, apiMessages, serverModelInfo]);
 
   const selectedModelLabel = useMemo(() => {
     const label =
@@ -10677,7 +10677,7 @@ export function SidepanelApp() {
     );
   }
 
-  if (!anthropicClient) {
+  if (!messagesClient) {
     return <OAuthGate authError={authError} onRetry={refreshAuth} />;
   }
 
@@ -10686,7 +10686,7 @@ export function SidepanelApp() {
   return (
     <div
       className="relative h-screen bg-bg-100 text-text-100"
-      data-theme="claude"
+      data-theme="superduck"
       style={
         showHighRiskFrame
           ? {
@@ -10895,14 +10895,14 @@ export function SidepanelApp() {
           <ScrollContainer
             ref={autoScrollRef}
             parentClassName={
-              'flex-1 min-h-0 ' + (anthropicMessages.length === 0 ? '!overflow-hidden' : '')
+              'flex-1 min-h-0 ' + (apiMessages.length === 0 ? '!overflow-hidden' : '')
             }
             innerClassName="h-full"
             pinToBottomConfig={{ disabled: false, initialValue: true }}
           >
             <div className="mx-auto flex size-full max-w-3xl flex-col md:px-2">
               <div className="flex-1 flex flex-col px-4 max-w-3xl mx-auto w-full pt-1">
-                {effectiveAnthropicMessages.length === 0 ? (
+                {effectiveApiMessages.length === 0 ? (
                   <EmptyState
                     tabId={query.tabId}
                     onPromptClick={(prompt) => {
@@ -10911,7 +10911,7 @@ export function SidepanelApp() {
                   />
                 ) : (
                   <MessageList
-                    anthropicMessages={effectiveAnthropicMessages}
+                    apiMessages={effectiveApiMessages}
                     streamingTextStore={streamingTextStoreRef.current}
                     isAgentRunning={effectiveIsAgentRunning}
                     scrollRefs={messageListScrollRefs}
@@ -10926,12 +10926,12 @@ export function SidepanelApp() {
                         (!(effectiveIsAgentRunning || effectiveIsCompacting) ? 'invisible' : '')
                       }
                     >
-                      <ClaudeAvatar
+                      <SuperDuckAvatar
                         state={effectiveIsCompacting ? 'shimmer' : 'thinking'}
                         isInteractive={false}
                         className=""
                       />
-                      <div className="text-sm text-text-300 italic font-claude-response relative inline-block">
+                      <div className="text-sm text-text-300 italic font-superduck-response relative inline-block">
                         {(() => {
                           const statusText = effectiveIsCompacting
                             ? intl.formatMessage({
@@ -10959,7 +10959,7 @@ export function SidepanelApp() {
                 <AutoScrollSpacer
                   scrollRefs={scrollRefs}
                   autoScrollRef={autoScrollRef}
-                  messageCount={anthropicMessages.length}
+                  messageCount={apiMessages.length}
                   isStreaming={effectiveIsAgentRunning}
                 />
               </div>
@@ -10985,7 +10985,7 @@ export function SidepanelApp() {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       chrome.tabs.create({
-                                        url: 'https://claude.ai/upgrade?hide_free=true'
+                                        url: 'https://superduck-ai.github.io/superduck/'
                                       });
                                     }}
                                     className="underline cursor-pointer text-text-100 opacity-90 hover:opacity-100"
@@ -11035,7 +11035,7 @@ export function SidepanelApp() {
                                   <button
                                     onClick={() =>
                                       chrome.tabs.create({
-                                        url: 'https://www.anthropic.com/legal/aup'
+                                        url: 'https://superduck-ai.github.io/superduck/'
                                       })
                                     }
                                     className="inline-link"
@@ -11085,7 +11085,7 @@ export function SidepanelApp() {
                                 dismissWithGradient
                               >
                                 <MemoizedFormattedMessage
-                                  id="high_risk_claude_can_take_most_actions_on"
+                                  id="high_risk_superduck_can_take_most_actions_on"
                                   defaultMessage="<bold>HIGH RISK:</bold> SuperDuck can take most actions on the internet now. This setting could put your data at risk. <link>See safe use tips</link>"
                                   values={{
                                     bold: (chunks: any) => (
@@ -11160,7 +11160,7 @@ export function SidepanelApp() {
                         fallbackModelName={fallbackConfig.fallbackModelName}
                         fallbackDisplayName={fallbackConfig.fallbackDisplayName}
                         learnMoreUrl={
-                          fallbackConfig.learnMoreUrl || 'https://support.anthropic.com'
+                          fallbackConfig.learnMoreUrl || 'https://superduck-ai.github.io/superduck/'
                         }
                         onRetry={() => void retryWithFallback()}
                         onSendFeedback={sendRefusalFeedback}
@@ -11519,11 +11519,11 @@ export function SidepanelApp() {
                               </div>
 
                               <div className="flex items-center gap-2">
-                                {/* Teach Claude button */}
+                                {/* Teach SuperDuck button */}
                                 <Tooltip
                                   tooltipContent={intl.formatMessage({
                                     defaultMessage: 'Teach SuperDuck',
-                                    id: 'teach_claude'
+                                    id: 'teach_superduck'
                                   })}
                                   side="top"
                                 >
@@ -11535,7 +11535,7 @@ export function SidepanelApp() {
                                     className="inline-flex items-center justify-center relative shrink-0 select-none font-medium h-7 w-7 rounded-lg active:scale-95 transition-all duration-200 text-text-300 hover:text-text-200 hover:bg-bg-200"
                                     aria-label={intl.formatMessage({
                                       defaultMessage: 'Teach SuperDuck',
-                                      id: 'teach_claude'
+                                      id: 'teach_superduck'
                                     })}
                                   >
                                     <CursorClickIcon size={12} />
@@ -11650,7 +11650,7 @@ export function SidepanelApp() {
                           </div>
                           <div className="flex justify-center py-1.5 text-text-500 bg-bg-100">
                             <a
-                              href="https://support.anthropic.com/en/articles/8525154-claude-is-providing-incorrect-or-misleading-responses-what-s-going-on"
+                              href="https://superduck-ai.github.io/superduck/"
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-[11px] hover:text-text-300 transition-colors text-center"
@@ -11688,14 +11688,14 @@ export function SidepanelApp() {
                   // Save the generated prompt. Let the shortcut modal generate its own command name
                   // instead of reusing the recording title or page title.
                   void workflowTitle;
-                  void trackEvent('claude_chrome.sidebar.workflow_record_stopped', {
+                  void trackEvent('superduck.sidebar.workflow_record_stopped', {
                     step_count: steps.length,
                     saved: true
                   });
                   setPromptToSave({ prompt: summary });
                   stopRecording();
                 }}
-                createMessage={createAnthropicMessage}
+                createMessage={createApiMessage}
                 isGeneratingSummary={isGeneratingSummary}
                 setIsGeneratingSummary={setIsGeneratingSummary}
                 currentUrl={currentPageUrl}
@@ -11762,7 +11762,9 @@ export function SidepanelApp() {
                   defaultMessage="{clientLabel} wants to connect"
                   values={{
                     clientLabel:
-                      pairingPrompt.clientType === 'claude-code' ? 'Claude Code' : 'Claude Desktop'
+                      pairingPrompt.clientType.toLowerCase().includes('code')
+                        ? 'Code Client'
+                        : 'Desktop Client'
                   }}
                 />
               </h3>
@@ -11849,7 +11851,7 @@ export function SidepanelApp() {
               try {
                 return await generateShortcutName(
                   prompt,
-                  (params) => createAnthropicMessage(params),
+                  (params) => createApiMessage(params),
                   intl.locale as SupportedLocale
                 );
               } catch (error) {

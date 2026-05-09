@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useReducer } from 'react';
-import type { Animations } from './claude-animations';
+import type { Animations } from './superduck-animations';
 
 // Static Duck logo SVG (fallback)
 function DuckLogo({ className }: { className?: string }) {
@@ -40,17 +40,17 @@ function DuckLogo({ className }: { className?: string }) {
 
 export type AvatarState = 'static' | 'thinking' | 'writing' | 'shimmer' | 'tickle';
 
-interface ClaudeAvatarProps {
+interface SuperDuckAvatarProps {
   state?: AvatarState;
   className?: string;
   isInteractive?: boolean;
 }
 
-export function ClaudeAvatar({
+export function SuperDuckAvatar({
   state = 'static',
   className = '',
   isInteractive = true,
-}: ClaudeAvatarProps) {
+}: SuperDuckAvatarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const previousStateRef = useRef<AvatarState>(state);
   const [animations, setAnimations] = useState<Animations | null>(null);
@@ -59,7 +59,7 @@ export function ClaudeAvatar({
 
   // Load animations data
   useEffect(() => {
-    import('./claude-animations').then((module) => {
+    import('./superduck-animations').then((module) => {
       setAnimations(module.animations);
     });
   }, []);

@@ -27,9 +27,7 @@ import { initModelMappingListener } from "./utils/modelMapping";
 
 const NATIVE_HOST_NAMES = [
   { name: "com.me.superduck_browser_extension", label: "Desktop" },
-  { name: "com.me.superduck_code_browser_extension", label: "Claude Code" },
-  { name: "com.me.klaude_browser_extension", label: "Desktop" },
-  { name: "com.me.klaude_code_browser_extension", label: "Claude Code" },
+  { name: "com.me.superduck_code_browser_extension", label: "Code Client" },
 ] as const;
 
 let nativePort: chrome.runtime.Port | null = null;
@@ -317,12 +315,12 @@ async function handleExtensionUrl(url: string, tabId: number): Promise<boolean> 
           resetMcpState();
           await new Promise((r) => setTimeout(r, 500));
           const [nativeSuccess, bridgeInitiated] = await Promise.all([connectNativeHost(), connectBridge()]);
-          trackEvent("claude_chrome.extension_url.reconnect", {
+          trackEvent("superduck.extension_url.reconnect", {
             native_host_success: nativeSuccess,
             bridge_initiated: bridgeInitiated,
           });
         } catch (_err) {
-          trackEvent("claude_chrome.extension_url.reconnect", { success: false });
+          trackEvent("superduck.extension_url.reconnect", { success: false });
         } finally {
           await closeTab(tid);
         }
@@ -338,14 +336,14 @@ async function handleExtensionUrl(url: string, tabId: number): Promise<boolean> 
 
     return false;
   } catch {
-    trackEvent("claude_chrome.extension_url.unknown_exception", {});
+    trackEvent("superduck.extension_url.unknown_exception", {});
     return false;
   }
 }
 
 async function handleTabSwitch(targetTabId: number, callerTabId: number) {
   if (isNaN(targetTabId)) {
-    trackEvent("claude_chrome.extension_url.tab_switch", { success: false, error: "invalid_tab_id" });
+    trackEvent("superduck.extension_url.tab_switch", { success: false, error: "invalid_tab_id" });
     await closeTab(callerTabId);
     return true;
   }
@@ -355,7 +353,7 @@ async function handleTabSwitch(targetTabId: number, callerTabId: number) {
     const group = await tabGroupManager.findGroupByTab(targetTabId);
 
     if (!group || group.isUnmanaged) {
-      trackEvent("claude_chrome.extension_url.tab_switch", { success: false, error: "tab_not_managed" });
+      trackEvent("superduck.extension_url.tab_switch", { success: false, error: "tab_not_managed" });
       await closeTab(callerTabId);
       return true;
     }
@@ -365,11 +363,11 @@ async function handleTabSwitch(targetTabId: number, callerTabId: number) {
       await chrome.windows.update(tab.windowId, { focused: true });
     }
     await chrome.tabs.update(targetTabId, { active: true });
-    trackEvent("claude_chrome.extension_url.tab_switch", { success: true });
+    trackEvent("superduck.extension_url.tab_switch", { success: true });
     await closeTab(callerTabId);
     return true;
   } catch (_err) {
-    trackEvent("claude_chrome.extension_url.tab_switch", { success: false });
+    trackEvent("superduck.extension_url.tab_switch", { success: false });
     await closeTab(callerTabId);
     return true;
   }
@@ -450,7 +448,7 @@ async function restoreScheduledAlarms() {
 
 // --- Side Panel & Tab Group Management ---
 
-// Telemetry disabled — Sentry is Anthropic's production error tracking.
+// Telemetry disabled — Sentry is upstream production error tracking.
 // initSentry();
 connectBridge();
 connectNativeHost();
@@ -647,7 +645,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await tabGroupManager.initialize();
   await setupUserAgentRule();
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
-    // First run: guide users to Options to configure API endpoint/key instead of opening Claude login.
+    // First run: guide users to Options to configure API endpoint/key instead of opening SuperDuck login.
     void openOptionsForSetup().catch(() => {});
   }
   connectNativeHost();
@@ -716,7 +714,7 @@ chrome.commands.onCommand.addListener((command) => {
 
 chrome.runtime.onUpdateAvailable.addListener((details) => {
   setStorageValue(StorageKeys.UPDATE_AVAILABLE, true);
-  trackEvent("claude_chrome.extension.update_available", {
+  trackEvent("superduck.extension.update_available", {
     current_version: chrome.runtime.getManifest().version,
     new_version: details.version,
   });
@@ -887,7 +885,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const { task, runLogId } = message;
         await executeScheduledTask(task, runLogId);
-        trackEvent("claude_chrome.scheduled_task.executed", {
+        trackEvent("superduck.scheduled_task.executed", {
           task_id: task.id,
           task_name: task.name,
           success: true,
@@ -895,7 +893,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         sendResponse({ success: true });
       } catch (err) {
-        trackEvent("claude_chrome.scheduled_task.executed", {
+        trackEvent("superduck.scheduled_task.executed", {
           task_id: message.task.id,
           task_name: message.task.name,
           success: false,
@@ -1253,12 +1251,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// --- External Message Listener (from claude.ai) ---
+// --- External Message Listener ---
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   (async () => {
     const origin = sender.origin;
-    if (!origin || !["https://claude.ai"].includes(origin)) {
+    const allowedOrigins = ["https://open.bigmodel.cn", "https://coding.dashscope.aliyuncs.com"];
+    if (!origin || !allowedOrigins.includes(origin)) {
       sendResponse({ success: false, error: "Untrusted origin" });
       return;
     }

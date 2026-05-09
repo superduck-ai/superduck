@@ -158,12 +158,12 @@ interface ToolContext {
   sessionId?: string;
   messages?: any[];
   permissionManager: any;
-  createAnthropicMessage?: (params: any, label: string) => Promise<any>;
+  createApiMessage?: (params: any, label: string) => Promise<any>;
   setTurnApprovedDomains?: (domains: string[]) => void;
   skipIndicator?: boolean;
   tabGroupId?: number;
   model?: string;
-  anthropicClient?: any;
+  messagesClient?: any;
 }
 
 interface ToolResult {
@@ -192,7 +192,7 @@ interface ToolDefinition {
   description: string;
   parameters: Record<string, any>;
   execute: (input: any, context?: any) => Promise<any>;
-  toAnthropicSchema: (context?: any) => Promise<any> | any;
+  toProviderSchema: (context?: any) => Promise<any> | any;
   setPromptsConfig?: (config: any) => void;
 }
 
@@ -377,7 +377,7 @@ const javascriptTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'javascript_tool',
     description:
       "Execute JavaScript code in the context of the current page. The code runs in the page's context and can interact with the DOM, window object, and page variables. Returns the result of the last expression or any thrown errors. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -532,7 +532,7 @@ const navigateTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'navigate',
     description:
       "Navigate to a URL in an existing tab, or go forward/back in browser history. PREFERRED: Always use this tool to navigate to URLs instead of creating new tabs. This keeps all operations in the current tab. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -675,8 +675,8 @@ async function filterAndApproveDomains(
   return approved;
 }
 
-const toolsToAnthropicSchema = async (tools: ToolDefinition[], context?: any): Promise<any[]> => {
-  return await Promise.all(tools.map((tool) => tool.toAnthropicSchema(context)));
+const toolsToProviderSchema = async (tools: ToolDefinition[], context?: any): Promise<any[]> => {
+  return await Promise.all(tools.map((tool) => tool.toProviderSchema(context)));
 };
 
 const coerceToolInputTypes = (
@@ -777,13 +777,13 @@ const findTool: ToolDefinition = {
       if (!treeResult[0].result) throw new Error('Page script returned empty result');
 
       const pageData = treeResult[0].result;
-      const createAnthropicMessage = context?.createAnthropicMessage;
-      if (!createAnthropicMessage)
-        throw new Error('Anthropic client not available. Please check your API configuration.');
+      const createApiMessage = context?.createApiMessage;
+      if (!createApiMessage)
+        throw new Error('API client not available. Please check your API configuration.');
 
       pageData.pageContent.length; // side effect from original
 
-      const apiResponse = await createAnthropicMessage(
+      const apiResponse = await createApiMessage(
         {
           maxTokens: 800,
           modelClass: 'small_fast',
@@ -874,7 +874,7 @@ const findTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'find',
     description:
       'Find elements on the page using natural language. Can search for elements by their purpose (e.g., "search bar", "login button") or by text content (e.g., "organic mango product"). Returns up to 20 matching elements with references that can be used with other tools. If more than 20 matches exist, you\'ll be notified to use a more specific query. If you don\'t have a valid tab ID, use tabs_context first to get available tabs.',
@@ -1067,7 +1067,7 @@ const getPageTextTool: ToolDefinition = {
       await tabGroupManager.restoreIndicatorAfterToolUse(effectiveTabId);
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'get_page_text',
     description:
       "Extract raw text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default. If the output exceeds this limit, you will receive an error suggesting alternatives.",
@@ -1194,7 +1194,7 @@ const readPageTool: ToolDefinition = {
               const [counterResult, vpResult] = await Promise.all([
                 chrome.scripting.executeScript({
                   target: { tabId: effectiveTabId, allFrames: true },
-                  func: () => (window as any).__claudeRefCounter || 0,
+                  func: () => (window as any).__superduckRefCounter || 0,
                 }),
                 chrome.scripting.executeScript({
                   target: { tabId: effectiveTabId },
@@ -1321,7 +1321,7 @@ const readPageTool: ToolDefinition = {
       await tabGroupManager.restoreIndicatorAfterToolUse(effectiveTabId);
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'read_page',
     description:
       "Get an accessibility tree representation of elements on the page. By default returns all elements including non-visible ones. Output is limited to 50000 characters. If the output exceeds this limit, you will receive an error asking you to specify a smaller depth, or focus on a specific element using ref_id or selector. Optionally filter for only interactive elements. After an interaction (click/fill/scroll), prefer diff:true to receive only the changes since the last read_page (saves tokens). Use selector to scope a snapshot to a CSS-selected subtree. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -1422,7 +1422,7 @@ const resizeWindowTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'resize_window',
     description:
       "Resize the current browser window to specified dimensions. Useful for testing responsive designs or setting up specific screen sizes. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -1486,7 +1486,7 @@ const tabsContextTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'tabs_context',
     description: 'Get context information about all tabs in the current tab group',
     input_schema: { type: 'object', properties: {}, required: [] }
@@ -1529,7 +1529,7 @@ const tabsCreateTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'tabs_create',
     description: 'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
     input_schema: { type: 'object', properties: {}, required: [] }
@@ -1548,7 +1548,7 @@ const turnAnswerStartTool: ToolDefinition = {
     'Call this immediately before your text response to the user for this turn. Required every turn - whether or not you made tool calls. After calling, write your response. No more tools after this.',
   parameters: turnAnswerStartSchema,
   execute: async () => ({ output: 'Proceed with your response.' }),
-  toAnthropicSchema() {
+  toProviderSchema() {
     return {
       type: 'custom',
       name: this.name,
@@ -1652,7 +1652,7 @@ const updatePlanTool: ToolDefinition = {
       }
     }
   },
-  toAnthropicSchema() {
+  toProviderSchema() {
     return {
       type: 'custom',
       name: this.name,
@@ -1778,7 +1778,7 @@ const readConsoleMessagesTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'read_console_messages',
     description:
       "Read browser console messages (console.log, console.error, console.warn, etc.) from a specific tab. Useful for debugging JavaScript errors, viewing application logs, or understanding what's happening in the browser console. Returns console messages from the current domain only. If you don't have a valid tab ID, use tabs_context first to get available tabs. IMPORTANT: Always provide a pattern to filter messages - without a pattern, you may get too many irrelevant messages.",
@@ -1930,7 +1930,7 @@ const readNetworkRequestsTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'read_network_requests',
     description:
       "Read HTTP network requests (XHR, Fetch, documents, images, etc.) from a specific tab. Useful for debugging API calls, monitoring network activity, or understanding what requests a page is making. Returns all network requests made by the current page, including cross-origin requests. Requests are automatically cleared when the page navigates to a different domain. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -1982,6 +1982,6 @@ export {
   filterAndApproveDomains,
   filterDomainsByCategory,
   coerceToolInputTypes,
-  toolsToAnthropicSchema,
+  toolsToProviderSchema,
   parseArrayInput
 };

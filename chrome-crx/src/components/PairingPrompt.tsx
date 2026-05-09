@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useIntl, FormattedMessage } from "react-intl";
 
-type ClientType = "claude-code" | "claude-desktop";
+type ClientType = string;
 
 interface PairingPromptProps {
   /** Unique identifier for this pairing request */
@@ -17,7 +17,7 @@ interface PairingPromptProps {
 }
 
 /**
- * PairingPrompt - Dialog shown when Claude Code/Desktop wants to pair with browser
+ * PairingPrompt - Dialog shown when an external desktop client wants to pair
  * Allows user to name the browser session for identification
  */
 export function PairingPrompt({
@@ -53,7 +53,7 @@ export function PairingPrompt({
   );
 
   const clientLabel =
-    clientType === "claude-code" ? "Claude Code" : "Claude Desktop";
+    clientType.toLowerCase().includes("code") ? "Code Client" : "Desktop Client";
 
   return (
     <div className="flex flex-col gap-4 p-5 bg-bg-100 rounded-xl border border-border-300 shadow-lg">

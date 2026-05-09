@@ -5,7 +5,7 @@ import { SidepanelApp } from './SidepanelApp';
 import 'katex/dist/katex.min.css';
 import '../styles/scheduling.css';
 
-// Telemetry disabled — Sentry and Honeycomb are Anthropic's production
+// Telemetry disabled — Sentry and Honeycomb are upstream production
 // telemetry. They install MutationObservers, PerformanceObservers, and XHR
 // interceptors that cause significant CPU overhead. Uncomment if needed for
 // debugging.

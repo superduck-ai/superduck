@@ -1,7 +1,7 @@
 /**
  * Ref Bridge Module
  *
- * 将 CDP AX Tree 的 backendDOMNodeId 映射注册到页面的 window.__claudeElementMap，
+ * 将 CDP AX Tree 的 backendDOMNodeId 映射注册到页面的 window.__superduckElementMap，
  * 确保 inputTools.ts 的 scroll_to、form_input 等交互工具继续通过 ref_N 引用工作。
  *
  * 支持 Stale Ref 恢复：当 WeakRef 被 GC 或 DOM 重渲染导致 backendNodeId 失效时，
@@ -41,21 +41,21 @@ function getTabMeta(tabId: number): Map<string, RefMapping> {
 }
 
 /**
- * 清空页面上的 __claudeElementMap 和重置 __claudeRefCounter，同时清空该 tab 的元数据
+ * 清空页面上的 __superduckElementMap 和重置 __superduckRefCounter，同时清空该 tab 的元数据
  */
 export async function clearPageRefs(tabId: number): Promise<void> {
   refMetaByTab.delete(tabId);
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: () => {
-      (window as any).__claudeElementMap = {};
-      (window as any).__claudeRefCounter = 0;
+      (window as any).__superduckElementMap = {};
+      (window as any).__superduckRefCounter = 0;
     },
   });
 }
 
 /**
- * 清理页面上 __claudeElementMap 中已被 GC 的 WeakRef 条目，
+ * 清理页面上 __superduckElementMap 中已被 GC 的 WeakRef 条目，
  * 同时清理对应的内存元数据，防止 map 无限增长。
  */
 export async function pruneStaleRefs(tabId: number): Promise<void> {
@@ -63,7 +63,7 @@ export async function pruneStaleRefs(tabId: number): Promise<void> {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: () => {
-        const map = (window as any).__claudeElementMap;
+        const map = (window as any).__superduckElementMap;
         if (!map) return [];
         const stale: string[] = [];
         for (const key of Object.keys(map)) {
@@ -90,12 +90,12 @@ export async function pruneStaleRefs(tabId: number): Promise<void> {
 }
 
 /**
- * 将 AX Tree ref 映射批量注册到页面的 __claudeElementMap，并存储元数据
+ * 将 AX Tree ref 映射批量注册到页面的 __superduckElementMap，并存储元数据
  *
  * 对每个 RefMapping：
  * 1. 存储 role/name/nth 到 refMetaMap
  * 2. DOM.resolveNode({backendNodeId}) → 获取 Runtime objectId
- * 3. Runtime.callFunctionOn({objectId, ...}) → 注册到 __claudeElementMap
+ * 3. Runtime.callFunctionOn({objectId, ...}) → 注册到 __superduckElementMap
  */
 export async function registerRefsInPage(
   tabId: number,
@@ -116,8 +116,8 @@ export async function registerRefsInPage(
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: () => {
-      if (!(window as any).__claudeElementMap) (window as any).__claudeElementMap = {};
-      if (!(window as any).__claudeRefCounter) (window as any).__claudeRefCounter = 0;
+      if (!(window as any).__superduckElementMap) (window as any).__superduckElementMap = {};
+      if (!(window as any).__superduckRefCounter) (window as any).__superduckRefCounter = 0;
     },
   });
 
@@ -138,7 +138,7 @@ export async function registerRefsInPage(
 }
 
 /**
- * 通过 CDP 在页面上注入一个 WeakRef 到 __claudeElementMap[refId]，可选地推进 refCounter。
+ * 通过 CDP 在页面上注入一个 WeakRef 到 __superduckElementMap[refId]，可选地推进 refCounter。
  */
 async function injectWeakRef(
   tabId: number,
@@ -152,16 +152,16 @@ async function injectWeakRef(
 
   const fnBody = bumpCounter
     ? `function(refId) {
-        if (!window.__claudeElementMap) window.__claudeElementMap = {};
-        window.__claudeElementMap[refId] = new WeakRef(this);
+        if (!window.__superduckElementMap) window.__superduckElementMap = {};
+        window.__superduckElementMap[refId] = new WeakRef(this);
         var num = parseInt(refId.replace('ref_', ''), 10);
-        if (!window.__claudeRefCounter || window.__claudeRefCounter < num) {
-          window.__claudeRefCounter = num;
+        if (!window.__superduckRefCounter || window.__superduckRefCounter < num) {
+          window.__superduckRefCounter = num;
         }
       }`
     : `function(refId) {
-        if (!window.__claudeElementMap) window.__claudeElementMap = {};
-        window.__claudeElementMap[refId] = new WeakRef(this);
+        if (!window.__superduckElementMap) window.__superduckElementMap = {};
+        window.__superduckElementMap[refId] = new WeakRef(this);
       }`;
 
   await cdpDebugger.sendCommand(tabId, 'Runtime.callFunctionOn', {

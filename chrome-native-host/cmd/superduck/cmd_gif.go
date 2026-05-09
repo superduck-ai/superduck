@@ -32,7 +32,7 @@ func cmdGif(argv []string) error {
 	noDrag := fs.Bool("no-drag-paths", false, "Disable drag path arrows")
 	noLabels := fs.Bool("no-action-labels", false, "Disable action labels")
 	noProgress := fs.Bool("no-progress-bar", false, "Disable progress bar")
-	noWatermark := fs.Bool("no-watermark", false, "Disable Claude watermark")
+	noWatermark := fs.Bool("no-watermark", false, "Disable SuperDuck watermark")
 	quality := fs.Int("quality", 0, "GIF quality (1-30, lower = better)")
 	if err := fs.Parse(reorderFlagsFirst(rest)); err != nil {
 		return err

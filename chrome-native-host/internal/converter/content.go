@@ -9,7 +9,7 @@ import (
 
 // ToMCPContent converts Chrome tool response to MCP content format
 func ToMCPContent(result interface{}) []mcp.Content {
-	// If result is already an array, convert Anthropic format to MCP format
+	// If result is already an array, convert message content format to MCP format
 	if arr, ok := result.([]interface{}); ok {
 		mcpContent := []mcp.Content{}
 

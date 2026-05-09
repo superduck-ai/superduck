@@ -1,7 +1,7 @@
 (function () {
   document.body.addEventListener("click", (event: MouseEvent) => {
     const button = (event.target as HTMLElement).closest(
-      "#claude-onboarding-button",
+      "#superduck-onboarding-button",
     );
     if (button) {
       handleOnboardingClick(button as HTMLElement);

@@ -160,7 +160,7 @@ export function WorkflowModeSelectionModal({
               src={recordWorkflowHeroImage}
               alt={intl.formatMessage({
                 defaultMessage: 'Teach SuperDuck your workflow',
-                id: 'teach_claude_your_workflow'
+                id: 'teach_superduck_your_workflow'
               })}
               className="w-[360px] h-auto"
             />
@@ -169,7 +169,7 @@ export function WorkflowModeSelectionModal({
           {/* Text Content */}
           <div className="space-y-2">
             <h2 className="font-base-bold text-text-100">
-              <FormattedMessage defaultMessage="Teach SuperDuck your workflow" id="teach_claude_your_workflow" />
+              <FormattedMessage defaultMessage="Teach SuperDuck your workflow" id="teach_superduck_your_workflow" />
             </h2>
             <p className="text-text-300 font-base max-w-[280px] mx-auto">
               {hasMicrophonePermission ? (

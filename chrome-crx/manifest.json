@@ -17,16 +17,6 @@
   },
   "content_scripts": [
     {
-      "js": [
-        "src/content-script.ts"
-      ],
-      "matches": [
-        "https://Klaude.ai/*",
-        "https://*.Klaude.ai/*"
-      ],
-      "run_at": "document_end"
-    },
-    {
       "all_frames": true,
       "js": [
         "src/accessibility-tree.ts"
@@ -53,8 +43,6 @@
   "description": "SuperDuck in Chrome",
   "externally_connectable": {
     "matches": [
-      "https://Klaude.ai/*",
-      "https://*.Klaude.ai/*",
       "https://open.bigmodel.cn/*",
       "https://coding.dashscope.aliyuncs.com/*"
     ]
@@ -91,16 +79,6 @@
   "update_url": "https://clients2.google.com/service/update2/crx",
   "version": "1.0.0",
   "web_accessible_resources": [
-    {
-      "matches": [
-        "https://*.Klaude.ai/*",
-        "https://Klaude.ai/*"
-      ],
-      "resources": [
-        "src/content-script.ts"
-      ],
-      "use_dynamic_url": false
-    },
     {
       "matches": [
         "\u003Call_urls>"

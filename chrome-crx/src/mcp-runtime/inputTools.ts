@@ -292,7 +292,7 @@ const computerTool = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'computer',
     description:
       "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* Whenever you intend to click on an element like an icon, you should consult a screenshot to determine the coordinates of the element before moving the cursor.\n* If you tried clicking on a program or link but it failed to load, even after waiting, try adjusting your click location so that the tip of the cursor visually falls on the element that you want to click.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
@@ -508,12 +508,12 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
     try {
       let element: Element | null = null;
       if (
-        (window as any).__claudeElementMap &&
-        (window as any).__claudeElementMap[elementRef]
+        (window as any).__superduckElementMap &&
+        (window as any).__superduckElementMap[elementRef]
       ) {
-        element = (window as any).__claudeElementMap[elementRef].deref() || null;
+        element = (window as any).__superduckElementMap[elementRef].deref() || null;
         if (!element || !document.contains(element)) {
-          delete (window as any).__claudeElementMap[elementRef];
+          delete (window as any).__superduckElementMap[elementRef];
           element = null;
         }
       }
@@ -1245,10 +1245,10 @@ const formInputTool: ToolDefinition = {
       const formInputScript = (ref: string, value: any) => {
         try {
           let element: HTMLElement | null = null;
-          if ((window as any).__claudeElementMap && (window as any).__claudeElementMap[ref]) {
-            element = (window as any).__claudeElementMap[ref].deref() || null;
+          if ((window as any).__superduckElementMap && (window as any).__superduckElementMap[ref]) {
+            element = (window as any).__superduckElementMap[ref].deref() || null;
             if (!element || !document.contains(element)) {
-              delete (window as any).__claudeElementMap[ref];
+              delete (window as any).__superduckElementMap[ref];
               element = null;
             }
           }
@@ -1415,7 +1415,7 @@ const formInputTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'form_input',
     description:
       "Set values in form elements using element reference ID from the read_page tool. If you don't have a valid tab ID, use tabs_context first to get available tabs.",

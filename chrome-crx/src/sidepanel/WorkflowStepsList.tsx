@@ -409,7 +409,7 @@ export function WorkflowStepsList({
       {!fullScreen && steps.length > 0 && (
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200">
           <button className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-base-bold">
-            <FormattedMessage defaultMessage="Save as Teach SuperDuck" id="save_as_teach_claude" />
+            <FormattedMessage defaultMessage="Save as Teach SuperDuck" id="save_as_teach_superduck" />
           </button>
         </div>
       )}

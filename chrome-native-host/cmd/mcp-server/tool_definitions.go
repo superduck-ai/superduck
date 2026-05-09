@@ -280,7 +280,7 @@ var toolDefinitions = []toolDefinition{
 					"showDragPaths":       booleanSchema("Show red arrows for drag actions. Defaults to true."),
 					"showActionLabels":    booleanSchema("Show black labels describing actions. Defaults to true."),
 					"showProgressBar":     booleanSchema("Show orange progress bar at the bottom. Defaults to true."),
-					"showWatermark":       booleanSchema("Show Claude logo watermark. Defaults to true."),
+					"showWatermark":       booleanSchema("Show SuperDuck logo watermark. Defaults to true."),
 					"quality":             numberSchema("GIF compression quality, 1-30. Lower is better quality, slower encoding. Defaults to 10."),
 				},
 			),

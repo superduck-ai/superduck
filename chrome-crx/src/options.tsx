@@ -12,7 +12,7 @@ import {
   MicrophoneIcon,
   useStorageState
 } from '@/components/useStorageState';
-import { StorageKeys, getStorageValue, loginWithAnthropic, FeatureProvider } from './SavedPromptsService';
+import { StorageKeys, getStorageValue, loginWithProvider, FeatureProvider } from './SavedPromptsService';
 import { T as TasksTab } from '@/components/TasksTab';
 import { IntlMessageLoaderProvider } from './index-react-dom-intl';
 import { MODEL_MAPPING_KEYS } from './utils/modelMapping';
@@ -138,7 +138,7 @@ const MicrophonePermissionModal: React.FC<MicrophonePermissionModalProps> = ({
           <p className="text-text-300 font-base mb-6">
             <FormattedMessage
               defaultMessage="SuperDuck needs microphone access to hear your voice narration while you demonstrate workflows. When prompted, select <strong>Allow while visiting the site</strong> to enable voice narration."
-              id="claude_needs_microphone_access_to_hear_your_voice"
+              id="superduck_needs_microphone_access_to_hear_your_voice"
               values={{
                 strong: (chunks: React.ReactNode) => (
                   <span className="font-semibold text-text-200">{chunks}</span>
@@ -417,7 +417,7 @@ const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({ analytics }) =>
                   });
                   stream.getTracks().forEach((t) => t.stop());
                   await checkPermission();
-                  analytics?.track('claude_chrome.settings.microphone_enabled', {
+                  analytics?.track('superduck.settings.microphone_enabled', {
                     timestamp: Date.now()
                   });
                 } catch (err: any) {
@@ -771,7 +771,7 @@ const PermissionsTab: React.FC = () => {
                 <div className="mt-4 space-y-4 pl-6">
                   <div className="text-text-300 font-base-sm mb-4">
                     <p className="font-semibold text-text-200 mb-1"><FormattedMessage id="model_mapping" defaultMessage="Model Mapping" /></p>
-                    <p><FormattedMessage id="model_mapping_description" defaultMessage="If the provider natively supports Claude models, no configuration is usually needed. Only fill in when you need to map requests to different model names." /></p>
+                    <p><FormattedMessage id="model_mapping_description" defaultMessage="If the provider natively supports the default models, no configuration is usually needed. Only fill in when you need to map requests to different model names." /></p>
                   </div>
 
                   <div className="space-y-3">
@@ -935,7 +935,7 @@ const PermissionsTab: React.FC = () => {
           <p className="text-text-300 font-base mt-2 mb-6">
             <FormattedMessage
               defaultMessage="You have allowed SuperDuck to take all actions (browse, click, type) on these sites."
-              id="you_have_allowed_claude_to_take_all_actions"
+              id="you_have_allowed_superduck_to_take_all_actions"
             />
           </p>
           {permissions?.netloc && permissions.netloc.length > 0 ? (
@@ -1102,7 +1102,7 @@ function OptionsPage() {
   const [returnTabId, setReturnTabId] = useState<number>();
 
   useEffect(() => {
-    getStorageValue(StorageKeys.ANTHROPIC_API_KEY).then((value) => {
+    getStorageValue(StorageKeys.API_KEY).then((value) => {
       if (value) setApiKey(value);
     });
   }, []);
@@ -1163,7 +1163,7 @@ function OptionsPage() {
             <button
               onClick={async () => {
                 try {
-                  await loginWithAnthropic();
+                  await loginWithProvider();
                 } catch {
                   // ignore
                 }
@@ -1262,7 +1262,7 @@ function OptionsPage() {
 
 const DevAppWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', 'claude');
+    document.documentElement.setAttribute('data-theme', 'superduck');
   }, []);
   return (
     <IntlMessageLoaderProvider>

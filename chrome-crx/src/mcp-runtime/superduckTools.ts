@@ -7,7 +7,7 @@ interface ToolDefinition {
   description: string;
   parameters: Record<string, any>;
   execute: (input: any, context?: any) => Promise<any>;
-  toAnthropicSchema: (context?: any) => Promise<any> | any;
+  toProviderSchema: (context?: any) => Promise<any> | any;
 }
 
 async function resolveActiveTab(explicit?: number): Promise<chrome.tabs.Tab> {
@@ -102,7 +102,7 @@ export const superduckActiveContextTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_active_context',
     description:
       "SuperDuck CLI: read user's active Chrome tab url/title/selection/text",
@@ -204,7 +204,7 @@ export const superduckBackgroundFetchTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_background_fetch',
     description: "SuperDuck CLI: fetch using user's Chrome cookies",
     input_schema: {
@@ -250,7 +250,7 @@ export const superduckListTabsTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_list_tabs',
     description: 'SuperDuck CLI: list all tabs',
     input_schema: { type: 'object', properties: {}, required: [] }
@@ -288,7 +288,7 @@ export const superduckOpenTool: ToolDefinition = {
       return { error: `superduck_open failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_open',
     description: "SuperDuck CLI: navigate active tab (or open new tab)",
     input_schema: {
@@ -358,7 +358,7 @@ export const superduckClickTool: ToolDefinition = {
       return { error: `superduck_click failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_click',
     description: 'SuperDuck CLI: click element by selector or text',
     input_schema: {
@@ -423,7 +423,7 @@ export const superduckFillTool: ToolDefinition = {
       return { error: `superduck_fill failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_fill',
     description: 'SuperDuck CLI: set form field value',
     input_schema: {
@@ -490,7 +490,7 @@ export const superduckPressTool: ToolDefinition = {
       return { error: `superduck_press failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'superduck_press',
     description: 'SuperDuck CLI: dispatch keyboard event',
     input_schema: {

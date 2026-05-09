@@ -466,7 +466,7 @@ func (s *MCPServer) normalizeArgs(tool string, args map[string]interface{}) map[
 
 // convertToMCPContent converts Chrome tool response to MCP content format
 func (s *MCPServer) convertToMCPContent(result interface{}) []interface{} {
-	// If result is already an array, convert Anthropic format to MCP format
+	// If result is already an array, convert message content format to MCP format
 	if arr, ok := result.([]interface{}); ok {
 		mcpContent := []interface{}{}
 
@@ -483,7 +483,7 @@ func (s *MCPServer) convertToMCPContent(result interface{}) []interface{} {
 					mcpContent = append(mcpContent, m)
 
 				case "image":
-					// Convert Anthropic format to MCP format
+					// Convert image content format to MCP format
 					if source, hasSource := m["source"].(map[string]interface{}); hasSource {
 						if data, hasData := source["data"].(string); hasData {
 							mimeType := "image/png"

@@ -123,4 +123,4 @@ export const mcpServersStore = create<McpServersState>((set, get) => ({
 // =============================================================================
 
 export { create } from "zustand";
-export { default as Anthropic } from "@anthropic-ai/sdk";
+export { default as MessagesClient } from "@anthropic-ai/sdk";

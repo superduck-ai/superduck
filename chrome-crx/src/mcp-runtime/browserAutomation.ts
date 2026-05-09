@@ -17,7 +17,7 @@ export {
   filterAndApproveDomains,
   filterDomainsByCategory,
   coerceToolInputTypes,
-  toolsToAnthropicSchema,
+  toolsToProviderSchema,
   parseArrayInput
 } from './pageTools';
 export type { ToolContext, ToolResult, ToolDefinition } from './pageTools';

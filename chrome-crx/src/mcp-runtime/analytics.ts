@@ -1720,7 +1720,7 @@ const segmentHttpClient = async (
 };
 
 // --- initializeAnalytics (Gt) ---
-// Telemetry disabled — Segment analytics is Anthropic's production telemetry.
+// Telemetry disabled — Segment analytics is upstream production telemetry.
 // Each analytics event was triggering HTTP POSTs and keeping the service worker alive.
 const initializeAnalytics = async (): Promise<void> => {
   // no-op: analytics disabled

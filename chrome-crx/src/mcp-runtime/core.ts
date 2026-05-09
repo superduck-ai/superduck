@@ -10,7 +10,7 @@ import {
   getOrganizationId,
   validateAndRefreshToken
 } from '../SavedPromptsService';
-import { Anthropic } from '../mcpServersStore';
+import { MessagesClient } from '../mcpServersStore';
 import { withTracing, PermissionManager as PermissionManagerClass } from '../PermissionManager';
 import { mapModelName } from '../utils/modelMapping';
 import {
@@ -44,7 +44,7 @@ import {
   gifCreatorTool,
   type ToolDefinition,
   coerceToolInputTypes,
-  toolsToAnthropicSchema,
+  toolsToProviderSchema,
   parseArrayInput,
   shouldShowPlanMode,
   getPlanModeSystemReminder,
@@ -228,7 +228,7 @@ export async function connectBridge(): Promise<boolean> {
     };
 
     ws.onclose = (event) => {
-      trackEvent('claude_chrome.bridge.disconnected', {
+      trackEvent('superduck.bridge.disconnected', {
         code: event.code,
         reason: event.reason,
         reconnect_attempt: retryCount
@@ -243,7 +243,7 @@ export async function connectBridge(): Promise<boolean> {
     };
 
     ws.onerror = (event) => {
-      trackEvent('claude_chrome.bridge.error', { error: String(event) });
+      trackEvent('superduck.bridge.error', { error: String(event) });
       if (bridgeWebSocket === ws) {
         bridgeConnecting = false;
       }
@@ -261,13 +261,13 @@ export async function connectBridge(): Promise<boolean> {
 async function handleBridgeMessage(message: any): Promise<void> {
   switch (message.type) {
     case 'paired':
-      trackEvent('claude_chrome.bridge.connected', { status: 'paired' });
+      trackEvent('superduck.bridge.connected', { status: 'paired' });
       startKeepalive();
       bridgeConnecting = false;
       retryCount = 0;
       break;
     case 'waiting':
-      trackEvent('claude_chrome.bridge.connected', { status: 'waiting' });
+      trackEvent('superduck.bridge.connected', { status: 'waiting' });
       startKeepalive();
       bridgeConnecting = false;
       retryCount = 0;
@@ -278,10 +278,10 @@ async function handleBridgeMessage(message: any): Promise<void> {
     case 'pong':
       break;
     case 'peer_connected':
-      trackEvent('claude_chrome.bridge.peer_connected');
+      trackEvent('superduck.bridge.peer_connected');
       break;
     case 'peer_disconnected':
-      trackEvent('claude_chrome.bridge.peer_disconnected');
+      trackEvent('superduck.bridge.peer_disconnected');
       break;
     case 'tool_call':
       await handleBridgeToolCall(message);
@@ -334,7 +334,7 @@ async function handleBridgeToolCall(message: any): Promise<void> {
       toolUseId,
       handlePermissionPrompts
     });
-    trackEvent('claude_chrome.bridge.tool_call', {
+    trackEvent('superduck.bridge.tool_call', {
       ...trackData,
       success: true
     });
@@ -344,7 +344,7 @@ async function handleBridgeToolCall(message: any): Promise<void> {
       tool_use_id: toolUseId
     });
   } catch (err) {
-    trackEvent('claude_chrome.bridge.tool_call', {
+    trackEvent('superduck.bridge.tool_call', {
       ...trackData,
       success: false,
       error: err instanceof Error ? err.message : String(err)
@@ -600,7 +600,7 @@ const tabsContextMcpTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'tabs_context_mcp',
     description:
       'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. IMPORTANT: Always reuse existing tabs for navigation. Only create a new tab (using tabs_create_mcp) when the user explicitly requests opening a new tab or when you need to keep multiple pages open simultaneously.',
@@ -663,7 +663,7 @@ const tabsCreateMcpTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'tabs_create_mcp',
     description: 'Creates a new empty tab in the MCP tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
     input_schema: { type: 'object', properties: {}, required: [] }
@@ -722,7 +722,7 @@ const shortcutsListTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'shortcuts_list',
     description:
       'List all available shortcuts and workflows. Each entry includes id, command, type, url, vars (declared {{var}} placeholder names), model, skipPermissions.',
@@ -788,7 +788,7 @@ const shortcutsGetTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'shortcuts_get',
     description:
       'Fetch the raw prompt text of a shortcut by id or command, without executing it.',
@@ -876,7 +876,7 @@ const shortcutsExecuteTool: ToolDefinition = {
       };
     }
   },
-  toAnthropicSchema: async () => ({
+  toProviderSchema: async () => ({
     name: 'shortcuts_execute',
     description:
       'Execute a shortcut or workflow by running it in a new sidepanel window using the current tab (shortcuts and workflows are interchangeable). Use shortcuts_list first to see available shortcuts. This starts the execution and returns immediately - it does not wait for completion.',
@@ -967,7 +967,7 @@ interface ToolExecutorContext {
   tabGroupId?: number;
   model: string;
   sessionId: string;
-  anthropicClient?: any;
+  messagesClient?: any;
   permissionManager: any;
   onPermissionRequired?: (permission: any, tabId: number) => Promise<boolean>;
   analytics?: { track: (event: string, data: any) => void };
@@ -1009,9 +1009,9 @@ class ToolExecutor {
           tabGroupId: this.context.tabGroupId,
           model: this.context.model,
           sessionId: this.context.sessionId,
-          anthropicClient: this.context.anthropicClient,
+          messagesClient: this.context.messagesClient,
           permissionManager: permissionManagerOverride ?? this.context.permissionManager,
-          createAnthropicMessage: this.createAnthropicMessage()
+          createApiMessage: this.createApiMessage()
         };
 
         const tool = allTools.find((t) => t.name === toolName);
@@ -1051,10 +1051,10 @@ class ToolExecutor {
             await recordToolAction(toolName, coercedInput, executionContext.tabId);
           }
 
-          this.context.analytics?.track('claude_chrome.chat.tool_called', trackData);
+          this.context.analytics?.track('superduck.chat.tool_called', trackData);
           return result;
         } catch (err) {
-          this.context.analytics?.track('claude_chrome.chat.tool_called', {
+          this.context.analytics?.track('superduck.chat.tool_called', {
             ...trackData,
             success: false,
             failureReason: 'exception'
@@ -1066,15 +1066,15 @@ class ToolExecutor {
     );
   }
 
-  createAnthropicMessage(): ((params: any) => Promise<any>) | undefined {
-    if (this.context.anthropicClient || this.context.refreshClient) {
+  createApiMessage(): ((params: any) => Promise<any>) | undefined {
+    if (this.context.messagesClient || this.context.refreshClient) {
       return async (params: any) => {
         if (this.context.refreshClient) {
           const refreshed = await this.context.refreshClient();
-          if (refreshed) this.context.anthropicClient = refreshed;
+          if (refreshed) this.context.messagesClient = refreshed;
         }
-        if (!this.context.anthropicClient) {
-          throw new Error('Anthropic client not available');
+        if (!this.context.messagesClient) {
+          throw new Error('API client not available');
         }
         const { modelClass, maxTokens, ...rest } = params;
         let model = this.context.model;
@@ -1084,7 +1084,7 @@ class ToolExecutor {
         }
         // Apply model mapping if custom API is configured
         const mappedModel = await mapModelName(model);
-        return await this.context.anthropicClient.beta.messages.create({
+        return await this.context.messagesClient.beta.messages.create({
           ...rest,
           max_tokens: maxTokens,
           model: mappedModel,
@@ -1330,7 +1330,7 @@ async function recordToolAction(toolName: string, toolInput: any, tabId: number)
 // Main Logic and Exports (lines 6988-7317)
 // =============================================================================
 
-let cachedAnthropicClient: any;
+let cachedMessagesClient: any;
 let lastOauthToken: string | undefined;
 let lastApiKey: string | undefined;
 let lastApiBaseUrl: string | undefined;
@@ -1351,16 +1351,16 @@ async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Pro
   if (toolExecutorInstance) {
     toolExecutorInstance.context.tabId = tabId;
     toolExecutorInstance.context.tabGroupId = tabGroupId;
-    // Refresh the anthropicClient if it's missing (e.g., auth wasn't ready on first creation)
-    if (!toolExecutorInstance.context.anthropicClient) {
-      const refreshed = await refreshAnthropicClient();
-      if (refreshed) toolExecutorInstance.context.anthropicClient = refreshed;
+    // Refresh the messagesClient if it's missing (e.g., auth wasn't ready on first creation)
+    if (!toolExecutorInstance.context.messagesClient) {
+      const refreshed = await refreshMessagesClient();
+      if (refreshed) toolExecutorInstance.context.messagesClient = refreshed;
     }
     return toolExecutorInstance;
   }
-  const [client, model] = await Promise.all([refreshAnthropicClient(), getSelectedModel()]);
+  const [client, model] = await Promise.all([refreshMessagesClient(), getSelectedModel()]);
   toolExecutorInstance = new ToolExecutor({
-    anthropicClient: client,
+    messagesClient: client,
     permissionManager: new PermissionManagerClass(() => false, {}),
     sessionId: MCP_NATIVE_SESSION_ID,
     tabId,
@@ -1368,17 +1368,17 @@ async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Pro
     model,
     onPermissionRequired: async (permission: any, tabId: number) =>
       await showPermissionPrompt(permission, tabId),
-    refreshClient: refreshAnthropicClient
+    refreshClient: refreshMessagesClient
   });
   return toolExecutorInstance;
 }
 
-async function refreshAnthropicClient(): Promise<any> {
+async function refreshMessagesClient(): Promise<any> {
   const [oauthToken, storedValues] = await Promise.all([
     getAccessToken(),
-    chrome.storage.local.get(['anthropicApiKey', 'customApiUrl', 'customApiKey'])
+    chrome.storage.local.get(['apiKey', 'customApiUrl', 'customApiKey'])
   ]);
-  const anthropicApiKey = storedValues.anthropicApiKey as string | undefined;
+  const storedApiKey = storedValues.apiKey as string | undefined;
   const customApiUrl = storedValues.customApiUrl as string | undefined;
   const customApiKey = storedValues.customApiKey as string | undefined;
   const normalizedCustomApiUrl =
@@ -1386,22 +1386,22 @@ async function refreshAnthropicClient(): Promise<any> {
   const apiBaseUrl = normalizedCustomApiUrl || getConfig().apiBaseUrl;
   const apiKey =
     (typeof customApiKey === 'string' && customApiKey.trim()) ||
-    (typeof anthropicApiKey === 'string' && anthropicApiKey.trim()) ||
+    (typeof storedApiKey === 'string' && storedApiKey.trim()) ||
     undefined;
   if (lastOauthToken !== oauthToken || lastApiKey !== apiKey || lastApiBaseUrl !== apiBaseUrl) {
-    cachedAnthropicClient = undefined;
+    cachedMessagesClient = undefined;
     lastOauthToken = oauthToken;
     lastApiKey = apiKey;
     lastApiBaseUrl = apiBaseUrl;
   }
-  if (cachedAnthropicClient) return cachedAnthropicClient;
+  if (cachedMessagesClient) return cachedMessagesClient;
   if (!oauthToken && !apiKey) return undefined;
-  cachedAnthropicClient = new Anthropic({
+  cachedMessagesClient = new MessagesClient({
     baseURL: apiBaseUrl,
     dangerouslyAllowBrowser: true,
     ...(oauthToken ? { authToken: oauthToken } : { apiKey })
   });
-  return cachedAnthropicClient;
+  return cachedMessagesClient;
 }
 
 // --- createErrorResponse (Cr) --- EXPORT
@@ -1425,7 +1425,7 @@ export async function executeTool(options: {
   toolUseId?: string;
   handlePermissionPrompts?: boolean;
   onPermissionRequired?: (permissionData: any, tabId: number) => Promise<boolean>;
-  anthropicClient?: any;
+  messagesClient?: any;
 }): Promise<any> {
   const requestId = crypto.randomUUID();
   const clientId = options.clientId;
@@ -1437,7 +1437,7 @@ export async function executeTool(options: {
       const errorMsg = navigationBlockedError;
       navigationBlockedError = undefined;
       navigationBlockedTime = undefined;
-      trackEvent('claude_chrome.mcp.tool_called', {
+      trackEvent('superduck.mcp.tool_called', {
         tool_name: options.toolName,
         client_id: clientId,
         model,
@@ -1466,7 +1466,7 @@ export async function executeTool(options: {
       url = tabInfo.url;
     }
   } catch {
-    trackEvent('claude_chrome.mcp.tool_called', {
+    trackEvent('superduck.mcp.tool_called', {
       tool_name: options.toolName,
       client_id: clientId,
       model,
@@ -1502,12 +1502,12 @@ export async function executeTool(options: {
 
     const executor = await getOrCreateToolExecutor(tabId, options.tabGroupId);
 
-    // If caller provides an anthropicClient (e.g., sidepanel), use it directly.
+    // If caller provides a messagesClient (e.g., sidepanel), use it directly.
     // The bundle's sidepanel executes tools directly with its own client rather than
     // going through executeTool, but since we route through executeTool, we thread
     // the client through here.
-    if (options.anthropicClient) {
-      executor.context.anthropicClient = options.anthropicClient;
+    if (options.messagesClient) {
+      executor.context.messagesClient = options.messagesClient;
     }
 
     const processOptions: any = {};
@@ -1559,7 +1559,7 @@ export async function executeTool(options: {
         err.message.includes('authentication') ||
         err.message.includes('invalid x-api-key'))
     ) {
-      cachedAnthropicClient = undefined;
+      cachedMessagesClient = undefined;
       lastOauthToken = undefined;
       lastApiKey = undefined;
       errorType = 'authentication_failed';
@@ -1577,7 +1577,7 @@ export async function executeTool(options: {
   }
 
   const appName = url ? extractAppName(url) : undefined;
-  trackEvent('claude_chrome.mcp.tool_called', {
+  trackEvent('superduck.mcp.tool_called', {
     tool_name: options.toolName,
     client_id: clientId,
     model,
@@ -1820,7 +1820,7 @@ async function showPermissionPromptInner(permission: any, tabId: number): Promis
     }
   });
 
-  trackEvent('claude_chrome.permission.prompted', {
+  trackEvent('superduck.permission.prompted', {
     permission_type: permission.type,
     tool_type: permission.tool,
     tab_id: tabId
@@ -1834,7 +1834,7 @@ async function showPermissionPromptInner(permission: any, tabId: number): Promis
       if (responded) return;
       responded = true;
       chrome.runtime.onMessage.removeListener(messageListener);
-      trackEvent('claude_chrome.permission.responded', {
+      trackEvent('superduck.permission.responded', {
         permission_type: permission.type,
         tool_type: permission.tool,
         tab_id: tabId,
@@ -1948,7 +1948,7 @@ const tabsActivateTool: ToolDefinition = {
   description: 'Activate a tab',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const pageContentTool = readPageTool;
 const tabsCloseTool: ToolDefinition = {
@@ -1956,35 +1956,35 @@ const tabsCloseTool: ToolDefinition = {
   description: 'Close a tab',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const tabsNavigateBackTool: ToolDefinition = {
   name: 'tabs_navigate_back',
   description: 'Navigate back',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const tabsUpdateTool: ToolDefinition = {
   name: 'tabs_update',
   description: 'Update a tab',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const tabsGroupTool: ToolDefinition = {
   name: 'tabs_group',
   description: 'Group tabs',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const waitTool: ToolDefinition = {
   name: 'wait',
   description: 'Wait',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const tabsGetContentTool = getPageTextTool;
 const tabsExecuteScriptTool = javascriptTool;
@@ -1993,14 +1993,14 @@ const todoListTool: ToolDefinition = {
   description: 'List todos',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const todoUpdateTool: ToolDefinition = {
   name: 'todo_update',
   description: 'Update todo',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toAnthropicSchema: async () => ({})
+  toProviderSchema: async () => ({})
 };
 const tabsNewTool = tabsCreateTool;
 const tabsExecuteJsTool = javascriptTool;
@@ -2015,13 +2015,13 @@ function getAnonymousIdForExport(): Promise<string> {
   return getOrCreateAnonymousId();
 }
 function getToolSchemas(tools: ToolDefinition[], context?: any): Promise<any[]> {
-  return toolsToAnthropicSchema(tools, context);
+  return toolsToProviderSchema(tools, context);
 }
 function getToolNames(tools: ToolDefinition[]): string[] {
   return tools.map((t) => t.name);
 }
 function getToolSchemasForMcp(): Promise<any[]> {
-  return toolsToAnthropicSchema(allTools);
+  return toolsToProviderSchema(allTools);
 }
 function formatTabsForDisplay(tabs: any[]): string {
   return formatTabsOutput(tabs);

@@ -619,7 +619,7 @@ export function createStandardMarkdownComponents(): Components {
           : 'whitespace-normal';
       return (
         <p
-          className={`font-claude-response-body break-words ${whitespaceClass} leading-[1.7]`}
+          className={`font-superduck-response-body break-words ${whitespaceClass} leading-[1.7]`}
           {...props}
         >
           {processChildrenForSwatches(children)}

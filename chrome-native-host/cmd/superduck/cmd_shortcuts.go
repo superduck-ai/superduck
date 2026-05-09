@@ -14,8 +14,8 @@ import (
 
 // cmdShortcuts implements the `shortcuts` subcommand following clig.dev style:
 //
-//   superduck shortcuts list                       List shortcuts (table; --json for raw)
-//   superduck shortcuts get <name> [args...]       Fetch + render the shortcut prompt
+//	superduck shortcuts list                       List shortcuts (table; --json for raw)
+//	superduck shortcuts get <name> [args...]       Fetch + render the shortcut prompt
 //
 // `get` resolves <name> as command name first, falls back to id. Positional
 // args fill {{var}} placeholders in the prompt by first-appearance order.
@@ -375,4 +375,3 @@ func fetchShortcut(args map[string]any) (*shortcutDetail, error) {
 	}
 	return &d, nil
 }
-

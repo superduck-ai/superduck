@@ -1,12 +1,12 @@
 /**
  * Model mapping utility for custom API endpoints
- * Maps Claude model names to custom model names (e.g., kimi-k2.5)
+ * Maps upstream model names to custom model names (e.g., kimi-k2.5)
  */
 
 export const MODEL_MAPPING_KEYS = {
-  HAIKU: 'anthropicDefaultHaikuModel',
-  SONNET: 'anthropicDefaultSonnetModel',
-  OPUS: 'anthropicDefaultOpusModel'
+  HAIKU: 'defaultHaikuModel',
+  SONNET: 'defaultSonnetModel',
+  OPUS: 'defaultOpusModel'
 } as const;
 
 export interface ModelMappingConfig {
@@ -37,7 +37,7 @@ export async function loadModelMapping(): Promise<ModelMappingConfig> {
 }
 
 /**
- * Map a Claude model name to custom model name if configured
+ * Map an upstream model name to custom model name if configured
  * Only applies mapping when custom API URL is configured
  */
 export async function mapModelName(originalModel: string): Promise<string> {

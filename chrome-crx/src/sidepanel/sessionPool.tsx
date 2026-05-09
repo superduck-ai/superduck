@@ -405,11 +405,11 @@ class ScreenshotCaptureManager {
           target: { tabId },
           args: [instructionText],
           func: (text: string) => {
-            const existing = document.getElementById("claude-screenshot-overlay");
+            const existing = document.getElementById("superduck-screenshot-overlay");
             if (existing) existing.remove();
 
             const overlay = document.createElement("div");
-            overlay.id = "claude-screenshot-overlay";
+            overlay.id = "superduck-screenshot-overlay";
             overlay.style.cssText = [
               "position: fixed",
               "top: 0",
@@ -672,7 +672,7 @@ export function useScreenshotCapture({
             .executeScript({
               target: { tabId },
               func: () => {
-                const overlay = document.getElementById("claude-screenshot-overlay");
+                const overlay = document.getElementById("superduck-screenshot-overlay");
                 if (overlay) overlay.remove();
               },
             })
@@ -751,7 +751,7 @@ export function useScreenshotCapture({
         .executeScript({
           target: { tabId },
           func: () => {
-            const overlay = document.getElementById("claude-screenshot-overlay");
+            const overlay = document.getElementById("superduck-screenshot-overlay");
             if (overlay) overlay.remove();
           },
         })
@@ -771,7 +771,7 @@ export function useScreenshotCapture({
           .executeScript({
             target: { tabId },
             func: () => {
-              const overlay = document.getElementById("claude-screenshot-overlay");
+              const overlay = document.getElementById("superduck-screenshot-overlay");
               if (overlay) overlay.remove();
             },
           })

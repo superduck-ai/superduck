@@ -8,7 +8,7 @@ interface ShimmerTextProps {
 export function ShimmerText({ isDarkMode, text }: ShimmerTextProps) {
   return (
     <span
-      className="text-sm italic font-claude-response relative inline-block mb-1"
+      className="text-sm italic font-superduck-response relative inline-block mb-1"
       style={{
         color: "transparent",
         background: isDarkMode

@@ -87,7 +87,7 @@
     --always-black: 0 0% 0%
 }
 
-[data-theme=claude], [data-theme=claude][data-mode=light] {
+[data-theme=superduck], [data-theme=superduck][data-mode=light] {
     --accent-brand: 15 63.1% 59.6%;
     --accent-main-000: 15 54.2% 51.2%;
     --accent-main-100: 15 54.2% 51.2%;
@@ -138,7 +138,7 @@
     --warning-900: 38 65.9% 92%
 }
 
-[data-theme=claude][data-mode=dark] {
+[data-theme=superduck][data-mode=dark] {
     --accent-brand: 15 63.1% 59.6%;
     --accent-main-000: 15 54.2% 51.2%;
     --accent-main-100: 15 63.1% 59.6%;
@@ -190,7 +190,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    [data-theme=claude] {
+    [data-theme=superduck] {
         --accent-brand: 15 63.1% 59.6%;
         --accent-main-000: 15 54.2% 51.2%;
         --accent-main-100: 15 63.1% 59.6%;
@@ -295,9 +295,9 @@
 
 :root {
     --font-mono: var(--font-jetbrains);
-    --font-ui: var(--font-anthropic-sans);
-    --font-ui-serif: var(--font-anthropic-serif);
-    --font-claude-response: var(--font-anthropic-serif);
+    --font-ui: var(--font-superduck-sans);
+    --font-ui-serif: var(--font-superduck-serif);
+    --font-superduck-response: var(--font-superduck-serif);
     --font-user-message: var(--font-ui);
     --font-sans-serif: var(--font-ui);
     --font-serif: var(--font-ui-serif);
@@ -334,136 +334,92 @@ b, strong, .font-bold, .font-bolder {
     font-feature-settings: "calt" 0, "liga" 0
 }
 
-[data-theme=claude][data-mode=dark] .font-base {
+[data-theme=superduck][data-mode=dark] .font-base {
     font-weight: 400
 }
 
-[data-theme=claude][data-mode=dark] .font-base-bold {
+[data-theme=superduck][data-mode=dark] .font-base-bold {
     font-weight: 460
 }
 
-[data-theme=claude][data-mode=dark] .font-display {
+[data-theme=superduck][data-mode=dark] .font-display {
     font-weight: 290
 }
 
-[data-theme=claude][data-mode=dark] .font-heading {
+[data-theme=superduck][data-mode=dark] .font-heading {
     font-weight: 460
 }
 
-[data-theme=claude][data-mode=dark] .font-large {
+[data-theme=superduck][data-mode=dark] .font-large {
     font-weight: 400
 }
 
-[data-theme=claude][data-mode=dark] .font-large-bold {
+[data-theme=superduck][data-mode=dark] .font-large-bold {
     font-weight: 560
 }
 
-[data-theme=claude][data-mode=dark] .font-small {
+[data-theme=superduck][data-mode=dark] .font-small {
     font-weight: 400
 }
 
-[data-theme=claude][data-mode=dark] .font-small-bold {
+[data-theme=superduck][data-mode=dark] .font-small-bold {
     font-weight: 560
 }
 
-[data-theme=claude][data-mode=dark] .font-title {
+[data-theme=superduck][data-mode=dark] .font-title {
     font-weight: 460
 }
 
-[data-theme=claude][data-mode=dark] .font-xl {
+[data-theme=superduck][data-mode=dark] .font-xl {
     font-weight: 360
 }
 
-[data-theme=claude][data-mode=dark] .font-xl-bold {
+[data-theme=superduck][data-mode=dark] .font-xl-bold {
     font-weight: 560
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response-body {
+[data-theme=superduck][data-mode=dark] .font-superduck-response-body {
     font-weight: 360
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response-body-bold {
+[data-theme=superduck][data-mode=dark] .font-superduck-response-body-bold {
     font-weight: 530
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response-code, [data-theme=claude][data-mode=dark] .font-claude-response-code-small {
+[data-theme=superduck][data-mode=dark] .font-superduck-response-code, [data-theme=superduck][data-mode=dark] .font-superduck-response-code-small {
     font-weight: 360
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response-heading {
+[data-theme=superduck][data-mode=dark] .font-superduck-response-heading {
     font-weight: 530
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response-small {
+[data-theme=superduck][data-mode=dark] .font-superduck-response-small {
     font-weight: 360
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response-small-bold, [data-theme=claude][data-mode=dark] .font-claude-response-subheading, [data-theme=claude][data-mode=dark] .font-claude-response-title {
+[data-theme=superduck][data-mode=dark] .font-superduck-response-small-bold, [data-theme=superduck][data-mode=dark] .font-superduck-response-subheading, [data-theme=superduck][data-mode=dark] .font-superduck-response-title {
     font-weight: 530
 }
 
-[data-theme=claude][data-mode=dark] .font-normal {
+[data-theme=superduck][data-mode=dark] .font-normal {
     font-weight: 400
 }
 
-[data-theme=claude][data-mode=dark] .font-claude-response {
+[data-theme=superduck][data-mode=dark] .font-superduck-response {
     font-weight: 360
 }
 
-[data-theme=claude][data-mode=dark] .font-medium {
+[data-theme=superduck][data-mode=dark] .font-medium {
     font-weight: 510
 }
 
-[data-theme=claude][data-mode=dark] .font-semibold {
+[data-theme=superduck][data-mode=dark] .font-semibold {
     font-weight: 540
 }
 
-[data-theme=claude][data-mode=dark] b, [data-theme=claude][data-mode=dark] strong, [data-theme=claude][data-mode=dark] .font-bold, [data-theme=claude][data-mode=dark] .font-bolder {
+[data-theme=superduck][data-mode=dark] b, [data-theme=superduck][data-mode=dark] strong, [data-theme=superduck][data-mode=dark] .font-bold, [data-theme=superduck][data-mode=dark] .font-bolder {
     font-weight: 530
-}
-
-@font-face {
-    font-family: Anthropic Sans;
-    src: url(/assets/AnthropicSans-Romans-Variable-25x258-Bpr3wWwO.woff2) format("woff2");
-    font-weight: 300 800;
-    font-style: normal;
-    font-display: swap;
-    font-feature-settings: "dlig" 0
-}
-
-@font-face {
-    font-family: Anthropic Sans;
-    src: url(/assets/AnthropicSans-Italics-Variable-25x258-DiJh4Brh.woff2) format("woff2");
-    font-weight: 300 800;
-    font-style: italic;
-    font-display: swap;
-    font-feature-settings: "dlig" 0
-}
-
-@font-face {
-    font-family: Anthropic Serif;
-    src: url(/assets/AnthropicSerif-Romans-Variable-25x258-B6fyXDVc.woff2) format("woff2");
-    font-weight: 300 800;
-    font-style: normal;
-    font-display: swap;
-    font-feature-settings: "dlig" 0
-}
-
-@font-face {
-    font-family: Anthropic Serif;
-    src: url(/assets/AnthropicSerif-Italics-Variable-25x258-DH989fus.woff2) format("woff2");
-    font-weight: 300 800;
-    font-style: italic;
-    font-display: swap;
-    font-feature-settings: "dlig" 0
-}
-
-@font-face {
-    font-family: Anthropic Mono;
-    src: url(/assets/AnthropicMono20250717_TKVF-B2MNN231.woff2) format("woff2");
-    font-weight: 300 800;
-    font-style: normal;
-    font-display: swap
 }
 
 @font-face {
@@ -476,9 +432,9 @@ b, strong, .font-bold, .font-bolder {
 
 @layer base {
     :root {
-        --font-anthropic-sans: "Anthropic Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-        --font-anthropic-serif: "Anthropic Serif", Georgia, Cambria, "Times New Roman", Times, serif;
-        --font-anthropic-mono: "Anthropic Mono", ui-monospace, "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Menlo, Consolas, "Courier New", monospace;
+        --font-superduck-sans: "SuperDuck Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --font-superduck-serif: "SuperDuck Serif", Georgia, Cambria, "Times New Roman", Times, serif;
+        --font-superduck-mono: "SuperDuck Mono", ui-monospace, "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Menlo, Consolas, "Courier New", monospace;
         --font-jetbrains: "JetBrains Mono", ui-monospace, "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Menlo, Consolas, "Courier New", monospace
     }
 
@@ -739,56 +695,56 @@ body {
 }
 
 @layer utilities {
-    .claude-response h1 {
-        font-family: var(--font-claude-response);
+    .superduck-response h1 {
+        font-family: var(--font-superduck-response);
         font-size: 1.125rem;
         font-weight: 600;
         line-height: 1.3
     }
 
-    .claude-response h2 {
-        font-family: var(--font-claude-response);
+    .superduck-response h2 {
+        font-family: var(--font-superduck-response);
         font-size: 1rem;
         font-weight: 600;
         line-height: 1.4
     }
 
-    .claude-response h3, .claude-response h4, .claude-response h5, .claude-response h6 {
-        font-family: var(--font-claude-response);
+    .superduck-response h3, .superduck-response h4, .superduck-response h5, .superduck-response h6 {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 600;
         line-height: 1.35
     }
 
-    .claude-response p {
-        font-family: var(--font-claude-response);
+    .superduck-response p {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 400;
         line-height: 1.5
     }
 
-    .claude-response p b {
-        font-family: var(--font-claude-response);
+    .superduck-response p b {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 600;
         line-height: 1.5
     }
 
-    .claude-response small {
-        font-family: var(--font-claude-response);
+    .superduck-response small {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 400;
         line-height: 1.5
     }
 
-    .claude-response p small b {
-        font-family: var(--font-claude-response);
+    .superduck-response p small b {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 600;
         line-height: 1.5
     }
 
-    .claude-response code {
+    .superduck-response code {
         font-family: var(--font-mono);
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
@@ -797,7 +753,7 @@ body {
         line-height: 1.5
     }
 
-    .claude-response code small {
+    .superduck-response code small {
         font-family: var(--font-mono);
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
@@ -5020,16 +4976,16 @@ body {
         vertical-align: top
     }
 
-    .font-claude-response-heading {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-heading {
+        font-family: var(--font-superduck-response);
         font-variation-settings: "opsz" 20;
         font-size: 1.25rem;
         font-weight: 600;
         line-height: 1.4
     }
 
-    .font-claude-response-title {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-title {
+        font-family: var(--font-superduck-response);
         font-variation-settings: "opsz" 28;
         font-size: 1.75rem;
         font-weight: 600;
@@ -5097,50 +5053,50 @@ body {
         line-height: 1.4
     }
 
-    .font-claude-response-body {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-body {
+        font-family: var(--font-superduck-response);
         font-size: 1rem;
         font-weight: 400;
         line-height: 1.5
     }
 
-    .font-claude-response-body-bold {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-body-bold {
+        font-family: var(--font-superduck-response);
         font-size: 1rem;
         font-weight: 600;
         line-height: 1.5
     }
 
-    .font-claude-response-code {
+    .font-superduck-response-code {
         font-family: var(--font-mono);
         font-size: .813rem;
         font-weight: 400;
         line-height: 1.5
     }
 
-    .font-claude-response-code-small {
+    .font-superduck-response-code-small {
         font-family: var(--font-mono);
         font-size: .688rem;
         font-weight: 400;
         line-height: 1.5
     }
 
-    .font-claude-response-small {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-small {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 400;
         line-height: 1.5
     }
 
-    .font-claude-response-small-bold {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-small-bold {
+        font-family: var(--font-superduck-response);
         font-size: .875rem;
         font-weight: 600;
         line-height: 1.5
     }
 
-    .font-claude-response-subheading {
-        font-family: var(--font-claude-response);
+    .font-superduck-response-subheading {
+        font-family: var(--font-superduck-response);
         font-size: 1rem;
         font-weight: 600;
         line-height: 1.35
@@ -5174,8 +5130,8 @@ body {
         line-height: 1.4
     }
 
-    .font-claude-response {
-        font-family: var(--font-claude-response)
+    .font-superduck-response {
+        font-family: var(--font-superduck-response)
     }
 
     .font-mono {
