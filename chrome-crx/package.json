@@ -21,7 +21,7 @@
     "docs:check": "typedoc --options typedoc.json --emit none"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.95.1",
     "@growthbook/growthbook-react": "^1.2.0",
     "@honeycombio/opentelemetry-web": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
