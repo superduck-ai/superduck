@@ -51,7 +51,7 @@ interface GifEncoder {
   render(): void;
 }
 
-declare const GIF: new (options: {
+type GifConstructor = new (options: {
   workers: number;
   quality: number;
   width: number;
@@ -60,6 +60,73 @@ declare const GIF: new (options: {
   repeat: number;
   debug: boolean;
 }) => GifEncoder;
+
+const GIF_LIBRARY_SCRIPT_ID = "superduck-gif-library";
+let gifLibraryPromise: Promise<GifConstructor> | null = null;
+
+function getGifConstructor(): GifConstructor | undefined {
+  return (window as Window & typeof globalThis & { GIF?: GifConstructor }).GIF;
+}
+
+function loadGifLibrary(): Promise<GifConstructor> {
+  const existingGif = getGifConstructor();
+  if (existingGif) {
+    return Promise.resolve(existingGif);
+  }
+
+  if (gifLibraryPromise) {
+    return gifLibraryPromise;
+  }
+
+  gifLibraryPromise = new Promise<GifConstructor>((resolve, reject) => {
+    const existingScript = document.getElementById(
+      GIF_LIBRARY_SCRIPT_ID,
+    ) as HTMLScriptElement | null;
+
+    const resolveGif = () => {
+      const gif = getGifConstructor();
+      if (!gif) {
+        gifLibraryPromise = null;
+        reject(new Error("[Offscreen] GIF library loaded without exposing window.GIF"));
+        return;
+      }
+      resolve(gif);
+    };
+
+    if (existingScript) {
+      if (existingScript.dataset.loaded === "true") {
+        resolveGif();
+        return;
+      }
+
+      existingScript.addEventListener("load", resolveGif, { once: true });
+      existingScript.addEventListener(
+        "error",
+        () => {
+          gifLibraryPromise = null;
+          reject(new Error("[Offscreen] Failed to load GIF library script"));
+        },
+        { once: true },
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = GIF_LIBRARY_SCRIPT_ID;
+    script.src = chrome.runtime.getURL("gif.js");
+    script.onload = () => {
+      script.dataset.loaded = "true";
+      resolveGif();
+    };
+    script.onerror = () => {
+      gifLibraryPromise = null;
+      reject(new Error("[Offscreen] Failed to load GIF library script"));
+    };
+    document.head.appendChild(script);
+  });
+
+  return gifLibraryPromise;
+}
 
 console.log("[Offscreen] Document loaded and ready");
 
@@ -594,61 +661,65 @@ async function generateGif(
   });
 
   return new Promise<GifResult>((resolve, reject) => {
-    const gif = new GIF({
-      workers: 2,
-      quality: options.quality || 10,
-      width,
-      height,
-      workerScript: chrome.runtime.getURL("gif.worker.js"),
-      repeat: 0,
-      debug: true,
-    });
-
-    gif.on("progress", (percent) => {
-      console.log(
-        `[Offscreen] GIF encoding progress: ${Math.round(percent * 100)}%`,
-      );
-    });
-
-    gif.on("finished", (blob) => {
-      console.log(`[Offscreen] GIF created: ${blob.size} bytes`);
-
-      // Create blob URL (available in offscreen document context)
-      const blobUrl = URL.createObjectURL(blob);
-      console.log(`[Offscreen] Created blob URL: ${blobUrl}`);
-
-      // Convert blob to base64
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result !== "string") {
-          reject(new Error("[Offscreen] Unexpected FileReader result type"));
-          return;
-        }
-        const base64 = reader.result.split(",")[1];
-        console.log(
-          `[Offscreen] Conversion complete, base64 length: ${base64.length}`,
-        );
-        resolve({
-          base64,
-          blobUrl,
-          size: blob.size,
+    loadGifLibrary()
+      .then((gifConstructor) => {
+        const gif = new gifConstructor({
+          workers: 2,
+          quality: options.quality || 10,
           width,
           height,
+          workerScript: chrome.runtime.getURL("gif.worker.js"),
+          repeat: 0,
+          debug: true,
         });
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
 
-    gif.on("abort", () => reject(new Error("GIF rendering aborted")));
+        gif.on("progress", (percent) => {
+          console.log(
+            `[Offscreen] GIF encoding progress: ${Math.round(percent * 100)}%`,
+          );
+        });
 
-    // Add all enhanced frames with their individual delays
-    enhancedCanvases.forEach((canvas, index) => {
-      gif.addFrame(canvas, { delay: frameDelays[index] });
-    });
+        gif.on("finished", (blob) => {
+          console.log(`[Offscreen] GIF created: ${blob.size} bytes`);
 
-    console.log(`[Offscreen] Starting GIF rendering...`);
-    gif.render();
+          // Create blob URL (available in offscreen document context)
+          const blobUrl = URL.createObjectURL(blob);
+          console.log(`[Offscreen] Created blob URL: ${blobUrl}`);
+
+          // Convert blob to base64
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result !== "string") {
+              reject(new Error("[Offscreen] Unexpected FileReader result type"));
+              return;
+            }
+            const base64 = reader.result.split(",")[1];
+            console.log(
+              `[Offscreen] Conversion complete, base64 length: ${base64.length}`,
+            );
+            resolve({
+              base64,
+              blobUrl,
+              size: blob.size,
+              width,
+              height,
+            });
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+        gif.on("abort", () => reject(new Error("GIF rendering aborted")));
+
+        // Add all enhanced frames with their individual delays
+        enhancedCanvases.forEach((canvas, index) => {
+          gif.addFrame(canvas, { delay: frameDelays[index] });
+        });
+
+        console.log(`[Offscreen] Starting GIF rendering...`);
+        gif.render();
+      })
+      .catch(reject);
   });
 }
 
