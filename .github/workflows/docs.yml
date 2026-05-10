@@ -59,7 +59,7 @@ jobs:
         run: bun run docs
 
       - name: Upload TypeDoc artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: typedoc-site
           path: chrome-crx/docs/api
@@ -92,7 +92,7 @@ jobs:
           ls -la ../docs-build/godoc
 
       - name: Upload godoc artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: godoc-snapshots
           path: docs-build/godoc

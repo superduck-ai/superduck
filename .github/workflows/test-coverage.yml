@@ -45,7 +45,7 @@ jobs:
         run: bun run test:perf:report
       - name: Upload JUnit test report (timing data)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-crx-test-junit
           path: chrome-crx/test-results.junit.xml
@@ -60,7 +60,7 @@ jobs:
           fail-on-error: false
       - name: Upload HTML coverage report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-crx-coverage-html
           path: chrome-crx/coverage
@@ -85,14 +85,14 @@ jobs:
         run: make test-perf
       - name: Upload Go test timing JSON
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-native-host-test-timings
           path: chrome-native-host/test-results.json
           if-no-files-found: warn
       - name: Upload coverage profile
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-native-host-coverage
           path: chrome-native-host/coverage.out
