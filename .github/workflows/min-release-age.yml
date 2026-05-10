@@ -27,7 +27,7 @@ jobs:
     name: Min release age (>= ${{ inputs.days || '3' }}d)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Need history so the script can diff against the PR base.
           fetch-depth: 0
