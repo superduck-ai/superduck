@@ -1,13 +1,19 @@
 import { getCompactionPrompts, detectConversationLanguage } from './compactionPrompts';
 import { CONTEXT_WINDOW, MAX_TOKENS } from './messageLimits';
+import type {
+  ApiConversationMessage,
+  ApiResponseMessage,
+  ApiUsage,
+  CreateApiMessageParams
+} from '../messageTypes';
 
 export class ConversationCompactor {
-  private createMessage: (params: any) => Promise<any>;
+  private createMessage: (params: CreateApiMessageParams) => Promise<ApiResponseMessage>;
   private locale?: string;
   private contextWindow: number;
 
   constructor(
-    createMessage: (params: any) => Promise<any>,
+    createMessage: (params: CreateApiMessageParams) => Promise<ApiResponseMessage>,
     locale?: string,
     contextWindow: number = CONTEXT_WINDOW
   ) {
@@ -17,7 +23,7 @@ export class ConversationCompactor {
   }
 
   async compactConversation(
-    messages: any[],
+    messages: ApiConversationMessage[],
     maxTokens: number,
     continueWithoutPrompt: boolean
   ) {
@@ -44,9 +50,13 @@ export class ConversationCompactor {
 
     const summary = this.extractText(response);
     const summaryText = this.formatSummary(summary, continueWithoutPrompt);
-    const summaryMessage = { role: 'user', content: summaryText, isCompactSummary: true };
+    const summaryMessage: ApiConversationMessage = {
+      role: 'user',
+      content: summaryText,
+      isCompactSummary: true
+    };
     const preservedRecentImages = this.preserveRecentContext(messages);
-    const messagesAfterCompacting = [
+    const messagesAfterCompacting: ApiConversationMessage[] = [
       {
         role: 'assistant',
         content: prompts.compactionNotice,
@@ -67,11 +77,9 @@ export class ConversationCompactor {
             return total + JSON.stringify(message.content || '').length / 4;
           }
 
-          const imageCount = message.content.filter(
-            (item: { type?: string }) => item?.type === 'image'
-          ).length;
+          const imageCount = message.content.filter((item) => item?.type === 'image').length;
           const nonImageText = JSON.stringify(
-            message.content.filter((item: { type?: string }) => item?.type !== 'image')
+            message.content.filter((item) => item?.type !== 'image')
           ).length;
           return total + imageCount * imageTokenEstimate + nonImageText / 4;
         }, 0)
@@ -86,8 +94,8 @@ export class ConversationCompactor {
     };
   }
 
-  private prepareMessages(messages: any[]) {
-    const prepared: any[] = [];
+  private prepareMessages(messages: ApiConversationMessage[]) {
+    const prepared: ApiConversationMessage[] = [];
     for (const message of messages) {
       if (!message || typeof message !== 'object') continue;
       if (!(message.role === 'user' || message.role === 'assistant')) continue;
@@ -104,14 +112,19 @@ export class ConversationCompactor {
     return prepared;
   }
 
-  private extractText(response: any) {
+  private extractText(response: ApiResponseMessage) {
     if (!Array.isArray(response?.content)) {
       throw new Error('No content in compaction response');
     }
 
     const text = response.content
-      .filter((item: any) => item?.type === 'text')
-      .map((item: any) => item.text || '')
+      .filter(
+        (
+          item
+        ): item is Extract<ApiResponseMessage['content'][number], { type: 'text' }> =>
+          item.type === 'text'
+      )
+      .map((item) => item.text || '')
       .join('\n')
       .trim();
 
@@ -136,14 +149,14 @@ export class ConversationCompactor {
     return template.replace('{summary}', cleaned);
   }
 
-  private preserveRecentContext(messages: any[]) {
-    const preserved: any[] = [];
+  private preserveRecentContext(messages: ApiConversationMessage[]) {
+    const preserved: ApiConversationMessage[] = [];
     let imageMessages = 0;
 
     for (let index = messages.length - 1; index >= 0 && imageMessages < 3; index -= 1) {
       const message = messages[index];
       if (!message || message.role !== 'user' || !Array.isArray(message.content)) continue;
-      const imageContent = message.content.filter((item: any) => item?.type === 'image');
+      const imageContent = message.content.filter((item) => item?.type === 'image');
       if (imageContent.length === 0) continue;
       preserved.unshift({
         ...message,
@@ -155,7 +168,7 @@ export class ConversationCompactor {
     return preserved;
   }
 
-  private calculateMetricsFromMessages(messages: any[], maxTokens: number) {
+  private calculateMetricsFromMessages(messages: ApiConversationMessage[], maxTokens: number) {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
       if (message?.role === 'assistant' && message?.usage) {
@@ -166,7 +179,7 @@ export class ConversationCompactor {
     return null;
   }
 
-  private calculateMetricsFromUsage(usage: any, maxTokens: number) {
+  private calculateMetricsFromUsage(usage: ApiUsage, maxTokens: number) {
     const inputTokens = usage?.input_tokens || 0;
     const outputTokens = usage?.output_tokens || 0;
     const cacheCreationTokens = usage?.cache_creation_input_tokens || 0;

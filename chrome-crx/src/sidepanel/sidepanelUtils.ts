@@ -1,3 +1,5 @@
+import type { ModelOptionConfig, ModelsConfigFeatureValue } from '../extensionServices';
+
 export type PermissionMode = 'skip_all_permission_checks' | 'follow_a_plan';
 
 export interface PromptAttachmentPayload {
@@ -47,28 +49,23 @@ export async function openOptionsTo(
   await chrome.tabs.create({ url: targetUrl });
 }
 
-export function getModelDisplayName(model: string, config: any): string {
-  if (config?.options && Array.isArray(config.options)) {
-    for (const option of config.options) {
-      if (
-        option &&
-        typeof option === 'object' &&
-        typeof (option as any).model === 'string' &&
-        (option as any).model === model &&
-        typeof (option as any).name === 'string' &&
-        (option as any).name
-      ) {
-        return (option as any).name;
-      }
-    }
-  }
+function isModelOptionConfig(option: unknown): option is ModelOptionConfig {
+  return (
+    !!option &&
+    typeof option === 'object' &&
+    typeof (option as ModelOptionConfig).model === 'string'
+  );
+}
 
-  if (config?.models && Array.isArray(config.models)) {
-    const found = config.models.find(
-      (entry: any) => entry && typeof entry.model === 'string' && entry.model === model
-    );
-    if (found && typeof found.name === 'string' && found.name) {
-      return found.name;
+export function getModelDisplayName(
+  model: string,
+  config: ModelsConfigFeatureValue | null | undefined
+): string {
+  if (Array.isArray(config?.options)) {
+    for (const option of config.options) {
+      if (isModelOptionConfig(option) && option.model === model && option.name) {
+        return option.name;
+      }
     }
   }
 

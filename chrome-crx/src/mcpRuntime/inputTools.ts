@@ -32,7 +32,7 @@ interface ClickOptions {
 
 // ToolContext and ToolResult interfaces defined below in the tool definitions section
 
-const computerTool = {
+const computerTool: ToolDefinition<ComputerToolParams> = {
   name: 'computer',
   description:
     "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* The screen's resolution is {self.display_width_px}x{self.display_height_px}.\n* Whenever you intend to click on an element like an icon, you should consult a screenshot to determine the coordinates of the element before moving the cursor.\n* If you tried clicking on a program or link but it failed to load, even after waiting, try adjusting your click location so that the tip of the cursor visually falls on the element that you want to click.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
@@ -548,7 +548,7 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
   };
 
   try {
-    let result = await execWithStaleRecovery<ScrollToRefResult>(tabId, ref, scrollScript, [ref]);
+    const result = await execWithStaleRecovery<ScrollToRefResult>(tabId, ref, scrollScript, [ref]);
 
     if (!result) {
       return { success: false, error: 'Failed to execute script to get element coordinates' };

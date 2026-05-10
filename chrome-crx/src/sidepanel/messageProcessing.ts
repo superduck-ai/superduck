@@ -1,4 +1,13 @@
 import { compressBase64Image } from '../utils/imageCompressor';
+import type { ToolResult } from '../mcpRuntime/pageToolsSupport/types';
+import type { ApiConversationMessage, ApiInputContentBlock } from '../messageTypes';
+import { isRecord } from '../messageTypes';
+
+type MessageForApi = ApiConversationMessage & { type?: string };
+
+interface ToolExecutionResult extends Partial<ToolResult> {
+  content?: ApiConversationMessage['content'];
+}
 
 export function getErrorMessage(error: unknown): string {
   if (typeof error === 'string') {
@@ -28,16 +37,11 @@ export function getErrorMessage(error: unknown): string {
     }
     return error.message;
   }
-  if (error && typeof error === 'object') {
-    if (
-      'error' in error &&
-      typeof (error as any).error === 'object' &&
-      (error as any).error &&
-      'message' in (error as any).error
-    ) {
-      return String((error as any).error.message);
+  if (isRecord(error)) {
+    if (isRecord(error.error) && typeof error.error.message === 'string') {
+      return error.error.message;
     }
-    if ('message' in error) return String((error as any).message);
+    if ('message' in error) return String(error.message);
   }
   return String(error);
 }
@@ -55,18 +59,17 @@ export function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-export function prepareMessagesForApi(messages: any[]): any[] {
-  const filtered = messages.filter(
-    (msg: any) => !msg.isLocalOnlyMessage && !('type' in msg && msg.type === 'result')
-  );
+export function prepareMessagesForApi(messages: MessageForApi[]): ApiConversationMessage[] {
+  const filtered = messages.filter((msg) => !msg.isLocalOnlyMessage && msg.type !== 'result');
   let lastAssistantIdx = -1;
-  for (let i = filtered.length - 1; i >= 0; i--) {
+  for (let i = filtered.length - 1; i >= 0; i -= 1) {
     if (filtered[i].role === 'assistant') {
       lastAssistantIdx = i;
       break;
     }
   }
-  return filtered.map((msg: any, idx: number) => {
+
+  return filtered.map((msg, idx) => {
     const role = msg.role;
     if (typeof msg.content === 'string') {
       if (idx === lastAssistantIdx) {
@@ -78,9 +81,10 @@ export function prepareMessagesForApi(messages: any[]): any[] {
       return { role, content: msg.content };
     }
     if (Array.isArray(msg.content)) {
-      const content = JSON.parse(JSON.stringify(msg.content));
-      if (idx === lastAssistantIdx && content.length > 0) {
-        content[content.length - 1].cache_control = { type: 'ephemeral' };
+      const content = JSON.parse(JSON.stringify(msg.content)) as ApiInputContentBlock[];
+      const lastBlock = content[content.length - 1];
+      if (idx === lastAssistantIdx && lastBlock && isRecord(lastBlock)) {
+        lastBlock.cache_control = { type: 'ephemeral' };
       }
       return { role, content };
     }
@@ -88,22 +92,31 @@ export function prepareMessagesForApi(messages: any[]): any[] {
   });
 }
 
-export async function formatToolResult(result: any): Promise<any> {
+export async function formatToolResult(
+  result: ToolExecutionResult
+): Promise<ApiConversationMessage['content']> {
   if (result?.error) return result.error;
-  const parts: any[] = [];
+  const parts: ApiInputContentBlock[] = [];
   if (result?.output) {
     parts.push({ type: 'text', text: result.output });
   }
   if (result?.base64Image) {
     const rawMediaType = result.imageFormat ? `image/${result.imageFormat}` : 'image/png';
     const { data, mediaType } = await compressBase64Image(result.base64Image, rawMediaType);
+    const normalizedMediaType =
+      mediaType === 'image/jpeg' ||
+      mediaType === 'image/png' ||
+      mediaType === 'image/gif' ||
+      mediaType === 'image/webp'
+        ? mediaType
+        : 'image/png';
     parts.push({
       type: 'image',
-      source: { type: 'base64', media_type: mediaType, data }
+      source: { type: 'base64', media_type: normalizedMediaType, data }
     });
   }
   if (parts.length > 0) return parts;
-  if (result && typeof result === 'object' && 'content' in result) {
+  if (Array.isArray(result.content) || typeof result.content === 'string') {
     return result.content;
   }
   return '';

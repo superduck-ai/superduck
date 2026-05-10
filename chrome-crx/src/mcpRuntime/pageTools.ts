@@ -27,7 +27,12 @@ import {
   snapshotVariantKey,
   type SnapshotVariant
 } from './pageToolsSupport/snapshotCache';
-import type { ToolContext, ToolDefinition, ToolResult } from './pageToolsSupport/types';
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolResult,
+  ToolSchemaProperty
+} from './pageToolsSupport/types';
 
 // read_page snapshot diff cache: per-(session, tab) baseline for diff:true.
 // 必须按 sessionId 隔离 — 否则两个 sidepanel/agent 共用同一 tab 时会互相污染
@@ -1282,13 +1287,21 @@ const tabsCreateTool: ToolDefinition = {
 // Tool: turn_answer_start (Oe)
 // =============================================================================
 
-const turnAnswerStartSchema = { type: 'object' as const, properties: {}, required: [] as string[] };
+const turnAnswerStartSchema: {
+  type: 'object';
+  properties: Record<string, ToolSchemaProperty>;
+  required: string[];
+} = {
+  type: 'object',
+  properties: {},
+  required: []
+};
 
 const turnAnswerStartTool: ToolDefinition = {
   name: 'turn_answer_start',
   description:
     'Call this immediately before your text response to the user for this turn. Required every turn - whether or not you made tool calls. After calling, write your response. No more tools after this.',
-  parameters: turnAnswerStartSchema,
+  parameters: {},
   execute: async () => ({ output: 'Proceed with your response.' }),
   toProviderSchema() {
     return {
@@ -1306,7 +1319,7 @@ const turnAnswerStartTool: ToolDefinition = {
 
 const updatePlanInputSchema: {
   type: 'object';
-  properties: Record<string, any>;
+  properties: Record<string, ToolSchemaProperty>;
   required: string[];
 } = {
   type: 'object',
@@ -1331,7 +1344,7 @@ const updatePlanTool: ToolDefinition = {
   name: 'update_plan',
   description:
     'Present a plan to the user for approval before taking actions. The user will see the domains you intend to visit and your approach. Once approved, you can proceed with actions on the approved domains without additional permission prompts.',
-  parameters: updatePlanInputSchema,
+  parameters: updatePlanInputSchema.properties,
   async execute(input: any, context: ToolContext): Promise<ToolResult> {
     const validationError = (function validatePlan(plan: any) {
       const planData = plan;

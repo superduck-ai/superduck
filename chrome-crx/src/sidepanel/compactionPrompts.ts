@@ -1,3 +1,6 @@
+import type { ApiConversationMessage } from '../messageTypes';
+import { isTextContentBlock } from '../messageTypes';
+
 /**
  * Compaction prompts for different locales
  *
@@ -125,17 +128,19 @@ function normalizeLocale(locale?: string): SupportedCompactionLocale {
  * Detect conversation language from messages
  * This can be used as a fallback if locale is not available
  */
-export function detectConversationLanguage(messages: any[]): SupportedCompactionLocale {
+export function detectConversationLanguage(
+  messages: ApiConversationMessage[]
+): SupportedCompactionLocale {
   // Sample recent user messages
   const recentUserMessages = messages
-    .filter(msg => msg.role === 'user')
+    .filter((msg) => msg.role === 'user')
     .slice(-5)
-    .map(msg => {
+    .map((msg) => {
       if (typeof msg.content === 'string') return msg.content;
       if (Array.isArray(msg.content)) {
         return msg.content
-          .filter((item: { type?: string }) => item?.type === 'text')
-          .map((item: { text?: string }) => item.text || '')
+          .filter(isTextContentBlock)
+          .map((item) => item.text || '')
           .join(' ');
       }
       return '';

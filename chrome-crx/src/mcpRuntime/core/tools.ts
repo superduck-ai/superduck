@@ -22,6 +22,15 @@ import {
 } from '../browserAutomation';
 import { superduckTools, superduckToolNames } from '../superduckTools';
 
+interface TabsContextMcpArgs {
+  createIfEmpty?: boolean;
+}
+
+interface ShortcutLookupArgs {
+  shortcutId?: string;
+  command?: string;
+}
+
 async function executeShortcutTask(options: {
   tabId: number;
   prompt: string;
@@ -119,7 +128,7 @@ async function executeShortcutTask(options: {
   return { success: true };
 }
 
-const tabsContextMcpTool: ToolDefinition = {
+const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
   name: 'tabs_context_mcp',
   description:
     'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. IMPORTANT: Always reuse existing tabs for navigation. Only create a new tab (using tabs_create_mcp) when the user explicitly requests opening a new tab or when you need to keep multiple pages open simultaneously.',
@@ -285,7 +294,7 @@ const shortcutsListTool: ToolDefinition = {
   })
 };
 
-const shortcutsGetTool: ToolDefinition = {
+const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
   name: 'shortcuts_get',
   description:
     'Fetch the raw prompt text of a shortcut by id or command, without executing it. Use this when an external agent (e.g. CLI) wants to retrieve the shortcut definition and run it locally instead of triggering the in-browser sidepanel agent.',
@@ -360,7 +369,7 @@ const shortcutsGetTool: ToolDefinition = {
   })
 };
 
-const shortcutsExecuteTool: ToolDefinition = {
+const shortcutsExecuteTool: ToolDefinition<ShortcutLookupArgs> = {
   name: 'shortcuts_execute',
   description:
     'Execute a shortcut or workflow by running it in a new sidepanel window using the current tab (shortcuts and workflows are interchangeable). Use shortcuts_list first to see available shortcuts. This starts the execution and returns immediately - it does not wait for completion.',
@@ -452,9 +461,9 @@ const shortcutsExecuteTool: ToolDefinition = {
   })
 };
 
-let _allTools: ToolDefinition[] | null = null;
+let _allTools: Array<ToolDefinition<any>> | null = null;
 
-export function getAllTools(): ToolDefinition[] {
+export function getAllTools(): Array<ToolDefinition<any>> {
   if (!_allTools) {
     _allTools = [
       javascriptTool,
@@ -484,7 +493,7 @@ export function getAllTools(): ToolDefinition[] {
   return _allTools;
 }
 
-export const allTools: ToolDefinition[] = [
+export const allTools: Array<ToolDefinition<any>> = [
   javascriptTool,
   navigateTool,
   computerTool,

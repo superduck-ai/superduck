@@ -58,6 +58,7 @@ import {
   identifyUser
 } from './analytics';
 import { allTools, mcpToolNames } from './core/tools';
+import type { ToolProviderSchema } from './pageToolsSupport/types';
 
 // Alias withTracing as initializePermissions (legacy name from compiled bundle)
 const initializePermissions = withTracing;
@@ -992,7 +993,7 @@ export async function executeTool(options: {
   }
 
   let errorType: string | undefined;
-  let isError = false;
+  let isError: boolean;
 
   try {
     if (tabId !== undefined) {
@@ -1443,6 +1444,16 @@ export async function syncPermissions(): Promise<void> {
 
 // Stubs for tool names referenced in the original bundle but defined as inline
 // tool objects in this file with different names. Create aliases.
+const createEmptyToolSchema = (name: string, description: string): ToolProviderSchema => ({
+  name,
+  description,
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [] as string[]
+  }
+});
+
 const screenshotTool = computerTool; // screenshot is handled by computerTool's screenshot action
 const tabsQueryTool = tabsContextTool;
 const tabsActivateTool: ToolDefinition = {
@@ -1450,7 +1461,7 @@ const tabsActivateTool: ToolDefinition = {
   description: 'Activate a tab',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('tabs_activate', 'Activate a tab')
 };
 const pageContentTool = readPageTool;
 const tabsCloseTool: ToolDefinition = {
@@ -1458,35 +1469,35 @@ const tabsCloseTool: ToolDefinition = {
   description: 'Close a tab',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('tabs_close', 'Close a tab')
 };
 const tabsNavigateBackTool: ToolDefinition = {
   name: 'tabs_navigate_back',
   description: 'Navigate back',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('tabs_navigate_back', 'Navigate back')
 };
 const tabsUpdateTool: ToolDefinition = {
   name: 'tabs_update',
   description: 'Update a tab',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('tabs_update', 'Update a tab')
 };
 const tabsGroupTool: ToolDefinition = {
   name: 'tabs_group',
   description: 'Group tabs',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('tabs_group', 'Group tabs')
 };
 const waitTool: ToolDefinition = {
   name: 'wait',
   description: 'Wait',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('wait', 'Wait')
 };
 const tabsGetContentTool = getPageTextTool;
 const tabsExecuteScriptTool = javascriptTool;
@@ -1495,14 +1506,14 @@ const todoListTool: ToolDefinition = {
   description: 'List todos',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('todo_list', 'List todos')
 };
 const todoUpdateTool: ToolDefinition = {
   name: 'todo_update',
   description: 'Update todo',
   parameters: {},
   execute: async () => ({ output: 'stub' }),
-  toProviderSchema: async () => ({})
+  toProviderSchema: async () => createEmptyToolSchema('todo_update', 'Update todo')
 };
 const tabsNewTool = tabsCreateTool;
 const tabsExecuteJsTool = javascriptTool;

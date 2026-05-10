@@ -12,13 +12,26 @@ export {
 export { apiClient } from './extensionServices/apiClient';
 export {
   FeatureFlagManager,
+  type FeatureCollection,
+  type FeatureFlagEntry,
   FeatureProvider,
+  type KnownFeatureValueMap,
+  type ModelFallbackConfig,
+  type ModelOptionConfig,
+  type ModelsConfigFeatureValue,
+  type AnnouncementFeatureValue,
+  type PurlConfigFeatureValue,
+  type VersionInfoFeatureValue,
   useFeatures,
   useFeatureValue,
   useFeatureEnabled,
   useIsReady
 } from './extensionServices/featureFlags';
-export { getOrCreateAnonymousId, getProfileTraits } from './extensionServices/analytics';
+export {
+  getOrCreateAnonymousId,
+  getProfileTraits,
+  type ExtensionUserProfile
+} from './extensionServices/analytics';
 export {
   PermissionActionType,
   PermissionAction,

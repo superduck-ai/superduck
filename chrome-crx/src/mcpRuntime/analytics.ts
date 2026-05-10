@@ -1820,7 +1820,8 @@ function getFeatureFlagManager(): InstanceType<typeof FeatureFlagManager> {
 export async function getFeatureValue(featureName: string): Promise<Record<string, any>> {
   const manager = getFeatureFlagManager();
   await manager.initialize();
-  const result = await manager.getFeatureValueAsync(featureName, {});
+  const result =
+    (await manager.getFeatureValueAsync<Record<string, unknown>>(featureName, {})) ?? {};
   const isNonEmpty =
     result &&
     typeof result === 'object' &&

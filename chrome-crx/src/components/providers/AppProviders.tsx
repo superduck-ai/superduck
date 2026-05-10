@@ -8,11 +8,13 @@ import loginDarkSvg from '@/login_dark.svg';
 import {
   StorageKeys,
   apiClient,
+  type ExtensionUserProfile,
   FeatureProvider,
   getConfig,
   getOrCreateAnonymousId,
   getStorageValue,
   loginWithProvider,
+  type ModelsConfigFeatureValue,
   useFeatureValue
 } from '@/extensionServices';
 import { IntlMessageLoaderProvider } from '@/index-react-dom-intl';
@@ -21,9 +23,15 @@ import { Button } from '@/components/ui';
 const EXPIRED_DATE = 'Thu, 01 Jan 1970 00:00:01 GMT';
 const DARK_MEDIA_QUERY = '(prefers-color-scheme: dark)';
 
-const CookiesContext = createContext<any>(null);
+type CookieStore = {
+  get: (name: string) => string | undefined;
+  set: (name: string, value: string, options?: { maxAgeSeconds?: number }) => void;
+  delete: (name: string) => void;
+};
 
-const cookies = {
+const CookiesContext = createContext<CookieStore | null>(null);
+
+const cookies: CookieStore = {
   get: (name: string): string | undefined => {
     const parts = document.cookie.split(';');
     for (let index = 0; index < parts.length; index += 1) {
@@ -56,10 +64,26 @@ enum LogTag {
 }
 
 const Logger = {
-  warn: (_tag: string, ..._args: any[]) => {}
+  warn: (_tag: string, ..._args: unknown[]) => {}
 };
 
-function useLocalStorageInternal({
+interface LocalStorageEnvelope<T> {
+  value: T;
+  tabId: string;
+  timestamp: number;
+}
+
+function isLocalStorageEnvelope<T>(value: unknown): value is LocalStorageEnvelope<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'value' in value &&
+    'tabId' in value &&
+    typeof (value as { tabId?: unknown }).tabId === 'string'
+  );
+}
+
+function useLocalStorageInternal<T>({
   key,
   defaultValue,
   deserialize = JSON.parse,
@@ -67,11 +91,11 @@ function useLocalStorageInternal({
   sync = true
 }: {
   key: string;
-  defaultValue: any;
-  deserialize?: (value: string) => any;
+  defaultValue: T;
+  deserialize?: (value: string) => T;
   getInitialValueInEffect?: boolean;
   sync?: boolean;
-}): [any, (value: any) => void, () => void] {
+}): [T, React.Dispatch<React.SetStateAction<T>>, () => void] {
   const storageKey = `LSS-${key}`;
   const tabId = useRef(
     crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -83,10 +107,8 @@ function useLocalStorageInternal({
       if (typeof window === 'undefined') return defaultValue;
       const raw = window.localStorage.getItem(storageKey);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === 'object' && 'value' in parsed
-          ? parsed.value
-          : deserialize(raw);
+        const parsed = JSON.parse(raw) as unknown;
+        return isLocalStorageEnvelope<T>(parsed) ? parsed.value : deserialize(raw);
       }
     } catch (error) {
       Logger.warn(LogTag.LOCAL_STORAGE, `Error reading localStorage key "${storageKey}"`, error);
@@ -99,12 +121,8 @@ function useLocalStorageInternal({
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        setValue(
-          parsed && typeof parsed === 'object' && 'value' in parsed
-            ? parsed.value
-            : deserialize(raw)
-        );
+        const parsed = JSON.parse(raw) as unknown;
+        setValue(isLocalStorageEnvelope<T>(parsed) ? parsed.value : deserialize(raw));
       }
     } catch (error) {
       Logger.warn(LogTag.LOCAL_STORAGE, `Error reading localStorage key "${storageKey}"`, error);
@@ -112,10 +130,13 @@ function useLocalStorageInternal({
   }, [deserialize, getInitialValueInEffect, storageKey]);
 
   const set = useCallback(
-    (nextValue: any) => {
+    (nextValue: React.SetStateAction<T>) => {
       isUpdating.current = true;
-      setValue((previousValue: any) => {
-        const resolvedValue = typeof nextValue === 'function' ? nextValue(previousValue) : nextValue;
+      setValue((previousValue) => {
+        const resolvedValue =
+          typeof nextValue === 'function'
+            ? (nextValue as (value: T) => T)(previousValue)
+            : nextValue;
         try {
           const wrapped = { value: resolvedValue, tabId: tabId.current, timestamp: Date.now() };
           const serialized = JSON.stringify(wrapped);
@@ -154,14 +175,16 @@ function useLocalStorageInternal({
     const handler = (event: StorageEvent) => {
       if (event.key === storageKey && event.newValue && !isUpdating.current) {
         try {
-          const parsed = JSON.parse(event.newValue);
-          if (parsed && typeof parsed === 'object' && 'value' in parsed && 'tabId' in parsed) {
+          const parsed = JSON.parse(event.newValue) as unknown;
+          if (isLocalStorageEnvelope<T>(parsed)) {
             if (parsed.tabId === tabId.current) return;
-            setValue((previousValue: any) => (_.isEqual(previousValue, parsed.value) ? previousValue : parsed.value));
+            setValue((previousValue) =>
+              _.isEqual(previousValue, parsed.value) ? previousValue : parsed.value
+            );
             return;
           }
           const deserialized = deserialize(event.newValue);
-          setValue((previousValue: any) =>
+          setValue((previousValue) =>
             _.isEqual(previousValue, deserialized) ? previousValue : deserialized
           );
         } catch (error) {
@@ -180,7 +203,7 @@ function useLocalStorageInternal({
   return [value, set, remove];
 }
 
-function useLocalStorage(key: string, defaultValue: any, sync = true) {
+function useLocalStorage<T>(key: string, defaultValue: T, sync = true) {
   return useLocalStorageInternal({
     key,
     defaultValue,
@@ -190,7 +213,16 @@ function useLocalStorage(key: string, defaultValue: any, sync = true) {
   });
 }
 
-const ThemeContext = createContext<any>(undefined);
+interface ThemeContextValue {
+  theme: string;
+  mode: string;
+  setMode: React.Dispatch<React.SetStateAction<string>>;
+  setTheme: React.Dispatch<React.SetStateAction<string>>;
+  resolvedMode: string;
+  mounted: boolean;
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 function resolveMode(mode: string): string {
   if (typeof window !== 'undefined' && mode === 'auto') {
@@ -235,7 +267,7 @@ function ThemeProvider({
 }) {
   const [theme, setTheme] = useState(initialTheme);
   const cookieContext = useContext(CookiesContext);
-  const cookieUtil = typeof window !== 'undefined' ? cookies : cookieContext;
+  const cookieUtil = typeof window !== 'undefined' ? cookies : (cookieContext ?? cookies);
   const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useLocalStorage('userThemeMode', 'auto');
   const [resolvedMode, setResolvedMode] = useState(resolveMode(mode));
@@ -335,9 +367,9 @@ const Spinner: React.FC = () => {
 };
 
 const useProfileQuery = (enabled = true) =>
-  useQuery({
+  useQuery<ExtensionUserProfile>({
     queryKey: ['userProfile'],
-    queryFn: async () => apiClient.fetch('/api/oauth/profile'),
+    queryFn: async () => (await apiClient.fetch('/api/oauth/profile')) as ExtensionUserProfile,
     enabled,
     staleTime: 3e5,
     gcTime: 6e5,
@@ -348,7 +380,14 @@ const useProfileQuery = (enabled = true) =>
     }
   });
 
-const AuthContext = createContext<any>(null);
+interface AuthContextValue {
+  userProfile: ExtensionUserProfile | null;
+  isLoading: boolean;
+  error: Error | null;
+  isAuthenticated: boolean;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 const CurrentAccountProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [hasToken, setHasToken] = useState(false);
@@ -366,7 +405,7 @@ const CurrentAccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     })();
 
-    const listener = (changes: any) => {
+    const listener = (changes: Record<string, chrome.storage.StorageChange>) => {
       if (StorageKeys.ACCESS_TOKEN in changes) {
         const nextValue = changes[StorageKeys.ACCESS_TOKEN].newValue;
         setHasToken(!!nextValue);
@@ -399,9 +438,22 @@ const useAuth = () => {
   return context;
 };
 
-const AnalyticsContext = createContext<any>(null);
-let analyticsInstance: any = null;
-let analyticsPromise: Promise<{ analytics: any }> | null = null;
+interface AnalyticsClient {
+  track?: (event: string, properties?: Record<string, unknown>) => void;
+  identify?: (userId: string, traits?: Record<string, unknown>) => void;
+  page?: (category: string, name?: string) => void;
+  reset?: () => void;
+  setAnonymousId?: (id: string) => void;
+}
+
+interface AnalyticsContextValue {
+  analytics: AnalyticsClient | null;
+  resetAnalytics: () => Promise<void>;
+}
+
+const AnalyticsContext = createContext<AnalyticsContextValue | null>(null);
+const analyticsInstance: AnalyticsClient | null = null;
+let analyticsPromise: Promise<{ analytics: AnalyticsClient | null }> | null = null;
 
 const FeatureGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = (() => {
@@ -441,7 +493,7 @@ const AnalyticsProviderInner: React.FC<{ children: React.ReactNode; pageName: st
 
   useEffect(() => {
     if (isAuthenticated && userProfile && analytics) {
-      analytics.identify(userProfile.account.uuid, {
+      analytics.identify?.(userProfile.account.uuid, {
         email: userProfile.account.email,
         organizationID: userProfile.organization.uuid,
         organizationUUID: userProfile.organization.uuid,
@@ -454,15 +506,15 @@ const AnalyticsProviderInner: React.FC<{ children: React.ReactNode; pageName: st
   }, [analytics, isAuthenticated, userProfile]);
 
   useEffect(() => {
-    if (analytics) analytics.page('Extension', pageName);
+    analytics?.page?.('Extension', pageName);
   }, [analytics, pageName]);
 
   const resetAnalytics = useCallback(async () => {
     try {
       if (analytics) {
-        analytics.reset();
+        analytics.reset?.();
         const id = await getOrCreateAnonymousId();
-        analytics.setAnonymousId(id);
+        analytics.setAnonymousId?.(id);
       }
     } catch {
       // ignore
@@ -532,7 +584,7 @@ const AppProvider: React.FC<{ children: React.ReactNode; pageName: string }> = (
   );
 };
 
-function getModelsConfig() {
+function getModelsConfig(): ModelsConfigFeatureValue {
   return useFeatureValue('chrome_ext_models', {});
 }
 

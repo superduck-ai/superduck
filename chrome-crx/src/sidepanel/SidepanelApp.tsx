@@ -51,10 +51,14 @@ import {
 import ReactDOM from 'react-dom';
 import {
   StorageKeys,
+  type AnnouncementFeatureValue,
+  type ModelsConfigFeatureValue,
   PermissionActionType,
   PermissionDuration,
+  type PurlConfigFeatureValue,
   PromptService,
   type SavedPrompt as StoredSavedPrompt,
+  type VersionInfoFeatureValue,
   getAccessToken,
   getConfig,
   getPermissionActionText,
@@ -98,7 +102,8 @@ import {
   generateShortcutName,
   resolveSpecialCommand,
   parseModelTag,
-  getBaseModel
+  getBaseModel,
+  type ModelRequest
 } from './sessionPool';
 import { ConversationCompactor } from './conversationCompaction';
 import { AnalyticsContext, getModelsConfig, useAnalytics } from '../components/providers/AppProviders';
@@ -202,6 +207,13 @@ import {
   type PermissionMode,
   type PromptAttachmentPayload
 } from './sidepanelUtils';
+import type {
+  ApiConversationMessage,
+  ApiResponseMessage,
+  ApiUsage,
+  CreateApiMessageParams
+} from '../messageTypes';
+import type { ToolProviderSchema } from '../mcpRuntime/pageToolsSupport/types';
 import {
   Badge,
   CollapsibleToolUseRow,
@@ -326,7 +338,7 @@ interface BlockedTabInfo {
 
 interface SessionSnapshot {
   uiMessages: ChatMessage[];
-  apiMessages: any[];
+  apiMessages: ApiConversationMessage[];
   selectedModel: string;
   permissionMode: PermissionMode;
   createdAt?: number;
@@ -334,11 +346,7 @@ interface SessionSnapshot {
   remoteSessionId?: string;
 }
 
-interface AnnouncementConfig {
-  enabled?: boolean;
-  text?: string;
-  id?: string;
-}
+type AnnouncementConfig = AnnouncementFeatureValue;
 
 interface SessionIndexEntry {
   sessionId: string;
@@ -664,7 +672,7 @@ function useLightningMode({
   const tabContextHashRef = useRef<string | null>(null);
 
   const purlPromptFeature = useFeatureValue('chrome_ext_purl_prompt', '');
-  const purlConfigFeature = useFeatureValue('chrome_ext_purl_config', null as any);
+  const purlConfigFeature = useFeatureValue('chrome_ext_purl_config', null);
   const modelsConfigRaw = getModelsConfig();
   const modelsConfigRef = useRef(modelsConfigRaw);
   modelsConfigRef.current = modelsConfigRaw;
@@ -695,7 +703,12 @@ function useLightningMode({
     if (!enabled || (!apiKey && !authToken)) return;
     (async () => {
       const storedConfig = (await getStorageValue(StorageKeys.PURL_CONFIG)) || purlConfigFeature;
-      const merged: any = { ...LIGHTNING_DEFAULT_CONFIG, ...storedConfig };
+      const merged = {
+        ...LIGHTNING_DEFAULT_CONFIG,
+        ...((storedConfig && typeof storedConfig === 'object' ? storedConfig : {}) as Partial<
+          LightningConfig & PurlConfigFeatureValue
+        >)
+      };
       modelOverrideRef.current = merged.modelOverride || null;
       effortRef.current = merged.effort;
       pageSettleMsRef.current = merged.pageSettleMs ?? 100;
@@ -771,10 +784,10 @@ function useLightningMode({
     if (!enabled) return;
     const listener = (changes: any, areaName: string) => {
       if (areaName !== 'local' || !(StorageKeys.PURL_CONFIG in changes)) return;
-      const newConfig: any = {
+      const newConfig = {
         ...LIGHTNING_DEFAULT_CONFIG,
         ...changes[StorageKeys.PURL_CONFIG].newValue
-      };
+      } as LightningConfig & Partial<PurlConfigFeatureValue>;
       modelOverrideRef.current = newConfig.modelOverride || null;
       effortRef.current = newConfig.effort;
       pageSettleMsRef.current = newConfig.pageSettleMs ?? 100;
@@ -828,7 +841,7 @@ function useLightningMode({
         if (appName) props.app = appName;
       }
       if (extra) Object.assign(props, extra);
-      analyticsRef.current?.track('superduck.chat.tool_called', props);
+      analyticsRef.current?.track?.('superduck.chat.tool_called', props);
     },
     [permissionMode]
   );
@@ -3928,10 +3941,10 @@ export function SidepanelApp() {
   const announcementConfigRaw = useFeatureValue('chrome_ext_announcement', null);
   const purlModeFeatureEnabled = useFeatureValue('chrome_ext_flash_enabled', false);
 
-  const versionInfo = useMemo(() => versionInfoRaw || {}, [versionInfoRaw]);
-  const modelConfig = useMemo(() => modelConfigRaw || {}, [modelConfigRaw]);
-  const announcementConfig = useMemo(
-    () => (announcementConfigRaw || {}) as AnnouncementConfig,
+  const versionInfo = useMemo<VersionInfoFeatureValue>(() => versionInfoRaw || {}, [versionInfoRaw]);
+  const modelConfig = useMemo<ModelsConfigFeatureValue>(() => modelConfigRaw || {}, [modelConfigRaw]);
+  const announcementConfig = useMemo<AnnouncementConfig>(
+    () => announcementConfigRaw || {},
     [announcementConfigRaw]
   );
 
@@ -3940,8 +3953,8 @@ export function SidepanelApp() {
   const [activeRemoteSessionId, setActiveRemoteSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [apiMessages, setApiMessages] = useState<any[]>([]);
-  const [messageHistory, setMessageHistory] = useState<any[]>([]);
+  const [apiMessages, setApiMessages] = useState<ApiConversationMessage[]>([]);
+  const [messageHistory, setMessageHistory] = useState<ApiConversationMessage[]>([]);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('skip_all_permission_checks');
   const [selectedModel, setSelectedModel] = useState<string>('');
   const selectedModelRef = useRef(selectedModel);
@@ -4000,7 +4013,7 @@ export function SidepanelApp() {
   >(null);
   const [pendingPrompt, setPendingPrompt] = useState<PendingPromptPayload | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
-  const [toolSchemas, setToolSchemas] = useState<any[]>([]);
+  const [toolSchemas, setToolSchemas] = useState<ToolProviderSchema[]>([]);
   const [authLoading, setAuthLoading] = useState(true);
   const [authToken, setAuthToken] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -4178,7 +4191,9 @@ export function SidepanelApp() {
   // Ref-based stable wrapper for createApiMessage to avoid hook ordering issues.
   // createApiMessage is defined later (after messagesClient), but useWorkflowRecording
   // needs it. We use a ref so the wrapper identity is stable across renders.
-  const createApiMessageRef = useRef<((...args: any[]) => Promise<any>) | null>(null);
+  const createApiMessageRef = useRef<
+    ((params: CreateApiMessageParams) => Promise<ApiResponseMessage>) | null
+  >(null);
   const stableCreateMessage = useCallback(async (request: any) => {
     const fn = createApiMessageRef.current;
     if (!fn) throw new Error('Client not initialized');
@@ -4272,7 +4287,7 @@ export function SidepanelApp() {
             ? eventsPayload
             : [];
 
-        const apiMessages: any[] = [];
+        const apiMessages: ApiConversationMessage[] = [];
         const uiMessages: ChatMessage[] = [];
         for (const event of events) {
           const message = pickEventMessage(event);
@@ -4454,7 +4469,7 @@ export function SidepanelApp() {
     (async () => {
       try {
         const schemas = await getToolSchemasForMcp();
-        setToolSchemas(Array.isArray(schemas) ? schemas : []);
+        setToolSchemas(Array.isArray(schemas) ? (schemas as ToolProviderSchema[]) : []);
       } catch {
         setToolSchemas([]);
       }
@@ -4663,8 +4678,8 @@ export function SidepanelApp() {
 
   useEffect(() => {
     const minSupportedVersion =
-      typeof (versionInfo as any)?.min_supported_version === 'string'
-        ? (versionInfo as any).min_supported_version
+      typeof versionInfo.min_supported_version === 'string'
+        ? versionInfo.min_supported_version
         : '';
     setVersionState((prev) => ({
       ...prev,
@@ -4733,7 +4748,7 @@ export function SidepanelApp() {
   }, [permissionMode, selectedModel]);
 
   const createApiMessage = useCallback(
-    async (params: any, _parentSpan?: unknown, _spanName?: string) => {
+    async (params: CreateApiMessageParams, _parentSpan?: unknown, _spanName?: string) => {
       if (!messagesClient) throw new Error('Client not initialized');
 
       // Destructure fields that need special handling (matching compiled Ze)
@@ -4754,7 +4769,7 @@ export function SidepanelApp() {
       if (paramModel) {
         resolvedModel = paramModel;
       } else if (modelClass === 'small_fast') {
-        resolvedModel = (modelConfig as any)?.small_fast_model || 'claude-haiku-4-5-20251001';
+        resolvedModel = modelConfig.small_fast_model || 'claude-haiku-4-5-20251001';
       }
 
       // Apply model mapping if custom API is configured
@@ -4781,6 +4796,11 @@ export function SidepanelApp() {
 
   // Keep the ref in sync so the stable wrapper always calls the latest version
   createApiMessageRef.current = createApiMessage;
+
+  const invokeSessionModel = useCallback(
+    async (request: ModelRequest) => createApiMessage(request as CreateApiMessageParams),
+    [createApiMessage]
+  );
 
   // --- Permission allow/deny handlers (matching bundle's Qt/Xt) ---
   const handlePermissionAllow = useCallback(
@@ -4901,9 +4921,12 @@ export function SidepanelApp() {
   );
 
   const compactConversation = useCallback(
-    async (manual = false, options?: { visibleCommandText?: string }) => {
+    async (
+      manual = false,
+      options?: { visibleCommandText?: string }
+    ): Promise<ApiConversationMessage[]> => {
       const visibleCommandText = options?.visibleCommandText?.trim();
-      const messagesToCompact = apiMessages.filter((msg: any) => !msg.isLocalOnlyMessage);
+      const messagesToCompact = apiMessages.filter((msg) => !msg.isLocalOnlyMessage);
 
       if (messagesToCompact.length === 0) {
         if (visibleCommandText) {
@@ -4919,9 +4942,14 @@ export function SidepanelApp() {
 
       if (visibleCommandText) {
         pushMessage('user', visibleCommandText);
+        const visibleCommandMessage: ApiConversationMessage = {
+          role: 'user',
+          content: visibleCommandText,
+          isLocalOnlyMessage: true
+        };
         setApiMessages((prev) => [
           ...prev,
-          { role: 'user', content: visibleCommandText, isLocalOnlyMessage: true }
+          visibleCommandMessage
         ]);
       }
 
@@ -4938,29 +4966,22 @@ export function SidepanelApp() {
           !manual
         );
         setMessageHistory(messagesToCompact);
+        const visibleCommandMessage = visibleCommandText
+          ? ({
+              role: 'user',
+              content: visibleCommandText,
+              isLocalOnlyMessage: true
+            } as ApiConversationMessage)
+          : null;
         setApiMessages(
-          visibleCommandText
-            ? [
-                {
-                  role: 'user',
-                  content: visibleCommandText,
-                  isLocalOnlyMessage: true
-                },
-                ...result.messagesAfterCompacting
-              ]
+          visibleCommandMessage
+            ? [visibleCommandMessage, ...result.messagesAfterCompacting]
             : result.messagesAfterCompacting
         );
         setTokensSaved(result.tokensSaved ?? null);
         pushMessage('system', 'Conversation compacted to save context.');
-        return visibleCommandText
-          ? [
-              {
-                role: 'user',
-                content: visibleCommandText,
-                isLocalOnlyMessage: true
-              },
-              ...result.messagesAfterCompacting
-            ]
+        return visibleCommandMessage
+          ? [visibleCommandMessage, ...result.messagesAfterCompacting]
           : result.messagesAfterCompacting;
       } catch (error) {
         const errorText = `Compaction failed: ${getErrorMessage(error)}`;
@@ -5047,7 +5068,7 @@ export function SidepanelApp() {
       try {
         const title = await generateConversationTitleFunction(
           userMessage,
-          (params) => createApiMessage(params),
+          invokeSessionModel,
           intl.locale as SupportedLocale
         );
 
@@ -5059,7 +5080,7 @@ export function SidepanelApp() {
         // silently fail title generation
       }
     },
-    [createApiMessage, query.tabId, intl.locale]
+    [invokeSessionModel, query.tabId, intl.locale]
   );
 
   const sendPrompt = useCallback(
@@ -5193,7 +5214,8 @@ export function SidepanelApp() {
           });
         }
 
-        let workingMessages = [...baseMessages, { role: 'user', content: userContent }];
+        const nextUserMessage: ApiConversationMessage = { role: 'user', content: userContent };
+        let workingMessages: ApiConversationMessage[] = [...baseMessages, nextUserMessage];
         setApiMessages(workingMessages);
 
         const MAX_STREAM_RETRIES = 10;
@@ -5349,16 +5371,14 @@ export function SidepanelApp() {
                 });
               }
 
-              workingMessages = [
-                ...workingMessages,
-                {
-                  role: 'assistant',
-                  content: assistantContent,
-                  usage: (response as any).usage,
-                  id: (response as any).id,
-                  stop_reason: (response as any).stop_reason
-                }
-              ];
+              const assistantMessage: ApiConversationMessage = {
+                role: 'assistant',
+                content: assistantContent,
+                usage: (response as any).usage,
+                id: (response as any).id,
+                stop_reason: (response as any).stop_reason
+              };
+              workingMessages = [...workingMessages, assistantMessage];
 
               // 实时更新状态，让 UI 能看到 tool_use
               setApiMessages(workingMessages);
@@ -5540,7 +5560,11 @@ export function SidepanelApp() {
                 }
               }
 
-              workingMessages = [...workingMessages, { role: 'user', content: toolResults }];
+              const toolResultMessage: ApiConversationMessage = {
+                role: 'user',
+                content: toolResults
+              };
+              workingMessages = [...workingMessages, toolResultMessage];
 
               // 实时更新状态，让 UI 能看到 tool_result
               setApiMessages(workingMessages);
@@ -5548,7 +5572,7 @@ export function SidepanelApp() {
               // In-loop auto compaction: prevent token overflow during long agentic runs
               const lastAssistantMsg = [...workingMessages]
                 .reverse()
-                .find((m: any) => m.role === 'assistant' && m.usage);
+                .find((m): m is ApiConversationMessage => m.role === 'assistant' && !!m.usage);
               if (lastAssistantMsg?.usage) {
                 const limitState = calculateMessageLimitFromUsage(
                   lastAssistantMsg.usage,
@@ -5761,7 +5785,7 @@ export function SidepanelApp() {
   pushMessageRef.current = pushMessage;
 
   const retryWithFallback = useCallback(async () => {
-    const fallback = (modelConfig as any)?.modelFallbacks?.[selectedModel];
+    const fallback = modelConfig.modelFallbacks?.[selectedModel];
     const fallbackModel = fallback?.fallbackModelName;
     const payload = lastSentPayloadRef.current;
     if (!fallbackModel || !payload) return;
@@ -6787,7 +6811,7 @@ export function SidepanelApp() {
   }, [query.sessionId]);
 
   const normalizedModelOptions = useMemo(() => {
-    const rawOptions = (modelConfig as any)?.options;
+    const rawOptions = modelConfig.options;
     const seen = new Set<string>();
     const options: Array<{ value: string; label: string }> = [];
 
@@ -6830,17 +6854,13 @@ export function SidepanelApp() {
           pushOption(option);
           continue;
         }
-        if (option && typeof option === 'object' && typeof (option as any).model === 'string') {
-          pushOption(
-            (option as any).model,
-            typeof (option as any).name === 'string' ? (option as any).name : ''
-          );
+        if (option && typeof option === 'object' && typeof option.model === 'string') {
+          pushOption(option.model, typeof option.name === 'string' ? option.name : '');
         }
       }
     }
 
-    const defaultModel =
-      typeof (modelConfig as any)?.default === 'string' ? (modelConfig as any).default : '';
+    const defaultModel = typeof modelConfig.default === 'string' ? modelConfig.default : '';
     if (defaultModel) {
       pushOption(defaultModel);
     }
@@ -6853,7 +6873,7 @@ export function SidepanelApp() {
 
   const effectiveSelectedModel =
     selectedModel ||
-    (typeof (modelConfig as any)?.default === 'string' ? (modelConfig as any).default : '') ||
+    (typeof modelConfig.default === 'string' ? modelConfig.default : '') ||
     normalizedModelOptions[0]?.value ||
     DEFAULT_MODEL;
 
@@ -7039,7 +7059,7 @@ export function SidepanelApp() {
   );
 
   const fallbackConfig = selectedModel
-    ? (modelConfig as any)?.modelFallbacks?.[selectedModel]
+    ? modelConfig.modelFallbacks?.[selectedModel]
     : undefined;
   const announcementText = announcementConfig.text || '';
   const messageLimitBanner = useMemo(
@@ -7129,7 +7149,7 @@ export function SidepanelApp() {
     if (!debugMode) return null;
     const ctxWindow = serverModelInfo?.contextLength ?? CONTEXT_WINDOW;
     const budget = Math.max(1, ctxWindow - MAX_TOKENS);
-    let lastUsage: any = null;
+    let lastUsage: ApiUsage | null = null;
     for (let i = apiMessages.length - 1; i >= 0; i--) {
       const msg = apiMessages[i];
       if (msg?.role === 'assistant' && msg?.usage) {
@@ -7709,9 +7729,15 @@ export function SidepanelApp() {
                     {/* Model fallback card — shown when safety filters pause the chat */}
                     {lastStopReason?.reason === 'refusal' && fallbackConfig && (
                       <ModelFallbackCard
-                        currentModelName={fallbackConfig.currentModelName}
-                        fallbackModelName={fallbackConfig.fallbackModelName}
-                        fallbackDisplayName={fallbackConfig.fallbackDisplayName}
+                        currentModelName={
+                          fallbackConfig.currentModelName ||
+                          getModelDisplayName(selectedModel, modelConfig)
+                        }
+                        fallbackModelName={fallbackConfig.fallbackModelName || ''}
+                        fallbackDisplayName={
+                          fallbackConfig.fallbackDisplayName ||
+                          getModelDisplayName(fallbackConfig.fallbackModelName || '', modelConfig)
+                        }
                         learnMoreUrl={
                           fallbackConfig.learnMoreUrl || 'https://superduck-ai.github.io/superduck/'
                         }
@@ -8404,7 +8430,7 @@ export function SidepanelApp() {
               try {
                 return await generateShortcutName(
                   prompt,
-                  (params) => createApiMessage(params),
+                  invokeSessionModel,
                   intl.locale as SupportedLocale
                 );
               } catch (error) {

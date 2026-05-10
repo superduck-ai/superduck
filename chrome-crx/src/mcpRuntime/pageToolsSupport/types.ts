@@ -1,15 +1,54 @@
+import type { PermissionManager } from '../../PermissionManager';
+import type {
+  ApiConversationMessage,
+  ApiResponseMessage,
+  CreateApiMessageParams
+} from '../../messageTypes';
+
+export interface ToolSchemaProperty {
+  type?: string | string[];
+  description?: string;
+  enum?: string[];
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+  properties?: Record<string, ToolSchemaProperty>;
+  items?: ToolSchemaProperty;
+  required?: boolean | string[];
+  [key: string]: unknown;
+}
+
+export interface ToolProviderSchema {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, ToolSchemaProperty>;
+    required?: string[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface ToolTabSummary {
+  id?: number;
+  title?: string;
+  url?: string;
+}
+
 export interface ToolContext {
   tabId?: number;
   toolUseId?: string;
   sessionId?: string;
-  messages?: any[];
-  permissionManager: any;
-  createApiMessage?: (params: any, label: string) => Promise<any>;
+  messages?: ApiConversationMessage[];
+  permissionManager: PermissionManager;
+  createApiMessage?: (params: CreateApiMessageParams, label?: string) => Promise<ApiResponseMessage>;
   setTurnApprovedDomains?: (domains: string[]) => void;
   skipIndicator?: boolean;
   tabGroupId?: number;
   model?: string;
-  messagesClient?: any;
+  messagesClient?: unknown;
 }
 
 export interface ToolResult {
@@ -22,22 +61,22 @@ export interface ToolResult {
   tool?: string;
   url?: string;
   toolUseId?: string;
-  actionData?: any;
+  actionData?: Record<string, unknown>;
   tabContext?: {
     currentTabId?: number;
     executedOnTabId?: number;
-    availableTabs?: any[];
+    availableTabs?: ToolTabSummary[];
     tabCount?: number;
     tabGroupId?: number;
   };
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
-export interface ToolDefinition {
+export interface ToolDefinition<TInput = unknown, TResult extends ToolResult = ToolResult> {
   name: string;
   description: string;
-  parameters: Record<string, any>;
-  execute: (input: any, context?: any) => Promise<any>;
-  toProviderSchema: (context?: any) => Promise<any> | any;
-  setPromptsConfig?: (config: any) => void;
+  parameters: Record<string, ToolSchemaProperty>;
+  execute: (input: TInput, context: ToolContext) => Promise<TResult>;
+  toProviderSchema: (context?: ToolContext) => Promise<ToolProviderSchema> | ToolProviderSchema;
+  setPromptsConfig?: (config: Record<string, unknown>) => void;
 }

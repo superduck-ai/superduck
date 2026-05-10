@@ -1,5 +1,19 @@
 import { getStorageValue, setStorageValue, StorageKeys } from './core';
 
+export interface ExtensionUserProfile {
+  account: {
+    uuid: string;
+    email: string;
+    has_claude_max: boolean;
+    has_claude_pro: boolean;
+  };
+  organization: {
+    uuid: string;
+    organization_type: string;
+    rate_limit_tier?: string;
+  };
+}
+
 export async function getOrCreateAnonymousId(): Promise<string> {
   let id = await getStorageValue(StorageKeys.ANONYMOUS_ID);
   if (!id) {
@@ -9,7 +23,7 @@ export async function getOrCreateAnonymousId(): Promise<string> {
   return id;
 }
 
-export function getProfileTraits(profile: any): Record<string, any> {
+export function getProfileTraits(profile: ExtensionUserProfile): Record<string, unknown> {
   return {
     email: profile.account.email,
     organizationID: profile.organization.uuid,

@@ -1,15 +1,14 @@
+import type { ApiConversationMessage } from '../messageTypes';
+import { isRecord, isTextContentBlock, isToolUseContentBlock } from '../messageTypes';
+
 export function extractTextFromContent(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
 
   let answerStartIndex = -1;
   for (let index = 0; index < content.length; index += 1) {
     const item = content[index];
-    if (
-      item &&
-      typeof item === 'object' &&
-      (item as any).type === 'tool_use' &&
-      (item as any).name === 'turn_answer_start'
-    ) {
+    if (isToolUseContentBlock(item) && item.name === 'turn_answer_start') {
       answerStartIndex = index;
       break;
     }
@@ -17,8 +16,8 @@ export function extractTextFromContent(content: unknown): string {
 
   const relevantContent = answerStartIndex >= 0 ? content.slice(answerStartIndex + 1) : content;
   return relevantContent
-    .filter((item) => item && typeof item === 'object' && (item as any).type === 'text')
-    .map((item) => (typeof (item as any).text === 'string' ? (item as any).text : ''))
+    .filter(isTextContentBlock)
+    .map((item) => item.text)
     .filter(Boolean)
     .join('\n')
     .trim();
@@ -32,8 +31,8 @@ export function getConversationStorageKey(conversationUuid: string) {
   return `sidepanel_conversation_${conversationUuid}`;
 }
 
-export function normalizeHistoricalMessage(raw: any) {
-  if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return null;
+export function normalizeHistoricalMessage(raw: unknown): ApiConversationMessage | null {
+  if (!isRecord(raw) || (raw.role !== 'user' && raw.role !== 'assistant')) return null;
 
   const content = raw.content;
   if (typeof content === 'string') {
@@ -44,21 +43,25 @@ export function normalizeHistoricalMessage(raw: any) {
     return {
       role: raw.role,
       content,
-      ...(raw.id ? { id: raw.id } : {}),
-      ...(raw.usage ? { usage: raw.usage } : {}),
-      ...(raw.stop_reason ? { stop_reason: raw.stop_reason } : {})
+      ...(typeof raw.id === 'string' ? { id: raw.id } : {}),
+      ...(isRecord(raw.usage)
+        ? { usage: raw.usage as unknown as ApiConversationMessage['usage'] }
+        : {}),
+      ...(typeof raw.stop_reason === 'string'
+        ? { stop_reason: raw.stop_reason as ApiConversationMessage['stop_reason'] }
+        : {})
     };
   }
 
   return null;
 }
 
-export function pickEventMessage(event: any) {
+export function pickEventMessage(event: unknown): ApiConversationMessage | null {
   const candidates = [
-    event?.message,
-    event?.data?.message,
-    event?.payload?.message,
-    event?.item?.message
+    isRecord(event) ? event.message : undefined,
+    isRecord(event) && isRecord(event.data) ? event.data.message : undefined,
+    isRecord(event) && isRecord(event.payload) ? event.payload.message : undefined,
+    isRecord(event) && isRecord(event.item) ? event.item.message : undefined
   ];
 
   for (const candidate of candidates) {

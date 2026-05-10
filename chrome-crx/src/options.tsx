@@ -15,7 +15,9 @@ const DevAppWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   return (
     <IntlMessageLoaderProvider>
       <FeatureProvider>
-        <AuthContext.Provider value={{ userProfile: null, isAuthenticated: false, isLoading: false }}>
+        <AuthContext.Provider
+          value={{ userProfile: null, isAuthenticated: false, isLoading: false, error: null }}
+        >
           <AnalyticsContext.Provider value={{ analytics: null, resetAnalytics: async () => {} }}>
             {children}
           </AnalyticsContext.Provider>
