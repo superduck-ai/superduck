@@ -7,7 +7,7 @@ import runShortcutSvg from '../assets/IconRunShortcut.svg?raw';
 import calendarSparkleSvg from '../assets/IconCalenderSparkle.svg?raw';
 import cursorAiSvg from '../assets/IconCursorAi.svg?raw';
 import settingsSliderSvg from '../assets/IconSettingsSliderHor.svg?raw';
-import { SavedPromptsService, type SavedPrompt } from '../SavedPromptsService';
+import { PromptService, type SavedPrompt } from '../extensionServices';
 import { getSpecialCommands, type SpecialCommand } from './sessionPool';
 import { isChineseLocale } from '../utils/locale';
 
@@ -283,7 +283,7 @@ export function ShortcutsMenu({
   useEffect(() => {
     (async () => {
       try {
-        const allPrompts = await SavedPromptsService.getAllPrompts();
+        const allPrompts = await PromptService.getAllPrompts();
         const sorted = allPrompts.sort((a, b) => {
           const usageA = a.usageCount ?? 0;
           const usageB = b.usageCount ?? 0;

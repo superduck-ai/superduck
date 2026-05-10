@@ -1,4 +1,4 @@
-import { PermissionActionType } from '../SavedPromptsService';
+import { PermissionActionType } from '../extensionServices';
 import { PermissionTools, checkUrlSecurity, screenshotContextManager } from './shared';
 import { tabGroupManager } from './tabState';
 import {

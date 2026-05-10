@@ -1,6 +1,6 @@
 # Runbook: MCP Server 无响应
 
-适用范围: `chrome-native-host/cmd/mcp-server` 与扩展 MCP runtime (`chrome-crx/src/mcp-runtime/`)
+适用范围: `chrome-native-host/cmd/mcp-server` 与扩展 MCP runtime (`chrome-crx/src/mcpRuntime/`)
 
 ## Symptoms
 
@@ -48,12 +48,12 @@
 
 ## Follow-up
 
-- 若是 CDP race condition,在 `chrome-crx/src/mcp-runtime/cdp.ts` 增加超时与重试
+- 若是 CDP race condition,在 `chrome-crx/src/mcpRuntime/cdp.ts` 增加超时与重试
 - 若是 MCP tools/list 卡住,检查 `chrome-native-host/internal/mcp/` 中是否有阻塞的 channel
 - 用 `make test-perf` 验证修复后没有引入新的慢测试
 
 ## 相关代码
 
-- MCP runtime: `chrome-crx/src/mcp-runtime/`
+- MCP runtime: `chrome-crx/src/mcpRuntime/`
 - MCP server: `chrome-native-host/cmd/mcp-server/`
 - Tab group 管理: `chrome-native-host/cmd/superduck/cmd_tabs_mcp.go`

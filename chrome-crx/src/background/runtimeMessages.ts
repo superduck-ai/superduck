@@ -1,4 +1,4 @@
-import { clearAuthData } from "../SavedPromptsService";
+import { clearAuthData } from "../extensionServices";
 import {
   clearStorageData,
   isBridgeConnected,

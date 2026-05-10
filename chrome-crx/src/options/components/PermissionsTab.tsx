@@ -3,7 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { useAnalytics } from '@/components/providers/AppProviders';
 import { useStorageState } from '@/hooks/useStorageState';
 import { PermissionManager } from '@/PermissionManager';
-import { StorageKeys } from '@/SavedPromptsService';
+import { StorageKeys } from '@/extensionServices';
 import { MODEL_MAPPING_KEYS } from '@/utils/modelMapping';
 
 const CUSTOM_API_URL_KEY = 'customApiUrl';

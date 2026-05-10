@@ -1,4 +1,4 @@
-import { SavedPromptsService } from '../SavedPromptsService';
+import { PromptService } from '../extensionServices';
 
 export const PermissionTools = {
   EXECUTE_JAVASCRIPT: 'execute_javascript',
@@ -54,12 +54,12 @@ export const MCP_NATIVE_SESSION_ID = `mcp_native_${Date.now()}`;
 // without touching every call site. Also normalizes find-by-X to `null` so
 // callers can `if (!shortcut)` without distinguishing missing vs undefined.
 export const promptManager = {
-  getAllPrompts: () => SavedPromptsService.getAllPrompts(),
+  getAllPrompts: () => PromptService.getAllPrompts(),
   getPromptById: async (id: string) =>
-    (await SavedPromptsService.getPromptById(id)) ?? null,
+    (await PromptService.getPromptById(id)) ?? null,
   getPromptByCommand: async (cmd: string) =>
-    (await SavedPromptsService.getPromptByCommand(cmd)) ?? null,
-  recordPromptUsage: (id: string) => SavedPromptsService.recordPromptUsage(id)
+    (await PromptService.getPromptByCommand(cmd)) ?? null,
+  recordPromptUsage: (id: string) => PromptService.recordPromptUsage(id)
 };
 
 export function extractAppName(url: string): string | undefined {

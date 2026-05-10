@@ -1,4 +1,4 @@
-import { handleOAuthRedirect } from "../SavedPromptsService";
+import { handleOAuthRedirect } from "../extensionServices";
 import { connectBridge, syncPermissions } from "../mcpRuntime";
 
 const ALLOWED_ORIGINS = new Set([

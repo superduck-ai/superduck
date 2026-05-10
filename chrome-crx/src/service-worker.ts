@@ -1,4 +1,4 @@
-import { getConfig, setStorageValue, StorageKeys } from "./SavedPromptsService";
+import { getConfig, setStorageValue, StorageKeys } from "./extensionServices";
 import {
   connectBridge,
   initializeExtensionPermissions,

@@ -7,7 +7,7 @@ import {
   getConfig,
   FeatureFlagManager,
   getOrCreateAnonymousId
-} from '../SavedPromptsService';
+} from '../extensionServices';
 
 // Segment Analytics / Telemetry (lines ~5243-6300)
 // This section contains the Segment analytics client used for telemetry.

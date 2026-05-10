@@ -7,7 +7,7 @@ import type {
   NewSavedPrompt,
   PromptType,
   SavedPrompt as StoredSavedPrompt
-} from '../SavedPromptsService';
+} from '../extensionServices';
 
 type EditableSavedPrompt = StoredSavedPrompt & {
   id: string;
@@ -246,8 +246,8 @@ export function CreateShortcutModal({
       setErrorMessage('');
 
       try {
-        // Import SavedPromptsService dynamically
-        const { SavedPromptsService } = await import('../SavedPromptsService');
+        // Import PromptService dynamically
+        const { PromptService } = await import('../extensionServices');
 
         if (isEditing && existingPrompt) {
           // Update existing prompt
@@ -282,7 +282,7 @@ export function CreateShortcutModal({
             updates.model = undefined;
           }
 
-          await SavedPromptsService.updatePrompt(existingPrompt.id, updates);
+          await PromptService.updatePrompt(existingPrompt.id, updates);
           window.dispatchEvent(new Event('prompts-changed'));
         } else {
           // Create new prompt
@@ -311,7 +311,7 @@ export function CreateShortcutModal({
             }
           }
 
-          await SavedPromptsService.savePrompt(newPrompt);
+          await PromptService.savePrompt(newPrompt);
           window.dispatchEvent(new Event('prompts-changed'));
         }
 
@@ -416,9 +416,9 @@ export function CreateShortcutModal({
                           if (isEditing && existingPrompt) {
                             setIsDeleting(true);
                             try {
-                              const { SavedPromptsService } =
-                                await import('../SavedPromptsService');
-                              await SavedPromptsService.deletePrompt(existingPrompt.id);
+                              const { PromptService } =
+                                await import('../extensionServices');
+                              await PromptService.deletePrompt(existingPrompt.id);
                               window.dispatchEvent(new Event('prompts-changed'));
                               onDelete?.();
                               handleClose();

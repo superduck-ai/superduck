@@ -83,7 +83,7 @@ export default defineConfig({
       include: [
         'src/lib/utils.ts',
         'src/is-plan-event-enabled.ts',
-        'src/mcp-runtime/shared.ts'
+        'src/mcpRuntime/shared.ts'
       ],
       exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/vite-env.d.ts'],
       // CI gate: any drop in coverage on the tested modules fails the build.

@@ -3,7 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { createLucideIcon } from 'lucide-react';
 import { Spinner } from '@/components/providers/AppProviders';
 import { T as TasksTab } from '@/components/TasksTab';
-import { StorageKeys, getStorageValue, loginWithProvider } from '@/SavedPromptsService';
+import { StorageKeys, getStorageValue, loginWithProvider } from '@/extensionServices';
 import { MicrophonePermissionModal } from './components/MicrophonePermissionModal';
 import { PermissionsTab } from './components/PermissionsTab';
 import { NavItem, PageContent, PageHeader } from './components/PageLayout';

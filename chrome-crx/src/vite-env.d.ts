@@ -43,7 +43,7 @@ interface SpeechRecognitionErrorEvent extends Event {
 declare var SpeechRecognition: { new (): SpeechRecognition } | undefined;
 declare var webkitSpeechRecognition: { new (): SpeechRecognition } | undefined;
 
-// CDP global state (initialized in src/mcp-runtime/cdp.ts)
+// CDP global state (initialized in src/mcpRuntime/cdp.ts)
 declare var __cdpDebuggerListenerRegistered: boolean;
 declare var __cdpConsoleMessagesByTab: Map<number, unknown>;
 declare var __cdpNetworkRequestsByTab: Map<number, unknown>;

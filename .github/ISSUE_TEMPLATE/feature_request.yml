@@ -49,7 +49,7 @@ body:
       label: Proposed solution
       description: |
         Sketch the user-facing behavior and, if you have one, the implementation outline.
-        Reference relevant entry points from `AGENTS.md` (e.g. `chrome-crx/src/mcp-runtime/cdp.ts`).
+        Reference relevant entry points from `AGENTS.md` (e.g. `chrome-crx/src/mcpRuntime/cdp.ts`).
     validations:
       required: true
 

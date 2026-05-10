@@ -1,8 +1,8 @@
 import {
-  savedPromptsService,
+  promptService,
   setStorageValue,
   StorageKeys,
-} from "../SavedPromptsService";
+} from "../extensionServices";
 import { tabGroupManager } from "../mcpRuntime";
 import type { ScheduledTask } from "./types";
 
@@ -26,7 +26,7 @@ interface ExecutionOptions {
 export function createScheduledTaskManager() {
   async function restoreScheduledAlarms() {
     try {
-      const prompts = (await savedPromptsService.getAllPrompts()).filter(
+      const prompts = (await promptService.getAllPrompts()).filter(
         (prompt) => prompt.repeatType && prompt.repeatType !== "none",
       );
 
@@ -34,14 +34,14 @@ export function createScheduledTaskManager() {
 
       for (const prompt of prompts) {
         try {
-          await savedPromptsService.updateAlarmForPrompt(prompt);
+          await promptService.updateAlarmForPrompt(prompt);
         } catch {
           // ignore
         }
       }
 
       try {
-        await savedPromptsService.updateNextRunTimes();
+        await promptService.updateNextRunTimes();
       } catch {
         // ignore
       }
@@ -199,7 +199,7 @@ export function createScheduledTaskManager() {
 
   async function rescheduleRecurringPrompt(savedPrompt: SavedPromptRecord, promptId: string) {
     try {
-      await savedPromptsService.updateAlarmForPrompt(savedPrompt as any);
+      await promptService.updateAlarmForPrompt(savedPrompt as any);
     } catch {
       const retryAlarmName = `retry_${promptId}`;
       try {
@@ -247,7 +247,7 @@ export function createScheduledTaskManager() {
       if (!savedPrompt || !isRecurringPrompt(savedPrompt)) return;
 
       try {
-        await savedPromptsService.updateAlarmForPrompt(savedPrompt as any);
+        await promptService.updateAlarmForPrompt(savedPrompt as any);
       } catch {
         await notify(
           "Scheduled Task Needs Attention",

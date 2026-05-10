@@ -1,3 +1,3 @@
 // Canonical public entry point for extension-side MCP runtime APIs.
-export * from "./mcp-runtime/core";
-export * from "./mcp-runtime/tabState";
+export * from "./mcpRuntime/core";
+export * from "./mcpRuntime/tabState";

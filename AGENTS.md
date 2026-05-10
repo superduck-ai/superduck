@@ -192,7 +192,7 @@ node scripts/validate-agents-md.mjs
 
 ## 目录入口速查
 
-- 扩展 MCP runtime / CDP 桥: [chrome-crx/src/mcp-runtime/cdp.ts](chrome-crx/src/mcp-runtime/cdp.ts)
+- 扩展 MCP runtime / CDP 桥: [chrome-crx/src/mcpRuntime/cdp.ts](chrome-crx/src/mcpRuntime/cdp.ts)
 - 扩展视觉指示器(含 blocking overlay): [chrome-crx/src/agent-visual-indicator.ts](chrome-crx/src/agent-visual-indicator.ts)
 - CLI 入口与 usage 文本: [chrome-native-host/cmd/superduck/main.go](chrome-native-host/cmd/superduck/main.go)
 - Tab group 子命令: [chrome-native-host/cmd/superduck/cmd_tabs_mcp.go](chrome-native-host/cmd/superduck/cmd_tabs_mcp.go)

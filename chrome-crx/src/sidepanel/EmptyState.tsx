@@ -5,7 +5,7 @@ import {
   getStorageValue,
   setStorageValue,
   useFeatureValue,
-} from "../SavedPromptsService";
+} from "../extensionServices";
 import { useTabEvent } from "./hooks";
 import { HandwritingAnimation } from "./HandwritingAnimation";
 

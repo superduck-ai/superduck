@@ -1,4 +1,4 @@
-import { StorageKeys } from '../SavedPromptsService';
+import { StorageKeys } from '../extensionServices';
 import { PermissionTools, checkUrlSecurity } from './shared';
 import { tabGroupManager } from './tabState';
 import { cdpDebugger } from './cdp';

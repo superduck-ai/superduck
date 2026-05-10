@@ -42,7 +42,7 @@ body:
       description: |
         Point the agent at the exact files / directories that are in scope. Use repo-relative paths.
       placeholder: |
-        - chrome-crx/src/mcp-runtime/shared.ts
+        - chrome-crx/src/mcpRuntime/shared.ts
         - chrome-crx/src/lib/utils.ts
         - chrome-native-host/cmd/superduck/cmd_tabs_mcp.go
     validations:
@@ -64,7 +64,7 @@ body:
       label: Acceptance criteria
       description: Concrete, checkable outcomes.
       placeholder: |
-        - [ ] New unit test in `chrome-crx/src/mcp-runtime/shared.test.ts`
+        - [ ] New unit test in `chrome-crx/src/mcpRuntime/shared.test.ts`
         - [ ] `bun run lint` and `bun run typecheck` pass
         - [ ] `bun run test:coverage` thresholds still hold
     validations:

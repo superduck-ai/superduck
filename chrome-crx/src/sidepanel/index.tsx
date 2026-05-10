@@ -1,5 +1,5 @@
 import ReactDOM from 'react-dom/client';
-import { FeatureProvider } from '../SavedPromptsService';
+import { FeatureProvider } from '../extensionServices';
 import { IntlMessageLoaderProvider } from '../index-react-dom-intl';
 import { SidepanelApp } from './SidepanelApp';
 import 'katex/dist/katex.min.css';

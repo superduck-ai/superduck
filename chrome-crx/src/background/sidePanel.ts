@@ -1,4 +1,4 @@
-import { setStorageValue, StorageKeys } from "../SavedPromptsService";
+import { setStorageValue, StorageKeys } from "../extensionServices";
 import { tabGroupManager } from "../mcpRuntime";
 import type { ScheduledTask } from "./types";
 

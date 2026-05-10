@@ -14,7 +14,7 @@ import {
   getStorageValue,
   loginWithProvider,
   useFeatureValue
-} from '@/SavedPromptsService';
+} from '@/extensionServices';
 import { IntlMessageLoaderProvider } from '@/index-react-dom-intl';
 import { Button } from '@/components/ui';
 

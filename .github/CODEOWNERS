@@ -50,7 +50,7 @@
 /chrome-crx/eslint.config.js        @jh0904 @arthur-zhang
 /chrome-crx/tsconfig.json           @jh0904 @arthur-zhang
 /chrome-crx/src/                    @jh0904 @arthur-zhang
-/chrome-crx/src/mcp-runtime/        @jh0904 @arthur-zhang
+/chrome-crx/src/mcpRuntime/         @jh0904 @arthur-zhang
 /chrome-crx/tests/                  @jh0904 @arthur-zhang
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
  * Integration tests for the chrome-crx MCP runtime "navigate + screenshot" flow.
  *
  * These tests don't mock individual functions in isolation — they exercise the
- * combined behavior of multiple modules (`mcp-runtime/shared`, `lib/utils`,
+ * combined behavior of multiple modules (`mcpRuntime/shared`, `lib/utils`,
  * `is-plan-event-enabled`) the same way the service worker glues them together
  * when handling an agent-issued tool call.
  *
@@ -28,7 +28,7 @@ import {
   formatTabsOutput,
   normalizeUrl,
   screenshotContextManager
-} from '../../src/mcp-runtime/shared';
+} from '../../src/mcpRuntime/shared';
 import { cn } from '../../src/lib/utils';
 import { isPlanEventEnabled } from '../../src/is-plan-event-enabled';
 

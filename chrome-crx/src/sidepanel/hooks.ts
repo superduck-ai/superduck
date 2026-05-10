@@ -1,5 +1,6 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo } from "react";
 import { getTabEventManager } from "../mcpRuntime";
+import { normalizeApiBaseUrl, parseTabId } from "./sidepanelUtils";
 
 type TabChangeInfo = chrome.tabs.OnUpdatedInfo & {
   active?: boolean;
@@ -65,4 +66,37 @@ export function useTabUrlChange(
   );
 
   useTabEvent(tabId, properties, stableOnUpdate, [stableOnUpdate]);
+}
+
+export interface SidepanelQueryState {
+  tabId: number | undefined;
+  mode: string;
+  sessionId: string;
+  mcpPermissionOnly: boolean;
+  requestId: string;
+  skipPermissions: boolean;
+  apiUrl: string;
+  apiKey: string;
+}
+
+export function useQueryState(): SidepanelQueryState {
+  return useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const apiUrl =
+      normalizeApiBaseUrl(params.get("api_url")) ||
+      normalizeApiBaseUrl(params.get("apiUrl")) ||
+      "";
+    const apiKey = (params.get("api_key") || params.get("apiKey") || "").trim();
+
+    return {
+      tabId: parseTabId(params.get("tabId")),
+      mode: params.get("mode") || "sidepanel",
+      sessionId: params.get("sessionId") || "",
+      mcpPermissionOnly: params.get("mcpPermissionOnly") === "true",
+      requestId: params.get("requestId") || "",
+      skipPermissions: params.get("skipPermissions") === "true",
+      apiUrl,
+      apiKey,
+    };
+  }, []);
 }

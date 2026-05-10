@@ -23,11 +23,11 @@ import {
 import { getModelsConfig } from './providers/AppProviders';
 import { SchedulingFields } from './scheduling/SchedulingFields';
 import {
-  SavedPromptsService,
+  PromptService,
   getStorageValue,
   StorageKeys,
   removeStorageValues,
-} from "../SavedPromptsService";
+} from "../extensionServices";
 
 // =============================================================================
 // Phosphor Icons: ListBulletsIcon & PlusIcon
@@ -397,7 +397,7 @@ function EditPromptModal({
           updates.monthAndDay = undefined;
           updates.model = undefined;
         }
-        await SavedPromptsService.updatePrompt(editingPrompt.id, updates);
+        await PromptService.updatePrompt(editingPrompt.id, updates);
       } else {
         const newPrompt: any = {
           prompt: promptText.trim(),
@@ -417,7 +417,7 @@ function EditPromptModal({
             newPrompt.monthAndDay = `${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
           }
         }
-        await SavedPromptsService.savePrompt(newPrompt);
+        await PromptService.savePrompt(newPrompt);
       }
       onSave(!!(editingPrompt && !isNew));
     } catch (e) {
@@ -602,7 +602,7 @@ function TasksTab({
   const { showToast } = useToast();
 
   const loadPrompts = async () => {
-    const all = await SavedPromptsService.getAllPrompts();
+    const all = await PromptService.getAllPrompts();
     setPrompts(all.sort((a: any, b: any) => b.createdAt - a.createdAt));
   };
 
@@ -762,7 +762,7 @@ function TasksTab({
       )
     )
       return;
-    await SavedPromptsService.deletePrompt(id);
+    await PromptService.deletePrompt(id);
     if (currentEditingPrompt?.id === id) {
       setEditingPrompt(null);
       setShowAddForm(false);

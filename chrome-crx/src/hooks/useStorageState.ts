@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getStorageValue, setStorageValue } from '@/SavedPromptsService';
+import { getStorageValue, setStorageValue } from '@/extensionServices';
 
 function useStorageState<T>(key: string, defaultValue: T): [T, (value: T) => Promise<void>] {
   const [state, setState] = useState<T>(defaultValue);

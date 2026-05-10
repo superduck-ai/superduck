@@ -14,7 +14,7 @@ import {
   getStorageValue,
   setStorageValue,
   getConfig,
-} from "./SavedPromptsService";
+} from "./extensionServices";
 
 // --- Sentry Initialization ---
 

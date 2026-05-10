@@ -3,7 +3,7 @@ import './styles/scheduling.css';
 import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { AnalyticsContext, AuthContext } from './components/providers/AppProviders';
-import { FeatureProvider } from './SavedPromptsService';
+import { FeatureProvider } from './extensionServices';
 import { IntlMessageLoaderProvider } from './index-react-dom-intl';
 import { OptionsPage } from './options/OptionsPage';
 
