@@ -85,7 +85,8 @@
       ],
       "resources": [
         "src/accessibility-tree.ts",
-        "src/agent-visual-indicator.ts"
+        "src/agent-visual-indicator.ts",
+        "cursor-chat.png"
       ],
       "use_dynamic_url": false
     }

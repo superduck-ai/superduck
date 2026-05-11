@@ -1,3 +1,5 @@
+import { CursorRenderer } from './cursorAnimation/cursorRenderer';
+
 (function () {
   // I18n support
   const SUPPORTED_LOCALES = ['en-US', 'zh-CN'] as const;
@@ -9,7 +11,7 @@
       return locale;
     }
     const language = locale.split('-')[0];
-    const matched = SUPPORTED_LOCALES.find(l => l.startsWith(`${language}-`));
+    const matched = SUPPORTED_LOCALES.find((l) => l.startsWith(`${language}-`));
     return matched || DEFAULT_LOCALE;
   }
 
@@ -53,16 +55,32 @@
   let staticIndicatorHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let ellipsisInterval: ReturnType<typeof setInterval> | null = null;
   let isMcpEnabled = false;
+  let cursorRenderer: CursorRenderer | null = null;
+  try {
+    cursorRenderer = new CursorRenderer();
+  } catch (e) {
+    console.error('[Agent Indicator] Failed to construct CursorRenderer', e);
+    cursorRenderer = null;
+  }
+
+  function safeCursor(fn: (r: CursorRenderer) => void): void {
+    if (!cursorRenderer) return;
+    try {
+      fn(cursorRenderer);
+    } catch (e) {
+      console.error('[Agent Indicator] cursorRenderer call failed', e);
+    }
+  }
 
   // ============================================
   // Styles
   // ============================================
 
   function injectAnimationStyles(): void {
-    if (document.getElementById("superduck-agent-animation-styles")) return;
+    if (document.getElementById('superduck-agent-animation-styles')) return;
 
-    const styleEl = document.createElement("style");
-    styleEl.id = "superduck-agent-animation-styles";
+    const styleEl = document.createElement('style');
+    styleEl.id = 'superduck-agent-animation-styles';
     styleEl.textContent = `
       @keyframes superduck-glass-breathe {
         0%, 100% { opacity: 0.3; }
@@ -82,8 +100,8 @@
   // ============================================
 
   function createGlowBorder(): HTMLElement {
-    const wrapper = document.createElement("div");
-    wrapper.id = "superduck-agent-glow-border";
+    const wrapper = document.createElement('div');
+    wrapper.id = 'superduck-agent-glow-border';
     wrapper.style.cssText = `
       position: fixed;
       top: 0;
@@ -97,7 +115,7 @@
     `;
 
     // Static glow - top
-    const glowTop = document.createElement("div");
+    const glowTop = document.createElement('div');
     glowTop.style.cssText = `
       position: absolute; top: 0; left: 0; right: 0; height: 75px;
       filter: blur(15px); pointer-events: none;
@@ -110,7 +128,7 @@
     `;
 
     // Static glow - left
-    const glowLeft = document.createElement("div");
+    const glowLeft = document.createElement('div');
     glowLeft.style.cssText = `
       position: absolute; top: 0; left: 0; bottom: 0; width: 75px;
       filter: blur(15px); pointer-events: none;
@@ -123,7 +141,7 @@
     `;
 
     // Static glow - right
-    const glowRight = document.createElement("div");
+    const glowRight = document.createElement('div');
     glowRight.style.cssText = `
       position: absolute; top: 0; right: 0; bottom: 0; width: 75px;
       filter: blur(15px); pointer-events: none;
@@ -136,7 +154,7 @@
     `;
 
     // Glass border with breathing animation
-    const glassBorder = document.createElement("div");
+    const glassBorder = document.createElement('div');
     glassBorder.style.cssText = `
       position: absolute; inset: 0; pointer-events: none;
       box-shadow:
@@ -196,8 +214,8 @@
   }
 
   function createWaterRipple(): HTMLElement {
-    const container = document.createElement("div");
-    container.id = "superduck-water-ripple-container";
+    const container = document.createElement('div');
+    container.id = 'superduck-water-ripple-container';
     container.style.cssText = `
       position: fixed;
       bottom: 0;
@@ -210,8 +228,8 @@
       transition: opacity 0.3s ease-in-out;
     `;
 
-    const canvas = document.createElement("canvas");
-    canvas.id = "superduck-water-ripple-canvas";
+    const canvas = document.createElement('canvas');
+    canvas.id = 'superduck-water-ripple-canvas';
     canvas.style.cssText = `
       width: 100%;
       height: 100%;
@@ -225,24 +243,24 @@
       [235, 160, 90],
       [240, 175, 95],
       [245, 185, 100],
-      [250, 195, 110],
+      [250, 195, 110]
     ];
 
     const waves: WaveConfig[] = colors.map(([r, g, b], i) => ({
       r,
       g,
       b,
-      alpha: (0.343 - i * 0.039),
+      alpha: 0.343 - i * 0.039,
       depth: i,
       offset: 100 + Math.random() * 100,
-      t: 0,
+      t: 0
     }));
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = container.clientWidth * dpr;
       canvas.height = container.clientHeight * dpr;
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext('2d');
       if (ctx) ctx.scale(dpr, dpr);
     }
 
@@ -255,7 +273,7 @@
       const step = 25;
       let started = false;
       for (let x = 0; x <= width + step; x += step) {
-        const xoff = x / width * 3;
+        const xoff = (x / width) * 3;
         const noiseVal = valueNoise(xoff + w.offset, w.t + w.offset);
         const yoff = noiseVal * 80;
         const y = height - yoff - w.depth * 12;
@@ -276,7 +294,7 @@
     }
 
     function animate() {
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       const width = container.clientWidth;
@@ -303,7 +321,7 @@
       animate();
     });
 
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
 
     return container;
   }
@@ -318,8 +336,8 @@
     // 不经过 DOM 事件分发，不受 pointer-events 影响，因此 agent 的点击/滚动
     // 不会被这层遮罩阻断。注意：不要再加 touch-action:none —— 历史上它会
     // 阻断 content-script 派发的 wheel 事件（虽然现在走 CDP，但保持简洁）。
-    const overlay = document.createElement("div");
-    overlay.id = "superduck-agent-blocking-overlay";
+    const overlay = document.createElement('div');
+    overlay.id = 'superduck-agent-blocking-overlay';
     overlay.style.cssText = `
       position: fixed;
       top: 0;
@@ -342,12 +360,21 @@
     };
 
     const events = [
-      "click", "dblclick", "auxclick", "contextmenu",
-      "mousedown", "mouseup",
-      "pointerdown", "pointerup",
-      "touchstart", "touchend", "touchmove",
-      "keydown", "keyup", "keypress",
-      "wheel",
+      'click',
+      'dblclick',
+      'auxclick',
+      'contextmenu',
+      'mousedown',
+      'mouseup',
+      'pointerdown',
+      'pointerup',
+      'touchstart',
+      'touchend',
+      'touchmove',
+      'keydown',
+      'keyup',
+      'keypress',
+      'wheel'
     ];
     for (const evt of events) {
       overlay.addEventListener(evt, swallow, { capture: true, passive: false });
@@ -361,8 +388,8 @@
   // ============================================
 
   function createStopContainer(): HTMLElement {
-    const container = document.createElement("div");
-    container.id = "superduck-agent-stop-container";
+    const container = document.createElement('div');
+    container.id = 'superduck-agent-stop-container';
 
     // ========== Parent: flex row, space-between ==========
     container.style.cssText = `
@@ -419,18 +446,18 @@
       inset 0 -1px 2px rgba(0, 0, 0, 0.03)
     `;
 
-    container.addEventListener("mouseenter", () => {
+    container.addEventListener('mouseenter', () => {
       container.style.boxShadow = hoverBoxShadow;
-      container.style.borderColor = "rgba(230, 160, 90, 0.4)";
+      container.style.borderColor = 'rgba(230, 160, 90, 0.4)';
     });
 
-    container.addEventListener("mouseleave", () => {
+    container.addEventListener('mouseleave', () => {
       container.style.boxShadow = defaultBoxShadow;
-      container.style.borderColor = "rgba(255, 255, 255, 0.55)";
+      container.style.borderColor = 'rgba(255, 255, 255, 0.55)';
     });
 
     // ========== Child A (left group): emoji + text + dots ==========
-    const leftGroup = document.createElement("div");
+    const leftGroup = document.createElement('div');
     leftGroup.style.cssText = `
       display: flex !important;
       flex-direction: row !important;
@@ -453,14 +480,14 @@
       t('agent_status_dont_move', '别动！鸭鸭在忙'),
       t('agent_status_working_duck', '鸭鸭化身打工鸭'),
       t('agent_status_managed', '当前页面由鸭鸭托管中'),
-      t('agent_status_online', '嘎嘎特工已上线'),
+      t('agent_status_online', '嘎嘎特工已上线')
     ];
 
-    const emojiEl = document.createElement("span");
-    emojiEl.textContent = "🦆";
+    const emojiEl = document.createElement('span');
+    emojiEl.textContent = '🦆';
     emojiEl.style.cssText = `font-size: 16px; line-height: 1; flex-shrink: 0;`;
 
-    const statusText = document.createElement("span");
+    const statusText = document.createElement('span');
     statusText.textContent = duckMessages[Math.floor(Math.random() * duckMessages.length)];
     statusText.style.cssText = `
       color: #1a1a1a;
@@ -470,7 +497,7 @@
     `;
 
     // Animated dots: fixed-width container to prevent layout shift
-    const dotsEl = document.createElement("span");
+    const dotsEl = document.createElement('span');
     dotsEl.style.cssText = `
       display: inline-block;
       width: 1.5em;
@@ -480,12 +507,12 @@
       font-weight: 500;
       flex-shrink: 0;
     `;
-    dotsEl.textContent = ".";
+    dotsEl.textContent = '.';
 
     let dotCount = 1;
     ellipsisInterval = setInterval(() => {
       dotCount = (dotCount % 3) + 1;
-      dotsEl.textContent = ".".repeat(dotCount);
+      dotsEl.textContent = '.'.repeat(dotCount);
     }, 500);
 
     leftGroup.appendChild(emojiEl);
@@ -493,8 +520,8 @@
     leftGroup.appendChild(dotsEl);
 
     // ========== Child B (right group): button ==========
-    const takeOverBtn = document.createElement("button");
-    takeOverBtn.id = "superduck-agent-stop-button";
+    const takeOverBtn = document.createElement('button');
+    takeOverBtn.id = 'superduck-agent-stop-button';
     takeOverBtn.textContent = t('agent_take_over_button', '我来接手');
     takeOverBtn.style.cssText = `
       padding: 6px 16px;
@@ -513,34 +540,34 @@
       white-space: nowrap !important;
     `;
 
-    takeOverBtn.addEventListener("mouseenter", () => {
-      takeOverBtn.style.background = "#3a3a3a";
-      takeOverBtn.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.15)";
+    takeOverBtn.addEventListener('mouseenter', () => {
+      takeOverBtn.style.background = '#3a3a3a';
+      takeOverBtn.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
     });
 
-    takeOverBtn.addEventListener("mouseleave", () => {
-      takeOverBtn.style.background = "#2c2c2c";
-      takeOverBtn.style.boxShadow = "none";
+    takeOverBtn.addEventListener('mouseleave', () => {
+      takeOverBtn.style.background = '#2c2c2c';
+      takeOverBtn.style.boxShadow = 'none';
     });
 
-    takeOverBtn.addEventListener("click", async () => {
+    takeOverBtn.addEventListener('click', async () => {
       try {
-        takeOverBtn.style.pointerEvents = "none";
-        takeOverBtn.style.opacity = "0.5";
+        takeOverBtn.style.pointerEvents = 'none';
+        takeOverBtn.style.opacity = '0.5';
 
         await chrome.runtime.sendMessage({
-          type: "STOP_AGENT",
-          fromTabId: "CURRENT_TAB",
+          type: 'STOP_AGENT',
+          fromTabId: 'CURRENT_TAB'
         });
 
         setTimeout(() => {
-          takeOverBtn.style.pointerEvents = "auto";
-          takeOverBtn.style.opacity = "1";
+          takeOverBtn.style.pointerEvents = 'auto';
+          takeOverBtn.style.opacity = '1';
         }, 1000);
       } catch (error) {
-        console.error("Failed to stop agent:", error);
-        takeOverBtn.style.pointerEvents = "auto";
-        takeOverBtn.style.opacity = "1";
+        console.error('Failed to stop agent:', error);
+        takeOverBtn.style.pointerEvents = 'auto';
+        takeOverBtn.style.opacity = '1';
       }
     });
 
@@ -555,8 +582,8 @@
   // ============================================
 
   function createStaticIndicator(): HTMLElement {
-    const container = document.createElement("div");
-    container.id = "superduck-static-indicator-container";
+    const container = document.createElement('div');
+    container.id = 'superduck-static-indicator-container';
     container.innerHTML = `
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; flex-shrink: 0; margin-right: 8px;">
         <path d="M3.13946 10.6399L6.28757 8.87462L6.37405 8.73821L6.28757 8.6339H6.13189L5.60432 8.6018L3.80541 8.55366L2.24865 8.48947L0.735135 8.40923H0.492973L0.354595 8.32899L0.181622 8.1685L0.0345946 8.01605L0 7.85557L0.0345946 7.62287L0.138378 7.44634L0.224865 7.40622H0.354595L0.812973 7.44634L1.82486 7.51856L3.34703 7.62287L4.44541 7.68706L6.08 7.85557H6.33946L6.37405 7.75125L6.28757 7.68706L6.21838 7.62287L4.64432 6.55567L2.94054 5.4323L2.04973 4.78235L1.57405 4.45336L1.33189 4.14845L1.22811 3.92377L1.17622 3.69107L1.22811 3.47442L1.33189 3.28185L1.46162 3.13741L1.66054 2.99298H1.87676L2.24865 3.0331L2.39568 3.07322L2.99243 3.53059L4.26378 4.51755L5.92432 5.73721L6.16649 5.93781H6.27892V5.82548L6.16649 5.64092L5.26703 4.01204L4.30703 2.35105L3.87459 1.66098L3.76216 1.25176C3.7391 1.16082 3.69297 0.977332 3.69297 0.970913V0.762287L3.77946 0.505517L3.93513 0.240722L4.18595 0.0882648L4.4627 0H4.67892L4.83459 0.0240722L5.12865 0.0882648L5.4054 0.328987L5.82054 1.27583L6.48649 2.76028L7.52432 4.78235L7.82703 5.38415L7.99135 5.93781L8.05189 6.10632H8.15567V6.01003L8.24216 4.87061L8.39784 3.47442L8.55351 1.67703L8.6054 1.17151L8.85622 0.561685L8.9773 0.417252L9.21946 0.232698H9.35784L9.74703 0.417252L9.97189 0.665998L10.067 0.874624L10.0238 1.17151L9.83351 2.40722L9.46162 4.34102L9.21946 5.64092H9.35784L9.52216 5.47242L10.1795 4.60582L11.2778 3.22568L11.7622 2.68004L12.333 2.07823L12.6962 1.78937L13.0162 1.67703L13.3881 1.78937L13.7168 2.06219L13.8897 2.54363V2.76028L13.6649 3.32197L12.9557 4.22066L12.3676 4.98295L12.0043 5.56871L11.0011 7.02106V7.08526H11.1741L13.0768 6.67603L14.1059 6.49147L15.3341 6.28285L15.5762 6.34704L15.8876 6.53962L15.9481 6.80441L15.8876 7.12538L15.7319 7.34203L14.4173 7.66299L12.8778 7.97593L10.5854 8.51559C10.5705 8.51909 10.56 8.53236 10.56 8.54764C10.56 8.56468 10.573 8.57891 10.59 8.58044L11.6238 8.67402L12.0649 8.69809H13.1459L15.1611 8.85055L15.6886 9.19559L15.9481 9.39619L16 9.62086L15.9481 9.94985L15.8443 10.1023L15.4119 10.3029L15.1351 10.3591L14.0454 10.1023L11.4941 9.49248L10.6205 9.27583H10.4995V9.34804L11.2259 10.0622L12.5665 11.2658L14.2357 12.8225L14.3222 13.0953V13.2076L14.1059 13.5125L13.9243 13.5206L13.8811 13.4804L12.4108 12.3731L12.2984 12.325L11.84 11.8756L10.56 10.7924H10.4735V10.9047L10.7676 11.338L12.333 13.6891L12.4108 14.4112L12.2984 14.6439L11.8919 14.7884L11.667 14.7563L11.4508 14.7081L11.2605 14.5396L10.5254 13.4162L9.5827 11.9719L8.82162 10.672H8.79342C8.76039 10.672 8.73278 10.6972 8.7297 10.73L8.27676 15.5667L8.06919 15.8154L7.6454 16H7.58486L7.17838 15.6951L6.96216 15.1976L7.17838 14.2106L7.43784 12.9268L7.6454 11.9077L7.83567 10.6399L7.95187 10.2164C7.9548 10.2057 7.95069 10.1944 7.94161 10.1881C7.91157 10.1672 7.87034 10.1741 7.84878 10.2037L6.89297 11.5145L5.44 13.4804L4.28973 14.7081L4.01297 14.8205H3.80541L3.5373 14.5717V14.4514L3.58054 14.1304L3.84865 13.7372L5.44 11.7151L6.4 10.4554L7.01872 9.73222C7.04511 9.70139 7.04245 9.65523 7.0127 9.62763C7.00333 9.61894 6.98925 9.61773 6.97854 9.62471L2.75027 12.3811L1.99784 12.4774L1.66919 12.1725L1.71243 11.675L1.86811 11.5145L3.13946 10.6399Z" fill="#D97757"/>
@@ -598,27 +625,23 @@
     `;
 
     // Chat button
-    const chatButton = container.querySelector<HTMLButtonElement>(
-      "#superduck-static-chat-button",
-    );
-    const chatTooltip = container.querySelector<HTMLElement>(
-      "#superduck-static-chat-tooltip",
-    );
+    const chatButton = container.querySelector<HTMLButtonElement>('#superduck-static-chat-button');
+    const chatTooltip = container.querySelector<HTMLElement>('#superduck-static-chat-tooltip');
 
     if (chatButton) {
-      chatButton.addEventListener("mouseenter", () => {
-        chatButton.style.background = "#F0EEE6";
-        if (chatTooltip) chatTooltip.style.opacity = "1";
+      chatButton.addEventListener('mouseenter', () => {
+        chatButton.style.background = '#F0EEE6';
+        if (chatTooltip) chatTooltip.style.opacity = '1';
       });
 
-      chatButton.addEventListener("mouseleave", () => {
-        chatButton.style.background = "transparent";
-        if (chatTooltip) chatTooltip.style.opacity = "0";
+      chatButton.addEventListener('mouseleave', () => {
+        chatButton.style.background = 'transparent';
+        if (chatTooltip) chatTooltip.style.opacity = '0';
       });
 
-      chatButton.addEventListener("click", async () => {
+      chatButton.addEventListener('click', async () => {
         try {
-          await chrome.runtime.sendMessage({ type: "SWITCH_TO_MAIN_TAB" });
+          await chrome.runtime.sendMessage({ type: 'SWITCH_TO_MAIN_TAB' });
         } catch (e) {
           // Ignore errors
         }
@@ -627,27 +650,25 @@
 
     // Close button
     const closeButton = container.querySelector<HTMLButtonElement>(
-      "#superduck-static-close-button",
+      '#superduck-static-close-button'
     );
-    const closeTooltip = container.querySelector<HTMLElement>(
-      "#superduck-static-close-tooltip",
-    );
+    const closeTooltip = container.querySelector<HTMLElement>('#superduck-static-close-tooltip');
 
     if (closeButton) {
-      closeButton.addEventListener("mouseenter", () => {
-        closeButton.style.background = "#F0EEE6";
-        if (closeTooltip) closeTooltip.style.opacity = "1";
+      closeButton.addEventListener('mouseenter', () => {
+        closeButton.style.background = '#F0EEE6';
+        if (closeTooltip) closeTooltip.style.opacity = '1';
       });
 
-      closeButton.addEventListener("mouseleave", () => {
-        closeButton.style.background = "transparent";
-        if (closeTooltip) closeTooltip.style.opacity = "0";
+      closeButton.addEventListener('mouseleave', () => {
+        closeButton.style.background = 'transparent';
+        if (closeTooltip) closeTooltip.style.opacity = '0';
       });
 
-      closeButton.addEventListener("click", async () => {
+      closeButton.addEventListener('click', async () => {
         try {
           await chrome.runtime.sendMessage({
-            type: "DISMISS_STATIC_INDICATOR_FOR_GROUP",
+            type: 'DISMISS_STATIC_INDICATOR_FOR_GROUP'
           });
         } catch (e) {
           // Ignore errors
@@ -666,20 +687,25 @@
    * Show agent indicators (glow border and stop button)
    */
   async function showAgentIndicators(): Promise<void> {
-    console.log('[Agent Indicator] showAgentIndicators called, isMcpEnabled:', isMcpEnabled, 'isAgentActive:', isAgentActive);
+    console.log(
+      '[Agent Indicator] showAgentIndicators called, isMcpEnabled:',
+      isMcpEnabled,
+      'isAgentActive:',
+      isAgentActive
+    );
 
     isAgentActive = true;
 
-    await loadI18n();
-
-    if (!isAgentActive) return;
+    // Kick off i18n in parallel — only the stop-button text needs it, and
+    // every t() call has a Chinese fallback. Don't block visual elements on it.
+    const i18nPromise = loadI18n();
 
     // Inject animation styles
     injectAnimationStyles();
 
     // Create/show glow border
     if (glowBorderEl) {
-      glowBorderEl.style.display = "";
+      glowBorderEl.style.display = '';
     } else {
       glowBorderEl = createGlowBorder();
       document.body.appendChild(glowBorderEl);
@@ -687,7 +713,7 @@
 
     // Create/show water ripple
     if (waterRippleContainerEl) {
-      waterRippleContainerEl.style.display = "";
+      waterRippleContainerEl.style.display = '';
     } else {
       waterRippleContainerEl = createWaterRipple();
       document.body.appendChild(waterRippleContainerEl);
@@ -695,41 +721,47 @@
 
     // Create/show blocking overlay
     if (blockingOverlayEl) {
-      blockingOverlayEl.style.display = "";
+      blockingOverlayEl.style.display = '';
     } else {
       blockingOverlayEl = createBlockingOverlay();
       document.body.appendChild(blockingOverlayEl);
     }
 
-    // Create/show stop button (only if MCP is enabled)
+    // Animate the always-visible elements in immediately, before i18n.
+    requestAnimationFrame(() => {
+      if (glowBorderEl) glowBorderEl.style.opacity = '1';
+      if (waterRippleContainerEl) waterRippleContainerEl.style.opacity = '1';
+      if (blockingOverlayEl) blockingOverlayEl.style.opacity = '1';
+    });
+
+    safeCursor((r) => r.showIdle());
+
+    // Stop button uses translated text; wait for i18n so we don't flash
+    // fallback Chinese strings to non-Chinese locales.
+    await i18nPromise;
+
+    if (!isAgentActive) return;
+
     if (isMcpEnabled) {
       console.log('[Agent Indicator] Creating/showing stop button');
       if (stopContainerEl) {
-        stopContainerEl.style.setProperty("display", "flex", "important");
+        stopContainerEl.style.setProperty('display', 'flex', 'important');
       } else {
         stopContainerEl = createStopContainer();
         document.body.appendChild(stopContainerEl);
       }
+      if (stopContainerEl && !stopContainerEl.parentNode) {
+        document.body.appendChild(stopContainerEl);
+      }
+      requestAnimationFrame(() => {
+        if (stopContainerEl) {
+          stopContainerEl.style.opacity = '1';
+          stopContainerEl.style.transform = 'translateX(-50%) translateY(0)';
+        }
+      });
     } else {
       console.log('[Agent Indicator] NOT creating stop button because isMcpEnabled is false');
     }
-
-    // Animate in
-    requestAnimationFrame(() => {
-      if (glowBorderEl) {
-        glowBorderEl.style.opacity = "1";
-      }
-      if (waterRippleContainerEl) {
-        waterRippleContainerEl.style.opacity = "1";
-      }
-      if (blockingOverlayEl) {
-        blockingOverlayEl.style.opacity = "1";
-      }
-      if (stopContainerEl) {
-        stopContainerEl.style.opacity = "1";
-        stopContainerEl.style.transform = "translateX(-50%) translateY(0)";
-      }
-    });
   }
 
   /**
@@ -742,18 +774,18 @@
 
     // Animate out
     if (glowBorderEl) {
-      glowBorderEl.style.opacity = "0";
+      glowBorderEl.style.opacity = '0';
     }
     if (waterRippleContainerEl) {
-      waterRippleContainerEl.style.opacity = "0";
+      waterRippleContainerEl.style.opacity = '0';
     }
     if (blockingOverlayEl) {
-      blockingOverlayEl.style.opacity = "0";
+      blockingOverlayEl.style.opacity = '0';
     }
 
     if (stopContainerEl) {
-      stopContainerEl.style.opacity = "0";
-      stopContainerEl.style.transform = "translateX(-50%) translateY(100px)";
+      stopContainerEl.style.opacity = '0';
+      stopContainerEl.style.transform = 'translateX(-50%) translateY(100px)';
     }
 
     // Remove after animation
@@ -769,7 +801,7 @@
             waterRippleAnimationId = null;
           }
           if (waterRippleResizeHandler) {
-            window.removeEventListener("resize", waterRippleResizeHandler);
+            window.removeEventListener('resize', waterRippleResizeHandler);
             waterRippleResizeHandler = null;
           }
           waterRippleAnimateFunc = null;
@@ -788,6 +820,7 @@
           stopContainerEl.parentNode.removeChild(stopContainerEl);
           stopContainerEl = null;
         }
+        safeCursor((r) => r.hide());
       }
     }, 300);
   }
@@ -802,7 +835,7 @@
       if (!staticIndicatorEl.parentNode) {
         document.body.appendChild(staticIndicatorEl);
       }
-      staticIndicatorEl.style.display = "";
+      staticIndicatorEl.style.display = '';
     } else {
       staticIndicatorEl = createStaticIndicator();
       document.body.appendChild(staticIndicatorEl);
@@ -817,7 +850,7 @@
     staticIndicatorHeartbeatInterval = setInterval(async () => {
       try {
         const response = await chrome.runtime.sendMessage({
-          type: "STATIC_INDICATOR_HEARTBEAT",
+          type: 'STATIC_INDICATOR_HEARTBEAT'
         });
         if (!response?.success) {
           hideStaticIndicator();
@@ -853,18 +886,22 @@
 
   interface RuntimeMessage {
     type:
-      | "SHOW_AGENT_INDICATORS"
-      | "HIDE_AGENT_INDICATORS"
-      | "HIDE_FOR_TOOL_USE"
-      | "SHOW_AFTER_TOOL_USE"
-      | "SHOW_STATIC_INDICATOR"
-      | "HIDE_STATIC_INDICATOR"
-      | "STATIC_INDICATOR_HEARTBEAT"
-      | "STOP_AGENT"
-      | "SWITCH_TO_MAIN_TAB"
-      | "DISMISS_STATIC_INDICATOR_FOR_GROUP";
+      | 'SHOW_AGENT_INDICATORS'
+      | 'HIDE_AGENT_INDICATORS'
+      | 'HIDE_FOR_TOOL_USE'
+      | 'SHOW_AFTER_TOOL_USE'
+      | 'SHOW_STATIC_INDICATOR'
+      | 'HIDE_STATIC_INDICATOR'
+      | 'STATIC_INDICATOR_HEARTBEAT'
+      | 'STOP_AGENT'
+      | 'SWITCH_TO_MAIN_TAB'
+      | 'DISMISS_STATIC_INDICATOR_FOR_GROUP'
+      | 'ANIMATE_CURSOR_TO';
     isMcp?: boolean;
     fromTabId?: string;
+    x?: number;
+    y?: number;
+    action?: string;
   }
 
   interface MessageResponse {
@@ -879,125 +916,167 @@
     (message: RuntimeMessage, sender, sendResponse: (response: MessageResponse) => void) => {
       (async () => {
         switch (message.type) {
-          case "SHOW_AGENT_INDICATORS":
-            console.log('[Agent Indicator] SHOW_AGENT_INDICATORS received, isMcp:', message.isMcp, 'current isMcpEnabled:', isMcpEnabled);
+          case 'SHOW_AGENT_INDICATORS':
+            console.log(
+              '[Agent Indicator] SHOW_AGENT_INDICATORS received, isMcp:',
+              message.isMcp,
+              'current isMcpEnabled:',
+              isMcpEnabled
+            );
             isMcpEnabled = isMcpEnabled || message.isMcp === true;
             console.log('[Agent Indicator] After update, isMcpEnabled:', isMcpEnabled);
             await showAgentIndicators();
             sendResponse({ success: true });
             break;
 
-        case "HIDE_AGENT_INDICATORS":
-          hideAgentIndicators();
-          sendResponse({ success: true });
-          break;
+          case 'HIDE_AGENT_INDICATORS':
+            hideAgentIndicators();
+            sendResponse({ success: true });
+            break;
 
-        case "HIDE_FOR_TOOL_USE":
-          isHiddenForToolUse = isAgentActive;
-          wasStaticActiveBeforeToolUse = isStaticIndicatorActive;
+          case 'HIDE_FOR_TOOL_USE': {
+            isHiddenForToolUse = isAgentActive;
+            wasStaticActiveBeforeToolUse = isStaticIndicatorActive;
 
-          if (waterRippleAnimationId) {
-            cancelAnimationFrame(waterRippleAnimationId);
-            waterRippleAnimationId = null;
-          }
-          if (ellipsisInterval) {
-            clearInterval(ellipsisInterval);
-            ellipsisInterval = null;
-          }
+            if (waterRippleAnimationId) {
+              cancelAnimationFrame(waterRippleAnimationId);
+              waterRippleAnimationId = null;
+            }
+            if (ellipsisInterval) {
+              clearInterval(ellipsisInterval);
+              ellipsisInterval = null;
+            }
 
-          // Remove elements from DOM entirely to guarantee they cannot
-          // appear in any screenshot method (CDP or captureVisibleTab).
-          // Element references are preserved in module variables for re-insertion.
-          if (glowBorderEl?.parentNode) glowBorderEl.parentNode.removeChild(glowBorderEl);
-          if (waterRippleContainerEl?.parentNode) waterRippleContainerEl.parentNode.removeChild(waterRippleContainerEl);
-          if (blockingOverlayEl?.parentNode) blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
-          if (stopContainerEl?.parentNode) stopContainerEl.parentNode.removeChild(stopContainerEl);
-          if (staticIndicatorEl?.parentNode && isStaticIndicatorActive) staticIndicatorEl.parentNode.removeChild(staticIndicatorEl);
+            // Remove elements from DOM entirely to guarantee they cannot
+            // appear in any screenshot method (CDP or captureVisibleTab).
+            // Element references are preserved in module variables for re-insertion.
+            if (glowBorderEl?.parentNode) glowBorderEl.parentNode.removeChild(glowBorderEl);
+            if (waterRippleContainerEl?.parentNode)
+              waterRippleContainerEl.parentNode.removeChild(waterRippleContainerEl);
+            if (blockingOverlayEl?.parentNode)
+              blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
+            if (stopContainerEl?.parentNode)
+              stopContainerEl.parentNode.removeChild(stopContainerEl);
+            safeCursor((r) => r.detachFromDOM());
+            if (staticIndicatorEl?.parentNode && isStaticIndicatorActive)
+              staticIndicatorEl.parentNode.removeChild(staticIndicatorEl);
 
-          const respondOnce = (() => {
-            let hasResponded = false;
-            return () => {
-              if (hasResponded) return;
-              hasResponded = true;
-              sendResponse({ success: true });
-            };
-          })();
+            const respondOnce = (() => {
+              let hasResponded = false;
+              return () => {
+                if (hasResponded) return;
+                hasResponded = true;
+                sendResponse({ success: true });
+              };
+            })();
 
-          // For background tabs, rAF may be heavily throttled or paused.
-          // Return immediately to avoid blocking tool calls on non-active tabs.
-          if (document.visibilityState !== "visible") {
-            respondOnce();
+            // For background tabs, rAF may be heavily throttled or paused.
+            // Return immediately to avoid blocking tool calls on non-active tabs.
+            if (document.visibilityState !== 'visible') {
+              respondOnce();
+              break;
+            }
+
+            // For visible tabs, wait for compositor commit to keep screenshots clean.
+            void document.body.offsetWidth;
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                setTimeout(respondOnce, 50);
+              });
+            });
+            // Fallback in case tab visibility changes during the rAF chain.
+            setTimeout(respondOnce, 200);
             break;
           }
 
-          // For visible tabs, wait for compositor commit to keep screenshots clean.
-          void document.body.offsetWidth;
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              setTimeout(respondOnce, 50);
-            });
-          });
-          // Fallback in case tab visibility changes during the rAF chain.
-          setTimeout(respondOnce, 200);
-          break;
+          case 'SHOW_AFTER_TOOL_USE':
+            if (isHiddenForToolUse) {
+              // Re-insert elements into DOM (references preserved in module variables)
+              if (glowBorderEl && !glowBorderEl.parentNode) document.body.appendChild(glowBorderEl);
+              if (waterRippleContainerEl && !waterRippleContainerEl.parentNode)
+                document.body.appendChild(waterRippleContainerEl);
+              if (blockingOverlayEl && !blockingOverlayEl.parentNode)
+                document.body.appendChild(blockingOverlayEl);
+              if (stopContainerEl && !stopContainerEl.parentNode)
+                document.body.appendChild(stopContainerEl);
+              safeCursor((r) => r.reattachToDOM());
 
-        case "SHOW_AFTER_TOOL_USE":
-          if (isHiddenForToolUse) {
-            // Re-insert elements into DOM (references preserved in module variables)
-            if (glowBorderEl && !glowBorderEl.parentNode) document.body.appendChild(glowBorderEl);
-            if (waterRippleContainerEl && !waterRippleContainerEl.parentNode) document.body.appendChild(waterRippleContainerEl);
-            if (blockingOverlayEl && !blockingOverlayEl.parentNode) document.body.appendChild(blockingOverlayEl);
-            if (stopContainerEl && !stopContainerEl.parentNode) document.body.appendChild(stopContainerEl);
-
-            if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
-              waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
-            }
-            if (stopContainerEl && !ellipsisInterval) {
-              const dotsEl = stopContainerEl.querySelector("span:last-of-type");
-              if (dotsEl) {
-                let dotCount = 1;
-                ellipsisInterval = setInterval(() => {
-                  dotCount = (dotCount % 3) + 1;
-                  dotsEl.textContent = ".".repeat(dotCount);
-                }, 500);
+              if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
+                waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
+              }
+              if (stopContainerEl && !ellipsisInterval) {
+                const dotsEl = stopContainerEl.querySelector('span:last-of-type');
+                if (dotsEl) {
+                  let dotCount = 1;
+                  ellipsisInterval = setInterval(() => {
+                    dotCount = (dotCount % 3) + 1;
+                    dotsEl.textContent = '.'.repeat(dotCount);
+                  }, 500);
+                }
               }
             }
-          }
-          if (wasStaticActiveBeforeToolUse && staticIndicatorEl && !staticIndicatorEl.parentNode) {
-            document.body.appendChild(staticIndicatorEl);
-          }
+            if (
+              wasStaticActiveBeforeToolUse &&
+              staticIndicatorEl &&
+              !staticIndicatorEl.parentNode
+            ) {
+              document.body.appendChild(staticIndicatorEl);
+            }
 
-          isHiddenForToolUse = false;
-          wasStaticActiveBeforeToolUse = false;
+            isHiddenForToolUse = false;
+            wasStaticActiveBeforeToolUse = false;
 
-          sendResponse({ success: true });
-          break;
+            sendResponse({ success: true });
+            break;
 
-        case "SHOW_STATIC_INDICATOR":
-          showStaticIndicator();
-          sendResponse({ success: true });
-          break;
+          case 'SHOW_STATIC_INDICATOR':
+            showStaticIndicator();
+            sendResponse({ success: true });
+            break;
 
-        case "HIDE_STATIC_INDICATOR":
-          hideStaticIndicator();
-          sendResponse({ success: true });
-          break;
+          case 'HIDE_STATIC_INDICATOR':
+            hideStaticIndicator();
+            sendResponse({ success: true });
+            break;
 
-        default:
+          case 'ANIMATE_CURSOR_TO':
+            if (!isAgentActive || !cursorRenderer) {
+              sendResponse({ success: false });
+              break;
+            }
+            try {
+              cursorRenderer
+                .animateTo(message.x ?? 0, message.y ?? 0, message.action ?? 'click')
+                .then(() => sendResponse({ success: true }))
+                .catch(() => sendResponse({ success: false }));
+            } catch (e) {
+              console.error('[Agent Indicator] animateTo failed', e);
+              sendResponse({ success: false });
+            }
+            break;
+
+          default:
+            sendResponse({ success: false });
+            break;
+        }
+      })().catch((err) => {
+        console.error('[Agent Indicator] onMessage handler failed', message?.type, err);
+        try {
           sendResponse({ success: false });
-          break;
-      }
-      })();
+        } catch {
+          /* channel may be closed */
+        }
+      });
 
       return true;
-    },
+    }
   );
 
   // ============================================
   // Cleanup on Page Unload
   // ============================================
 
-  window.addEventListener("beforeunload", () => {
+  window.addEventListener('beforeunload', () => {
     hideAgentIndicators();
     hideStaticIndicator();
   });
@@ -1017,20 +1096,21 @@
 
     // Recover elements that got detached from DOM
     if (stopContainerEl && !stopContainerEl.parentNode) {
-      console.warn("[SuperDuck Agent] Recovering detached stop button");
+      console.warn('[SuperDuck Agent] Recovering detached stop button');
       document.body.appendChild(stopContainerEl);
     }
     if (glowBorderEl && !glowBorderEl.parentNode) {
-      console.warn("[SuperDuck Agent] Recovering detached glow border");
+      console.warn('[SuperDuck Agent] Recovering detached glow border');
       document.body.appendChild(glowBorderEl);
     }
     if (waterRippleContainerEl && !waterRippleContainerEl.parentNode) {
-      console.warn("[SuperDuck Agent] Recovering detached water ripple");
+      console.warn('[SuperDuck Agent] Recovering detached water ripple');
       document.body.appendChild(waterRippleContainerEl);
     }
     if (blockingOverlayEl && !blockingOverlayEl.parentNode) {
-      console.warn("[SuperDuck Agent] Recovering detached blocking overlay");
+      console.warn('[SuperDuck Agent] Recovering detached blocking overlay');
       document.body.appendChild(blockingOverlayEl);
     }
+    safeCursor((r) => r.reattachToDOM());
   }, 2000); // Check every 2 seconds
 })();

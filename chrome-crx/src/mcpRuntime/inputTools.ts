@@ -325,7 +325,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           break;
 
         case 'left_click_drag':
-          result = await executeDrag(effectiveTabId, toolParams, requireCurrentUrl());
+          result = await executeDrag(effectiveTabId, toolParams, requireCurrentUrl(), clickOptions);
           break;
 
         case 'double_click':
@@ -357,7 +357,12 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           break;
 
         case 'hover':
-          result = await executeHover(effectiveTabId, toolParams, requireCurrentUrl());
+          result = await executeHover(
+            effectiveTabId,
+            toolParams,
+            requireCurrentUrl(),
+            clickOptions
+          );
           break;
 
         default:
@@ -647,13 +652,13 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
   };
 
   try {
-      const result = await execWithStaleRecovery<ScrollToRefResult, [string]>(
-        tabId,
-        ref,
-        scrollScript,
-        [ref],
-        isScrollToRefResult
-      );
+    const result = await execWithStaleRecovery<ScrollToRefResult, [string]>(
+      tabId,
+      ref,
+      scrollScript,
+      [ref],
+      isScrollToRefResult
+    );
 
     if (!result) {
       return { success: false, error: 'Failed to execute script to get element coordinates' };
@@ -688,7 +693,10 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
 
       const offset = await getFrameOffsetForNode(tabId, backendNodeId);
       if (offset && localCoords) {
-        return { success: true, coordinates: [localCoords[0] + offset.x, localCoords[1] + offset.y] };
+        return {
+          success: true,
+          coordinates: [localCoords[0] + offset.x, localCoords[1] + offset.y]
+        };
       }
       // offset 解析失败且元素在 iframe：本地坐标不可直接用于主框架点击。仍返回本地坐标，
       // 与改造前行为一致（只点主框架可用，iframe 情况原本就错），避免整个 ref 操作失败。
@@ -739,6 +747,24 @@ function computeModifiersBitmask(modifiers: string[]): number {
   return bitmask;
 }
 
+// Intentionally awaits animation completion before returning — ensures the user
+// sees the cursor arrive at the target before the CDP action fires. This adds
+// ~200-700ms per action depending on distance (spring physics settle time).
+async function animateCursorOnTab(
+  tabId: number,
+  x: number,
+  y: number,
+  action: string,
+  skipIndicator?: boolean
+): Promise<void> {
+  if (skipIndicator) return;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'ANIMATE_CURSOR_TO', x, y, action });
+  } catch {
+    // Content script may not be loaded
+  }
+}
+
 // --- executeClick helper (re) ---
 async function executeClick(
   tabId: number,
@@ -776,6 +802,10 @@ async function executeClick(
   try {
     const securityCheck = await checkDomainSecurity(tabId, currentUrl, 'click action');
     if (securityCheck) return securityCheck;
+
+    const actionName =
+      clickCount === 1 ? 'click' : clickCount === 2 ? 'doubleclick' : 'tripleclick';
+    await animateCursorOnTab(tabId, x, y, actionName, options?.skipIndicator);
 
     await cdpDebugger.click(tabId, x, y, button, clickCount, modifiers, options);
 
@@ -879,6 +909,7 @@ async function executeScroll(
   const amount = params.scroll_amount || 3;
 
   const manageIndicator = !options?.skipIndicator;
+  await animateCursorOnTab(tabId, x, y, 'scroll', options?.skipIndicator);
   if (manageIndicator) {
     await tabGroupManager.hideIndicatorForToolUse(tabId);
   }
@@ -1066,7 +1097,8 @@ async function executeKey(
 async function executeDrag(
   tabId: number,
   params: ComputerToolParams,
-  currentUrl: string
+  currentUrl: string,
+  options?: ClickOptions
 ): Promise<ToolResult> {
   if (!params.start_coordinate || params.start_coordinate.length !== 2) {
     throw new Error('start_coordinate parameter is required for left_click_drag action');
@@ -1092,6 +1124,7 @@ async function executeDrag(
     const securityCheck = await checkDomainSecurity(tabId, currentUrl, 'drag action');
     if (securityCheck) return securityCheck;
 
+    await animateCursorOnTab(tabId, startX, startY, 'drag_start', options?.skipIndicator);
     await tabGroupManager.hideIndicatorForToolUse(tabId);
     try {
       await cdpDebugger.dispatchMouseEvent(tabId, {
@@ -1244,7 +1277,8 @@ async function executeScrollTo(
 async function executeHover(
   tabId: number,
   params: ComputerToolParams,
-  currentUrl: string
+  currentUrl: string,
+  options?: ClickOptions
 ): Promise<ToolResult> {
   let x: number;
   let y: number;
@@ -1269,6 +1303,7 @@ async function executeHover(
     const securityCheck = await checkDomainSecurity(tabId, currentUrl, 'hover action');
     if (securityCheck) return securityCheck;
 
+    await animateCursorOnTab(tabId, x, y, 'hover', options?.skipIndicator);
     await tabGroupManager.hideIndicatorForToolUse(tabId);
     try {
       await cdpDebugger.dispatchMouseEvent(tabId, {
@@ -1508,7 +1543,10 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
         }
       };
 
-      const formResult = await execWithStaleRecovery<FormInputScriptResult, [string, FormInputValue]>(
+      const formResult = await execWithStaleRecovery<
+        FormInputScriptResult,
+        [string, FormInputValue]
+      >(
         activeTabId,
         params.ref,
         formInputScript,
@@ -1516,8 +1554,7 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
         isFormInputScriptResult
       );
 
-      if (!formResult)
-        throw new Error('Failed to execute form input');
+      if (!formResult) throw new Error('Failed to execute form input');
 
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
       return {
