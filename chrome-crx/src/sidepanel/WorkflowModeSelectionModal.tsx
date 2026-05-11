@@ -4,7 +4,7 @@ import { GlobeIcon } from './icons';
 import { Button } from '../components/ui';
 
 // Import the hero image
-import recordWorkflowHeroImage from '../../record-workflow-hero-CjmRJsCN.png';
+import recordWorkflowHeroImage from './assets/recordWorkflowHero.png';
 
 // Microphone icon component
 const MicrophoneIcon: React.FC<{ size?: number; weight?: string; className?: string }> = ({
