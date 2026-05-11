@@ -1,13 +1,30 @@
 import { domainCategoryCache } from '../tabState';
-import type { ToolDefinition } from './types';
+import type { PermissionManager } from '../../PermissionManager';
+import type { ToolContext, ToolDefinition, ToolProviderSchema } from './types';
+
+type TabSummary = Pick<chrome.tabs.Tab, 'id' | 'title' | 'url'>;
+
+type TabsContextPayload = {
+  availableTabs: Array<{
+    tabId: number | undefined;
+    title: string | undefined;
+    url: string | undefined;
+  }>;
+  selectedTabId?: number;
+  tabGroupId?: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 export function formatTabsContext(
-  tabs: any[],
+  tabs: TabSummary[],
   tabGroupId?: number,
   selectedTabId?: number
 ): string {
-  const result: Record<string, any> = {
-    availableTabs: tabs.map((tab: any) => ({
+  const result: TabsContextPayload = {
+    availableTabs: tabs.map((tab) => ({
       tabId: tab.id,
       title: tab.title,
       url: tab.url
@@ -55,7 +72,7 @@ export async function filterDomainsByCategory(domains: string[]): Promise<{
 
 export async function filterAndApproveDomains(
   domains: string[],
-  permissionManager: any
+  permissionManager: Pick<PermissionManager, 'setTurnApprovedDomains'>
 ): Promise<string[]> {
   if (!domains || 0 === domains.length) return [];
   const { approved, filtered } = await filterDomainsByCategory(domains);
@@ -66,27 +83,28 @@ export async function filterAndApproveDomains(
 
 export const toolsToProviderSchema = async (
   tools: ToolDefinition[],
-  context?: any
-): Promise<any[]> => {
-  return await Promise.all(tools.map((tool) => tool.toProviderSchema(context)));
+  context?: ToolContext
+): Promise<ToolProviderSchema[]> => {
+  return Promise.all(tools.map((tool) => tool.toProviderSchema(context)));
 };
 
 export const coerceToolInputTypes = (
   toolName: string,
-  input: any,
+  input: unknown,
   toolDefinitions: ToolDefinition[]
-): any => {
+): unknown => {
   const toolDef = toolDefinitions.find((t) => t.name === toolName);
-  if (!toolDef || !toolDef.parameters || 'object' !== typeof input || !input) return input;
-  const coerced = { ...input };
+  if (!toolDef || !toolDef.parameters || !isRecord(input)) return input;
+
+  const coerced: Record<string, unknown> = { ...input };
   for (const [paramName, paramDef] of Object.entries(toolDef.parameters)) {
     if (paramName in coerced && paramDef && 'object' === typeof paramDef) {
       const value = coerced[paramName];
-      const typeDef = paramDef as any;
-      if ('number' === typeDef.type && 'string' === typeof value) {
+      const paramType = Array.isArray(paramDef.type) ? paramDef.type[0] : paramDef.type;
+      if ('number' === paramType && 'string' === typeof value) {
         const num = Number(value);
         if (!isNaN(num)) coerced[paramName] = num;
-      } else if ('boolean' === typeDef.type && 'string' === typeof value) {
+      } else if ('boolean' === paramType && 'string' === typeof value) {
         coerced[paramName] = 'true' === value;
       }
     }
@@ -94,7 +112,7 @@ export const coerceToolInputTypes = (
   return coerced;
 };
 
-export const parseArrayInput = (value: any, _context?: any): any[] => {
+export const parseArrayInput = (value: unknown, _context?: ToolContext): unknown[] => {
   if (Array.isArray(value)) return value;
   if ('string' === typeof value) {
     try {

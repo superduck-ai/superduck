@@ -65,15 +65,19 @@ const LAST_EVENT_ID_HEADER = 'last-event-id';
 export interface FetchEventSourceOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
-  onopen?: (response: Response) => Promise<void>;
+  onopen?: (response: Response) => Promise<void> | void;
   onmessage?: (message: SSEMessage) => void;
   onclose?: () => void;
-  onerror?: (error: any) => number | void;
+  onerror?: (error: unknown) => number | void;
   openWhenHidden?: boolean;
   fetch?: typeof globalThis.fetch;
   method?: string;
   body?: string;
-  [key: string]: any;
+  [key: string]: unknown;
+}
+
+function getRetryDelay(delay: number | void, fallbackDelay: number): number {
+  return typeof delay === 'number' && Number.isFinite(delay) && delay >= 0 ? delay : fallbackDelay;
 }
 
 function defaultOnOpen(response: Response): void {
@@ -98,10 +102,10 @@ export function fetchEventSource(url: string, options: FetchEventSourceOptions):
 
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = { ...inputHeaders };
-    let controller: AbortController;
+    let controller: AbortController | null = null;
 
     function onVisibilityChange() {
-      controller.abort();
+      controller?.abort();
       if (!document.hidden) connect();
     }
 
@@ -116,7 +120,7 @@ export function fetchEventSource(url: string, options: FetchEventSourceOptions):
     function dispose() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.clearTimeout(retryTimer);
-      controller.abort();
+      controller?.abort();
     }
 
     signal?.addEventListener('abort', () => {
@@ -125,19 +129,22 @@ export function fetchEventSource(url: string, options: FetchEventSourceOptions):
     });
 
     const fetchFn = customFetch ?? window.fetch;
-    const openHandler = onopen ?? (defaultOnOpen as any);
+    const openHandler = onopen ?? defaultOnOpen;
 
-    async function connect() {
-      controller = new AbortController();
-      try {
+	    async function connect() {
+	      controller = new AbortController();
+	      try {
         const response = await fetchFn(url, {
           ...rest,
           headers,
           signal: controller.signal
-        });
-        await openHandler(response);
+	        });
+	        await openHandler(response);
+	        if (!response.body) {
+	          throw new Error('Expected event stream response to include a body');
+	        }
 
-        const decoder = new TextDecoder();
+	        const decoder = new TextDecoder();
         let message: SSEMessage = {
           data: '',
           event: '',
@@ -176,24 +183,25 @@ export function fetchEventSource(url: string, options: FetchEventSourceOptions):
           }
         });
 
-        const reader = response.body!.getReader();
-        let result: ReadableStreamReadResult<Uint8Array>;
-        while (!(result = await reader.read()).done) {
-          parser(result.value);
+	        const reader = response.body.getReader();
+	        let result: ReadableStreamReadResult<Uint8Array>;
+	        while (!(result = await reader.read()).done) {
+	          parser(result.value);
         }
 
         onclose?.();
         dispose();
         resolve();
       } catch (err) {
-        if (!controller.signal.aborted) {
-          try {
-            const delay = onerror?.(err) ?? retryMs;
-            window.clearTimeout(retryTimer);
-            retryTimer = window.setTimeout(connect, delay as number);
-          } catch (fatalErr) {
-            dispose();
-            reject(fatalErr);
+	        if (!controller.signal.aborted) {
+	          try {
+	            const delay = onerror?.(err) ?? retryMs;
+	            const retryDelay = getRetryDelay(delay, retryMs);
+	            window.clearTimeout(retryTimer);
+	            retryTimer = window.setTimeout(connect, retryDelay);
+	          } catch (fatalErr) {
+	            dispose();
+	            reject(fatalErr);
           }
         }
       }

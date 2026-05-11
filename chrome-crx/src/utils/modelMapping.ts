@@ -17,6 +17,10 @@ export interface ModelMappingConfig {
 
 let cachedModelMapping: ModelMappingConfig | null = null;
 
+function getStoredString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 /**
  * Load model mapping configuration from storage
  */
@@ -28,9 +32,9 @@ export async function loadModelMapping(): Promise<ModelMappingConfig> {
   ]);
 
   cachedModelMapping = {
-    haiku: (result[MODEL_MAPPING_KEYS.HAIKU] as string) || '',
-    sonnet: (result[MODEL_MAPPING_KEYS.SONNET] as string) || '',
-    opus: (result[MODEL_MAPPING_KEYS.OPUS] as string) || ''
+    haiku: getStoredString(result[MODEL_MAPPING_KEYS.HAIKU]),
+    sonnet: getStoredString(result[MODEL_MAPPING_KEYS.SONNET]),
+    opus: getStoredString(result[MODEL_MAPPING_KEYS.OPUS])
   };
 
   return cachedModelMapping;
@@ -43,7 +47,7 @@ export async function loadModelMapping(): Promise<ModelMappingConfig> {
 export async function mapModelName(originalModel: string): Promise<string> {
   // Check if custom API is configured
   const result = await chrome.storage.local.get('customApiUrl');
-  const customApiUrl = result.customApiUrl as string | undefined;
+  const customApiUrl = typeof result.customApiUrl === 'string' ? result.customApiUrl : undefined;
 
   // If no custom API URL, return original model (don't apply mapping)
   if (!customApiUrl || !customApiUrl.trim()) {
@@ -54,7 +58,10 @@ export async function mapModelName(originalModel: string): Promise<string> {
     await loadModelMapping();
   }
 
-  const mapping = cachedModelMapping!;
+  const mapping = cachedModelMapping;
+  if (!mapping) {
+    return originalModel;
+  }
   const lowerModel = originalModel.toLowerCase();
 
   // Check for Opus models (highest priority)

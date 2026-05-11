@@ -2,9 +2,10 @@
   // I18n support
   const SUPPORTED_LOCALES = ['en-US', 'zh-CN'] as const;
   const DEFAULT_LOCALE = 'en-US';
+  const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
 
   function normalizeLocale(locale: string): string {
-    if (SUPPORTED_LOCALES.includes(locale as any)) {
+    if (SUPPORTED_LOCALE_SET.has(locale)) {
       return locale;
     }
     const language = locale.split('-')[0];
@@ -334,10 +335,10 @@
     `;
 
     const swallow = (e: Event) => {
-      if (!(e as any).isTrusted) return;
+      if (!e.isTrusted) return;
       e.preventDefault();
       e.stopPropagation();
-      (e as any).stopImmediatePropagation?.();
+      e.stopImmediatePropagation();
     };
 
     const events = [

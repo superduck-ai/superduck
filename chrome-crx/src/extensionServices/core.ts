@@ -90,9 +90,15 @@ export enum StorageKeys {
   WIDGET_ORDER = 'widgetOrder'
 }
 
-export async function getStorageValue(key: string, defaultValue?: any): Promise<any> {
+export async function getStorageValue<T>(key: string, defaultValue: T): Promise<T>;
+export async function getStorageValue<T = unknown>(key: string): Promise<T | undefined>;
+export async function getStorageValue<T>(
+  key: string,
+  defaultValue?: T
+): Promise<T | undefined> {
   const result = await chrome.storage.local.get(key);
-  return result[key] !== undefined ? result[key] : defaultValue;
+  const storedValue = result[key] as T | undefined;
+  return storedValue !== undefined ? storedValue : defaultValue;
 }
 
 export async function setStorageValue(key: string, value: unknown): Promise<void> {

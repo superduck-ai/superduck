@@ -65,12 +65,12 @@ export async function withTracing<T>(
           const result = await fn(span);
           span.setStatus({ code: SpanStatusCode.OK });
           return result;
-        } catch (error: any) {
+        } catch (error: unknown) {
           span.setStatus({
             code: SpanStatusCode.ERROR,
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
           });
-          span.recordException(error);
+          span.recordException(error instanceof Error ? error : String(error));
           throw error;
         } finally {
           span.end();
@@ -104,7 +104,7 @@ export function initHoneycomb(): void {
   const manifest = chrome.runtime.getManifest();
   try {
     new HoneycombWebSDK({
-      debug: (config as any).environment !== "production" || false,
+      debug: config.environment !== "production",
       apiKey:
         "hcaik_01k4x5jaf9v7sdymjzmxvktd6whp9x2y75jj8y5f8y7aaf1zy6aedg9858",
       serviceName: SERVICE_NAME,
@@ -410,7 +410,9 @@ export class PermissionManager {
 
   async loadPermissions(): Promise<void> {
     try {
-      const data = await getStorageValue(StorageKeys.PERMISSION_STORAGE);
+      const data = await getStorageValue<{ permissions?: Permission[] }>(
+        StorageKeys.PERMISSION_STORAGE
+      );
       if (data) this.permissions = data.permissions || [];
     } catch {
       // ignore storage errors

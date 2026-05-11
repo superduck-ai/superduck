@@ -1,4 +1,8 @@
-declare const process: any;
+declare const process:
+  | {
+      version?: string;
+    }
+  | undefined;
 import {
   StorageKeys,
   removeStorageValues,
@@ -6,8 +10,10 @@ import {
   getProfileTraits,
   getConfig,
   FeatureFlagManager,
+  type FeatureFlagEntry,
   getOrCreateAnonymousId
 } from '../extensionServices';
+import type { FeatureCollection, FeatureResponse } from '../extensionServices/featureFlags';
 
 // Segment Analytics / Telemetry (lines ~5243-6300)
 // This section contains the Segment analytics client used for telemetry.
@@ -25,16 +31,180 @@ class ValidationError extends Error {
 
 // --- Type guard helpers (We, je, ze) ---
 
-function isString(value: any): value is string {
+type AnalyticsRecord = Record<string, unknown>;
+
+interface AnalyticsUserLike {
+  anonymousId(): string | null | undefined;
+  id(): string | null | undefined;
+}
+
+interface AnalyticsOptions extends AnalyticsRecord {
+  anonymousId?: string;
+  context?: AnalyticsRecord;
+  integrations?: AnalyticsRecord;
+  timestamp?: unknown;
+  userId?: string;
+}
+
+interface AnalyticsEvent extends AnalyticsRecord {
+  anonymousId?: string;
+  context?: AnalyticsRecord;
+  event?: string;
+  groupId?: string;
+  integrations?: AnalyticsRecord;
+  messageId?: string;
+  options?: AnalyticsOptions;
+  previousId?: string | null;
+  properties?: AnalyticsRecord;
+  timestamp?: Date;
+  traits?: AnalyticsRecord;
+  type: string;
+  userId?: string;
+}
+
+interface ValidatableEvent extends AnalyticsRecord {
+  anonymousId?: unknown;
+  event?: unknown;
+  groupId?: unknown;
+  previousId?: unknown;
+  properties?: unknown;
+  traits?: unknown;
+  type?: unknown;
+  userId?: unknown;
+}
+
+interface CallbackContext {
+  log?: (level: string, message: string, extras?: AnalyticsRecord) => void;
+  stats?: { increment(metric: string): void };
+}
+
+interface LogEntry {
+  extras?: unknown;
+  level: string;
+  message: string;
+  time: Date;
+}
+
+interface MetricEntry {
+  metric: string;
+  tags: string[];
+  timestamp: number;
+  type: 'counter' | 'gauge';
+  value: number;
+}
+
+type AnalyticsEventMethod = 'alias' | 'group' | 'identify' | 'page' | 'screen' | 'track';
+type AnalyticsDispatchCallback = (err?: unknown, ctx?: Context) => void;
+type AnalyticsPluginHandler = (
+  ctx: Context
+) => Promise<Context | ContextCancelation> | Context | ContextCancelation;
+type AbortSignalLike = AbortSignal | AbortSignalPolyfill;
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit & { signal?: AbortSignalLike }
+) => Promise<SegmentHttpResponse>;
+type RuntimeGlobal = typeof globalThis & {
+  EdgeRuntime?: string;
+  WebSocketPair?: unknown;
+  WorkerGlobalScope?: unknown;
+};
+
+interface AbortSignalEvent {
+  target: AbortSignalPolyfill;
+  type: string;
+}
+
+interface AnalyticsPlugin {
+  alternativeNames?: string[];
+  alias?: AnalyticsPluginHandler;
+  group?: AnalyticsPluginHandler;
+  identify?: AnalyticsPluginHandler;
+  isLoaded?: () => boolean;
+  load?: (ctx: Context, instance: unknown) => Promise<unknown> | unknown;
+  name: string;
+  page?: AnalyticsPluginHandler;
+  screen?: AnalyticsPluginHandler;
+  track?: AnalyticsPluginHandler;
+  type?: string;
+  unload?: (ctx: Context, instance: unknown) => Promise<unknown> | unknown;
+  version?: string;
+}
+
+function isFeatureFlagEntry(value: unknown): value is FeatureFlagEntry {
+  return (
+    isPlainObject(value) &&
+    (value.on === undefined || typeof value.on === 'boolean')
+  );
+}
+
+function isFeatureCollection(value: unknown): value is FeatureCollection {
+  return isPlainObject(value) && Object.values(value).every(isFeatureFlagEntry);
+}
+
+function isFeatureResponse(value: unknown): value is FeatureResponse<FeatureCollection> {
+  return isPlainObject(value) && isFeatureCollection(value.features);
+}
+
+interface AvailableExtensions {
+  after: AnalyticsPlugin[];
+  before: AnalyticsPlugin[];
+  destinations: AnalyticsPlugin[];
+  enrichment: AnalyticsPlugin[];
+}
+
+interface SegmentHttpRequest {
+  data: AnalyticsRecord;
+  headers: Record<string, string>;
+  httpRequestTimeout: number;
+  method: string;
+  signal?: AbortSignalLike;
+  url: string;
+}
+
+interface SegmentHttpResponse {
+  headers: Headers | Record<string, string>;
+  json: () => Promise<unknown>;
+  status: number;
+  statusText: string;
+  text: () => Promise<string>;
+}
+
+interface SegmentHttpClient {
+  makeRequest(request: SegmentHttpRequest): Promise<SegmentHttpResponse>;
+}
+
+const runtimeGlobal = globalThis as RuntimeGlobal;
+
+function isString(value: unknown): value is string {
   return 'string' === typeof value;
 }
 
-function isNotNil(value: any): boolean {
-  return null != value;
+function isNotNil(value: unknown): boolean {
+  return value !== null && value !== undefined;
 }
 
-function isPlainObject(value: any): boolean {
+function isPlainObject(value: unknown): value is AnalyticsRecord {
   return 'object' === Object.prototype.toString.call(value).slice(8, -1).toLowerCase();
+}
+
+function hasPromiseFinally(
+  value: unknown
+): value is PromiseLike<unknown> & { finally(onfinally?: () => void): PromiseLike<unknown> } {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return false;
+  const candidate = value as { finally?: unknown; then?: unknown };
+  return typeof candidate.then === 'function' && typeof candidate.finally === 'function';
+}
+
+function getPluginHandler(
+  plugin: AnalyticsPlugin,
+  eventType: string
+): AnalyticsPluginHandler | undefined {
+  const handler = plugin[eventType as AnalyticsEventMethod];
+  return typeof handler === 'function' ? handler : undefined;
+}
+
+function isFetchLike(value: unknown): value is FetchLike {
+  return typeof value === 'function';
 }
 
 // --- Validation constants ---
@@ -45,56 +215,63 @@ const IS_NIL = 'is nil';
 
 // --- Event validation (Ve) ---
 
-function validateEvent(event: any): void {
+function validateEvent(event: unknown): void {
+  const candidate = event as ValidatableEvent;
+
   // Validate event is non-nil object
-  (function validateEventExists(e: any) {
+  (function validateEventExists(e: unknown) {
     if (!isNotNil(e)) throw new ValidationError('Event', IS_NIL);
-    if ('object' !== typeof e) throw new ValidationError('Event', IS_NOT_AN_OBJECT);
-  })(event);
+    if (!isPlainObject(e)) throw new ValidationError('Event', IS_NOT_AN_OBJECT);
+  })(candidate);
 
   // Validate .type is string
-  (function validateType(e: any) {
+  (function validateType(e: ValidatableEvent) {
     if (!isString(e.type)) throw new ValidationError('.type', IS_NOT_A_STRING);
-  })(event);
+  })(candidate);
 
   // Track events need .event and .properties
-  if ('track' === event.type) {
-    (function validateTrackEvent(e: any) {
+  if ('track' === candidate.type) {
+    (function validateTrackEvent(e: ValidatableEvent) {
       if (!isString(e.event)) throw new ValidationError('.event', IS_NOT_A_STRING);
-    })(event);
-    (function validateTrackProperties(e: any) {
+    })(candidate);
+    (function validateTrackProperties(e: ValidatableEvent) {
       if (!isPlainObject(e.properties)) throw new ValidationError('.properties', IS_NOT_AN_OBJECT);
-    })(event);
+    })(candidate);
   }
 
   // Group/identify events need .traits
-  if (['group', 'identify'].includes(event.type)) {
-    (function validateTraits(e: any) {
+  if ('group' === candidate.type || 'identify' === candidate.type) {
+    (function validateTraits(e: ValidatableEvent) {
       if (!isPlainObject(e.traits)) throw new ValidationError('.traits', IS_NOT_AN_OBJECT);
-    })(event);
+    })(candidate);
   }
 
   // Validate userId/anonymousId/previousId/groupId
-  (function validateIds(e: any) {
+  (function validateIds(e: ValidatableEvent) {
     const fieldName = '.userId/anonymousId/previousId/groupId';
     const id = e.userId ?? e.anonymousId ?? e.groupId ?? e.previousId;
     if (!isNotNil(id)) throw new ValidationError(fieldName, IS_NIL);
     if (!isString(id)) throw new ValidationError(fieldName, IS_NOT_A_STRING);
-  })(event);
+  })(candidate);
 }
 
 // --- EventFactory class (Je) ---
 
 class EventFactory {
-  user: any;
+  user: AnalyticsUserLike | undefined;
   createMessageId: () => string;
 
-  constructor(options: { user?: any; createMessageId: () => string }) {
+  constructor(options: { user?: AnalyticsUserLike; createMessageId: () => string }) {
     this.user = options.user;
     this.createMessageId = options.createMessageId;
   }
 
-  track(event: string, properties?: any, options?: any, integrations?: any): any {
+  track(
+    event: string,
+    properties: AnalyticsRecord = {},
+    options: AnalyticsOptions = {},
+    integrations: AnalyticsRecord = {}
+  ): AnalyticsEvent {
     return this.normalize({
       ...this.baseEvent(),
       event,
@@ -108,11 +285,11 @@ class EventFactory {
   page(
     category: string | null,
     name: string | null,
-    properties?: any,
-    options?: any,
-    integrations?: any
-  ): any {
-    const event: any = {
+    properties: AnalyticsRecord = {},
+    options: AnalyticsOptions = {},
+    integrations: AnalyticsRecord = {}
+  ): AnalyticsEvent {
+    const event: AnalyticsEvent = {
       type: 'page',
       properties: { ...properties },
       options: { ...options },
@@ -130,11 +307,11 @@ class EventFactory {
   screen(
     category: string | null,
     name: string | null,
-    properties?: any,
-    options?: any,
-    integrations?: any
-  ): any {
-    const event: any = {
+    properties: AnalyticsRecord = {},
+    options: AnalyticsOptions = {},
+    integrations: AnalyticsRecord = {}
+  ): AnalyticsEvent {
+    const event: AnalyticsEvent = {
       type: 'screen',
       properties: { ...properties },
       options: { ...options },
@@ -145,7 +322,12 @@ class EventFactory {
     return this.normalize({ ...this.baseEvent(), ...event });
   }
 
-  identify(userId: string, traits?: any, options?: any, integrations?: any): any {
+  identify(
+    userId: string,
+    traits: AnalyticsRecord = {},
+    options: AnalyticsOptions = {},
+    integrations: AnalyticsRecord = {}
+  ): AnalyticsEvent {
     return this.normalize({
       ...this.baseEvent(),
       type: 'identify',
@@ -156,7 +338,12 @@ class EventFactory {
     });
   }
 
-  group(groupId: string, traits?: any, options?: any, integrations?: any): any {
+  group(
+    groupId: string,
+    traits: AnalyticsRecord = {},
+    options: AnalyticsOptions = {},
+    integrations: AnalyticsRecord = {}
+  ): AnalyticsEvent {
     return this.normalize({
       ...this.baseEvent(),
       type: 'group',
@@ -167,8 +354,13 @@ class EventFactory {
     });
   }
 
-  alias(userId: string, previousId: string | null, options?: any, integrations?: any): any {
-    const event: any = {
+  alias(
+    userId: string,
+    previousId: string | null,
+    options: AnalyticsOptions = {},
+    integrations: AnalyticsRecord = {}
+  ): AnalyticsEvent {
+    const event: AnalyticsEvent = {
       userId,
       type: 'alias',
       options: { ...options },
@@ -180,24 +372,35 @@ class EventFactory {
       : this.normalize({ ...this.baseEvent(), ...event });
   }
 
-  private baseEvent(): any {
-    const event: any = { integrations: {}, options: {} };
+  private baseEvent(): AnalyticsRecord & {
+    anonymousId?: string;
+    integrations: AnalyticsRecord;
+    options: AnalyticsOptions;
+    userId?: string;
+  } {
+    const event: AnalyticsRecord & {
+      anonymousId?: string;
+      integrations: AnalyticsRecord;
+      options: AnalyticsOptions;
+      userId?: string;
+    } = { integrations: {}, options: {} };
     if (!this.user) return event;
     const user = this.user;
-    if (user.id()) event.userId = user.id();
-    if (user.anonymousId()) event.anonymousId = user.anonymousId();
+    const userId = user.id();
+    const anonymousId = user.anonymousId();
+    if (userId) event.userId = userId;
+    if (anonymousId) event.anonymousId = anonymousId;
     return event;
   }
 
-  private context(options: any): [any, any] {
-    const reserved = ['userId', 'anonymousId', 'timestamp'];
-    delete options.integrations;
+  private context(options: AnalyticsOptions): [AnalyticsRecord, AnalyticsRecord] {
+    const reserved = new Set(['userId', 'anonymousId', 'timestamp']);
     const keys = Object.keys(options);
-    const ctx = options.context ?? {};
-    const toplevel: any = {};
+    const ctx = isPlainObject(options.context) ? { ...options.context } : {};
+    const toplevel: AnalyticsRecord = {};
     keys.forEach((key) => {
-      if ('context' !== key) {
-        if (reserved.includes(key)) {
+      if ('context' !== key && 'integrations' !== key) {
+        if (reserved.has(key)) {
           toplevel[key] = options[key];
         } else {
           ctx[key] = options[key];
@@ -207,29 +410,33 @@ class EventFactory {
     return [ctx, toplevel];
   }
 
-  private normalize(event: any): any {
-    const integrations = Object.keys(event.integrations ?? {}).reduce((acc: any, key: string) => {
+  private normalize(event: AnalyticsEvent): AnalyticsEvent {
+    const eventIntegrations = isPlainObject(event.integrations) ? event.integrations : {};
+    const integrations = Object.keys(eventIntegrations).reduce<Record<string, boolean>>((acc, key) => {
       acc[key] = Boolean(event.integrations?.[key]);
       return acc;
     }, {});
 
     // Filter out undefined options
-    event.options = Object.keys(event.options || {})
-      .filter((key) => void 0 !== (event.options as any)[key])
-      .reduce((acc: any, key: string) => {
-        acc[key] = (event.options as any)[key];
-        return acc;
-      }, {});
+    const eventOptions = isPlainObject(event.options) ? event.options : {};
+    const filteredOptions = Object.keys(eventOptions).reduce<AnalyticsOptions>((acc, key) => {
+      const value = eventOptions[key];
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
 
     const mergedIntegrations = {
       ...integrations,
-      ...event.options?.integrations
+      ...(isPlainObject(filteredOptions.integrations) ? filteredOptions.integrations : {})
     };
 
-    const [ctx, toplevel] = event.options ? this.context(event.options) : [undefined, undefined];
+    const [ctx, toplevel] =
+      Object.keys(filteredOptions).length > 0 ? this.context(filteredOptions) : [{}, {}];
 
     const { options: _options, ...rest } = event;
-    const normalized = {
+    const normalized: AnalyticsEvent = {
       timestamp: new Date(),
       ...rest,
       integrations: mergedIntegrations,
@@ -261,7 +468,11 @@ function promiseTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
 
 // --- Callback with delay helper (Qe) ---
 
-function callbackWithDelay(ctx: any, callback: (ctx: any) => any, delay: number): Promise<any> {
+function callbackWithDelay<TContext extends CallbackContext>(
+  ctx: TContext,
+  callback: (ctx: TContext) => unknown,
+  delay: number
+): Promise<TContext> {
   return new Promise<void>((resolve) => setTimeout(resolve, delay))
     .then(() => {
       return promiseTimeout(
@@ -276,7 +487,9 @@ function callbackWithDelay(ctx: any, callback: (ctx: any) => any, delay: number)
       );
     })
     .catch((err) => {
-      ctx?.log?.('warn', 'Callback Error', { error: err });
+      ctx?.log?.('warn', 'Callback Error', {
+        error: err
+      });
       ctx?.stats?.increment('callback_error');
     })
     .then(() => ctx);
@@ -284,7 +497,9 @@ function callbackWithDelay(ctx: any, callback: (ctx: any) => any, delay: number)
 
 // --- Emitter class (Ze) ---
 
-type CallbackFunction = (...args: any[]) => void;
+type CallbackFunction = {
+  bivarianceHack(...args: unknown[]): void;
+}['bivarianceHack'];
 
 class Emitter {
   callbacks: Record<string, CallbackFunction[]> = {};
@@ -312,7 +527,7 @@ class Emitter {
   }
 
   once(event: string, callback: CallbackFunction): this {
-    const wrapper = (...args: any[]) => {
+    const wrapper = (...args: unknown[]) => {
       this.off(event, wrapper);
       callback.apply(this, args);
     };
@@ -325,7 +540,7 @@ class Emitter {
     return this;
   }
 
-  emit(event: string, ...args: any[]): this {
+  emit(event: string, ...args: unknown[]): this {
     (this.callbacks[event] ?? []).forEach((cb) => {
       cb.apply(this, args);
     });
@@ -353,19 +568,19 @@ function calculateBackoff(options: {
 const ON_REMOVE_FROM_FUTURE = 'onRemoveFromFuture';
 
 class PriorityQueue extends Emitter {
-  future: any[] = [];
+  future: Context[] = [];
   maxAttempts: number;
-  queue: any[];
+  queue: Context[];
   seen: Record<string, number>;
 
-  constructor(maxAttempts: number, queue: any[], seen?: Record<string, number>) {
+  constructor(maxAttempts: number, queue: Context[], seen?: Record<string, number>) {
     super();
     this.maxAttempts = maxAttempts;
     this.queue = queue;
     this.seen = seen ?? {};
   }
 
-  push(...items: any[]): boolean[] {
+  push(...items: Context[]): boolean[] {
     const results = items.map((item) => {
       if (this.updateAttempts(item) > this.maxAttempts || this.includes(item)) return false;
       this.queue.push(item);
@@ -375,7 +590,7 @@ class PriorityQueue extends Emitter {
     return results;
   }
 
-  pushWithBackoff(item: any): boolean {
+  pushWithBackoff(item: Context): boolean {
     if (0 === this.getAttempts(item)) return this.push(item)[0];
     const attempts = this.updateAttempts(item);
     if (attempts > this.maxAttempts || this.includes(item)) return false;
@@ -389,16 +604,16 @@ class PriorityQueue extends Emitter {
     return true;
   }
 
-  getAttempts(item: any): number {
+  getAttempts(item: Context): number {
     return this.seen[item.id] ?? 0;
   }
 
-  updateAttempts(item: any): number {
+  updateAttempts(item: Context): number {
     this.seen[item.id] = this.getAttempts(item) + 1;
     return this.getAttempts(item);
   }
 
-  includes(item: any): boolean {
+  includes(item: Context): boolean {
     return (
       this.queue.includes(item) ||
       this.future.includes(item) ||
@@ -407,7 +622,7 @@ class PriorityQueue extends Emitter {
     );
   }
 
-  pop(): any {
+  pop(): Context | undefined {
     return this.queue.shift();
   }
 
@@ -423,36 +638,40 @@ class PriorityQueue extends Emitter {
 // --- Logger (ot) ---
 
 class Logger {
-  _logs: Array<{ level: string; message: string; time: Date; extras?: any }> = [];
+  _logs: LogEntry[] = [];
 
-  log(level: string, message: string, extras?: any): void {
+  log(level: string, message: string, extras?: unknown): void {
     this._logs.push({ level, message, time: new Date(), extras });
   }
 
-  get logs() {
+  get logs(): LogEntry[] {
     return this._logs;
   }
 
   flush(): void {
     if (this.logs.length > 1) {
-      const table = this._logs.reduce((acc: any, entry) => {
-        const row = {
+      const table = this._logs.reduce<Record<string, Omit<LogEntry, 'time'> & { json: string }>>(
+        (acc, entry) => {
+          const row = {
           ...entry,
           json: JSON.stringify(entry.extras, null, ' '),
           extras: entry.extras
         };
-        delete (row as any).time;
-        let key = entry.time?.toISOString() ?? '';
-        if (acc[key]) key = `${key}-${Math.random()}`;
-        acc[key] = row;
-        return acc;
-      }, {});
+          const { time: _time, ...rowWithoutTime } = row;
+          let key = entry.time?.toISOString() ?? '';
+          if (acc[key]) key = `${key}-${Math.random()}`;
+          acc[key] = rowWithoutTime;
+          return acc;
+        },
+        {}
+      );
       if (console.table) console.table(table);
     } else {
       this.logs.forEach((entry) => {
         const { level, message, extras } = entry;
         if ('info' === level || 'debug' === level) return;
-        (console as any)[level](message, extras ?? '');
+        const consoleWriter = 'error' === level ? console.error : console.warn;
+        consoleWriter(message, extras ?? '');
       });
     }
     this._logs = [];
@@ -462,7 +681,7 @@ class Logger {
 // --- Stats classes (base + NullStats nt) ---
 
 class Stats {
-  metrics: any[] = [];
+  metrics: MetricEntry[] = [];
 
   increment(metric: string, value: number = 1, tags?: string[]): void {
     this.metrics.push({
@@ -493,12 +712,12 @@ class Stats {
     this.metrics = [];
   }
 
-  serialize(): any[] {
+  serialize(): Array<{ m: string; v: number; t: string[]; k: 'g' | 'c'; e: number }> {
     return this.metrics.map((m) => ({
       m: m.metric,
       v: m.value,
       t: m.tags,
-      k: ({ gauge: 'g', counter: 'c' } as any)[m.type],
+      k: 'gauge' === m.type ? 'g' : 'c',
       e: m.timestamp
     }));
   }
@@ -508,7 +727,7 @@ class NullStats extends Stats {
   gauge(): void {}
   increment(): void {}
   flush(): void {}
-  serialize(): any[] {
+  serialize(): ReturnType<Stats['serialize']> {
     return [];
   }
 }
@@ -535,14 +754,14 @@ function generateId(): string {
 
 class Context {
   attempts: number = 0;
-  event: any;
+  event: AnalyticsEvent;
   _id: string;
   logger: Logger;
   stats: Stats;
-  _failedDelivery?: { reason: any };
+  _failedDelivery?: { reason: unknown };
 
   constructor(
-    event: any,
+    event: AnalyticsEvent,
     id: string = generateId(),
     stats: Stats = new NullStats(),
     logger: Logger = new Logger()
@@ -559,12 +778,12 @@ class Context {
     return other.id === this.id;
   }
 
-  cancel(error?: any): never {
+  cancel(error?: unknown): never {
     if (error) throw error;
     throw new ContextCancelation({ reason: 'Context Cancel' });
   }
 
-  log(level: string, message: string, extras?: any): void {
+  log(level: string, message: string, extras?: unknown): void {
     this.logger.log(level, message, extras);
   }
 
@@ -572,31 +791,32 @@ class Context {
     return this._id;
   }
 
-  updateEvent(path: string, value: any): any {
+  updateEvent(path: string, value: unknown): AnalyticsEvent {
     if ('integrations' === path.split('.')[0]) {
       const integrationName = path.split('.')[1];
       if (false === this.event.integrations?.[integrationName]) return this.event;
     }
     // Deep set (simplified - uses lodash-like set in original)
     const parts = path.split('.');
-    let current = this.event;
+    let current: AnalyticsRecord = this.event;
     for (let i = 0; i < parts.length - 1; i++) {
-      if (!current[parts[i]]) current[parts[i]] = {};
-      current = current[parts[i]];
+      const next = current[parts[i]];
+      if (!isPlainObject(next)) current[parts[i]] = {};
+      current = current[parts[i]] as AnalyticsRecord;
     }
     current[parts[parts.length - 1]] = value;
     return this.event;
   }
 
-  failedDelivery(): { reason: any } | undefined {
+  failedDelivery(): { reason: unknown } | undefined {
     return this._failedDelivery;
   }
 
-  setFailedDelivery(delivery: { reason: any }): void {
+  setFailedDelivery(delivery: { reason: unknown }): void {
     this._failedDelivery = delivery;
   }
 
-  logs(): any[] {
+  logs(): LogEntry[] {
     return this.logger.logs;
   }
 
@@ -605,7 +825,7 @@ class Context {
     this.stats.flush();
   }
 
-  toJSON(): any {
+  toJSON(): AnalyticsRecord {
     return {
       id: this._id,
       event: this.event,
@@ -617,25 +837,31 @@ class Context {
 
 // --- Plugin execution helpers (st, ct) ---
 
-function invokePlugin(ctx: Context, plugin: any): Promise<Context | ContextCancelation> {
+function invokePlugin(
+  ctx: Context,
+  plugin: AnalyticsPlugin
+): Promise<Context | ContextCancelation | unknown> {
   ctx.log('debug', 'plugin', { plugin: plugin.name });
   const startTime = new Date().getTime();
-  const handler = plugin[ctx.event.type];
+  const handler = getPluginHandler(plugin, ctx.event.type);
   if (void 0 === handler) return Promise.resolve(ctx);
 
-  return (async () => {
-    try {
-      return await handler.apply(plugin, [ctx]);
-    } catch (err) {
-      return Promise.reject(err);
-    }
-  })()
-    .then((result: any) => {
+  let pluginResultPromise: Promise<Context | ContextCancelation>;
+  try {
+    pluginResultPromise = Promise.resolve(handler(ctx));
+  } catch (err) {
+    pluginResultPromise = Promise.reject(err);
+  }
+
+  return pluginResultPromise
+    .then((result) => {
       const elapsed = new Date().getTime() - startTime;
-      result.stats.gauge('plugin_time', elapsed, [`plugin:${plugin.name}`]);
+      if (result instanceof Context) {
+        result.stats.gauge('plugin_time', elapsed, [`plugin:${plugin.name}`]);
+      }
       return result;
     })
-    .catch((err: any) => {
+    .catch((err: unknown) => {
       if (err instanceof ContextCancelation && 'middleware_cancellation' === err.type) throw err;
       if (err instanceof ContextCancelation) {
         ctx.log('warn', err.type, { plugin: plugin.name, error: err });
@@ -647,7 +873,7 @@ function invokePlugin(ctx: Context, plugin: any): Promise<Context | ContextCance
     });
 }
 
-function invokePluginWithCancel(ctx: Context, plugin: any): Promise<Context> {
+function invokePluginWithCancel(ctx: Context, plugin: AnalyticsPlugin): Promise<Context> {
   return invokePlugin(ctx, plugin).then((result) => {
     if (result instanceof Context) return result;
     ctx.log('debug', 'Context canceled');
@@ -663,7 +889,7 @@ class EventQueue extends Emitter {
     done: () => Promise<void> | undefined;
     run: <T>(fn: () => T) => T;
   };
-  plugins: any[] = [];
+  plugins: AnalyticsPlugin[] = [];
   failedInitializations: string[] = [];
   flushing: boolean = false;
   queue: PriorityQueue;
@@ -678,18 +904,13 @@ class EventQueue extends Emitter {
       done: () => donePromise,
       run: <T>(fn: () => T): T => {
         const result = fn();
-        if (
-          'object' === typeof result &&
-          null !== result &&
-          'then' in (result as any) &&
-          'function' === typeof (result as any).then
-        ) {
+        if (hasPromiseFinally(result)) {
           if (1 === ++pendingCount) {
             donePromise = new Promise<void>((resolve) => {
               doneResolve = resolve;
             });
           }
-          (result as any).finally(() => {
+          result.finally(() => {
             if (0 === --pendingCount && doneResolve) doneResolve();
           });
         }
@@ -706,12 +927,12 @@ class EventQueue extends Emitter {
     });
   }
 
-  async register(ctx: Context, plugin: any, instance: any): Promise<void> {
-    await Promise.resolve(plugin.load(ctx, instance))
+  async register(ctx: Context, plugin: AnalyticsPlugin, instance: unknown): Promise<void> {
+    await Promise.resolve(plugin.load ? plugin.load(ctx, instance) : undefined)
       .then(() => {
         this.plugins.push(plugin);
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if ('destination' === plugin.type) {
           this.failedInitializations.push(plugin.name);
           ctx.log('warn', 'Failed to load destination', {
@@ -724,7 +945,7 @@ class EventQueue extends Emitter {
       });
   }
 
-  async deregister(ctx: Context, plugin: any, instance: any): Promise<void> {
+  async deregister(ctx: Context, plugin: AnalyticsPlugin, instance: unknown): Promise<void> {
     try {
       if (plugin.unload) {
         await Promise.resolve(plugin.unload(ctx, instance));
@@ -807,7 +1028,7 @@ class EventQueue extends Emitter {
     }
   }
 
-  enqueuRetry(err: any, ctx: Context): boolean {
+  enqueuRetry(err: unknown, ctx: Context): boolean {
     if (err instanceof ContextCancelation && !err.retry) return false;
     return this.queue.pushWithBackoff(ctx);
   }
@@ -835,15 +1056,10 @@ class EventQueue extends Emitter {
     return true;
   }
 
-  availableExtensions(integrations: Record<string, any>): {
-    before: any[];
-    enrichment: any[];
-    destinations: any[];
-    after: any[];
-  } {
+  availableExtensions(integrations: AnalyticsRecord): AvailableExtensions {
     const filtered = this.plugins.filter((plugin) => {
       if ('destination' !== plugin.type && 'Segment.io' !== plugin.name) return true;
-      let override: any = void 0;
+      let override: unknown = undefined;
       plugin.alternativeNames?.forEach((altName: string) => {
         if (void 0 !== integrations[altName]) override = integrations[altName];
       });
@@ -854,7 +1070,7 @@ class EventQueue extends Emitter {
       );
     });
 
-    const grouped: Record<string, any[]> = {};
+    const grouped: Record<string, AnalyticsPlugin[]> = {};
     filtered.forEach((plugin) => {
       const type = plugin.type;
       const key = 'string' !== typeof type ? JSON.stringify(type) : type;
@@ -897,9 +1113,7 @@ class EventQueue extends Emitter {
     // Destination plugins (async)
     await new Promise<void>((resolve, reject) => {
       setTimeout(() => {
-        const promises = updatedExtensions.destinations.map((plugin: any) =>
-          invokePlugin(ctx, plugin)
-        );
+        const promises = updatedExtensions.destinations.map((plugin) => invokePlugin(ctx, plugin));
         Promise.all(promises)
           .then(() => resolve())
           .catch(reject);
@@ -910,7 +1124,7 @@ class EventQueue extends Emitter {
     this.emit('message_delivered', ctx);
 
     // After plugins
-    const afterPromises = updatedExtensions.after.map((plugin: any) => invokePlugin(ctx, plugin));
+    const afterPromises = updatedExtensions.after.map((plugin) => invokePlugin(ctx, plugin));
     await Promise.all(afterPromises);
 
     return ctx;
@@ -963,7 +1177,7 @@ class Batch {
     return encodeURI(JSON.stringify(ctx.event)).split(/%..|i/).length;
   }
 
-  getEvents(): any[] {
+  getEvents(): AnalyticsEvent[] {
     return this.items.map(({ context }) => context.event);
   }
 
@@ -997,7 +1211,7 @@ class Publisher {
   _url: string;
   _httpRequestTimeout: number;
   _disable: boolean;
-  _httpClient: any;
+  _httpClient: SegmentHttpClient;
   _batch?: Batch;
   pendingFlushTimeout?: ReturnType<typeof setTimeout>;
   _flushPendingItemsCount?: number;
@@ -1011,7 +1225,7 @@ class Publisher {
       flushInterval: number;
       writeKey: string;
       httpRequestTimeout?: number;
-      httpClient: any;
+      httpClient: SegmentHttpClient;
       disable?: boolean;
     },
     emitter: Emitter
@@ -1096,7 +1310,9 @@ class Publisher {
       return promise;
     }
 
-    ctx.setFailedDelivery({ reason: new Error(addResult.message!) });
+    ctx.setFailedDelivery({
+      reason: new Error(addResult.message ?? 'Failed to add analytics event to batch')
+    });
     return Promise.resolve(ctx);
   }
 
@@ -1110,13 +1326,13 @@ class Publisher {
     let attempt = 0;
 
     while (attempt < maxAttempts) {
-      let lastError: any;
+      let lastError: unknown;
       attempt++;
 
       try {
         if (this._disable) return batch.resolveEvents();
 
-        const request = {
+        const request: SegmentHttpRequest = {
           url: this._url,
           method: 'POST',
           headers: {
@@ -1156,7 +1372,7 @@ class Publisher {
   }
 }
 
-function failBatch(batch: Batch, error: any): void {
+function failBatch(batch: Batch, error: unknown): void {
   batch.getContexts().forEach((ctx) => ctx.setFailedDelivery({ reason: error }));
   batch.resolveEvents();
 }
@@ -1166,10 +1382,10 @@ function failBatch(batch: Batch, error: any): void {
 function detectRuntime(): string {
   if ('object' === typeof process && process && 'string' === typeof process.version) return 'node';
   if ('object' === typeof window) return 'browser';
-  if ('undefined' !== typeof (globalThis as any).WebSocketPair) return 'cloudflare-worker';
-  if ('string' === typeof (globalThis as any).EdgeRuntime) return 'vercel-edge';
+  if ('undefined' !== typeof runtimeGlobal.WebSocketPair) return 'cloudflare-worker';
+  if ('string' === typeof runtimeGlobal.EdgeRuntime) return 'vercel-edge';
   if (
-    'undefined' !== typeof (globalThis as any).WorkerGlobalScope &&
+    'undefined' !== typeof runtimeGlobal.WorkerGlobalScope &&
     'function' === typeof importScripts
   )
     return 'web-worker';
@@ -1178,12 +1394,12 @@ function detectRuntime(): string {
 
 // --- Segment.io plugin factory (wt) ---
 
-function createSegmentPlugin(publisher: Publisher): any {
+function createSegmentPlugin(publisher: Publisher): AnalyticsPlugin {
   function processEvent(ctx: Context): Promise<Context> {
     ctx.updateEvent('context.library.name', '@segment/analytics-node');
     ctx.updateEvent('context.library.version', ANALYTICS_VERSION);
     const runtime = detectRuntime();
-    if ('node' === runtime) {
+    if ('node' === runtime && typeof process?.version === 'string') {
       ctx.updateEvent('_metadata.nodeVersion', process.version);
     }
     ctx.updateEvent('_metadata.jsRuntime', runtime);
@@ -1228,10 +1444,10 @@ class NodeContext extends Context {
 // --- Dispatch helper (_t) ---
 
 const dispatchEvent = async (
-  event: any,
+  event: AnalyticsEvent,
   queue: EventQueue,
   emitter: Emitter,
-  callback?: (err?: any, ctx?: Context) => void
+  callback?: AnalyticsDispatchCallback
 ): Promise<void> => {
   try {
     const ctx = new NodeContext(event);
@@ -1283,11 +1499,11 @@ class NodePriorityQueue extends PriorityQueue {
     super(1, []);
   }
 
-  getAttempts(item: any): number {
+  getAttempts(item: Context): number {
     return item.attempts ?? 0;
   }
 
-  updateAttempts(item: any): number {
+  updateAttempts(item: Context): number {
     item.attempts = this.getAttempts(item) + 1;
     return this.getAttempts(item);
   }
@@ -1304,7 +1520,7 @@ class NodeEventQueue extends EventQueue {
 // --- AbortSignal polyfill (xt) ---
 
 class AbortSignalPolyfill {
-  onabort: ((event: any) => void) | null = null;
+  onabort: ((event: AbortSignalEvent) => void) | null = null;
   aborted: boolean = false;
   eventEmitter: Emitter = new Emitter();
 
@@ -1316,19 +1532,18 @@ class AbortSignalPolyfill {
     return 'AbortSignal';
   }
 
-  removeEventListener(...args: any[]): void {
-    this.eventEmitter.off(args[0], args[1]);
+  removeEventListener(eventName: string, listener: (event: AbortSignalEvent) => void): void {
+    this.eventEmitter.off(eventName, listener);
   }
 
-  addEventListener(...args: any[]): void {
-    this.eventEmitter.on(args[0], args[1]);
+  addEventListener(eventName: string, listener: (event: AbortSignalEvent) => void): void {
+    this.eventEmitter.on(eventName, listener);
   }
 
   dispatchEvent(eventType: string): void {
-    const event = { type: eventType, target: this };
-    const handler = `on${eventType}` as keyof this;
-    if ('function' === typeof this[handler]) {
-      (this[handler] as any)(event);
+    const event: AbortSignalEvent = { type: eventType, target: this };
+    if ('abort' === eventType && this.onabort) {
+      this.onabort(event);
     }
     this.eventEmitter.emit(eventType, event);
   }
@@ -1357,9 +1572,11 @@ class AbortControllerPolyfill {
 
 // --- Fetch wrapper (St) ---
 
-const fetchWithFallback = async (...args: [RequestInfo | URL, RequestInit?]): Promise<Response> => {
+const fetchWithFallback = async (
+  ...args: [RequestInfo | URL, (RequestInit & { signal?: AbortSignalLike })?]
+): Promise<SegmentHttpResponse> => {
   if (globalThis.fetch) return globalThis.fetch(...args);
-  if ('string' !== typeof (globalThis as any).EdgeRuntime) {
+  if ('string' !== typeof runtimeGlobal.EdgeRuntime) {
     // node-fetch fallback — not needed in Chrome extension context
     throw new Error('fetch is not available');
   }
@@ -1369,39 +1586,40 @@ const fetchWithFallback = async (...args: [RequestInfo | URL, RequestInit?]): Pr
 // --- HTTP Client (At) ---
 
 class HttpClient {
-  _fetch: typeof fetch;
+  _fetch: FetchLike;
 
-  constructor(fetchFn?: typeof fetch) {
+  constructor(fetchFn?: FetchLike) {
     this._fetch = fetchFn ?? fetchWithFallback;
   }
 
-  async makeRequest(request: {
-    url: string;
-    method: string;
-    headers: Record<string, string>;
-    data: any;
-    httpRequestTimeout: number;
-    signal?: AbortSignal;
-  }): Promise<Response> {
+  async makeRequest(request: SegmentHttpRequest): Promise<SegmentHttpResponse> {
     const [signal, timer] = (() => {
       if ('cloudflare-worker' === detectRuntime()) return [undefined, undefined];
       const controller = new (globalThis.AbortController || AbortControllerPolyfill)();
       const timeout = setTimeout(() => {
         controller.abort();
       }, request.httpRequestTimeout);
-      (timeout as any)?.unref?.();
+      if (
+        'object' === typeof timeout &&
+        timeout !== null &&
+        'unref' in timeout &&
+        'function' === typeof timeout.unref
+      ) {
+        timeout.unref();
+      }
       return [controller.signal, timeout];
     })();
 
-    const fetchOptions = {
-      url: request.url,
+    const fetchOptions: RequestInit & { signal?: AbortSignalLike } = {
       method: request.method,
       headers: request.headers,
       body: JSON.stringify(request.data),
       signal
     };
 
-    return this._fetch(request.url, fetchOptions as any).finally(() => clearTimeout(timer));
+    return this._fetch(request.url, fetchOptions).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
   }
 }
 
@@ -1426,7 +1644,7 @@ class Analytics extends NodeEmitter {
     maxEventsInBatch?: number;
     flushInterval?: number;
     httpRequestTimeout?: number;
-    httpClient?: any;
+    httpClient?: FetchLike | SegmentHttpClient;
     disable?: boolean;
   }) {
     super();
@@ -1450,10 +1668,9 @@ class Analytics extends NodeEmitter {
       httpRequestTimeout: options.httpRequestTimeout,
       disable: options.disable,
       flushInterval,
-      httpClient:
-        'function' === typeof options.httpClient
-          ? new HttpClient(options.httpClient)
-          : (options.httpClient ?? new HttpClient())
+      httpClient: isFetchLike(options.httpClient)
+        ? new HttpClient(options.httpClient)
+        : (options.httpClient ?? new HttpClient())
     };
 
     const publisher = new Publisher(publisherOptions, this);
@@ -1465,11 +1682,13 @@ class Analytics extends NodeEmitter {
 
     // Bind all methods
     const proto = this.constructor.prototype;
+    const self = this as Analytics & Record<string, unknown>;
     for (const name of Object.getOwnPropertyNames(proto)) {
       if ('constructor' !== name) {
         const descriptor = Object.getOwnPropertyDescriptor(proto, name);
         if (descriptor && 'function' === typeof descriptor.value) {
-          (this as any)[name] = (this as any)[name].bind(this);
+          const bound = (self[name] as (...args: unknown[]) => unknown).bind(this);
+          self[name] = bound;
         }
       }
     }
@@ -1509,7 +1728,7 @@ class Analytics extends NodeEmitter {
     return drainPromise;
   }
 
-  _dispatch(event: any, callback?: (err?: any, ctx?: Context) => void): void {
+  _dispatch(event: AnalyticsEvent, callback?: AnalyticsDispatchCallback): void {
     if (this._isClosed) {
       this.emit('call_after_close', event);
       return;
@@ -1527,11 +1746,11 @@ class Analytics extends NodeEmitter {
     params: {
       userId: string;
       previousId?: string;
-      context?: any;
+      context?: AnalyticsRecord;
       timestamp?: Date;
-      integrations?: any;
+      integrations?: AnalyticsRecord;
     },
-    callback?: (err?: any, ctx?: Context) => void
+    callback?: AnalyticsDispatchCallback
   ): void {
     const event = this._eventFactory.alias(params.userId, params.previousId ?? null, {
       context: params.context,
@@ -1547,11 +1766,11 @@ class Analytics extends NodeEmitter {
       groupId: string;
       userId?: string;
       anonymousId?: string;
-      traits?: any;
-      context?: any;
-      integrations?: any;
+      traits?: AnalyticsRecord;
+      context?: AnalyticsRecord;
+      integrations?: AnalyticsRecord;
     },
-    callback?: (err?: any, ctx?: Context) => void
+    callback?: AnalyticsDispatchCallback
   ): void {
     const event = this._eventFactory.group(params.groupId, params.traits ?? {}, {
       context: params.context,
@@ -1567,12 +1786,12 @@ class Analytics extends NodeEmitter {
     params: {
       userId: string;
       anonymousId?: string;
-      traits?: any;
-      context?: any;
+      traits?: AnalyticsRecord;
+      context?: AnalyticsRecord;
       timestamp?: Date;
-      integrations?: any;
+      integrations?: AnalyticsRecord;
     },
-    callback?: (err?: any, ctx?: Context) => void
+    callback?: AnalyticsDispatchCallback
   ): void {
     const event = this._eventFactory.identify(params.userId, params.traits ?? {}, {
       context: params.context,
@@ -1590,12 +1809,12 @@ class Analytics extends NodeEmitter {
       anonymousId?: string;
       category?: string;
       name?: string;
-      properties?: any;
-      context?: any;
+      properties?: AnalyticsRecord;
+      context?: AnalyticsRecord;
       timestamp?: Date;
-      integrations?: any;
+      integrations?: AnalyticsRecord;
     },
-    callback?: (err?: any, ctx?: Context) => void
+    callback?: AnalyticsDispatchCallback
   ): void {
     const event = this._eventFactory.page(
       params.category ?? null,
@@ -1618,12 +1837,12 @@ class Analytics extends NodeEmitter {
       anonymousId?: string;
       category?: string;
       name?: string;
-      properties?: any;
-      context?: any;
+      properties?: AnalyticsRecord;
+      context?: AnalyticsRecord;
       timestamp?: Date;
-      integrations?: any;
+      integrations?: AnalyticsRecord;
     },
-    callback?: (err?: any, ctx?: Context) => void
+    callback?: AnalyticsDispatchCallback
   ): void {
     const event = this._eventFactory.screen(
       params.category ?? null,
@@ -1645,12 +1864,12 @@ class Analytics extends NodeEmitter {
       userId?: string;
       anonymousId?: string;
       event: string;
-      properties?: any;
-      context?: any;
+      properties?: AnalyticsRecord;
+      context?: AnalyticsRecord;
       timestamp?: Date;
-      integrations?: any;
+      integrations?: AnalyticsRecord;
     },
-    callback?: (err?: any, ctx?: Context) => void
+    callback?: AnalyticsDispatchCallback
   ): void {
     const event = this._eventFactory.track(params.event, params.properties, {
       context: params.context,
@@ -1662,7 +1881,7 @@ class Analytics extends NodeEmitter {
     this._dispatch(event, callback);
   }
 
-  async register(...plugins: any[]): Promise<void> {
+  async register(...plugins: AnalyticsPlugin[]): Promise<void> {
     return this._queue.criticalTasks.run(async () => {
       const ctx = NodeContext.system();
       const promises = plugins.map((plugin) => this._queue.register(ctx, plugin, this));
@@ -1677,7 +1896,7 @@ class Analytics extends NodeEmitter {
   async deregister(...pluginNames: string[]): Promise<void> {
     const ctx = NodeContext.system();
     const promises = pluginNames.map((name) => {
-      const plugin = this._queue.plugins.find((p: any) => p.name === name);
+      const plugin = this._queue.plugins.find((p) => p.name === name);
       if (plugin) return this._queue.deregister(ctx, plugin, this);
       ctx.log('warn', `plugin ${name} not found`);
     });
@@ -1694,26 +1913,24 @@ class Analytics extends NodeEmitter {
 
 // --- State: Analytics ---
 // eslint-disable-next-line prefer-const -- analyticsClient would be reassigned if analytics were enabled
-let analyticsClient: any = null;
+let analyticsClient: Analytics | null = null;
 const analyticsInitPromise: Promise<void> | null = null;
 let analyticsUserId: string | null = null;
+
+function getAnalyticsClient(): Analytics | null {
+  return analyticsClient;
+}
 
 // --- Segment custom HTTP client (Pt) ---
 const segmentHttpClient = async (
   url: string,
   options: RequestInit
-): Promise<{
-  status: number;
-  statusText: string;
-  headers: Record<string, string>;
-  json: () => Promise<any>;
-  text: () => Promise<string>;
-}> => {
+): Promise<SegmentHttpResponse> => {
   const response = await fetch(url, options);
   return {
     status: response.status,
     statusText: response.statusText,
-    headers: Object.fromEntries((response.headers as any).entries()),
+    headers: response.headers,
     json: () => response.json(),
     text: () => response.text()
   };
@@ -1728,7 +1945,8 @@ const initializeAnalytics = async (): Promise<void> => {
 
 // --- identifyUser (Bt) ---
 const identifyUser = async (): Promise<void> => {
-  if (analyticsClient) {
+  const analytics = getAnalyticsClient();
+  if (analytics) {
     try {
       const profile = await (async () => {
         try {
@@ -1749,9 +1967,10 @@ const identifyUser = async (): Promise<void> => {
       const anonymousId = await getOrCreateAnonymousId();
       const extensionVersion = chrome.runtime.getManifest().version;
       if (profile) {
-        analyticsUserId = profile.account.uuid;
-        analyticsClient.identify({
-          userId: analyticsUserId,
+        const userId = profile.account.uuid;
+        analyticsUserId = userId;
+        analytics.identify({
+          userId,
           anonymousId,
           traits: { ...getProfileTraits(profile), extensionVersion }
         });
@@ -1767,14 +1986,20 @@ const identifyUser = async (): Promise<void> => {
 // --- trackEvent ($t) --- EXPORT
 export const trackEvent = async (
   eventName: string,
-  properties: Record<string, any> = {}
+  properties: Record<string, unknown> = {}
 ): Promise<void> => {
   try {
     if (!analyticsClient) await initializeAnalytics();
-    if (!analyticsClient) return;
+    const analytics = getAnalyticsClient();
+    if (!analytics) return;
     const anonymousId = await getOrCreateAnonymousId();
     const extensionVersion = chrome.runtime.getManifest().version;
-    const trackData: any = {
+    const trackData: {
+      anonymousId: string;
+      event: string;
+      properties: Record<string, unknown>;
+      userId?: string;
+    } = {
       anonymousId,
       event: eventName,
       properties: { ...properties, extension_version: extensionVersion }
@@ -1782,7 +2007,7 @@ export const trackEvent = async (
     if (analyticsUserId) {
       trackData.userId = analyticsUserId;
     }
-    analyticsClient.track(trackData);
+    analytics.track(trackData);
   } catch (_err) {
     // silently fail
   }
@@ -1791,7 +2016,7 @@ export const trackEvent = async (
 // --- Feature Flags ---
 let featureFlagManager: InstanceType<typeof FeatureFlagManager> | null = null;
 
-async function fetchFeatures(): Promise<any> {
+async function fetchFeatures(): Promise<FeatureResponse<FeatureCollection>> {
   const config = getConfig();
   const token = await getAccessToken();
   if (!token) throw new Error('No valid OAuth token available for feature fetch');
@@ -1806,7 +2031,11 @@ async function fetchFeatures(): Promise<any> {
     throw new Error('OAuth token rejected by server (401)');
   }
   if (!response.ok) throw new Error(`Failed to fetch features: ${response.status}`);
-  return response.json();
+  const responseBody: unknown = await response.json();
+  if (!isFeatureResponse(responseBody)) {
+    throw new Error('Feature response has unexpected shape');
+  }
+  return responseBody;
 }
 
 function getFeatureFlagManager(): InstanceType<typeof FeatureFlagManager> {
@@ -1817,7 +2046,7 @@ function getFeatureFlagManager(): InstanceType<typeof FeatureFlagManager> {
 }
 
 // --- getFeatureValue (qt) --- EXPORT
-export async function getFeatureValue(featureName: string): Promise<Record<string, any>> {
+export async function getFeatureValue(featureName: string): Promise<Record<string, unknown>> {
   const manager = getFeatureFlagManager();
   await manager.initialize();
   const result =

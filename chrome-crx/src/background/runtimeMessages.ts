@@ -9,8 +9,37 @@ import {
 import type { NativeHostStatus } from "./nativeHost";
 import type { ScheduledTask } from "./types";
 
-type RuntimeMessage = { type: string; [key: string]: any };
+type RuntimeMessage = { type: string; [key: string]: unknown };
 type RuntimeSendResponse = (response: Record<string, unknown>) => void;
+
+function getOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function getOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isScheduledTask(value: unknown): value is ScheduledTask {
+  return (
+    isRecord(value) &&
+    typeof value.prompt === "string" &&
+    (value.id === undefined || typeof value.id === "string") &&
+    (value.name === undefined || typeof value.name === "string") &&
+    (value.url === undefined || typeof value.url === "string") &&
+    (value.enabled === undefined || typeof value.enabled === "boolean") &&
+    (value.skipPermissions === undefined || typeof value.skipPermissions === "boolean") &&
+    (value.model === undefined || typeof value.model === "string")
+  );
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
 
 const HANDLED_MESSAGE_TYPES = new Set([
   "PLAY_NOTIFICATION_SOUND",
@@ -74,7 +103,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
     sender: chrome.runtime.MessageSender,
     sendResponse: RuntimeSendResponse,
   ) {
-    const tabId = message.tabId || sender.tab?.id;
+    const tabId = getOptionalNumber(message.tabId) ?? sender.tab?.id;
     if (!tabId) {
       sendResponse({ success: false });
       return;
@@ -82,11 +111,11 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
 
     await deps.openSidePanelRequest({
       tabId,
-      prompt: message.prompt,
+      prompt: getOptionalString(message.prompt),
       permissionMode: message.permissionMode,
-      selectedModel: message.selectedModel,
+      selectedModel: getOptionalString(message.selectedModel),
       attachments: message.attachments,
-      conversationUuid: message.conversationUuid,
+      conversationUuid: getOptionalString(message.conversationUuid),
     });
     sendResponse({ success: true });
   }
@@ -131,15 +160,20 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
         return;
       }
 
-      chrome.tabs.sendMessage(targetTabId, { type: "HIDE_AGENT_INDICATORS" }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(targetTabId, "none").catch(() => {});
+      const resolvedTargetTabId = targetTabId;
+      chrome.tabs
+        .sendMessage(resolvedTargetTabId, { type: "HIDE_AGENT_INDICATORS" })
+        .catch(() => {});
+      tabGroupManager.setTabIndicatorState(resolvedTargetTabId, "none").catch(() => {});
 
-      chrome.runtime.sendMessage({ type: "STOP_AGENT", targetTabId }).catch(() => {
+      chrome.runtime.sendMessage({ type: "STOP_AGENT", targetTabId: resolvedTargetTabId }).catch(() => {
         deps
-          .openSidePanel(targetTabId!)
+          .openSidePanel(resolvedTargetTabId)
           .then(() => {
             setTimeout(() => {
-              chrome.runtime.sendMessage({ type: "STOP_AGENT", targetTabId }).catch(() => {});
+              chrome.runtime
+                .sendMessage({ type: "STOP_AGENT", targetTabId: resolvedTargetTabId })
+                .catch(() => {});
             }, 1500);
           })
           .catch(() => {});
@@ -176,7 +210,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
       sendResponse({ success: true });
     } catch (err) {
-      sendResponse({ success: false, error: (err as Error).message });
+      sendResponse({ success: false, error: getErrorMessage(err) });
     }
   }
 
@@ -196,7 +230,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
           });
           sendResponse({ success: true });
         } catch (err) {
-          sendResponse({ success: false, error: (err as Error).message });
+          sendResponse({ success: false, error: getErrorMessage(err) });
         }
         return;
       }
@@ -217,41 +251,61 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
 
       if (message.type === "SEND_MCP_NOTIFICATION") {
-        const nativeSent = deps.sendMcpNotification(message.method, message.params);
-        const bridgeSent = sendMcpNotificationViaBridge(message.method, message.params);
+        const method = getOptionalString(message.method);
+        const params = isRecord(message.params) ? message.params : undefined;
+        if (!method) {
+          sendResponse({ success: false });
+          return;
+        }
+        const nativeSent = deps.sendMcpNotification(method, params);
+        const bridgeSent = sendMcpNotificationViaBridge(method, params);
         sendResponse({ success: nativeSent || bridgeSent });
         return;
       }
 
       if (message.type === "OPEN_OPTIONS_WITH_TASK") {
         try {
-          await deps.openOptionsWithTask(message.task as ScheduledTask);
+          if (!isScheduledTask(message.task)) {
+            sendResponse({ success: false, error: "Invalid task payload" });
+            return;
+          }
+          await deps.openOptionsWithTask(message.task);
           sendResponse({ success: true });
         } catch (err) {
-          sendResponse({ success: false, error: (err as Error).message });
+          sendResponse({ success: false, error: getErrorMessage(err) });
         }
         return;
       }
 
       if (message.type === "EXECUTE_SCHEDULED_TASK") {
         try {
-          await deps.executeScheduledTask(message.task as ScheduledTask, message.runLogId);
+          if (!isScheduledTask(message.task)) {
+            sendResponse({ success: false, error: "Invalid task payload" });
+            return;
+          }
+          const runLogId = getOptionalString(message.runLogId);
+          if (!runLogId) {
+            sendResponse({ success: false, error: "Missing runLogId" });
+            return;
+          }
+          await deps.executeScheduledTask(message.task, runLogId);
           void trackEvent("superduck.scheduled_task.executed", {
             task_id: message.task.id,
             task_name: message.task.name,
             success: true,
-            execution_type: message.isManual ? "manual" : "automatic",
+            execution_type: message.isManual === true ? "manual" : "automatic",
           });
           sendResponse({ success: true });
         } catch (err) {
+          const errorMessage = getErrorMessage(err);
           void trackEvent("superduck.scheduled_task.executed", {
             task_id: message.task.id,
             task_name: message.task.name,
             success: false,
-            execution_type: message.isManual ? "manual" : "automatic",
-            error: (err as Error).message,
+            execution_type: message.isManual === true ? "manual" : "automatic",
+            error: errorMessage,
           });
-          sendResponse({ success: false, error: (err as Error).message });
+          sendResponse({ success: false, error: errorMessage });
         }
         return;
       }
@@ -270,9 +324,9 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
         chrome.runtime.sendMessage(
           {
             type: "MAIN_TAB_ACK_REQUEST",
-            secondaryTabId: message.secondaryTabId,
-            mainTabId: message.mainTabId,
-            timestamp: message.timestamp,
+            secondaryTabId: getOptionalNumber(message.secondaryTabId),
+            mainTabId: getOptionalNumber(message.mainTabId),
+            timestamp: getOptionalNumber(message.timestamp),
           },
           (response) => {
             sendResponse(response?.success ? { success: true } : { success: false });
@@ -282,7 +336,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
 
       if (message.type === "MAIN_TAB_ACK_RESPONSE") {
-        sendResponse({ success: message.success });
+        sendResponse({ success: message.success === true });
         return;
       }
 

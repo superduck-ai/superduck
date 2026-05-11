@@ -1,5 +1,6 @@
 import React from 'react';
 import { Camera, Code } from 'lucide-react';
+import type { IntlShape } from 'react-intl';
 import {
   FlowIcon,
   CircleArrowDownIcon,
@@ -27,21 +28,57 @@ import {
   RetryIcon
 } from './icons';
 
+type FormatMessageValues = Record<string, string | number | boolean | null | undefined>;
+type ToolDisplayInput = Record<string, unknown>;
+
+interface ToolDisplayResult {
+  content?: string | unknown[];
+}
+
+function getStringField(input: ToolDisplayInput, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getNumberField(input: ToolDisplayInput, key: string): number | undefined {
+  const value = input[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function getPrimitiveField(
+  input: ToolDisplayInput,
+  key: string
+): string | number | boolean | undefined {
+  const value = input[key];
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? value
+    : undefined;
+}
+
+function isTextResultBlock(block: unknown): block is { type: 'text'; text: string } {
+  return (
+    typeof block === 'object' &&
+    block !== null &&
+    'type' in block &&
+    'text' in block &&
+    (block as { type?: unknown }).type === 'text' &&
+    typeof (block as { text?: unknown }).text === 'string'
+  );
+}
+
 export type FormatMessageLike = (
   descriptor: { id: string; defaultMessage: string },
-  values?: Record<string, any>
+  values?: FormatMessageValues
 ) => string;
 
-export function asFormatMessageLike(intl: {
-  formatMessage: (...args: any[]) => any;
-}): FormatMessageLike {
-  return (descriptor, values) => intl.formatMessage(descriptor, values) as string;
+export function asFormatMessageLike(intl: Pick<IntlShape, 'formatMessage'>): FormatMessageLike {
+  return (descriptor, values) => intl.formatMessage(descriptor, values);
 }
 
 function formatWithFallback(
   formatMessage: FormatMessageLike | undefined,
   descriptor: { id: string; defaultMessage: string },
-  values?: Record<string, any>
+  values?: FormatMessageValues
 ): string {
   if (formatMessage) {
     return formatMessage(descriptor, values);
@@ -82,18 +119,18 @@ export function getToolDisplayName(toolName: string): string {
 
 export function getToolDisplayInfo(
   toolName: string,
-  input?: any,
-  toolResult?: any,
+  input?: ToolDisplayInput,
+  toolResult?: ToolDisplayResult,
   formatMessage?: FormatMessageLike
 ): { text: string; icon: string } {
   const parts = toolName.split('__');
   const baseName = parts.length >= 3 ? parts[2] : toolName;
-  const o = input ?? {};
-  const t = (id: string, defaultMessage: string, values?: Record<string, any>) =>
+  const o: ToolDisplayInput = input ?? {};
+  const t = (id: string, defaultMessage: string, values?: FormatMessageValues) =>
     formatWithFallback(formatMessage, { id, defaultMessage }, values);
 
   if (baseName === 'computer') {
-    const action = o.action;
+    const action = getStringField(o, 'action');
     switch (action) {
       case 'screenshot':
         return { text: t('take_screenshot', 'Take screenshot'), icon: 'camera' };
@@ -106,7 +143,7 @@ export function getToolDisplayInfo(
       case 'triple_click':
         return { text: t('tripleclick', 'Triple-click'), icon: 'click' };
       case 'type': {
-        const text = o.text;
+        const text = getStringField(o, 'text');
         if (text) {
           const preview = text.length > 30 ? `${text.slice(0, 30)}...` : text;
           return { text: t('type', 'Type: "{text}"', { text: preview }), icon: 'keyboard' };
@@ -114,7 +151,7 @@ export function getToolDisplayInfo(
         return { text: t('type_text', 'Type text'), icon: 'keyboard' };
       }
       case 'wait': {
-        const duration = o.duration;
+        const duration = getNumberField(o, 'duration');
         if (duration) {
           return {
             text: t('wait_duration', 'Wait {duration} seconds', { duration }),
@@ -124,7 +161,7 @@ export function getToolDisplayInfo(
         return { text: t('wait', 'Wait'), icon: 'timer' };
       }
       case 'scroll': {
-        const dir = o.scroll_direction;
+        const dir = getStringField(o, 'scroll_direction');
         if (dir === 'up') return { text: t('scroll_up', 'Scroll up'), icon: 'scroll-up' };
         if (dir === 'left') return { text: t('scroll_left', 'Scroll left'), icon: 'scroll-left' };
         if (dir === 'right')
@@ -132,7 +169,7 @@ export function getToolDisplayInfo(
         return { text: t('scroll_down', 'Scroll down'), icon: 'scroll-down' };
       }
       case 'key': {
-        const keys = o.text;
+        const keys = getStringField(o, 'text');
         return {
           text: keys
             ? t('press_key', 'Press key: {keys}', { keys })
@@ -162,7 +199,7 @@ export function getToolDisplayInfo(
     case 'screenshot':
       return { text: t('take_screenshot', 'Take screenshot'), icon: 'camera' };
     case 'read_page': {
-      const filter = o.filter;
+      const filter = getStringField(o, 'filter');
       if (filter === 'interactive') {
         return { text: t('read_page_interactive', 'Read page (interactive)'), icon: 'eye' };
       }
@@ -172,7 +209,7 @@ export function getToolDisplayInfo(
       return { text: t('read_page', 'Read page'), icon: 'eye' };
     }
     case 'find': {
-      const query = o.query;
+      const query = getStringField(o, 'query');
       if (query) {
         const preview = query.length > 30 ? `${query.slice(0, 30)}...` : query;
         return { text: t('find', 'Find: "{query}"', { query: preview }), icon: 'search' };
@@ -182,7 +219,7 @@ export function getToolDisplayInfo(
     case 'get_page_text':
       return { text: t('extract_page_text', 'Extract page text'), icon: 'eye' };
     case 'form_input': {
-      const value = o.value;
+      const value = getPrimitiveField(o, 'value');
       if (value) {
         const preview = String(value).length > 20 ? `${String(value).slice(0, 20)}...` : value;
         return {
@@ -193,7 +230,7 @@ export function getToolDisplayInfo(
       return { text: t('set_form_value', 'Set form value'), icon: 'form' };
     }
     case 'click': {
-      const target = o.text;
+      const target = getStringField(o, 'text');
       if (target) {
         const preview = target.length > 30 ? `${target.slice(0, 30)}...` : target;
         return {
@@ -204,12 +241,12 @@ export function getToolDisplayInfo(
       return { text: t('click', 'Click'), icon: 'click' };
     }
     case 'navigate': {
-      const url = o.url;
+      const url = getStringField(o, 'url');
       const preview = url ? (url.length > 30 ? `${url.slice(0, 30)}...` : url) : '';
       return { text: t('navigate_to', 'Navigate to {url}', { url: preview }), icon: 'navigate' };
     }
     case 'type': {
-      const text = o.text;
+      const text = getStringField(o, 'text');
       if (text) {
         const preview = text.length > 30 ? `${text.slice(0, 30)}...` : text;
         return { text: t('type', 'Type: "{text}"', { text: preview }), icon: 'keyboard' };
@@ -217,7 +254,7 @@ export function getToolDisplayInfo(
       return { text: t('type_text', 'Type text'), icon: 'keyboard' };
     }
     case 'wait': {
-      const duration = o.duration;
+      const duration = getNumberField(o, 'duration');
       if (duration) {
         return {
           text: t('wait_duration', 'Wait {duration} seconds', { duration }),
@@ -248,8 +285,8 @@ export function getToolDisplayInfo(
     case 'update_plan': {
       const resultText = Array.isArray(toolResult?.content)
         ? toolResult.content
-            .filter((c: any) => typeof c === 'object' && c !== null && c.type === 'text')
-            .map((c: any) => c.text)
+            .filter(isTextResultBlock)
+            .map((c) => c.text)
             .join('')
         : typeof toolResult?.content === 'string'
           ? toolResult.content
@@ -265,7 +302,7 @@ export function getToolDisplayInfo(
     case 'WebSearch':
       return { text: t('web_search', 'Web search'), icon: 'web-search' };
     case 'WebFetch': {
-      const url = o.url;
+      const url = getStringField(o, 'url');
       if (url) {
         try {
           const hostname = new URL(url).hostname;

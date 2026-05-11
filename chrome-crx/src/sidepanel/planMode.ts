@@ -5,6 +5,17 @@ export interface PlanStructure {
   approach: string[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isPlanDomainEntry(
+  value: unknown
+): value is string | { domain: string; category?: string } {
+  if (typeof value === 'string') return true;
+  return isRecord(value) && typeof value.domain === 'string';
+}
+
 export function getPageType(url: string | undefined): 'system' | 'non-script' | 'regular' {
   if (!url) return 'regular';
   if (
@@ -56,18 +67,20 @@ export function checkToolAllowed(
 
 export function parsePlanJson(text: string): PlanStructure | null {
   try {
-    const parsed = JSON.parse(text);
+    const parsed: unknown = JSON.parse(text);
+    if (!isRecord(parsed)) return null;
     const domainRegex = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     const domains = Array.isArray(parsed.domains)
       ? parsed.domains
-          .filter((d: any) => {
+          .filter((d): d is string | { domain: string; category?: string } => {
+            if (!isPlanDomainEntry(d)) return false;
             const name = typeof d === 'string' ? d : d?.domain;
             if (!name || typeof name !== 'string') return false;
             if (!name.includes('.')) return false;
             if (/\s/.test(name)) return false;
             return domainRegex.test(name);
           })
-          .map((d: any) => {
+          .map((d) => {
             if (typeof d === 'string') {
               return d
                 .toLowerCase()
@@ -84,7 +97,7 @@ export function parsePlanJson(text: string): PlanStructure | null {
           })
       : [];
     const approach = Array.isArray(parsed.approach)
-      ? parsed.approach.filter((a: any) => typeof a === 'string' && a.trim().length > 0)
+      ? parsed.approach.filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
       : [];
     if (approach.length === 0) return null;
     return { domains, approach };

@@ -27,6 +27,8 @@ import {
   getStorageValue,
   StorageKeys,
   removeStorageValues,
+  type NewSavedPrompt,
+  type SavedPrompt,
 } from "../extensionServices";
 
 // =============================================================================
@@ -51,12 +53,18 @@ const plusWeights = new Map<string, React.ReactElement>([
   ["thin", React.createElement(React.Fragment, null, React.createElement("path", { d: "M220,128a4,4,0,0,1-4,4H132v84a4,4,0,0,1-8,0V132H40a4,4,0,0,1,0-8h84V40a4,4,0,0,1,8,0v84h84A4,4,0,0,1,220,128Z" }))],
 ]);
 
-const ListBulletsIcon = React.forwardRef<any, any>((props, ref) =>
+const ListBulletsIcon = React.forwardRef<
+  React.ElementRef<typeof IconBase>,
+  Omit<React.ComponentPropsWithoutRef<typeof IconBase>, "weights">
+>((props, ref) =>
   React.createElement(IconBase, { ref, ...props, weights: listBulletsWeights })
 );
 ListBulletsIcon.displayName = "ListBulletsIcon";
 
-const PlusIcon = React.forwardRef<any, any>((props, ref) =>
+const PlusIcon = React.forwardRef<
+  React.ElementRef<typeof IconBase>,
+  Omit<React.ComponentPropsWithoutRef<typeof IconBase>, "weights">
+>((props, ref) =>
   React.createElement(IconBase, { ref, ...props, weights: plusWeights })
 );
 PlusIcon.displayName = "PlusIcon";
@@ -69,22 +77,6 @@ interface ToastData {
   id: string;
   message: string;
   type: "success" | "error";
-}
-
-interface SavedPrompt {
-  id: string;
-  command?: string;
-  prompt: string;
-  createdAt?: number;
-  usageCount?: number;
-  repeatType?: string;
-  specificTime?: string;
-  specificDate?: string;
-  dayOfWeek?: number;
-  dayOfMonth?: number;
-  monthAndDay?: string;
-  url?: string;
-  model?: string;
 }
 
 declare global {
@@ -182,8 +174,7 @@ function ToastContainer() {
 function useToast() {
   return {
     showToast: (message: string, type: "success" | "error" = "success") => {
-      const win = window as any;
-      if (win.showToast) win.showToast(message, type);
+      if (window.showToast) window.showToast(message, type);
     },
   };
 }
@@ -373,7 +364,7 @@ function EditPromptModal({
 
     try {
       if (editingPrompt && !isNew) {
-        const updates: any = {
+        const updates: Partial<SavedPrompt> = {
           prompt: promptText.trim(),
           command: command.trim(),
           url: url.trim() || undefined,
@@ -399,7 +390,7 @@ function EditPromptModal({
         }
         await PromptService.updatePrompt(editingPrompt.id, updates);
       } else {
-        const newPrompt: any = {
+        const newPrompt: NewSavedPrompt = {
           prompt: promptText.trim(),
           command: command.trim(),
           url: url.trim() || undefined,
@@ -448,7 +439,7 @@ function EditPromptModal({
             ref={nameInputRef}
             type="text"
             value={command}
-            onChange={(e: any) => {
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
               const val = e.target.value.replace(/\s/g, "-").replace(/[^a-zA-Z0-9-_]/g, "");
               setCommand(val);
               if (error) setError("");
@@ -483,7 +474,7 @@ function EditPromptModal({
           <TextArea
             required
             value={promptText}
-            onChange={(e: any) => setPromptText(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPromptText(e.target.value)}
             className="min-h-32 max-h-64 overflow-y-auto font-large text-sm"
             placeholder={intl.formatMessage({
               defaultMessage: "Enter your prompt text...",
@@ -603,7 +594,7 @@ function TasksTab({
 
   const loadPrompts = async () => {
     const all = await PromptService.getAllPrompts();
-    setPrompts(all.sort((a: any, b: any) => b.createdAt - a.createdAt));
+    setPrompts([...all].sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0)));
   };
 
   const scheduledPrompts = prompts.filter(
@@ -734,7 +725,7 @@ function TasksTab({
   useEffect(() => {
     loadPrompts();
     (async () => {
-      const pending = await getStorageValue(StorageKeys.PENDING_SCHEDULED_TASK);
+      const pending = await getStorageValue<SavedPrompt>(StorageKeys.PENDING_SCHEDULED_TASK);
       if (pending) {
         const today = new Date().toISOString().split("T")[0];
         const date = pending.specificDate;

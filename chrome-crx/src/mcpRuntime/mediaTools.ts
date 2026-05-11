@@ -1,13 +1,16 @@
 import { StorageKeys } from '../extensionServices';
+import type { ApiConversationMessage } from '../messageTypes';
+import { isImageContentBlock, isTextContentBlock, isToolResultContentBlock } from '../messageTypes';
 import { PermissionTools, checkUrlSecurity } from './shared';
 import { tabGroupManager } from './tabState';
 import { cdpDebugger } from './cdp';
+import type { CdpRuntimeEvaluateResult } from './cdpTypes';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 
 const MCP_NATIVE_SESSION = 'mcp-native-session';
 
 function findImageInMessages(
-  messages: any[],
+  messages: ApiConversationMessage[],
   imageId: string
 ): { base64: string; width?: number; height?: number } | undefined {
   console.info(`[imageUtils] Looking for image with ID: ${imageId}`);
@@ -18,7 +21,7 @@ function findImageInMessages(
     if ('user' === message.role && Array.isArray(message.content)) {
       // Search in tool_result blocks
       for (const block of message.content) {
-        if ('tool_result' === block.type) {
+        if (isToolResultContentBlock(block)) {
           const toolResult = block;
           if (toolResult.content) {
             const contentParts = Array.isArray(toolResult.content)
@@ -27,7 +30,7 @@ function findImageInMessages(
             let foundIdInText = false;
             let matchingText = '';
             for (const part of contentParts) {
-              if ('text' === part.type && part.text && part.text.includes(imageId)) {
+              if (isTextContentBlock(part) && part.text.includes(imageId)) {
                 foundIdInText = true;
                 matchingText = part.text;
                 console.info('[imageUtils] Found image ID in tool_result text');
@@ -36,7 +39,7 @@ function findImageInMessages(
             }
             if (foundIdInText) {
               for (const part of contentParts) {
-                if ('image' === part.type) {
+                if (isImageContentBlock(part)) {
                   const imagePart = part;
                   if (imagePart.source && 'data' in imagePart.source && imagePart.source.data) {
                     console.info(`[imageUtils] Found image data for ID ${imageId}`);
@@ -55,7 +58,7 @@ function findImageInMessages(
 
       // Search in user text blocks for adjacent images
       const textIndex = message.content.findIndex(
-        (block: any) => 'text' === block.type && block.text?.includes(imageId)
+        (block) => isTextContentBlock(block) && block.text.includes(imageId)
       );
       if (-1 !== textIndex) {
         console.info(
@@ -63,7 +66,7 @@ function findImageInMessages(
         );
         for (let j = textIndex + 1; j < message.content.length; j++) {
           const block = message.content[j];
-          if ('image' === block.type) {
+          if (isImageContentBlock(block)) {
             const imagePart = block;
             if (imagePart.source && 'data' in imagePart.source && imagePart.source.data) {
               console.info(
@@ -83,6 +86,79 @@ function findImageInMessages(
   console.info(`[imageUtils] Image not found with ID: ${imageId}`);
 }
 
+interface FileUploadToolInput {
+  paths: string[];
+  ref: string;
+  tabId?: number;
+}
+
+interface UploadImageToolInput {
+  imageId: string;
+  ref?: string;
+  coordinate?: [number, number];
+  tabId?: number;
+  filename?: string;
+}
+
+interface GifAction {
+  type: string;
+  [key: string]: unknown;
+}
+
+interface GifCreatorToolInput {
+  action: 'start_recording' | 'stop_recording' | 'export' | 'clear';
+  tabId: number;
+  coordinate?: [number, number];
+  download?: boolean;
+  filename?: string;
+  options?: {
+    showClickIndicators?: boolean;
+    showDragPaths?: boolean;
+    showActionLabels?: boolean;
+    showProgressBar?: boolean;
+    showWatermark?: boolean;
+    quality?: number;
+  };
+}
+
+interface GifGenerationResult {
+  base64: string;
+  blobUrl: string;
+  size: number;
+  width: number;
+  height: number;
+}
+
+interface ScriptOutputResult {
+  error?: string;
+  output?: string;
+}
+
+interface ScriptSuccessResult extends ScriptOutputResult {
+  success?: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isScriptOutputResult(value: unknown): value is ScriptOutputResult {
+  return (
+    isRecord(value) &&
+    (value.output === undefined || typeof value.output === 'string') &&
+    (value.error === undefined || typeof value.error === 'string')
+  );
+}
+
+function isScriptSuccessResult(value: unknown): value is ScriptSuccessResult {
+  return (
+    isRecord(value) &&
+    (value.output === undefined || typeof value.output === 'string') &&
+    (value.error === undefined || typeof value.error === 'string') &&
+    (value.success === undefined || typeof value.success === 'boolean')
+  );
+}
+
 function parseDimension(text: string, dimension: 'width' | 'height'): number | undefined {
   if (!text) return;
   const match = text.match(/\((\d+)x(\d+)/);
@@ -94,7 +170,7 @@ function parseDimension(text: string, dimension: 'width' | 'height'): number | u
 // Tool: file_upload (ke)
 // =============================================================================
 
-const fileUploadTool: ToolDefinition = {
+const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
   name: 'file_upload',
   description:
     'Upload one or multiple files from the local filesystem to a file input element on the page. Do not click on file upload buttons or file inputs — clicking opens a native file picker dialog that you cannot see or interact with. Instead, use read_page or find to locate the file input element, then use this tool with its ref to upload files directly. The paths must be absolute file paths on the local machine.',
@@ -116,7 +192,7 @@ const fileUploadTool: ToolDefinition = {
         "Tab ID where the file input is located. Use tabs_context first if you don't have a valid tab ID."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const params = input;
       if (!params?.paths || !Array.isArray(params.paths) || 0 === params.paths.length)
@@ -127,6 +203,7 @@ const fileUploadTool: ToolDefinition = {
       const effectiveTabId = await tabGroupManager.getEffectiveTabId(params.tabId, context.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+      const activeTabId = tab.id;
       const tabUrl = tab.url;
       if (!tabUrl) throw new Error('No URL available for tab');
 
@@ -148,14 +225,17 @@ const fileUploadTool: ToolDefinition = {
       const originalUrl = tab.url;
       if (!originalUrl) return { error: 'Unable to get original URL for security check' };
 
-      const securityCheck = await checkUrlSecurity(tab.id!, originalUrl, 'file upload action');
+      const securityCheck = await checkUrlSecurity(activeTabId, originalUrl, 'file upload action');
       if (securityCheck) return securityCheck;
 
       const uploadAttr = `data-superduck-upload-${Date.now()}`;
       const markResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id! },
+        target: { tabId: activeTabId },
         func: (ref: string, attr: string) => {
-          const elementMap = (window as any).__superduckElementMap;
+          const pageWindow = window as Window & {
+            __superduckElementMap?: Record<string, WeakRef<Element>>;
+          };
+          const elementMap = pageWindow.__superduckElementMap;
           if (!elementMap?.[ref])
             return {
               error: `Element ref not found: "${ref}". The element may have been removed from the page.`
@@ -169,9 +249,10 @@ const fileUploadTool: ToolDefinition = {
             delete elementMap[ref];
             return { error: `Element is no longer in the document: "${ref}"` };
           }
-          if ('INPUT' !== element.tagName || 'file' !== (element as HTMLInputElement).type) {
+          const inputElement = element as HTMLInputElement;
+          if ('INPUT' !== element.tagName || 'file' !== inputElement.type) {
             return {
-              error: `Element is not a file input. Found: <${element.tagName.toLowerCase()}${element.type ? ` type="${element.type}"` : ''}>`
+              error: `Element is not a file input. Found: <${element.tagName.toLowerCase()}${inputElement.type ? ` type="${inputElement.type}"` : ''}>`
             };
           }
           element.setAttribute(attr, '1');
@@ -180,16 +261,23 @@ const fileUploadTool: ToolDefinition = {
         args: [params.ref, uploadAttr]
       });
 
-      if (!markResult || 0 === markResult.length)
-        return { error: 'Failed to execute script to find element' };
-      const markOutput = markResult[0].result as any;
-      if (markOutput.error) return { error: markOutput.error };
+	      if (!markResult || 0 === markResult.length)
+	        return { error: 'Failed to execute script to find element' };
+	      const markOutput = markResult[0]?.result;
+	      if (!isScriptSuccessResult(markOutput)) {
+	        return { error: 'Unexpected response while locating file input element' };
+	      }
+	      if (markOutput.error) return { error: markOutput.error };
 
       // Use CDP to resolve element and set files
-      const resolveResult = await cdpDebugger.sendCommand(tab.id!, 'Runtime.evaluate', {
-        expression: `document.querySelector('[${uploadAttr}="1"]')`,
-        returnByValue: false
-      });
+      const resolveResult = await cdpDebugger.sendCommand<CdpRuntimeEvaluateResult>(
+        activeTabId,
+        'Runtime.evaluate',
+        {
+          expression: `document.querySelector('[${uploadAttr}="1"]')`,
+          returnByValue: false
+        }
+      );
 
       if (resolveResult.exceptionDetails) {
         return {
@@ -203,18 +291,21 @@ const fileUploadTool: ToolDefinition = {
       const objectId = resolveResult.result?.objectId;
       if (!objectId) return { error: 'Failed to get object reference for element' };
 
-      await cdpDebugger.sendCommand(tab.id!, 'DOM.enable');
-      await cdpDebugger.sendCommand(tab.id!, 'DOM.setFileInputFiles', {
+      await cdpDebugger.sendCommand(activeTabId, 'DOM.enable');
+      await cdpDebugger.sendCommand(activeTabId, 'DOM.setFileInputFiles', {
         files: params.paths,
         objectId
       });
-      await cdpDebugger.sendCommand(tab.id!, 'DOM.disable');
+      await cdpDebugger.sendCommand(activeTabId, 'DOM.disable');
 
       // Clean up the marker attribute
       await chrome.scripting.executeScript({
-        target: { tabId: tab.id! },
+        target: { tabId: activeTabId },
         func: (ref: string, attr: string) => {
-          const elementMap = (window as any).__superduckElementMap;
+          const pageWindow = window as Window & {
+            __superduckElementMap?: Record<string, WeakRef<Element>>;
+          };
+          const elementMap = pageWindow.__superduckElementMap;
           if (!elementMap?.[ref]) return;
           const element = elementMap[ref].deref();
           if (element) element.removeAttribute(attr);
@@ -276,7 +367,7 @@ const fileUploadTool: ToolDefinition = {
 // Tool: upload_image (qe)
 // =============================================================================
 
-const uploadImageTool: ToolDefinition = {
+const uploadImageTool: ToolDefinition<UploadImageToolInput> = {
   name: 'upload_image',
   description:
     'Upload a previously captured screenshot or user-uploaded image to a file input or drag & drop target. Supports two approaches: (1) ref - for targeting specific elements, especially hidden file inputs, (2) coordinate - for drag & drop to visible locations like Google Docs. Provide either ref or coordinate, not both.',
@@ -306,7 +397,7 @@ const uploadImageTool: ToolDefinition = {
       description: 'Optional filename for the uploaded file (default: "image.png")'
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const params = input;
       if (!params?.imageId) throw new Error('imageId parameter is required');
@@ -359,19 +450,21 @@ const uploadImageTool: ToolDefinition = {
         };
 
       const base64Data = imageData.base64;
-      const securityCheck = await checkUrlSecurity(tab.id!, originalUrl, 'upload image action');
+      const activeTabId = tab.id;
+      if (!activeTabId) throw new Error('Active tab has no ID');
+      const securityCheck = await checkUrlSecurity(activeTabId, originalUrl, 'upload image action');
       if (securityCheck) return securityCheck;
 
       const uploadResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id! },
+        target: { tabId: activeTabId },
         func: (
-          ref: string | null,
-          coordinate: [number, number] | null,
-          base64: string,
-          filename: string
-        ) => {
-          try {
-            let targetElement: Element | null = null;
+	          ref: string | null,
+	          coordinate: [number, number] | null,
+	          base64: string,
+	          filename: string
+	        ) => {
+	          try {
+	            let targetElement: Element | null = null;
             if (coordinate) {
               targetElement = document.elementFromPoint(coordinate[0], coordinate[1]);
               if (!targetElement)
@@ -397,20 +490,27 @@ const uploadImageTool: ToolDefinition = {
               }
             } else {
               if (!ref) return { error: 'Neither coordinate nor elementRef provided' };
-              if ((window as any).__superduckElementMap && (window as any).__superduckElementMap[ref]) {
-                targetElement = (window as any).__superduckElementMap[ref].deref() || null;
+              const pageWindow = window as Window & {
+                __superduckElementMap?: Record<string, WeakRef<Element>>;
+              };
+              if (pageWindow.__superduckElementMap?.[ref]) {
+                targetElement = pageWindow.__superduckElementMap[ref].deref() || null;
                 if (!targetElement || !document.contains(targetElement)) {
-                  delete (window as any).__superduckElementMap[ref];
+                  delete pageWindow.__superduckElementMap[ref];
                   targetElement = null;
                 }
               }
-              if (!targetElement)
-                return {
-                  error: `No element found with reference: "${ref}". The element may have been removed from the page.`
-                };
-            }
+	              if (!targetElement)
+	                return {
+	                  error: `No element found with reference: "${ref}". The element may have been removed from the page.`
+	                };
+	            }
 
-            targetElement!.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	            if (!targetElement) {
+	              return { error: 'No target element found for upload' };
+	            }
+
+	            targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
             // Decode base64 to binary
             const binaryString = atob(base64);
@@ -426,13 +526,10 @@ const uploadImageTool: ToolDefinition = {
             dataTransfer.items.add(file);
 
             // Handle file input elements
-            if (
-              'INPUT' === targetElement!.tagName &&
-              'file' === (targetElement as HTMLInputElement).type
-            ) {
-              const fileInput = targetElement as HTMLInputElement;
-              fileInput.files = dataTransfer.files;
-              fileInput.focus();
+	            if (targetElement instanceof HTMLInputElement && targetElement.type === 'file') {
+	              const fileInput = targetElement;
+	              fileInput.files = dataTransfer.files;
+	              fileInput.focus();
               fileInput.dispatchEvent(new Event('change', { bubbles: true }));
               fileInput.dispatchEvent(new Event('input', { bubbles: true }));
               const fileChangeEvent = new CustomEvent('filechange', {
@@ -448,16 +545,18 @@ const uploadImageTool: ToolDefinition = {
             // Handle drag & drop
             {
               let dropX: number, dropY: number;
-              if (coordinate) {
-                dropX = coordinate[0];
-                dropY = coordinate[1];
-              } else {
-                const rect = targetElement!.getBoundingClientRect();
-                dropX = rect.left + rect.width / 2;
-                dropY = rect.top + rect.height / 2;
-              }
+	              if (coordinate) {
+	                dropX = coordinate[0];
+	                dropY = coordinate[1];
+	              } else {
+	                const rect = targetElement.getBoundingClientRect();
+	                dropX = rect.left + rect.width / 2;
+	                dropY = rect.top + rect.height / 2;
+	              }
 
-              (targetElement as HTMLElement).focus();
+	              if (targetElement instanceof HTMLElement) {
+	                targetElement.focus();
+	              }
 
               const dragEnterEvent = new DragEvent('dragenter', {
                 bubbles: true,
@@ -468,7 +567,7 @@ const uploadImageTool: ToolDefinition = {
                 screenX: dropX + window.screenX,
                 screenY: dropY + window.screenY
               });
-              targetElement!.dispatchEvent(dragEnterEvent);
+	              targetElement.dispatchEvent(dragEnterEvent);
 
               const dragOverEvent = new DragEvent('dragover', {
                 bubbles: true,
@@ -479,7 +578,7 @@ const uploadImageTool: ToolDefinition = {
                 screenX: dropX + window.screenX,
                 screenY: dropY + window.screenY
               });
-              targetElement!.dispatchEvent(dragOverEvent);
+	              targetElement.dispatchEvent(dragOverEvent);
 
               const dropEvent = new DragEvent('drop', {
                 bubbles: true,
@@ -490,7 +589,7 @@ const uploadImageTool: ToolDefinition = {
                 screenX: dropX + window.screenX,
                 screenY: dropY + window.screenY
               });
-              targetElement!.dispatchEvent(dropEvent);
+	              targetElement.dispatchEvent(dropEvent);
 
               return {
                 output: `Successfully dropped image "${filename}" (${Math.round(blob.size / 1024)}KB) onto element at (${Math.round(dropX)}, ${Math.round(dropY)})`
@@ -510,12 +609,16 @@ const uploadImageTool: ToolDefinition = {
         ]
       });
 
-      if (!uploadResult || 0 === uploadResult.length)
-        throw new Error('Failed to execute upload image');
+	      if (!uploadResult || 0 === uploadResult.length)
+	        throw new Error('Failed to execute upload image');
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
-      return {
-        ...(uploadResult[0].result as any),
+	      const uploadOutput = uploadResult[0]?.result;
+	      if (!isScriptOutputResult(uploadOutput)) {
+	        throw new Error('Unexpected response while uploading image');
+	      }
+	      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+	      return {
+	        ...uploadOutput,
         tabContext: {
           currentTabId: context.tabId,
           executedOnTabId: effectiveTabId,
@@ -573,7 +676,7 @@ const uploadImageTool: ToolDefinition = {
 
 interface GifFrameData {
   base64: string;
-  action?: { type: string; [key: string]: any };
+  action?: GifAction;
   viewportWidth?: number;
   viewportHeight?: number;
   devicePixelRatio?: number;
@@ -668,7 +771,7 @@ function getGifFrameDelay(actionType: string): number {
 // Tool: gif_creator (Ae)
 // =============================================================================
 
-const gifCreatorTool: ToolDefinition = {
+const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
   name: 'gif_creator',
   description:
     "Manage GIF recording and export for browser automation sessions. Control when to start/stop recording browser actions (clicks, scrolls, navigation), then export as an animated GIF with visual overlays (click indicators, action labels, progress bar, watermark). All operations are scoped to the tab's group. When starting recording, take a screenshot immediately after to capture the initial state as the first frame. When stopping recording, take a screenshot immediately before to capture the final state as the last frame. For export, either provide 'coordinate' to drag/drop upload to a page element, or set 'download: true' to download the GIF.",
@@ -702,7 +805,7 @@ const gifCreatorTool: ToolDefinition = {
       description: "Optional GIF enhancement options for 'export' action. All default to true."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const params = input;
       if (!params?.action) throw new Error('action parameter is required');
@@ -758,11 +861,13 @@ const gifCreatorTool: ToolDefinition = {
 
         case 'export':
           return await (async function exportGif(
-            exportParams: any,
+            exportParams: GifCreatorToolInput,
             exportTab: chrome.tabs.Tab,
             gid: number,
             ctx: ToolContext
           ) {
+            const contextTabId = ctx.tabId;
+            if (!contextTabId) throw new Error('No active tab found');
             const isDownload = true === exportParams.download;
             if (
               !(isDownload || (exportParams.coordinate && 2 === exportParams.coordinate.length))
@@ -807,10 +912,11 @@ const gifCreatorTool: ToolDefinition = {
 
             // Ensure offscreen document exists
             const contexts = await chrome.runtime.getContexts({
-              contextTypes: ['OFFSCREEN_DOCUMENT' as any]
+              contextTypes: ['OFFSCREEN_DOCUMENT']
             });
             if (0 === contexts.length) {
-              await (chrome as any).offscreen.createDocument({
+              if (!chrome.offscreen) throw new Error('Offscreen API is unavailable');
+              await chrome.offscreen.createDocument({
                 url: 'offscreen.html',
                 reasons: ['BLOBS'],
                 justification: 'Generate animated GIF from screenshots'
@@ -837,13 +943,13 @@ const gifCreatorTool: ToolDefinition = {
               quality: exportParams.options?.quality ?? 10
             };
 
-            const gifResult = await new Promise<any>((resolve, reject) => {
+            const gifResult = await new Promise<GifGenerationResult>((resolve, reject) => {
               chrome.runtime.sendMessage(
                 { type: 'GENERATE_GIF', frames: frameData, options: gifOptions },
-                (response: any) => {
+                (response: { success?: boolean; result?: GifGenerationResult; error?: string } | undefined) => {
                   if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
-                  } else if (response && response.success) {
+                  } else if (response?.success && response.result) {
                     resolve(response.result);
                   } else {
                     reject(new Error(response?.error || 'Unknown error from offscreen'));
@@ -865,6 +971,10 @@ const gifCreatorTool: ToolDefinition = {
               });
               outputMessage = `Successfully exported GIF with ${frames.length} frames. Downloaded "${gifFilename}" (${Math.round(gifResult.size / 1024)}KB). Dimensions: ${gifResult.width}x${gifResult.height}. Recording cleared.`;
             } else {
+              const dropCoordinate = exportParams.coordinate;
+              if (!dropCoordinate || dropCoordinate.length !== 2) {
+                throw new Error('coordinate parameter is required for export upload');
+              }
               const securityCheck = await checkUrlSecurity(
                 exportTab.id!,
                 tabUrl,
@@ -926,23 +1036,27 @@ const gifCreatorTool: ToolDefinition = {
                 args: [
                   gifResult.base64,
                   gifFilename,
-                  exportParams.coordinate[0],
-                  exportParams.coordinate[1]
+                  dropCoordinate[0],
+                  dropCoordinate[1]
                 ]
               });
 
-              if (!dropResult || !dropResult[0]?.result)
-                throw new Error('Failed to upload GIF to page');
+	              if (!dropResult || !dropResult[0]?.result)
+	                throw new Error('Failed to upload GIF to page');
 
-              outputMessage = `Successfully exported GIF with ${frames.length} frames. ${(dropResult[0].result as any).output}. Dimensions: ${gifResult.width}x${gifResult.height}. Recording cleared.`;
-            }
+	              const dropOutput = dropResult[0].result;
+	              if (!isScriptOutputResult(dropOutput) || typeof dropOutput.output !== 'string') {
+	                throw new Error('Unexpected response while dropping GIF onto page');
+	              }
+	              outputMessage = `Successfully exported GIF with ${frames.length} frames. ${dropOutput.output}. Dimensions: ${gifResult.width}x${gifResult.height}. Recording cleared.`;
+	            }
 
             gifFrameStorage.clearFrames(gid);
-            const validTabs = await tabGroupManager.getValidTabsWithMetadata(ctx.tabId!);
+            const validTabs = await tabGroupManager.getValidTabsWithMetadata(contextTabId);
             return {
               output: outputMessage,
               tabContext: {
-                currentTabId: ctx.tabId,
+                currentTabId: contextTabId,
                 executedOnTabId: exportTab.id,
                 availableTabs: validTabs,
                 tabCount: validTabs.length

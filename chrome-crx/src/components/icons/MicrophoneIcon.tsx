@@ -68,7 +68,10 @@ const microphoneWeights = new Map<string, React.ReactElement>([
   ]
 ]);
 
-const MicrophoneIcon = React.forwardRef<any, any>((props, ref) =>
+type MicrophoneIconProps = Omit<React.ComponentPropsWithoutRef<typeof IconBase>, 'weights'>;
+type MicrophoneIconRef = React.ElementRef<typeof IconBase>;
+
+const MicrophoneIcon = React.forwardRef<MicrophoneIconRef, MicrophoneIconProps>((props, ref) =>
   React.createElement(IconBase, { ref, ...props, weights: microphoneWeights })
 );
 

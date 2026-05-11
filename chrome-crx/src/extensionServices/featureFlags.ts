@@ -67,6 +67,11 @@ export interface KnownFeatureValueMap {
   crochet_chips: Record<string, unknown>;
 }
 
+type FeatureValue<TFeature> = TFeature extends FeatureFlagEntry<infer TValue> ? TValue : never;
+export type KnownFeatureCollection = FeatureCollection & {
+  [K in keyof KnownFeatureValueMap]?: FeatureFlagEntry<KnownFeatureValueMap[K]>;
+};
+
 export interface FeatureResponse<TFeatures extends FeatureCollection = FeatureCollection> {
   features: TFeatures;
   [key: string]: unknown;
@@ -87,6 +92,34 @@ interface FeatureFlagConfig<TFeatures extends FeatureCollection = FeatureCollect
   onFeaturesUpdated?: (features: TFeatures) => void;
   cacheTTL?: number;
   storageKey?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isFeatureFlagEntry(value: unknown): value is FeatureFlagEntry {
+  return isRecord(value) && (value.on === undefined || typeof value.on === 'boolean');
+}
+
+function isFeatureCollection(value: unknown): value is FeatureCollection {
+  return isRecord(value) && Object.values(value).every(isFeatureFlagEntry);
+}
+
+function isFeatureResponse<TFeatures extends FeatureCollection = FeatureCollection>(
+  value: unknown
+): value is FeatureResponse<TFeatures> {
+  return isRecord(value) && isFeatureCollection(value.features);
+}
+
+function isFeatureCacheEntry<TFeatures extends FeatureCollection = FeatureCollection>(
+  value: unknown
+): value is FeatureCacheEntry<TFeatures> {
+  return (
+    isRecord(value) &&
+    (value.payload === undefined || isFeatureResponse<TFeatures>(value.payload)) &&
+    (value.timestamp === undefined || typeof value.timestamp === 'number')
+  );
 }
 
 export class FeatureFlagManager<TFeatures extends FeatureCollection = FeatureCollection> {
@@ -111,9 +144,10 @@ export class FeatureFlagManager<TFeatures extends FeatureCollection = FeatureCol
 
   private async loadFromCache(): Promise<CachedFeatureRecord<TFeatures> | null> {
     try {
-      const stored = (await chrome.storage.local.get(this.config.storageKey))[
+      const storedValue = (await chrome.storage.local.get(this.config.storageKey))[
         this.config.storageKey
-      ] as FeatureCacheEntry<TFeatures> | undefined;
+      ];
+      const stored = isFeatureCacheEntry<TFeatures>(storedValue) ? storedValue : undefined;
       if (stored?.payload && typeof stored.timestamp === 'number') {
         if (Date.now() - stored.timestamp < this.config.cacheTTL) {
           return {
@@ -189,19 +223,29 @@ export class FeatureFlagManager<TFeatures extends FeatureCollection = FeatureCol
     return this.initPromise;
   }
 
-  getFeatureValue<T>(key: string, defaultValue?: T): T | undefined {
+  getFeatureValue<K extends keyof TFeatures>(
+    key: K,
+    defaultValue?: FeatureValue<NonNullable<TFeatures[K]>>
+  ): FeatureValue<NonNullable<TFeatures[K]>> | undefined;
+  getFeatureValue<T>(key: string, defaultValue?: T): T | undefined;
+  getFeatureValue(key: string, defaultValue?: unknown): unknown {
     this.checkAndRefreshIfStale();
     const feature = this.features?.[key];
     return feature && feature.value !== undefined && feature.value !== null
-      ? (feature.value as T)
+      ? feature.value
       : defaultValue;
   }
 
-  async getFeatureValueAsync<T>(key: string, defaultValue?: T): Promise<T | undefined> {
+  async getFeatureValueAsync<K extends keyof TFeatures>(
+    key: K,
+    defaultValue?: FeatureValue<NonNullable<TFeatures[K]>>
+  ): Promise<FeatureValue<NonNullable<TFeatures[K]>> | undefined>;
+  async getFeatureValueAsync<T>(key: string, defaultValue?: T): Promise<T | undefined>;
+  async getFeatureValueAsync(key: string, defaultValue?: unknown): Promise<unknown> {
     await this.checkAndRefreshIfStale();
     const feature = this.features?.[key];
     return feature && feature.value !== undefined && feature.value !== null
-      ? (feature.value as T)
+      ? feature.value
       : defaultValue;
   }
 
@@ -215,16 +259,20 @@ export class FeatureFlagManager<TFeatures extends FeatureCollection = FeatureCol
     return this.features?.[key]?.on ?? false;
   }
 
-  getFeature<T extends FeatureFlagEntry = FeatureFlagEntry>(key: string): T | undefined {
+  getFeature<K extends keyof TFeatures>(key: K): TFeatures[K] | undefined;
+  getFeature<T extends FeatureFlagEntry = FeatureFlagEntry>(key: string): T | undefined;
+  getFeature(key: string): FeatureFlagEntry | undefined {
     this.checkAndRefreshIfStale();
-    return this.features?.[key] as T | undefined;
+    return this.features?.[key];
   }
 
+  async getFeatureAsync<K extends keyof TFeatures>(key: K): Promise<TFeatures[K] | undefined>;
   async getFeatureAsync<T extends FeatureFlagEntry = FeatureFlagEntry>(
     key: string
-  ): Promise<T | undefined> {
+  ): Promise<T | undefined>;
+  async getFeatureAsync(key: string): Promise<FeatureFlagEntry | undefined> {
     await this.checkAndRefreshIfStale();
-    return this.features?.[key] as T | undefined;
+    return this.features?.[key];
   }
 
   async refresh(): Promise<void> {
@@ -236,8 +284,13 @@ export class FeatureFlagManager<TFeatures extends FeatureCollection = FeatureCol
   }
 }
 
-async function fetchBootstrapFeatures(): Promise<FeatureResponse> {
-  return (await apiClient.fetch('/api/bootstrap/features/claude_in_chrome')) as FeatureResponse;
+async function fetchBootstrapFeatures(): Promise<FeatureResponse<KnownFeatureCollection>> {
+  return apiClient.fetchJson('/api/bootstrap/features/claude_in_chrome', (value) => {
+    if (!isFeatureResponse<KnownFeatureCollection>(value)) {
+      throw new Error('Feature response has unexpected shape');
+    }
+    return value;
+  });
 }
 
 interface FeatureContextValue {
@@ -250,17 +303,17 @@ interface FeatureContextValue {
   refresh: () => Promise<void>;
 }
 
-let sharedManager: FeatureFlagManager | null = null;
+let sharedManager: FeatureFlagManager<KnownFeatureCollection> | null = null;
 const FeatureContext = React.createContext<FeatureContextValue | null>(null);
 
 export function FeatureProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const [features, setFeatures] = React.useState<FeatureCollection | null>(null);
+  const [features, setFeatures] = React.useState<KnownFeatureCollection | null>(null);
   const [isReady, setIsReady] = React.useState(false);
   const [error, setError] = React.useState<Error | null>(null);
-  const managerRef = React.useRef<FeatureFlagManager | null>(null);
+  const managerRef = React.useRef<FeatureFlagManager<KnownFeatureCollection> | null>(null);
 
   React.useEffect(() => {
-    const onUpdate = (nextFeatures: FeatureCollection) => {
+    const onUpdate = (nextFeatures: KnownFeatureCollection) => {
       setFeatures(nextFeatures);
       setError(null);
     };
@@ -284,9 +337,9 @@ export function FeatureProvider({ children }: { children: React.ReactNode }): Re
       });
   }, []);
 
-  const getFeatureValue: FeatureContextValue['getFeatureValue'] = React.useCallback(
-    (key: string, defaultValue?: any) =>
-      managerRef.current ? managerRef.current.getFeatureValue(key, defaultValue) : defaultValue,
+  const getFeatureValue = React.useCallback(
+    <T,>(key: string, defaultValue?: T): T | undefined =>
+      managerRef.current ? managerRef.current.getFeatureValue<T>(key, defaultValue) : defaultValue,
     [features]
   );
   const isFeatureEnabled = React.useCallback(

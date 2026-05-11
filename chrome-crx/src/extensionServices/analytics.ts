@@ -15,7 +15,7 @@ export interface ExtensionUserProfile {
 }
 
 export async function getOrCreateAnonymousId(): Promise<string> {
-  let id = await getStorageValue(StorageKeys.ANONYMOUS_ID);
+  let id = await getStorageValue<string>(StorageKeys.ANONYMOUS_ID);
   if (!id) {
     id = crypto.randomUUID();
     await setStorageValue(StorageKeys.ANONYMOUS_ID, id);

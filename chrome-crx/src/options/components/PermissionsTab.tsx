@@ -9,10 +9,14 @@ import { MODEL_MAPPING_KEYS } from '@/utils/modelMapping';
 const CUSTOM_API_URL_KEY = 'customApiUrl';
 const CUSTOM_API_KEY_KEY = 'customApiKey';
 
+type PermissionRecord = ReturnType<PermissionManager['getAllPermissions']>[number];
+type PermissionsByScope = ReturnType<PermissionManager['getPermissionsByScope']>;
+type AnalyticsClient = ReturnType<typeof useAnalytics>['analytics'];
+
 interface PermissionListProps {
-  permissions: any[];
+  permissions: PermissionRecord[];
   onRevoke: (id: string) => void;
-  formatScope: (permission: any) => string;
+  formatScope: (permission: PermissionRecord) => string;
 }
 
 const PermissionList: React.FC<PermissionListProps> = ({ permissions, onRevoke, formatScope }) => (
@@ -51,7 +55,7 @@ const DomainTransitionList: React.FC<PermissionListProps> = ({
   formatScope
 }) => <PermissionList permissions={permissions} onRevoke={onRevoke} formatScope={formatScope} />;
 
-const MicrophoneSettings: React.FC<{ analytics?: any }> = ({ analytics }) => {
+const MicrophoneSettings: React.FC<{ analytics?: AnalyticsClient }> = ({ analytics }) => {
   const intl = useIntl();
   const [permissionState, setPermissionState] = useState<string>('unknown');
   const [isRequesting, setIsRequesting] = useState(false);
@@ -104,10 +108,10 @@ const MicrophoneSettings: React.FC<{ analytics?: any }> = ({ analytics }) => {
                   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                   stream.getTracks().forEach((track) => track.stop());
                   await checkPermission();
-                  analytics?.track('superduck.settings.microphone_enabled', {
+                  analytics?.track?.('superduck.settings.microphone_enabled', {
                     timestamp: Date.now()
                   });
-                } catch (err: any) {
+                } catch (err: unknown) {
                   if (err instanceof DOMException) {
                     if (err.name === 'NotAllowedError') {
                       setError(
@@ -261,11 +265,6 @@ const MicrophoneSettings: React.FC<{ analytics?: any }> = ({ analytics }) => {
   );
 };
 
-interface PermissionsByScope {
-  netloc: any[];
-  domain_transition: any[];
-}
-
 const PermissionsTab: React.FC = () => {
   const intl = useIntl();
   const [permissions, setPermissions] = useState<PermissionsByScope>();
@@ -297,8 +296,8 @@ const PermissionsTab: React.FC = () => {
       await permissionManager.loadPermissions();
       const byScope = permissionManager.getPermissionsByScope();
       setPermissions({
-        netloc: byScope.netloc.filter((permission: any) => !permission.toolUseId),
-        domain_transition: byScope.domain_transition.filter((permission: any) => !permission.toolUseId)
+        netloc: byScope.netloc.filter((permission) => !permission.toolUseId),
+        domain_transition: byScope.domain_transition.filter((permission) => !permission.toolUseId)
       });
     } catch {
       // ignore
@@ -336,7 +335,7 @@ const PermissionsTab: React.FC = () => {
     await loadPermissions();
   };
 
-  const formatScope = (permission: any): string => {
+  const formatScope = (permission: PermissionRecord): string => {
     if (permission.scope.type === 'domain_transition') {
       return `${permission.scope.fromDomain} → ${permission.scope.toDomain}`;
     }

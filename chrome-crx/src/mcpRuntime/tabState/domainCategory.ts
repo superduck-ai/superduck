@@ -38,6 +38,11 @@ interface DomainCategoryCacheEntry {
   timestamp: number;
 }
 
+interface DomainCategoryResponse {
+  org_policy?: string;
+  category?: string;
+}
+
 export class DomainCategoryCache {
   static cache = new Map<string, DomainCategoryCacheEntry>();
   static CACHE_TTL_MS = 300000;
@@ -83,7 +88,7 @@ export class DomainCategoryCache {
       }
   }
 
-  static getEffectiveCategory(data: any): string {
+  static getEffectiveCategory(data: DomainCategoryResponse): string | undefined {
     return 'block' === data.org_policy ? 'category_org_blocked' : data.category;
   }
 

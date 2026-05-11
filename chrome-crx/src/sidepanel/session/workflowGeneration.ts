@@ -1,4 +1,5 @@
 import { DEFAULT_MODEL } from '../../constants/models';
+import type { ApiInputContentBlock } from '../../messageTypes';
 import { PROMPT_TEMPLATES, WORKFLOW_INPUT_PREFIX, type SupportedLocale } from '../prompts';
 
 export type AssistantRole = 'user' | 'assistant';
@@ -14,7 +15,7 @@ export interface ModelResult {
 
 export interface ModelRequest {
   maxTokens?: number;
-  messages: Array<{ role: AssistantRole; content: any }>;
+  messages: Array<{ role: AssistantRole; content: string | ApiInputContentBlock[] }>;
   system?: string;
   modelClass?: 'small_fast' | string;
   model?: string;
@@ -258,7 +259,7 @@ User Action: ${userActionText}
 
 Generate an action instruction starting with "Click on" (or "Type"/"Select" when applicable).`;
 
-    const userContent: any = step.screenshot
+    const userContent: string | ApiInputContentBlock[] = step.screenshot
       ? [
           {
             type: 'text',
@@ -340,7 +341,7 @@ export async function generateWorkflowSummary(
 
     const finalUserText = templates.user(stepList, narrationSection, detailHint);
 
-    const userContent: any[] = [
+    const userContent: ApiInputContentBlock[] = [
       {
         type: 'text',
         text: finalUserText

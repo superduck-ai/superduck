@@ -1,13 +1,24 @@
+type ChromeTabUpdatedListener = Parameters<typeof chrome.tabs.onUpdated.addListener>[0];
+type ChromeTabChangeInfo = Parameters<ChromeTabUpdatedListener>[1];
+type ChromeTab = Parameters<ChromeTabUpdatedListener>[2];
+
+type TabEventChangeInfo = Partial<Pick<ChromeTabChangeInfo, 'url' | 'status' | 'title' | 'groupId'>> & {
+  active?: boolean;
+  removed?: boolean;
+};
+
 interface TabEventSubscription {
   tabId: number | 'all';
   eventTypes: string[];
-  callback: (tabId: number, changeInfo: any, tab?: any) => void;
+  callback: (tabId: number, changeInfo: TabEventChangeInfo, tab?: ChromeTab) => void;
 }
 
 class TabEventManager {
   static instance: TabEventManager | null = null;
   subscriptions = new Map<string, TabEventSubscription>();
-  chromeUpdateListener: ((tabId: number, changeInfo: any, tab: any) => void) | null = null;
+  chromeUpdateListener:
+    | ((tabId: number, changeInfo: ChromeTabChangeInfo, tab: ChromeTab) => void)
+    | null = null;
   chromeActivatedListener: ((activeInfo: { tabId: number }) => void) | null = null;
   chromeRemovedListener: ((tabId: number) => void) | null = null;
   relevantTabIds = new Set<number>();
@@ -25,7 +36,7 @@ class TabEventManager {
   subscribe(
     tabId: number | 'all',
     eventTypes: string[],
-    callback: (tabId: number, changeInfo: any, tab?: any) => void
+    callback: (tabId: number, changeInfo: TabEventChangeInfo, tab?: ChromeTab) => void
   ): string {
     const id = 'sub_' + this.nextSubscriptionId++;
     return (
@@ -53,7 +64,7 @@ class TabEventManager {
   }
 
   startListeners(): void {
-    this.chromeUpdateListener = (tabId: number, changeInfo: any, tab: any) => {
+    this.chromeUpdateListener = (tabId, changeInfo, tab) => {
       if (this.relevantTabIds.size > 0 && !this.relevantTabIds.has(tabId)) {
         let hasAllSub = false;
         for (const [, sub] of this.subscriptions)
@@ -63,7 +74,7 @@ class TabEventManager {
           }
         if (!hasAllSub) return;
       }
-      const changes: any = {};
+      const changes: TabEventChangeInfo = {};
       let hasChanges = false;
       if (
         (void 0 !== changeInfo.url && ((changes.url = changeInfo.url), (hasChanges = true)),
@@ -75,11 +86,13 @@ class TabEventManager {
         for (const [, sub] of this.subscriptions) {
           if ('all' !== sub.tabId && sub.tabId !== tabId) continue;
           let matchesEvent = false;
-          for (const eventType of sub.eventTypes)
-            if (void 0 !== changes[eventType]) {
+          for (const eventType of sub.eventTypes) {
+            const eventKey = eventType as keyof TabEventChangeInfo;
+            if (void 0 !== changes[eventKey]) {
               matchesEvent = true;
               break;
             }
+          }
           if (matchesEvent)
             try {
               sub.callback(tabId, changes, tab);

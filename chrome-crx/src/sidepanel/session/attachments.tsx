@@ -36,7 +36,11 @@ async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = reader.result as string;
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Failed to read file as data URL'));
+        return;
+      }
+      const dataUrl = reader.result;
       const base64 = extractBase64FromDataUrl(dataUrl);
       resolve(base64);
     };

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { MemoizedFormattedMessage, useIntlSafe } from '../index-react-dom-intl';
+import type { ApiConversationMessage } from '../messageTypes';
 
-export function ConversationSummary({ message }: { message: any }) {
+export function ConversationSummary({ message }: { message: ApiConversationMessage }) {
   const [expanded, setExpanded] = useState(false);
   const summaryText = typeof message.content === 'string' ? message.content : '';
 

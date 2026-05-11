@@ -8,6 +8,78 @@ import {
   type OAuthConfig
 } from './core';
 
+interface TokenEndpointResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+}
+
+interface TokenSuccess {
+  success: true;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt?: number;
+}
+
+interface TokenFailure {
+  success: false;
+  error: string;
+}
+
+type TokenResult = TokenSuccess | TokenFailure;
+
+interface OAuthProfile {
+  account?: {
+    uuid?: string;
+  };
+  organization?: {
+    uuid?: string;
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function parseTokenEndpointResponse(value: unknown): TokenEndpointResponse {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return {
+    access_token: getOptionalString(value.access_token),
+    refresh_token: getOptionalString(value.refresh_token),
+    expires_in: getOptionalNumber(value.expires_in),
+    error: getOptionalString(value.error),
+    error_description: getOptionalString(value.error_description)
+  };
+}
+
+function parseOAuthProfile(value: unknown): OAuthProfile | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const account = isRecord(value.account)
+    ? { uuid: getOptionalString(value.account.uuid) }
+    : undefined;
+  const organization = isRecord(value.organization)
+    ? { uuid: getOptionalString(value.organization.uuid) }
+    : undefined;
+
+  return { account, organization };
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-')
@@ -31,7 +103,7 @@ async function saveTokens(
   });
 }
 
-async function refreshToken(token: string, oauthConfig: OAuthConfig): Promise<any> {
+async function refreshToken(token: string, oauthConfig: OAuthConfig): Promise<TokenResult> {
   try {
     const response = await fetch(oauthConfig.TOKEN_URL, {
       method: 'POST',
@@ -49,12 +121,16 @@ async function refreshToken(token: string, oauthConfig: OAuthConfig): Promise<an
         error: `Token refresh failed: ${response.status} ${text}`
       };
     }
-    const data = await response.json();
+    const responseBody: unknown = await response.json();
+    const data = parseTokenEndpointResponse(responseBody);
     if (data.error) {
       return {
         success: false,
         error: data.error_description || data.error
       };
+    }
+    if (!data.access_token) {
+      return { success: false, error: 'Token refresh response missing access token' };
     }
     return {
       success: true,
@@ -80,20 +156,22 @@ export async function validateAndRefreshToken(): Promise<{
       StorageKeys.REFRESH_TOKEN,
       StorageKeys.TOKEN_EXPIRY
     ]);
-    if (!stored[StorageKeys.ACCESS_TOKEN]) {
+    const accessToken = getOptionalString(stored[StorageKeys.ACCESS_TOKEN]);
+    if (!accessToken) {
       return { isValid: false, isRefreshed: false };
     }
 
     const now = Date.now();
-    const expiry = stored[StorageKeys.TOKEN_EXPIRY] as number | undefined;
+    const expiry = getOptionalNumber(stored[StorageKeys.TOKEN_EXPIRY]);
     const isCurrentlyValid = !!expiry && now < expiry;
     const needsRefresh = !!expiry && now >= expiry - 3_600_000;
     if (!needsRefresh) return { isValid: isCurrentlyValid, isRefreshed: false };
-    if (!stored[StorageKeys.REFRESH_TOKEN]) return { isValid: isCurrentlyValid, isRefreshed: false };
+    const refreshTokenValue = getOptionalString(stored[StorageKeys.REFRESH_TOKEN]);
+    if (!refreshTokenValue) return { isValid: isCurrentlyValid, isRefreshed: false };
 
     const config = getConfig();
     for (let attempt = 0; attempt < 3; attempt++) {
-      const result = await refreshToken(stored[StorageKeys.REFRESH_TOKEN] as string, config.oauth);
+      const result = await refreshToken(refreshTokenValue, config.oauth);
       if (result.success) {
         await saveTokens(result);
         return { isValid: true, isRefreshed: true };
@@ -118,10 +196,10 @@ export async function validateAndRefreshToken(): Promise<{
 
 export async function getAccessToken(): Promise<string | undefined> {
   if (!(await validateAndRefreshToken()).isValid) return undefined;
-  return (await getStorageValue(StorageKeys.ACCESS_TOKEN)) || undefined;
+  return (await getStorageValue<string>(StorageKeys.ACCESS_TOKEN)) || undefined;
 }
 
-async function fetchProfile(): Promise<any | undefined> {
+async function fetchProfile(): Promise<OAuthProfile | undefined> {
   const token = await getAccessToken();
   if (!token) return undefined;
 
@@ -135,7 +213,8 @@ async function fetchProfile(): Promise<any | undefined> {
       }
     });
     if (!response.ok) return undefined;
-    return response.json();
+    const responseBody: unknown = await response.json();
+    return parseOAuthProfile(responseBody);
   } catch {
     return undefined;
   }
@@ -156,7 +235,7 @@ async function exchangeCodeForToken(
   state: string,
   codeVerifier: string,
   oauthConfig: OAuthConfig
-): Promise<any> {
+): Promise<TokenResult> {
   try {
     const response = await fetch(oauthConfig.TOKEN_URL, {
       method: 'POST',
@@ -177,12 +256,16 @@ async function exchangeCodeForToken(
         error: `Token exchange failed: ${response.status} ${text}`
       };
     }
-    const data = await response.json();
+    const responseBody: unknown = await response.json();
+    const data = parseTokenEndpointResponse(responseBody);
     if (data.error) {
       return {
         success: false,
         error: data.error_description || data.error
       };
+    }
+    if (!data.access_token || !data.refresh_token) {
+      return { success: false, error: 'Token exchange response missing token fields' };
     }
     return {
       success: true,
@@ -219,7 +302,7 @@ export async function handleOAuthRedirect(
       return { success: false, error: 'No authorization code received' };
     }
 
-    const codeVerifier = (await getStorageValue(StorageKeys.CODE_VERIFIER)) || '';
+    const codeVerifier = (await getStorageValue<string>(StorageKeys.CODE_VERIFIER)) || '';
     const config = getConfig();
     const tokenResult = await exchangeCodeForToken(
       code,

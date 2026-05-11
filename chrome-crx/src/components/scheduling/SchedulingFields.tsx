@@ -35,11 +35,24 @@ interface SchedulingFieldsProps {
   urlError?: string;
   selectedModel?: string;
   onModelChange?: (value: string) => void;
-  availableModels?: any[];
+  availableModels?: SchedulingModelOption[];
   compact?: boolean;
   model?: string;
   setModel?: (value: string) => void;
-  modelConfig?: any;
+  modelConfig?: SchedulingModelConfig;
+}
+
+type SchedulingModelOption =
+  | string
+  | {
+  model?: string;
+  value?: string;
+  name?: string;
+  label?: string;
+};
+
+interface SchedulingModelConfig {
+  options?: SchedulingModelOption[];
 }
 
 function SchedulingFields({
@@ -89,7 +102,7 @@ function SchedulingFields({
 
   const resolvedModel = selectedModel ?? model;
   const resolvedOnModelChange = onModelChange ?? setModel;
-  const resolvedModels = availableModels ?? (modelConfig?.options as any[] | undefined);
+  const resolvedModels = availableModels ?? modelConfig?.options;
 
   const renderUrlField = () => (
     <div>
@@ -99,7 +112,7 @@ function SchedulingFields({
       <TextInput
         type="text"
         value={url}
-        onChange={(event: any) => setUrl(event.target.value)}
+        onChange={(event: React.ChangeEvent<HTMLInputElement>) => setUrl(event.target.value)}
         placeholder={intl.formatMessage({
           defaultMessage: 'https://example.com',
           id: 'url_placeholder'
@@ -150,10 +163,25 @@ function SchedulingFields({
         <SimpleSelect
           value={resolvedModel}
           onChange={resolvedOnModelChange}
-          options={resolvedModels.map((modelOption: any) => ({
-            value: modelOption.model ?? modelOption.value,
-            label: modelOption.name ?? modelOption.label
-          }))}
+          options={resolvedModels
+            .map((modelOption) => ({
+              value:
+                typeof modelOption === 'string'
+                  ? modelOption
+                  : modelOption.model ?? modelOption.value,
+              label:
+                typeof modelOption === 'string'
+                  ? modelOption
+                  : modelOption.name ?? modelOption.label
+            }))
+            .filter(
+              (
+                modelOption
+              ): modelOption is {
+                value: string;
+                label: string;
+              } => typeof modelOption.value === 'string' && typeof modelOption.label === 'string'
+            )}
           placeholder={intl.formatMessage({
             defaultMessage: 'Select model',
             id: 'select_model'

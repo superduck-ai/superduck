@@ -37,7 +37,7 @@ function OptionsPage() {
   const [returnTabId, setReturnTabId] = useState<number>();
 
   useEffect(() => {
-    getStorageValue(StorageKeys.API_KEY).then((value) => {
+    getStorageValue<string>(StorageKeys.API_KEY).then((value) => {
       if (value) setApiKey(value);
     });
   }, []);

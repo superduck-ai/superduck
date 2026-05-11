@@ -48,6 +48,10 @@ let currentLevel: LogLevel = 'info';
 const reporters: LogReporter[] = [];
 let redactKeys: Set<string> = new Set(DEFAULT_REDACT_KEYS.map((k) => k.toLowerCase()));
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 export function setLevel(level: LogLevel): void {
   currentLevel = level;
 }
@@ -76,12 +80,14 @@ function shouldEmit(level: LogLevel): boolean {
   return LEVEL_RANK[level] >= LEVEL_RANK[currentLevel];
 }
 
+function redact(value: Record<string, unknown>, depth?: number): Record<string, unknown>;
+function redact(value: unknown, depth?: number): unknown;
 function redact(value: unknown, depth = 0): unknown {
   if (depth > 4 || value == null) return value;
   if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
-  if (typeof value === 'object') {
+  if (isRecord(value)) {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(value)) {
       if (redactKeys.has(k.toLowerCase())) {
         out[k] = '[REDACTED]';
       } else {
@@ -108,7 +114,7 @@ function emit(
     msg
   };
   if (fields && Object.keys(fields).length > 0) {
-    record.fields = redact(fields) as Record<string, unknown>;
+    record.fields = redact(fields);
   }
 
   let line: string;

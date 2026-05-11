@@ -10,9 +10,25 @@
 
 import { cdpDebugger } from './cdp';
 import { INTERACTIVE_ROLES, CONTENT_ROLES, withSnapshotLock } from './axSnapshot';
+import type { CdpAccessibilityTreeResult, CdpDomResolveNodeResult } from './cdpTypes';
 import type { RefMapping } from './axSnapshot';
 
 const BATCH_SIZE = 30;
+
+interface AxTreeNode {
+  ignored?: boolean;
+  role?: {
+    value?: string;
+  };
+  name?: {
+    value?: string;
+  };
+  backendDOMNodeId?: number;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
 
 // 按 tabId 隔离的元数据存储，用于 stale ref 恢复
 const refMetaByTab = new Map<number, Map<string, RefMapping>>();
@@ -48,9 +64,9 @@ export async function clearPageRefs(tabId: number): Promise<void> {
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: () => {
-      (window as any).__superduckElementMap = {};
-      (window as any).__superduckRefCounter = 0;
-    },
+      window.__superduckElementMap = {};
+      window.__superduckRefCounter = 0;
+    }
   });
 }
 
@@ -63,7 +79,7 @@ export async function pruneStaleRefs(tabId: number): Promise<void> {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: () => {
-        const map = (window as any).__superduckElementMap;
+        const map = window.__superduckElementMap;
         if (!map) return [];
         const stale: string[] = [];
         for (const key of Object.keys(map)) {
@@ -73,14 +89,13 @@ export async function pruneStaleRefs(tabId: number): Promise<void> {
           }
         }
         return stale;
-      },
+      }
     });
     const tabMeta = refMetaByTab.get(tabId);
     if (tabMeta && results) {
       for (const r of results) {
-        const staleKeys = r.result as string[] | null;
-        if (staleKeys) {
-          for (const key of staleKeys) tabMeta.delete(key);
+        if (isStringArray(r.result)) {
+          for (const key of r.result) tabMeta.delete(key);
         }
       }
     }
@@ -116,9 +131,9 @@ export async function registerRefsInPage(
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: () => {
-      if (!(window as any).__superduckElementMap) (window as any).__superduckElementMap = {};
-      if (!(window as any).__superduckRefCounter) (window as any).__superduckRefCounter = 0;
-    },
+      if (!window.__superduckElementMap) window.__superduckElementMap = {};
+      if (!window.__superduckRefCounter) window.__superduckRefCounter = 0;
+    }
   });
 
   // 分批并行注册
@@ -146,7 +161,11 @@ async function injectWeakRef(
   backendNodeId: number,
   bumpCounter: boolean
 ): Promise<void> {
-  const resolveResult = await cdpDebugger.sendCommand(tabId, 'DOM.resolveNode', { backendNodeId });
+  const resolveResult = await cdpDebugger.sendCommand<CdpDomResolveNodeResult>(
+    tabId,
+    'DOM.resolveNode',
+    { backendNodeId }
+  );
   const objectId = resolveResult?.object?.objectId;
   if (!objectId) return;
 
@@ -213,8 +232,11 @@ async function resolveStaleRefInner(
     // 重新获取 AX 树
     await cdpDebugger.sendCommand(tabId, 'DOM.enable');
     await cdpDebugger.sendCommand(tabId, 'Accessibility.enable');
-    const axResult = await cdpDebugger.sendCommand(tabId, 'Accessibility.getFullAXTree');
-    const nodes: any[] = axResult?.nodes ?? [];
+    const axResult = await cdpDebugger.sendCommand<CdpAccessibilityTreeResult<AxTreeNode>>(
+      tabId,
+      'Accessibility.getFullAXTree'
+    );
+    const nodes: AxTreeNode[] = axResult?.nodes ?? [];
 
     // 按 role+name+nth 匹配，与 assignRefs 保持一致：
     // - interactiveOnly=true 时仅 INTERACTIVE_ROLES 参与；

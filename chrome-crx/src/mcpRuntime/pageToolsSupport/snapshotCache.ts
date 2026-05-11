@@ -109,8 +109,12 @@ export function formatCompactDiff(
 }
 
 const SNAPSHOT_LISTENERS_INSTALLED = Symbol.for('chrome-crx.snapshot-cache.listeners-installed');
-if (!(globalThis as any)[SNAPSHOT_LISTENERS_INSTALLED]) {
-  (globalThis as any)[SNAPSHOT_LISTENERS_INSTALLED] = true;
+const snapshotCacheGlobal = globalThis as typeof globalThis & {
+  [SNAPSHOT_LISTENERS_INSTALLED]?: boolean;
+};
+
+if (!snapshotCacheGlobal[SNAPSHOT_LISTENERS_INSTALLED]) {
+  snapshotCacheGlobal[SNAPSHOT_LISTENERS_INSTALLED] = true;
   chrome.tabs.onRemoved.addListener((tabId) => {
     invalidateAllSessionsForTab(tabId);
   });

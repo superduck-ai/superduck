@@ -45,6 +45,10 @@ interface GroupBlocklistStatus {
   lastChecked: number;
 }
 
+interface StoredGroupMetadata extends Omit<GroupMetadata, 'memberStates'> {
+  memberStates?: Record<string, MemberState>;
+}
+
 interface PendingRegroup {
   tabId: number;
   originalGroupId: number;
@@ -98,10 +102,12 @@ class TabGroupManager {
   }
 
   async dismissStaticIndicatorsForGroup(chromeGroupId: number): Promise<void> {
-    const dismissed: any[] =
-      ((await chrome.storage.local.get(this.DISMISSED_GROUPS_KEY))[
-        this.DISMISSED_GROUPS_KEY
-      ] as any[]) || [];
+    const dismissedValue = (await chrome.storage.local.get(this.DISMISSED_GROUPS_KEY))[
+      this.DISMISSED_GROUPS_KEY
+    ];
+    const dismissed = Array.isArray(dismissedValue)
+      ? dismissedValue.filter((groupId): groupId is number => typeof groupId === 'number')
+      : [];
     dismissed.includes(chromeGroupId) || dismissed.push(chromeGroupId);
     await chrome.storage.local.set({
       [this.DISMISSED_GROUPS_KEY]: dismissed
@@ -144,8 +150,10 @@ class TabGroupManager {
     this.tabGroupListenerSubscriptionId = eventManager.subscribe(
       'all',
       ['groupId'],
-      async (tabId: number, changeInfo: any) => {
-        'groupId' in changeInfo && (await this.handleTabGroupChange(tabId, changeInfo.groupId));
+      async (tabId: number, changeInfo: { groupId?: number }) => {
+        if (typeof changeInfo.groupId === 'number') {
+          await this.handleTabGroupChange(tabId, changeInfo.groupId);
+        }
       }
     );
     this.isTabGroupListenerStarted = true;
@@ -278,8 +286,13 @@ class TabGroupManager {
           } catch {
             // ignore
           }
-      const tabIds = tabs.filter((t) => t.id && t.id !== excludeTabId).map((t) => t.id!);
-      tabIds.length > 0 && (await chrome.tabs.ungroup(tabIds as [number, ...number[]]));
+      const tabIds = tabs.flatMap((tab) =>
+        typeof tab.id === 'number' && tab.id !== excludeTabId ? [tab.id] : []
+      );
+      const [firstTabId, ...remainingTabIds] = tabIds;
+      if (firstTabId !== undefined) {
+        await chrome.tabs.ungroup([firstTabId, ...remainingTabIds]);
+      }
     } catch (err) {
       // ignore
     }
@@ -373,17 +386,20 @@ class TabGroupManager {
       data &&
         'object' == typeof data &&
         (this.groupMetadata = new Map(
-          Object.entries(data).map(([key, value]: [string, any]) => {
-            const entry = value;
-            entry.memberStates && 'object' == typeof entry.memberStates
-              ? (entry.memberStates = new Map(
-                  Object.entries(entry.memberStates).map(([k, v]: [string, any]) => [
-                    parseInt(k),
-                    v
+          Object.entries(data as Record<string, StoredGroupMetadata>).map(([key, value]) => {
+            const memberStates = value.memberStates
+              ? new Map(
+                  Object.entries(value.memberStates).map(([memberKey, memberValue]) => [
+                    parseInt(memberKey, 10),
+                    memberValue
                   ])
-                ))
-              : (entry.memberStates = new Map());
-            return [parseInt(key), entry];
+                )
+              : new Map<number, MemberState>();
+            const entry: GroupMetadata = {
+              ...value,
+              memberStates
+            };
+            return [parseInt(key, 10), entry];
           })
         ));
     } catch (err) {
@@ -526,17 +542,21 @@ class TabGroupManager {
         break;
       }
     return tabs
-      .filter((t) => void 0 !== t.id)
-      .map((t) => {
-        const id = t.id!;
-        const state = matchingMeta?.memberStates.get(id);
-        return {
-          tabId: id,
-          url: t.url || '',
-          title: t.title || '',
-          joinedAt: Date.now(),
-          indicatorState: state?.indicatorState || 'none'
-        };
+      .flatMap((tab) => {
+        if (typeof tab.id !== 'number') {
+          return [];
+        }
+
+        const state = matchingMeta?.memberStates.get(tab.id);
+        return [
+          {
+            tabId: tab.id,
+            url: tab.url || '',
+            title: tab.title || '',
+            joinedAt: Date.now(),
+            indicatorState: state?.indicatorState || 'none'
+          }
+        ];
       });
   }
 
@@ -671,14 +691,18 @@ class TabGroupManager {
       domain: new URL(firstTab.url).hostname,
       chromeGroupId: tab.groupId,
       memberStates: new Map(),
-      memberTabs: groupTabs
-        .filter((t) => void 0 !== t.id)
-        .map((t) => ({
-          tabId: t.id!,
-          url: t.url || '',
-          title: t.title || '',
-          joinedAt: Date.now()
-        })),
+      memberTabs: groupTabs.flatMap((groupTab) =>
+        typeof groupTab.id === 'number'
+          ? [
+              {
+                tabId: groupTab.id,
+                url: groupTab.url || '',
+                title: groupTab.title || '',
+                joinedAt: Date.now()
+              }
+            ]
+          : []
+      ),
       isUnmanaged: true
     };
   }
@@ -1054,11 +1078,8 @@ class TabGroupManager {
     let found = false;
     for (const [, meta] of this.groupMetadata.entries()) {
       if ((await this.getGroupMembers(meta.chromeGroupId)).some((m) => m.tabId === tabId)) {
-        if (
-          ((chromeGroupId = meta.chromeGroupId),
-          'static' === state && (await this.isGroupDismissed(chromeGroupId!)))
-        )
-          return;
+        chromeGroupId = meta.chromeGroupId;
+        if ('static' === state && (await this.isGroupDismissed(chromeGroupId))) return;
         const existing = meta.memberStates.get(tabId);
         meta.memberStates.set(tabId, {
           indicatorState: state,
@@ -1203,7 +1224,8 @@ class TabGroupManager {
         if ((await chrome.tabGroups.get(meta.chromeGroupId)).title !== TAB_GROUP_TITLE) return;
         const otherGroupColors = (await chrome.tabGroups.query({}))
           .filter((g) => g.id !== meta.chromeGroupId)
-          .map((g) => g.color);
+          .map((g) => g.color)
+          .filter((color): color is chrome.tabGroups.Color => typeof color === 'string');
         const allColors = [
           chrome.tabGroups.Color.GREY,
           chrome.tabGroups.Color.BLUE,
@@ -1221,7 +1243,7 @@ class TabGroupManager {
         else {
           const colorCounts = new Map<chrome.tabGroups.Color, number>();
           allColors.forEach((c) => colorCounts.set(c, 0));
-          otherGroupColors.forEach((c: any) => {
+          otherGroupColors.forEach((c) => {
             colorCounts.set(c, (colorCounts.get(c) || 0) + 1);
           });
           let minCount = Infinity;
@@ -1409,13 +1431,17 @@ class TabGroupManager {
       try {
         await chrome.tabGroups.get(this.mcpTabGroupId);
         await this.ensureMcpGroupCharacteristics(this.mcpTabGroupId);
-        const tabs = (await chrome.tabs.query({ groupId: this.mcpTabGroupId }))
-          .filter((t) => void 0 !== t.id)
-          .map((t) => ({
-            id: t.id!,
-            title: t.title || '',
-            url: t.url || ''
-          }));
+        const tabs = (await chrome.tabs.query({ groupId: this.mcpTabGroupId })).flatMap((tab) =>
+          typeof tab.id === 'number'
+            ? [
+                {
+                  id: tab.id,
+                  title: tab.title || '',
+                  url: tab.url || ''
+                }
+              ]
+            : []
+        );
         if (tabs.length > 0)
           return {
             currentTabId: tabs[0].id,

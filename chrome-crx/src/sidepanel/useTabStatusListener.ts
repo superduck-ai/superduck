@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import type { DependencyList } from 'react';
 
 type TabChangeProperty = 'status' | 'active' | 'url' | 'title' | 'audible' | 'mutedInfo' | 'favIconUrl';
 
@@ -16,7 +17,7 @@ export const useTabStatusListener = (
   tabId: number | undefined,
   callback: (changeInfo: TabChangeInfo) => void,
   properties: TabChangeProperty[],
-  dependencies: any[] = []
+  dependencies: DependencyList = []
 ) => {
   useEffect(() => {
     if (!tabId) return;

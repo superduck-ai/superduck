@@ -2,6 +2,10 @@ import * as ReactModule from "react";
 import * as JsxRuntimeModule from "react/jsx-runtime";
 
 type ModuleRecord = Record<string, unknown>;
+type CallableModuleRecord = ModuleRecord &
+  ((this: unknown, ...args: unknown[]) => unknown) & {
+    prototype?: unknown;
+  };
 
 function mergeModuleExports<T extends object>(target: T, modules: unknown[]): T {
   for (let index = 0; index < modules.length; index += 1) {
@@ -89,10 +93,10 @@ function interopNamespaceCompat<T extends ModuleRecord>(module: T): T | ModuleRe
       }
 
       return (defaultExport as (...callArgs: unknown[]) => unknown).apply(this, args);
-    };
+    } as CallableModuleRecord;
 
     callable.prototype = (defaultExport as { prototype?: unknown }).prototype;
-    namespaceProxy = callable as unknown as ModuleRecord;
+    namespaceProxy = callable;
   } else {
     namespaceProxy = {};
   }

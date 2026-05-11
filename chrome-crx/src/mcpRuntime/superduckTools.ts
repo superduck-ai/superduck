@@ -2,12 +2,86 @@
 // tabGroupManager.currentTabId. SuperDuck CLI is invoked from outside Chrome
 // so it must follow the user's actual focus, not the panel's pinned group.
 
-interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, any>;
-  execute: (input: any, context?: any) => Promise<any>;
-  toProviderSchema: (context?: any) => Promise<any> | any;
+import type { ToolDefinition } from './pageTools';
+
+interface ActiveContextArgs {
+  tabId?: number;
+  full?: boolean;
+}
+
+interface BackgroundFetchArgs {
+  url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  sourceTabId?: number;
+  allowCrossOrigin?: boolean;
+}
+
+interface OpenArgs {
+  url?: string;
+  newTab?: boolean;
+  tabId?: number;
+}
+
+interface ClickArgs {
+  selector?: string;
+  text?: string;
+  tabId?: number;
+}
+
+interface FillArgs {
+  selector?: string;
+  value?: string;
+  tabId?: number;
+}
+
+interface PressArgs {
+  key?: string;
+  selector?: string;
+  tabId?: number;
+}
+
+interface ActiveContextScriptResult {
+  url?: string;
+  title?: string;
+  selection?: string;
+  text?: string;
+}
+
+interface ToolScriptResult {
+  ok: boolean;
+  reason?: string;
+  tag?: string;
+  text?: string;
+  value?: string;
+  key?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isActiveContextScriptResult(value: unknown): value is ActiveContextScriptResult {
+  return (
+    isRecord(value) &&
+    (value.url === undefined || typeof value.url === 'string') &&
+    (value.title === undefined || typeof value.title === 'string') &&
+    (value.selection === undefined || typeof value.selection === 'string') &&
+    (value.text === undefined || typeof value.text === 'string')
+  );
+}
+
+function isToolScriptResult(value: unknown): value is ToolScriptResult {
+  return (
+    isRecord(value) &&
+    typeof value.ok === 'boolean' &&
+    (value.reason === undefined || typeof value.reason === 'string') &&
+    (value.tag === undefined || typeof value.tag === 'string') &&
+    (value.text === undefined || typeof value.text === 'string') &&
+    (value.value === undefined || typeof value.value === 'string') &&
+    (value.key === undefined || typeof value.key === 'string')
+  );
 }
 
 async function resolveActiveTab(explicit?: number): Promise<chrome.tabs.Tab> {
@@ -35,7 +109,7 @@ function eTLDPlus1(hostname: string): string {
 }
 
 // ---------- superduck_active_context ----------
-export const superduckActiveContextTool: ToolDefinition = {
+export const superduckActiveContextTool: ToolDefinition<ActiveContextArgs> = {
   name: 'superduck_active_context',
   description:
     "SuperDuck CLI: get url/title/selection/visible-text from the user's currently active Chrome tab (last focused window). Use full=true for full page innerText (warns about token cost).",
@@ -88,12 +162,14 @@ export const superduckActiveContextTool: ToolDefinition = {
           };
         }
       });
-      const result = _results?.[0]?.result;
+      const result = isActiveContextScriptResult(_results?.[0]?.result)
+        ? _results[0].result
+        : undefined;
 
       const payload = {
         tabId: tab.id,
         windowId: tab.windowId,
-        ...((result as any) || { url: tab.url, title: tab.title, selection: '', text: '' })
+        ...(result || { url: tab.url, title: tab.title, selection: '', text: '' })
       };
       return { output: JSON.stringify(payload, null, 2) };
     } catch (err) {
@@ -118,7 +194,7 @@ export const superduckActiveContextTool: ToolDefinition = {
 };
 
 // ---------- superduck_background_fetch ----------
-export const superduckBackgroundFetchTool: ToolDefinition = {
+export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> = {
   name: 'superduck_background_fetch',
   description:
     "SuperDuck CLI: fetch a URL from the extension background, automatically including the user's Chrome cookies for the target origin. Default: same eTLD+1 as source tab; pass allowCrossOrigin=true to bypass.",
@@ -165,7 +241,7 @@ export const superduckBackgroundFetchTool: ToolDefinition = {
       const init: RequestInit = {
         method: String(args?.method || 'GET'),
         credentials: 'include',
-        headers: (args?.headers as Record<string, string>) || undefined,
+        headers: args?.headers || undefined,
         body: args?.body !== undefined ? String(args.body) : undefined
       };
 
@@ -223,7 +299,7 @@ export const superduckBackgroundFetchTool: ToolDefinition = {
 };
 
 // ---------- superduck_list_tabs ----------
-export const superduckListTabsTool: ToolDefinition = {
+export const superduckListTabsTool: ToolDefinition<Record<string, never>> = {
   name: 'superduck_list_tabs',
   description: 'SuperDuck CLI: list all tabs across all windows (id, windowId, url, title, active).',
   parameters: {},
@@ -258,7 +334,7 @@ export const superduckListTabsTool: ToolDefinition = {
 };
 
 // ---------- superduck_open ----------
-export const superduckOpenTool: ToolDefinition = {
+export const superduckOpenTool: ToolDefinition<OpenArgs> = {
   name: 'superduck_open',
   description:
     "SuperDuck CLI: navigate user's active Chrome tab to a URL. Pass newTab=true to open in a new tab instead.",
@@ -304,7 +380,7 @@ export const superduckOpenTool: ToolDefinition = {
 };
 
 // ---------- superduck_click ----------
-export const superduckClickTool: ToolDefinition = {
+export const superduckClickTool: ToolDefinition<ClickArgs> = {
   name: 'superduck_click',
   description:
     'SuperDuck CLI: click an element on the active tab by CSS selector (selector) or by visible text (text). One of selector/text required.',
@@ -351,7 +427,7 @@ export const superduckClickTool: ToolDefinition = {
           };
         }
       });
-      const r: any = _results?.[0]?.result;
+      const r = isToolScriptResult(_results?.[0]?.result) ? _results[0].result : undefined;
       if (!r?.ok) return { error: r?.reason || 'click failed' };
       return { output: JSON.stringify({ tabId: tab.id, ...r }) };
     } catch (err) {
@@ -374,7 +450,7 @@ export const superduckClickTool: ToolDefinition = {
 };
 
 // ---------- superduck_fill ----------
-export const superduckFillTool: ToolDefinition = {
+export const superduckFillTool: ToolDefinition<FillArgs> = {
   name: 'superduck_fill',
   description:
     'SuperDuck CLI: set the value of a form field on the active tab and dispatch input/change events.',
@@ -410,13 +486,13 @@ export const superduckFillTool: ToolDefinition = {
               : HTMLInputElement.prototype;
           const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
           if (setter) setter.call(el, value);
-          else (el as any).value = value;
+          else el.value = value;
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
           return { ok: true, tag: el.tagName.toLowerCase(), value: el.value };
         }
       });
-      const r: any = _results?.[0]?.result;
+      const r = isToolScriptResult(_results?.[0]?.result) ? _results[0].result : undefined;
       if (!r?.ok) return { error: r?.reason || 'fill failed' };
       return { output: JSON.stringify({ tabId: tab.id, ...r }) };
     } catch (err) {
@@ -439,7 +515,7 @@ export const superduckFillTool: ToolDefinition = {
 };
 
 // ---------- superduck_press ----------
-export const superduckPressTool: ToolDefinition = {
+export const superduckPressTool: ToolDefinition<PressArgs> = {
   name: 'superduck_press',
   description:
     "SuperDuck CLI: dispatch a keyboard event on the active tab (e.g. Enter, Tab, Escape, ArrowDown). Targets the focused element or the optional selector.",
@@ -483,7 +559,7 @@ export const superduckPressTool: ToolDefinition = {
           return { ok: true, tag: (target as Element).tagName.toLowerCase(), key };
         }
       });
-      const r: any = _results?.[0]?.result;
+      const r = isToolScriptResult(_results?.[0]?.result) ? _results[0].result : undefined;
       if (!r?.ok) return { error: r?.reason || 'press failed' };
       return { output: JSON.stringify({ tabId: tab.id, ...r }) };
     } catch (err) {

@@ -184,7 +184,7 @@ const MicrophonePermissionModal: React.FC<MicrophonePermissionModalProps> = ({
                       })
                     );
                   }
-                } catch (err: any) {
+                } catch (err: unknown) {
                   setIsRequesting(false);
                   if (err instanceof DOMException) {
                     if (err.name === 'NotAllowedError') {

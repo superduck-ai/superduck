@@ -1,5 +1,21 @@
 import type { ResizeParams, ScreenshotResult } from './cdpTypes';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isScreenshotResult(value: unknown): value is ScreenshotResult {
+  return (
+    isRecord(value) &&
+    typeof value.base64 === 'string' &&
+    typeof value.width === 'number' &&
+    typeof value.height === 'number' &&
+    typeof value.format === 'string' &&
+    typeof value.viewportWidth === 'number' &&
+    typeof value.viewportHeight === 'number'
+  );
+}
+
 export async function processScreenshotInContentScript(options: {
   tabId: number;
   base64Data: string;
@@ -143,5 +159,10 @@ export async function processScreenshotInContentScript(options: {
     throw new Error('Failed to process screenshot in content script');
   }
 
-  return scriptResults[0].result as ScreenshotResult;
+  const screenshotResult = scriptResults[0].result;
+  if (!isScreenshotResult(screenshotResult)) {
+    throw new Error('Unexpected screenshot result from content script');
+  }
+
+  return screenshotResult;
 }

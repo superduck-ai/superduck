@@ -1,3 +1,4 @@
+import type { Span } from '@opentelemetry/api';
 import { compressBase64Image } from '../utils/imageCompressor';
 import { DEFAULT_MODEL, FAST_MODEL } from '../constants/models';
 import {
@@ -7,14 +8,20 @@ import {
   getConfig,
   getOrCreateAnonymousId,
   getOrganizationId,
-  validateAndRefreshToken
+  validateAndRefreshToken,
+  PermissionDuration as PermissionDurationEnum
 } from '../extensionServices';
+import {
+  isRecord,
+  type ApiInputContentBlock,
+  type ApiToolResultBlock,
+  type ApiToolResultContentBlock
+} from '../messageTypes';
 import { MessagesClient } from '../mcpServersStore';
 import { withTracing, PermissionManager as PermissionManagerClass } from '../PermissionManager';
 import { mapModelName } from '../utils/modelMapping';
 import {
   MCP_NATIVE_SESSION_ID,
-  PermissionDuration,
   PermissionType,
   extractAppName,
   formatTabsOutput,
@@ -58,13 +65,113 @@ import {
   identifyUser
 } from './analytics';
 import { allTools, mcpToolNames } from './core/tools';
-import type { ToolProviderSchema } from './pageToolsSupport/types';
+import type {
+  ToolContext,
+  ToolProviderSchema,
+  ToolResult,
+  ToolTabSummary
+} from './pageToolsSupport/types';
 
 // Alias withTracing as initializePermissions (legacy name from compiled bundle)
 const initializePermissions = withTracing;
 
-function coerceToolInput(toolName: string, input: any, tools: any[]): any {
+type BridgeMessage = Record<string, unknown> & { type?: string };
+type PermissionPromptRequest = ToolResult & {
+  type: 'permission_required';
+  tool: string;
+  url: string;
+  toolUseId?: string;
+  actionData?: Record<string, unknown>;
+};
+type PermissionPromptHandler = (
+  permission: PermissionPromptRequest,
+  tabId: number
+) => Promise<boolean>;
+type RuntimeCreateApiMessage = NonNullable<ToolContext['createApiMessage']>;
+type ErrorResponse = {
+  content: ApiInputContentBlock[];
+  is_error: boolean;
+};
+type ExecuteToolResponse = {
+  actionData?: Record<string, unknown>;
+  base64Image?: string;
+  content?: string | ApiInputContentBlock[];
+  error?: string;
+  imageFormat?: string;
+  is_error?: boolean;
+  output?: string;
+  tabContext?: ToolResult['tabContext'];
+  tool?: string;
+  toolUseId?: string;
+  tool_use_id?: string;
+  type?: string;
+  url?: string;
+};
+type ToolUseRequest = {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: unknown;
+};
+type ToolExecutorProcessOptions = {
+  permissionManager?: PermissionManagerClass;
+  onPermissionRequired?: PermissionPromptHandler;
+};
+type TabGroupRecord = Awaited<ReturnType<typeof tabGroupManager.findGroupByTab>>;
+type RecordedFrame = Parameters<typeof screenRecorder.addFrame>[1];
+type RecordedAction = NonNullable<RecordedFrame['action']> & {
+  coordinate?: unknown;
+  description?: string;
+  start_coordinate?: unknown;
+  text?: string;
+  timestamp?: number;
+};
+type NavigatorWithUserAgentData = Navigator & {
+  userAgentData?: { platform?: string };
+};
+
+interface ToolInputRecord extends Record<string, unknown> {
+  action?: string;
+  coordinate?: unknown;
+  start_coordinate?: unknown;
+  tabGroupId?: unknown;
+  tabId?: unknown;
+  text?: string;
+  url?: string;
+}
+
+function coerceToolInput(toolName: string, input: unknown, tools: ToolDefinition[]): unknown {
   return coerceToolInputTypes(toolName, input, tools);
+}
+
+function isBridgeMessage(value: unknown): value is BridgeMessage {
+  return isRecord(value) && (value.type === undefined || typeof value.type === 'string');
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function toToolInputRecord(value: unknown): ToolInputRecord {
+  return isRecord(value) ? value : {};
+}
+
+function isPermissionPromptRequest(value: unknown): value is PermissionPromptRequest {
+  return (
+    isRecord(value) &&
+    value.type === 'permission_required' &&
+    typeof value.tool === 'string' &&
+    typeof value.url === 'string'
+  );
 }
 
 // =============================================================================
@@ -92,7 +199,7 @@ const pendingToolCalls = new Map<string, { resolve: (value: boolean) => void }>(
 
 function getPlatform(): string {
   try {
-    const uaData = (navigator as any).userAgentData;
+    const uaData = (navigator as NavigatorWithUserAgentData).userAgentData;
     return uaData?.platform ?? navigator.platform ?? 'Unknown';
   } catch {
     return navigator.platform ?? 'Unknown';
@@ -151,7 +258,7 @@ function clearAllPendingToolCalls(): void {
   pendingToolCalls.clear();
 }
 
-function sendBridgeMessage(message: any): void {
+function sendBridgeMessage(message: Record<string, unknown>): void {
   if (bridgeWebSocket?.readyState === WebSocket.OPEN) {
     bridgeWebSocket.send(JSON.stringify(message));
   }
@@ -203,7 +310,7 @@ export async function connectBridge(): Promise<boolean> {
 
     ws.onopen = () => {
       if (bridgeWebSocket !== ws) return;
-      const connectMsg: any = {
+      const connectMsg: Record<string, unknown> = {
         type: 'connect',
         client_type: 'chrome-extension',
         device_id: deviceId,
@@ -219,7 +326,8 @@ export async function connectBridge(): Promise<boolean> {
     ws.onmessage = async (event) => {
       if (bridgeWebSocket !== ws) return;
       try {
-        const message = JSON.parse(event.data);
+        const message = JSON.parse(event.data) as unknown;
+        if (!isBridgeMessage(message)) return;
         await handleBridgeMessage(message);
       } catch (_err) {
         // silently fail
@@ -257,7 +365,7 @@ export async function connectBridge(): Promise<boolean> {
 }
 
 // --- Bridge message handler ---
-async function handleBridgeMessage(message: any): Promise<void> {
+async function handleBridgeMessage(message: BridgeMessage): Promise<void> {
   switch (message.type) {
     case 'paired':
       trackEvent('superduck.bridge.connected', { status: 'paired' });
@@ -297,26 +405,29 @@ async function handleBridgeMessage(message: any): Promise<void> {
   }
 }
 
-async function handleBridgeToolCall(message: any): Promise<void> {
-  const targetDeviceId = message.target_device_id;
+async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
+  const targetDeviceId =
+    typeof message.target_device_id === 'string' ? message.target_device_id : undefined;
   if (targetDeviceId && targetDeviceId !== currentDeviceId) return;
-  const toolUseId = message.tool_use_id;
-  const toolName = message.tool;
-  const clientType = message.client_type || 'desktop';
-  const args = message.args ?? {};
-  const permissionMode = message.permission_mode;
-  const allowedDomains = message.allowed_domains;
+  const toolUseId = typeof message.tool_use_id === 'string' ? message.tool_use_id : undefined;
+  const toolName = typeof message.tool === 'string' ? message.tool : undefined;
+  const clientType = typeof message.client_type === 'string' ? message.client_type : 'desktop';
+  const args = isRecord(message.args) ? message.args : {};
+  const permissionMode =
+    typeof message.permission_mode === 'string' ? message.permission_mode : undefined;
+  const allowedDomains = isStringArray(message.allowed_domains) ? message.allowed_domains : undefined;
   const handlePermissionPrompts = true === message.handle_permission_prompts;
   if (!toolUseId || !toolName) return;
-  const tabId = args.tabId;
+  const tabId = parseOptionalNumber(args.tabId);
+  const tabGroupId = parseOptionalNumber(args.tabGroupId);
   if (tabId !== undefined) {
     try {
       await chrome.tabs.get(tabId);
-    } catch {
+      } catch {
       return;
     }
   }
-  const trackData: Record<string, any> = {
+  const trackData: Record<string, unknown> = {
     tool_name: toolName,
     client_type: clientType
   };
@@ -325,7 +436,7 @@ async function handleBridgeToolCall(message: any): Promise<void> {
       toolName,
       args,
       tabId,
-      tabGroupId: args.tabGroupId,
+      tabGroupId,
       clientId: clientType,
       source: 'bridge',
       permissionMode,
@@ -363,12 +474,12 @@ async function handleBridgeToolCall(message: any): Promise<void> {
   }
 }
 
-async function handlePairingRequest(message: any): Promise<void> {
-  const requestId = message.request_id;
+async function handlePairingRequest(message: BridgeMessage): Promise<void> {
+  const requestId = typeof message.request_id === 'string' ? message.request_id : undefined;
   if (!requestId) return;
   if (requestId === lastPairingRequestId) return;
   lastPairingRequestId = requestId;
-  const clientType = message.client_type || 'desktop';
+  const clientType = typeof message.client_type === 'string' ? message.client_type : 'desktop';
   const currentName = await getBridgeDisplayName();
   try {
     const response = await chrome.runtime.sendMessage({
@@ -387,13 +498,13 @@ async function handlePairingRequest(message: any): Promise<void> {
   chrome.tabs.create({ url: pairingUrl });
 }
 
-function handlePermissionResponse(message: any): void {
-  const requestId = message.request_id;
+function handlePermissionResponse(message: BridgeMessage): void {
+  const requestId = typeof message.request_id === 'string' ? message.request_id : undefined;
   if (!requestId) return;
   const pending = pendingToolCalls.get(requestId);
   if (!pending) return;
   pendingToolCalls.delete(requestId);
-  pending.resolve(message.allowed ?? false);
+  pending.resolve(message.allowed === true);
 }
 
 // --- reconnectMcp / disconnectBridge (ar) --- EXPORT
@@ -421,7 +532,7 @@ export function isBridgeConnected(): boolean {
 // --- sendMcpNotificationViaBridge (cr) --- EXPORT
 export function sendMcpNotificationViaBridge(
   method: string,
-  params?: Record<string, any>
+  params?: Record<string, unknown>
 ): boolean {
   if (!isBridgeConnected()) return false;
   sendBridgeMessage({ type: 'notification', method, params: params || {} });
@@ -443,15 +554,20 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if ('pairing_confirmed' === message.type) {
-    const { request_id, name } = message;
+  if (isRecord(message) && 'pairing_confirmed' === message.type) {
+    const requestId = typeof message.request_id === 'string' ? message.request_id : undefined;
+    const name = typeof message.name === 'string' ? message.name : '';
+    if (!requestId) {
+      sendResponse({ ok: false });
+      return false;
+    }
     (async function saveBridgeDisplayName(name: string) {
       await chrome.storage.local.set({ bridgeDisplayName: name });
     })(name);
     getDeviceId().then((deviceId) => {
       sendBridgeMessage({
         type: 'pairing_response',
-        request_id,
+        request_id: requestId,
         device_id: deviceId,
         name
       });
@@ -470,11 +586,11 @@ interface ToolExecutorContext {
   tabGroupId?: number;
   model: string;
   sessionId: string;
-  messagesClient?: any;
-  permissionManager: any;
-  onPermissionRequired?: (permission: any, tabId: number) => Promise<boolean>;
-  analytics?: { track: (event: string, data: any) => void };
-  refreshClient?: () => Promise<any>;
+  messagesClient?: MessagesClient;
+  permissionManager: PermissionManagerClass;
+  onPermissionRequired?: PermissionPromptHandler;
+  analytics?: { track: (event: string, data: Record<string, unknown>) => unknown };
+  refreshClient?: () => Promise<MessagesClient | undefined>;
 }
 
 class ToolExecutor {
@@ -486,18 +602,18 @@ class ToolExecutor {
 
   async handleToolCall(
     toolName: string,
-    toolInput: any,
+    toolInput: unknown,
     toolUseId: string,
     permissions?: string,
     domain?: string,
-    spanParent?: any,
+    spanParent?: Span,
     url?: string,
-    permissionManagerOverride?: any
-  ): Promise<any> {
-    const action = toolInput.action;
+    permissionManagerOverride?: PermissionManagerClass
+  ): Promise<ToolResult> {
+    const action = isRecord(toolInput) && typeof toolInput.action === 'string' ? toolInput.action : undefined;
     return await initializePermissions(
       `tool_execution_${toolName}${action ? '_' + action : ''}`,
-      async (span: any) => {
+      async (span: Span) => {
         if (!this.context.tabId && !mcpToolNames.includes(toolName)) {
           throw new Error('No tab available');
         }
@@ -520,7 +636,7 @@ class ToolExecutor {
         const tool = allTools.find((t) => t.name === toolName);
         if (!tool) throw new Error(`Unknown tool: ${toolName}`);
 
-        const trackData: Record<string, any> = {
+        const trackData: Record<string, unknown> = {
           name: toolName,
           sessionId: this.context.sessionId,
           permissions,
@@ -541,7 +657,7 @@ class ToolExecutor {
           const coercedInput = coerceToolInput(toolName, toolInput, allTools);
           const result = await tool.execute(coercedInput, executionContext);
 
-          if ('type' in result) {
+          if (result.type === 'permission_required') {
             trackData.success = false;
             span.setAttribute('success', false);
             span.setAttribute('failure_reason', 'needs_permission');
@@ -550,7 +666,7 @@ class ToolExecutor {
             span.setAttribute('success', !result.error);
           }
 
-          if (!('type' in result) && !result.error && executionContext.tabId) {
+          if (result.type !== 'permission_required' && !result.error && executionContext.tabId) {
             await recordToolAction(toolName, coercedInput, executionContext.tabId);
           }
 
@@ -569,9 +685,9 @@ class ToolExecutor {
     );
   }
 
-  createApiMessage(): ((params: any) => Promise<any>) | undefined {
+  createApiMessage(): RuntimeCreateApiMessage | undefined {
     if (this.context.messagesClient || this.context.refreshClient) {
-      return async (params: any) => {
+      return async (params, _label) => {
         if (this.context.refreshClient) {
           const refreshed = await this.context.refreshClient();
           if (refreshed) this.context.messagesClient = refreshed;
@@ -579,17 +695,24 @@ class ToolExecutor {
         if (!this.context.messagesClient) {
           throw new Error('API client not available');
         }
-        const { modelClass, maxTokens, ...rest } = params;
+        const { modelClass, maxTokens, max_tokens: legacyMaxTokens, ...rest } = params;
         let model = this.context.model;
         if ('small_fast' === modelClass) {
           const modelConfig = await getFeatureValue('chrome_ext_models');
-          model = modelConfig?.small_fast_model || FAST_MODEL;
+          model =
+            typeof modelConfig.small_fast_model === 'string'
+              ? modelConfig.small_fast_model
+              : FAST_MODEL;
         }
         // Apply model mapping if custom API is configured
         const mappedModel = await mapModelName(model);
+        const requestedMaxTokens = maxTokens ?? legacyMaxTokens;
+        if (typeof requestedMaxTokens !== 'number') {
+          throw new Error('maxTokens is required');
+        }
         return await this.context.messagesClient.beta.messages.create({
           ...rest,
-          max_tokens: maxTokens,
+          max_tokens: requestedMaxTokens,
           model: mappedModel,
           betas: ['oauth-2025-04-20']
         });
@@ -599,32 +722,37 @@ class ToolExecutor {
   }
 
   async processToolResults(
-    toolUses: Array<{ type: string; id: string; name: string; input: any }>,
-    options?: {
-      permissionManager?: any;
-      onPermissionRequired?: (permission: any, tabId: number) => Promise<boolean>;
-    }
-  ): Promise<any[]> {
-    const results: any[] = [];
+    toolUses: ToolUseRequest[],
+    options?: ToolExecutorProcessOptions
+  ): Promise<ApiToolResultBlock[]> {
+    const results: ApiToolResultBlock[] = [];
 
-    const formatContent = async (result: any): Promise<any> => {
+    const formatContent = async (result: ToolResult): Promise<ApiToolResultBlock['content']> => {
       if (result.error) return result.error;
-      const content: any[] = [];
+      const content: ApiToolResultContentBlock[] = [];
       if (result.output) {
         content.push({ type: 'text', text: result.output });
       }
       if (result.tabContext) {
-        const tabContextText = `\n\nTab Context:${result.tabContext.executedOnTabId ? `\n- Executed on tabId: ${result.tabContext.executedOnTabId}` : ''}\n- Available tabs:\n${result.tabContext.availableTabs.map((t: any) => `  \u2022 tabId ${t.id}: "${t.title}" (${t.url})`).join('\n')}`;
+        const availableTabs = result.tabContext.availableTabs ?? [];
+        const tabContextText = `\n\nTab Context:${result.tabContext.executedOnTabId ? `\n- Executed on tabId: ${result.tabContext.executedOnTabId}` : ''}\n- Available tabs:\n${availableTabs.map((tab: ToolTabSummary) => `  \u2022 tabId ${tab.id}: "${tab.title}" (${tab.url})`).join('\n')}`;
         content.push({ type: 'text', text: tabContextText });
       }
       if (result.base64Image) {
         const rawMediaType = result.imageFormat ? `image/${result.imageFormat}` : 'image/png';
         const { data, mediaType } = await compressBase64Image(result.base64Image, rawMediaType);
+        const normalizedMediaType =
+          mediaType === 'image/jpeg' ||
+          mediaType === 'image/png' ||
+          mediaType === 'image/gif' ||
+          mediaType === 'image/webp'
+            ? mediaType
+            : 'image/png';
         content.push({
           type: 'image',
           source: {
             type: 'base64',
-            media_type: mediaType,
+            media_type: normalizedMediaType,
             data
           }
         });
@@ -632,7 +760,10 @@ class ToolExecutor {
       return content.length > 0 ? content : '';
     };
 
-    const formatToolResult = async (toolUseId: string, result: any): Promise<any> => {
+    const formatToolResult = async (
+      toolUseId: string,
+      result: ToolResult
+    ): Promise<ApiToolResultBlock> => {
       const isError = !!result.error;
       return {
         type: 'tool_result',
@@ -655,7 +786,7 @@ class ToolExecutor {
           options?.permissionManager
         );
 
-        if ('type' in result && 'permission_required' === result.type) {
+        if (isPermissionPromptRequest(result)) {
           const handler = options?.onPermissionRequired ?? this.context.onPermissionRequired;
           if (!handler || !this.context.tabId) {
             results.push(
@@ -693,7 +824,7 @@ class ToolExecutor {
               const pm = options?.permissionManager ?? this.context.permissionManager;
               await pm.grantPermission(
                 { type: 'netloc', netloc: host },
-                PermissionDuration.ONCE,
+                PermissionDurationEnum.ONCE,
                 permResult.toolUseId
               );
             } catch {
@@ -710,7 +841,7 @@ class ToolExecutor {
             undefined,
             options?.permissionManager
           );
-          if ('type' in retryResult && 'permission_required' === retryResult.type) {
+          if (isPermissionPromptRequest(retryResult)) {
             throw new Error('Permission still required after granting');
           }
           results.push(await formatToolResult(toolUse.id, retryResult));
@@ -730,46 +861,46 @@ class ToolExecutor {
 }
 
 // --- recordToolAction helper (inline function from handleToolCall) ---
-async function recordToolAction(toolName: string, toolInput: any, tabId: number): Promise<void> {
+async function recordToolAction(toolName: string, toolInput: unknown, tabId: number): Promise<void> {
   try {
     if (!['computer', 'navigate'].includes(toolName)) return;
+    const input = toToolInputRecord(toolInput);
     const tab = await chrome.tabs.get(tabId);
     if (!tab) return;
     const groupId = tab.groupId ?? -1;
     if (!screenRecorder.isRecording(groupId)) return;
 
-    let actionData: any;
-    let screenshotData: any;
+    let actionData: RecordedAction | undefined;
 
-    if ('computer' === toolName && toolInput.action) {
-      const actionType = toolInput.action;
+    if ('computer' === toolName && typeof input.action === 'string') {
+      const actionType = input.action;
       if ('screenshot' === actionType) return;
       actionData = {
         type: actionType,
-        coordinate: toolInput.coordinate,
-        start_coordinate: toolInput.start_coordinate,
-        text: toolInput.text,
+        coordinate: input.coordinate,
+        start_coordinate: input.start_coordinate,
+        text: input.text,
         timestamp: Date.now()
       };
       if (actionType.includes('click')) {
         actionData.description = 'Clicked';
-      } else if ('type' === actionType && toolInput.text) {
-        actionData.description = `Typed: "${toolInput.text}"`;
-      } else if ('key' === actionType && toolInput.text) {
-        actionData.description = `Pressed key: ${toolInput.text}`;
+      } else if ('type' === actionType && typeof input.text === 'string') {
+        actionData.description = `Typed: "${input.text}"`;
+      } else if ('key' === actionType && typeof input.text === 'string') {
+        actionData.description = `Pressed key: ${input.text}`;
       } else {
         actionData.description =
           'scroll' === actionType
             ? 'Scrolled'
             : 'left_click_drag' === actionType
               ? 'Dragged'
-              : actionType;
+            : actionType;
       }
-    } else if ('navigate' === toolName && toolInput.url) {
+    } else if ('navigate' === toolName && typeof input.url === 'string') {
       actionData = {
         type: 'navigate',
         timestamp: Date.now(),
-        description: `Navigated to ${toolInput.url}`
+        description: `Navigated to ${input.url}`
       };
     }
 
@@ -794,11 +925,14 @@ async function recordToolAction(toolName: string, toolInput: any, tabId: number)
     }
 
     await new Promise((resolve) => setTimeout(resolve, 100));
-    try {
-      screenshotData = await cdpDebugger.screenshot(tabId);
-    } catch {
-      return;
-    }
+    const screenshotData = await (async () => {
+      try {
+        return await cdpDebugger.screenshot(tabId);
+      } catch {
+        return null;
+      }
+    })();
+    if (!screenshotData) return;
 
     let devicePixelRatio = 1;
     try {
@@ -806,15 +940,14 @@ async function recordToolAction(toolName: string, toolInput: any, tabId: number)
         target: { tabId },
         func: () => window.devicePixelRatio
       });
-      if (scriptResult && scriptResult[0]?.result) {
-        devicePixelRatio = scriptResult[0].result;
-      }
+      const nextDevicePixelRatio = scriptResult?.[0]?.result;
+      devicePixelRatio = typeof nextDevicePixelRatio === 'number' ? nextDevicePixelRatio : 1;
     } catch {
       // silently fail
     }
 
     const frameNumber = screenRecorder.getFrames(groupId).length;
-    const frame = {
+    const frame: RecordedFrame = {
       base64: screenshotData.base64,
       action: actionData,
       frameNumber,
@@ -833,7 +966,7 @@ async function recordToolAction(toolName: string, toolInput: any, tabId: number)
 // Main Logic and Exports (lines 6988-7317)
 // =============================================================================
 
-let cachedMessagesClient: any;
+let cachedMessagesClient: MessagesClient | undefined;
 let lastOauthToken: string | undefined;
 let lastApiKey: string | undefined;
 let lastApiBaseUrl: string | undefined;
@@ -844,10 +977,10 @@ const NAVIGATION_BLOCK_TIMEOUT = 60000;
 
 async function getSelectedModel(): Promise<string> {
   const [storedModel, modelConfig] = await Promise.all([
-    getStorageValue(StorageKeys.SELECTED_MODEL),
+    getStorageValue<string>(StorageKeys.SELECTED_MODEL),
     getFeatureValue('chrome_ext_models')
   ]);
-  return storedModel || modelConfig?.default || DEFAULT_MODEL;
+  return storedModel || (typeof modelConfig.default === 'string' ? modelConfig.default : '') || DEFAULT_MODEL;
 }
 
 async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Promise<ToolExecutor> {
@@ -869,14 +1002,14 @@ async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Pro
     tabId,
     tabGroupId,
     model,
-    onPermissionRequired: async (permission: any, tabId: number) =>
+    onPermissionRequired: async (permission: PermissionPromptRequest, tabId: number) =>
       await showPermissionPrompt(permission, tabId),
     refreshClient: refreshMessagesClient
   });
   return toolExecutorInstance;
 }
 
-async function refreshMessagesClient(): Promise<any> {
+async function refreshMessagesClient(): Promise<MessagesClient | undefined> {
   const [oauthToken, storedValues] = await Promise.all([
     getAccessToken(),
     chrome.storage.local.get(['apiKey', 'customApiUrl', 'customApiKey'])
@@ -910,15 +1043,14 @@ async function refreshMessagesClient(): Promise<any> {
 // --- createErrorResponse (Cr) --- EXPORT
 export const createErrorResponse = (
   text: string
-): { content: Array<{ type: string; text: string }>; is_error: boolean } => ({
+): ErrorResponse => ({
   content: [{ type: 'text', text }],
   is_error: true
 });
 
-// --- executeTool (Sr) --- EXPORT
-export async function executeTool(options: {
+interface ExecuteToolOptions {
   toolName: string;
-  args: any;
+  args: unknown;
   tabId?: number;
   tabGroupId?: number;
   clientId?: string;
@@ -927,9 +1059,12 @@ export async function executeTool(options: {
   allowedDomains?: string[];
   toolUseId?: string;
   handlePermissionPrompts?: boolean;
-  onPermissionRequired?: (permissionData: any, tabId: number) => Promise<boolean>;
-  messagesClient?: any;
-}): Promise<any> {
+  onPermissionRequired?: PermissionPromptHandler;
+  messagesClient?: MessagesClient | null;
+}
+
+// --- executeTool (Sr) --- EXPORT
+export async function executeTool(options: ExecuteToolOptions): Promise<ExecuteToolResponse> {
   const requestId = crypto.randomUUID();
   const clientId = options.clientId;
   const startTime = Date.now();
@@ -957,7 +1092,7 @@ export async function executeTool(options: {
   let tabId: number | undefined;
   let domain: string | undefined;
   let url: string | undefined;
-  let toolResult: any;
+  let toolResult: ExecuteToolResponse;
 
   try {
     const skipTabLookup =
@@ -1013,7 +1148,7 @@ export async function executeTool(options: {
       executor.context.messagesClient = options.messagesClient;
     }
 
-    const processOptions: any = {};
+    const processOptions: ToolExecutorProcessOptions = {};
 
     // Apply permissionMode for ALL callers (sidepanel, bridge, native-messaging).
     // The bundle's sidepanel creates its own PermissionManager with a dynamic callback
@@ -1029,16 +1164,20 @@ export async function executeTool(options: {
     }
 
     if ('bridge' === options.source || 'native-messaging' === options.source) {
-      if (options.handlePermissionPrompts && options.toolUseId) {
-        processOptions.onPermissionRequired = async (permissionData: any) =>
-          requestBridgePermission(options.toolUseId!, permissionData);
+      const bridgeToolUseId = options.toolUseId;
+      if (options.handlePermissionPrompts && bridgeToolUseId) {
+        processOptions.onPermissionRequired = async (permissionData: PermissionPromptRequest) =>
+          requestBridgePermission(bridgeToolUseId, permissionData);
       }
     } else if (options.onPermissionRequired) {
       // Custom inline handler (used by sidepanel for inline permission prompts)
       processOptions.onPermissionRequired = options.onPermissionRequired;
     } else if (options.handlePermissionPrompts) {
       // For sidepanel-originated calls: use the popup prompt handler
-      processOptions.onPermissionRequired = async (permissionData: any, permTabId: number) =>
+      processOptions.onPermissionRequired = async (
+        permissionData: PermissionPromptRequest,
+        permTabId: number
+      ) =>
         await showPermissionPrompt(permissionData, permTabId ?? tabId);
     }
 
@@ -1100,7 +1239,7 @@ export async function executeTool(options: {
 function createBridgePermissionManager(
   permissionMode?: string,
   allowedDomains?: string[]
-): any | undefined {
+): PermissionManagerClass | undefined {
   if (!permissionMode || 'ask' === permissionMode) return undefined;
   const skipAll = 'skip_all_permission_checks' === permissionMode;
   const manager = new PermissionManagerClass(() => skipAll, {});
@@ -1111,7 +1250,10 @@ function createBridgePermissionManager(
 }
 
 // --- Helper: requestBridgePermission ---
-function requestBridgePermission(toolUseId: string, permissionData: any): Promise<boolean> {
+function requestBridgePermission(
+  toolUseId: string,
+  permissionData: PermissionPromptRequest
+): Promise<boolean> {
   const requestId = crypto.randomUUID();
   return new Promise((resolve) => {
     pendingToolCalls.set(requestId, { resolve });
@@ -1133,7 +1275,7 @@ async function getTabRelationship(
 ): Promise<{
   isMainTab: boolean;
   isSecondaryTab: boolean;
-  group: any;
+  group: TabGroupRecord;
 }> {
   const isMainTab = tabId === mainTabId;
   await tabGroupManager.initialize();
@@ -1199,7 +1341,7 @@ function createDomainTransitionPermission(
   url: string,
   sourceTabId: number,
   isSecondaryTab: boolean
-): any {
+): PermissionPromptRequest {
   return {
     type: 'permission_required',
     tool: PermissionType.DOMAIN_TRANSITION,
@@ -1300,13 +1442,16 @@ export async function resetMcpState(): Promise<void> {
 let permissionPromptChain: Promise<boolean> = Promise.resolve(true);
 
 // --- showPermissionPrompt (Wr) ---
-async function showPermissionPrompt(permission: any, tabId: number): Promise<boolean> {
+async function showPermissionPrompt(permission: PermissionPromptRequest, tabId: number): Promise<boolean> {
   const next = permissionPromptChain.then(() => showPermissionPromptInner(permission, tabId));
   permissionPromptChain = next.catch(() => false);
   return next;
 }
 
-async function showPermissionPromptInner(permission: any, tabId: number): Promise<boolean> {
+async function showPermissionPromptInner(
+  permission: PermissionPromptRequest,
+  tabId: number
+): Promise<boolean> {
   const requestId = crypto.randomUUID();
   const startTime = Date.now();
   const existingTimeout = pendingPrefixTimeouts.get(tabId);
@@ -1353,9 +1498,9 @@ async function showPermissionPromptInner(permission: any, tabId: number): Promis
       resolve(allowed);
     };
 
-    const messageListener = (msg: any) => {
-      if ('MCP_PERMISSION_RESPONSE' === msg.type && msg.requestId === requestId) {
-        respond(msg.allowed);
+    const messageListener = (msg: unknown) => {
+      if (isRecord(msg) && 'MCP_PERMISSION_RESPONSE' === msg.type && msg.requestId === requestId) {
+        respond(msg.allowed === true);
       }
     };
 
@@ -1521,31 +1666,34 @@ const tabsUrlTool = navigateTool;
 const tabsWaitTool = waitTool;
 
 // Helper stubs for names referenced in the export block
-function formatTabGroupInfo(group: any): string {
+function formatTabGroupInfo(group: unknown): string {
   return JSON.stringify(group);
 }
 function getAnonymousIdForExport(): Promise<string> {
   return getOrCreateAnonymousId();
 }
-function getToolSchemas(tools: ToolDefinition[], context?: any): Promise<any[]> {
+function getToolSchemas(
+  tools: ToolDefinition[],
+  context?: ToolContext
+): Promise<ToolProviderSchema[]> {
   return toolsToProviderSchema(tools, context);
 }
 function getToolNames(tools: ToolDefinition[]): string[] {
   return tools.map((t) => t.name);
 }
-function getToolSchemasForMcp(): Promise<any[]> {
+function getToolSchemasForMcp(): Promise<ToolProviderSchema[]> {
   return toolsToProviderSchema(allTools);
 }
-function formatTabsForDisplay(tabs: any[]): string {
+function formatTabsForDisplay(tabs: ToolTabSummary[]): string {
   return formatTabsOutput(tabs);
 }
-function formatTabInfo(tab: any): string {
+function formatTabInfo(tab: ToolTabSummary): string {
   return `tabId ${tab.id}: "${tab.title}" (${tab.url})`;
 }
-function parseJsonArray(value: any): any[] {
+function parseJsonArray(value: unknown): unknown[] {
   return parseArrayInput(value);
 }
-function formatPermissions(permissions: any): string {
+function formatPermissions(permissions: unknown): string {
   return JSON.stringify(permissions);
 }
 

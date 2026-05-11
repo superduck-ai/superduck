@@ -6,6 +6,12 @@ interface SpeechSegment {
   isFinal: boolean;
 }
 
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+type SpeechRecognitionWindow = Window & {
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 interface UseSpeechRecognitionReturn {
   isRecording: boolean;
   speechSegments: SpeechSegment[];
@@ -55,7 +61,10 @@ export const useSpeechRecognition = (lang?: string): UseSpeechRecognitionReturn 
   useEffect(() => {
     if (!isSupported) return;
 
-    const SpeechRecognitionAPI = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const speechWindow = window as SpeechRecognitionWindow;
+    const SpeechRecognitionAPI =
+      speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) return;
     const recognition = new SpeechRecognitionAPI();
 
     recognition.continuous = true;

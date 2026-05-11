@@ -24,6 +24,42 @@ export interface CapturedScreenshotAttachment {
   isAnnotated?: boolean;
 }
 
+interface ScreenshotSelectionMessage {
+  type: 'SCREENSHOT_SELECTION';
+  cancelled?: boolean;
+  fullPage?: boolean;
+  region?: ScreenshotRegion;
+}
+
+interface CancelScreenshotOverlayMessage {
+  type: 'CANCEL_SCREENSHOT_OVERLAY';
+}
+
+type ScreenshotOverlayMessage = ScreenshotSelectionMessage | CancelScreenshotOverlayMessage;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isScreenshotRegion(value: unknown): value is ScreenshotRegion {
+  return (
+    isRecord(value) &&
+    typeof value.x === 'number' &&
+    typeof value.y === 'number' &&
+    typeof value.width === 'number' &&
+    typeof value.height === 'number' &&
+    (value.viewportWidth === undefined || typeof value.viewportWidth === 'number') &&
+    (value.viewportHeight === undefined || typeof value.viewportHeight === 'number')
+  );
+}
+
+function isScreenshotOverlayMessage(message: unknown): message is ScreenshotOverlayMessage {
+  return (
+    isRecord(message) &&
+    (message.type === 'SCREENSHOT_SELECTION' || message.type === 'CANCEL_SCREENSHOT_OVERLAY')
+  );
+}
+
 class ScreenshotCaptureManager {
   private static instance: ScreenshotCaptureManager | null = null;
 
@@ -213,7 +249,9 @@ class ScreenshotCaptureManager {
     instructionText = 'Click to capture screen or drag to select an area'
   ): Promise<ScreenshotRegion | null> {
     return new Promise((resolve) => {
-      const onMessage = (message: any, sender: chrome.runtime.MessageSender) => {
+      const onMessage = (message: unknown, sender: chrome.runtime.MessageSender) => {
+        if (!isScreenshotOverlayMessage(message)) return;
+
         if (sender.tab?.id === tabId && message.type === 'SCREENSHOT_SELECTION') {
           chrome.runtime.onMessage.removeListener(onMessage);
           if (message.cancelled) {
@@ -226,7 +264,7 @@ class ScreenshotCaptureManager {
             return;
           }
 
-          resolve(message.region as ScreenshotRegion);
+          resolve(isScreenshotRegion(message.region) ? message.region : null);
           return;
         }
 

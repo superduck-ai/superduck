@@ -41,7 +41,7 @@ describe('extractAppName', () => {
 describe('formatTabsOutput', () => {
   it('returns a placeholder when no tabs are provided', () => {
     expect(formatTabsOutput([])).toBe('No tabs available.');
-    expect(formatTabsOutput(null as unknown as never[])).toBe('No tabs available.');
+    expect(formatTabsOutput(null)).toBe('No tabs available.');
   });
 
   it('formats a list of tabs and marks the active one', () => {

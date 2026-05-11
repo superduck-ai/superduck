@@ -8,6 +8,7 @@ import {
   withSnapshotLock,
 } from './axSnapshot';
 import { registerRefsInPage, pruneStaleRefs } from './refBridge';
+import type { CdpRuntimeEvaluateResult, ConsoleMessage, NetworkRequest } from './cdpTypes';
 import {
   coerceToolInputTypes,
   filterAndApproveDomains,
@@ -31,8 +32,126 @@ import type {
   ToolContext,
   ToolDefinition,
   ToolResult,
-  ToolSchemaProperty
+  ToolSchemaProperty,
+  ToolTabSummary
 } from './pageToolsSupport/types';
+
+interface JavaScriptToolInput {
+  action: string;
+  text: string;
+  tabId?: number;
+}
+
+interface NavigateToolInput {
+  url: string;
+  tabId?: number;
+}
+
+interface InitialContextData {
+  availableTabs?: ToolTabSummary[];
+  domainSkills?: unknown[];
+  initialTabId?: number;
+}
+
+interface FindToolInput {
+  query: string;
+  tabId?: number;
+}
+
+interface GetPageTextToolInput {
+  tabId?: number;
+  max_chars?: number;
+}
+
+interface ReadPageToolInput {
+  filter?: 'interactive' | 'all';
+  tabId?: number;
+  depth?: number;
+  ref_id?: string;
+  max_chars?: number;
+  selector?: string;
+  diff?: boolean;
+  urls?: boolean;
+}
+
+interface ResizeWindowToolInput {
+  width?: number;
+  height?: number;
+  tabId?: number;
+}
+
+interface UpdatePlanToolInput {
+  domains: string[];
+  approach: string[];
+}
+
+interface ReadConsoleMessagesToolInput {
+  tabId?: number;
+  onlyErrors?: boolean;
+  clear?: boolean;
+  pattern?: string;
+  limit?: number;
+}
+
+interface ReadNetworkRequestsToolInput {
+  tabId?: number;
+  urlPattern?: string;
+  clear?: boolean;
+  limit?: number;
+}
+
+type EmptyToolInput = Record<string, never>;
+
+interface MainTextScriptResult {
+  text: string;
+  source: string;
+  title: string;
+  url: string;
+  error?: string;
+}
+
+interface ViewportDimensions {
+  width: number;
+  height: number;
+}
+
+interface ReadPageScriptResult {
+  pageContent: string;
+  viewport: ViewportDimensions;
+  error?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getScriptErrorMessage(error: unknown): string {
+  return isRecord(error) && typeof error.message === 'string' ? error.message : 'Unknown error';
+}
+
+function isViewportDimensions(value: unknown): value is ViewportDimensions {
+  return isRecord(value) && typeof value.width === 'number' && typeof value.height === 'number';
+}
+
+function isMainTextScriptResult(value: unknown): value is MainTextScriptResult {
+  return (
+    isRecord(value) &&
+    typeof value.text === 'string' &&
+    typeof value.source === 'string' &&
+    typeof value.title === 'string' &&
+    typeof value.url === 'string' &&
+    (value.error === undefined || typeof value.error === 'string')
+  );
+}
+
+function isReadPageScriptResult(value: unknown): value is ReadPageScriptResult {
+  return (
+    isRecord(value) &&
+    typeof value.pageContent === 'string' &&
+    isViewportDimensions(value.viewport) &&
+    (value.error === undefined || typeof value.error === 'string')
+  );
+}
 
 // read_page snapshot diff cache: per-(session, tab) baseline for diff:true.
 // 必须按 sessionId 隔离 — 否则两个 sidepanel/agent 共用同一 tab 时会互相污染
@@ -42,7 +161,7 @@ import type {
 // against current tab.url and treats a mismatch as no baseline.
 // variantKey 把会改变快照形态的参数（filter/depth/maxChars/urls）打进 key，
 // 防止"先 interactive 再 diff:true"读到不同形态当同基线，产生大量伪 diff。
-const javascriptTool: ToolDefinition = {
+const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
   name: 'javascript_tool',
   description:
     "Execute JavaScript code in the context of the current page. The code runs in the page's context and can interact with the DOM, window object, and page variables. Returns the result of the last expression or any thrown errors. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -59,7 +178,7 @@ const javascriptTool: ToolDefinition = {
         "Tab ID to execute the code in. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const { action, text: code, tabId } = input;
       if ('javascript_exec' !== action)
@@ -100,18 +219,22 @@ const javascriptTool: ToolDefinition = {
         })()
       `;
 
-      const evalResult = await cdpDebugger.sendCommand(effectiveTabId, 'Runtime.evaluate', {
-        expression: wrappedCode,
-        returnByValue: true,
-        awaitPromise: true,
-        timeout: 10000
-      });
+      const evalResult = await cdpDebugger.sendCommand<CdpRuntimeEvaluateResult>(
+        effectiveTabId,
+        'Runtime.evaluate',
+        {
+          expression: wrappedCode,
+          returnByValue: true,
+          awaitPromise: true,
+          timeout: 10000
+        }
+      );
 
       let output = '';
       let isError = false;
       let errorMessage = '';
 
-      const sanitizeValue = (value: any, depth: number = 0): any => {
+      const sanitizeValue = (value: unknown, depth: number = 0): unknown => {
         if (depth > 5) return '[TRUNCATED: Max depth exceeded]';
         const sensitivePatterns = [
           /password/i,
@@ -136,7 +259,7 @@ const javascriptTool: ToolDefinition = {
           if (value.length > 1000) return value.substring(0, 1000) + '[TRUNCATED]';
         }
         if (value && 'object' === typeof value && !Array.isArray(value)) {
-          const sanitized: Record<string, any> = {};
+          const sanitized: Record<string, unknown> = {};
           for (const [key, val] of Object.entries(value)) {
             const isSensitive = sensitivePatterns.some((p) => p.test(key));
             sanitized[key] = isSensitive
@@ -161,9 +284,10 @@ const javascriptTool: ToolDefinition = {
         isError = true;
         const exception = evalResult.exceptionDetails.exception;
         const isTimeout = exception?.description?.includes('execution was terminated');
+        const exceptionValue = typeof exception?.value === 'string' ? exception.value : undefined;
         errorMessage = isTimeout
           ? 'Execution timeout: Code exceeded 10-second limit'
-          : exception?.description || exception?.value || 'Unknown error';
+          : exception?.description || exceptionValue || 'Unknown error';
       } else if (evalResult.result) {
         const result = evalResult.result;
         if ('undefined' === result.type) {
@@ -251,7 +375,7 @@ const javascriptTool: ToolDefinition = {
 // Tool: navigate (ae)
 // =============================================================================
 
-const navigateTool: ToolDefinition = {
+const navigateTool: ToolDefinition<NavigateToolInput> = {
   name: 'navigate',
   description:
     "Navigate to a URL in an existing tab, or go forward/back in browser history. PREFERRED: Always use this tool to navigate to URLs instead of creating new tabs. This keeps all operations in the current tab. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -267,7 +391,7 @@ const navigateTool: ToolDefinition = {
         "Tab ID to navigate. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const { url, tabId } = input;
       if (!url) throw new Error('URL parameter is required');
@@ -436,14 +560,10 @@ function detectApp(url: string): string | undefined {
   }
 }
 
-function formatInitialContext(contextData: {
-  availableTabs?: any[];
-  domainSkills?: any[];
-  initialTabId?: number;
-}): string {
-  const result: Record<string, any> = {};
+function formatInitialContext(contextData: InitialContextData): string {
+  const result: Record<string, unknown> = {};
   if (contextData.availableTabs) {
-    result.availableTabs = contextData.availableTabs.map((tab: any) => ({
+    result.availableTabs = contextData.availableTabs.map((tab) => ({
       tabId: tab.id,
       title: tab.title,
       url: tab.url
@@ -462,7 +582,7 @@ function stripSystemReminders(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim();
 }
 
-const findTool: ToolDefinition = {
+const findTool: ToolDefinition<FindToolInput> = {
   name: 'find',
   description:
     'Find elements on the page using natural language. Can search for elements by their purpose (e.g., "search bar", "login button") or by text content (e.g., "organic mango product"). Returns up to 20 matching elements with references that can be used with other tools. If more than 20 matches exist, you\'ll be notified to use a more specific query. If you don\'t have a valid tab ID, use tabs_context first to get available tabs.',
@@ -479,7 +599,7 @@ const findTool: ToolDefinition = {
         "Tab ID to search in. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const { query, tabId } = input;
       if (!query) throw new Error('Query parameter is required');
@@ -488,6 +608,7 @@ const findTool: ToolDefinition = {
       const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+      const trackedTabId = tab.id;
       const tabUrl = tab.url;
       if (!tabUrl) throw new Error('No URL available for active tab');
 
@@ -506,11 +627,14 @@ const findTool: ToolDefinition = {
       }
 
       const treeResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id! },
+        target: { tabId: trackedTabId },
         func: () => {
-          if ('function' !== typeof (window as any).__generateAccessibilityTree)
+          const pageWindow = window as Window & {
+            __generateAccessibilityTree?: (filterArg?: string | null) => unknown;
+          };
+          if ('function' !== typeof pageWindow.__generateAccessibilityTree)
             throw new Error('Accessibility tree function not found. Please refresh the page.');
-          return (window as any).__generateAccessibilityTree('all');
+          return pageWindow.__generateAccessibilityTree('all');
         },
         args: []
       });
@@ -518,9 +642,7 @@ const findTool: ToolDefinition = {
       if (!treeResult || 0 === treeResult.length)
         throw new Error('No results returned from page script');
       if ('error' in treeResult[0] && treeResult[0].error)
-        throw new Error(
-          `Script execution failed: ${(treeResult[0].error as any).message || 'Unknown error'}`
-        );
+        throw new Error(`Script execution failed: ${getScriptErrorMessage(treeResult[0].error)}`);
       if (!treeResult[0].result) throw new Error('Page script returned empty result');
 
       const pageData = treeResult[0].result;
@@ -648,7 +770,7 @@ const findTool: ToolDefinition = {
 // Tool: get_page_text (xe)
 // =============================================================================
 
-const getPageTextTool: ToolDefinition = {
+const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
   name: 'get_page_text',
   description:
     "Extract raw text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default.",
@@ -664,7 +786,7 @@ const getPageTextTool: ToolDefinition = {
         'Maximum characters for output (default: 50000). Set to a higher value if your client can handle large outputs.'
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     const { tabId, max_chars: maxChars } = input || {};
     if (!context?.tabId) throw new Error('No active tab found');
 
@@ -777,12 +899,13 @@ const getPageTextTool: ToolDefinition = {
           'No main text content found. The content might be visual content only, or rendered in a canvas element.'
         );
       if ('error' in scriptResult[0] && scriptResult[0].error)
-        throw new Error(
-          `Script execution failed: ${(scriptResult[0].error as any).message || 'Unknown error'}`
-        );
+        throw new Error(`Script execution failed: ${getScriptErrorMessage(scriptResult[0].error)}`);
       if (!scriptResult[0].result) throw new Error('Page script returned empty result');
 
-      const result = scriptResult[0].result as any;
+      const result = scriptResult[0].result;
+      if (!isMainTextScriptResult(result)) {
+        throw new Error('Page script returned unexpected result');
+      }
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
 
       if (result.error) {
@@ -840,7 +963,7 @@ const getPageTextTool: ToolDefinition = {
 // Tool: read_page (Ue)
 // =============================================================================
 
-const readPageTool: ToolDefinition = {
+const readPageTool: ToolDefinition<ReadPageToolInput> = {
   name: 'read_page',
   description:
     "Get an accessibility tree representation of elements on the page. By default returns all elements including non-visible ones. Can optionally filter for only interactive elements, limit tree depth, or focus on a specific element. Returns a structured tree that represents how screen readers see the page content. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters - if exceeded, specify a depth limit or ref_id/selector to focus on a specific element. After an interaction (click/fill/scroll), prefer diff:true to receive only the changes since the last read_page (saves tokens in long agent loops). Use selector to scope a snapshot to a CSS-selected subtree (faster and smaller than reading the whole page).",
@@ -887,7 +1010,7 @@ const readPageTool: ToolDefinition = {
         'If true, resolve href for each link element and include it as [url=...] in the output. Adds one CDP round-trip per link; skip on pages with many links unless you need the targets.'
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     const {
       filter,
       tabId,
@@ -906,8 +1029,10 @@ const readPageTool: ToolDefinition = {
     const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
     const tab = await chrome.tabs.get(effectiveTabId);
     if (!tab.id) throw new Error('Active tab has no ID');
+    const trackedTabId = tab.id;
     const tabUrl = tab.url;
     if (!tabUrl) throw new Error('No URL available for active tab');
+    const readFilter = filter ?? 'all';
 
     const toolUseId = context?.toolUseId;
     const permissionResult = await context.permissionManager.checkPermission(tabUrl, toolUseId);
@@ -941,7 +1066,10 @@ const readPageTool: ToolDefinition = {
               const [counterResult, vpResult] = await Promise.all([
                 chrome.scripting.executeScript({
                   target: { tabId: effectiveTabId, allFrames: true },
-                  func: () => (window as any).__superduckRefCounter || 0,
+                  func: () => {
+                    const pageWindow = window as Window & { __superduckRefCounter?: number };
+                    return pageWindow.__superduckRefCounter || 0;
+                  },
                 }),
                 chrome.scripting.executeScript({
                   target: { tabId: effectiveTabId },
@@ -950,14 +1078,16 @@ const readPageTool: ToolDefinition = {
               ]);
               const currentRefCounter = Math.max(
                 0,
-                ...counterResult.map(r => (r.result as number) || 0)
+                ...counterResult.map((result) =>
+                  typeof result.result === 'number' ? result.result : 0
+                )
               );
 
               const snapshotResult = await takeSnapshotUnlocked(effectiveTabId, {
-                filter: (filter as 'all' | 'interactive') || 'all',
+                filter: readFilter,
                 depth: depth ?? 15,
                 maxChars: maxChars ?? 50000,
-                compact: filter === 'interactive',
+                compact: readFilter === 'interactive',
                 startRef: currentRefCounter,
                 selector: typeof selector === 'string' && selector ? selector : undefined,
                 urls: urlsOpt === true,
@@ -967,7 +1097,9 @@ const readPageTool: ToolDefinition = {
                 await registerRefsInPage(effectiveTabId, snapshotResult.refMappings);
               }
 
-              const viewport = vpResult?.[0]?.result ?? { width: 0, height: 0 };
+              const viewport = isViewportDimensions(vpResult?.[0]?.result)
+                ? vpResult[0].result
+                : { width: 0, height: 0 };
               return { snapshotResult, viewport };
             });
 
@@ -976,7 +1108,7 @@ const readPageTool: ToolDefinition = {
 
             let outputContent = lockedResult.snapshotResult.content;
             const variantKey = snapshotVariantKey({
-              filter: (filter as 'all' | 'interactive') || 'all',
+              filter: readFilter,
               depth: depth ?? 15,
               maxChars: maxChars ?? 50000,
               urls: urlsOpt === true,
@@ -1019,16 +1151,24 @@ const readPageTool: ToolDefinition = {
 
       // 降级路径：使用 content script 方式（ref_id 查询也走此路径）
       const scriptResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id! },
+        target: { tabId: trackedTabId },
         func: (
           filterArg: string | null,
           depthArg: number | null,
           maxCharsArg: number,
           refIdArg: string | null
         ) => {
-          if ('function' !== typeof (window as any).__generateAccessibilityTree)
+          const pageWindow = window as Window & {
+            __generateAccessibilityTree?: (
+              filterArg: string | null,
+              depthArg: number | null,
+              maxCharsArg: number,
+              refIdArg: string | null
+            ) => unknown;
+          };
+          if ('function' !== typeof pageWindow.__generateAccessibilityTree)
             throw new Error('Accessibility tree function not found. Please refresh the page.');
-          return (window as any).__generateAccessibilityTree(
+          return pageWindow.__generateAccessibilityTree(
             filterArg,
             depthArg,
             maxCharsArg,
@@ -1040,12 +1180,13 @@ const readPageTool: ToolDefinition = {
       if (!scriptResult || 0 === scriptResult.length)
         throw new Error('No results returned from page script');
       if ('error' in scriptResult[0] && scriptResult[0].error)
-        throw new Error(
-          `Script execution failed: ${(scriptResult[0].error as any).message || 'Unknown error'}`
-        );
+        throw new Error(`Script execution failed: ${getScriptErrorMessage(scriptResult[0].error)}`);
       if (!scriptResult[0].result) throw new Error('Page script returned empty result');
 
-      const result = scriptResult[0].result as any;
+      const result = scriptResult[0].result;
+      if (!isReadPageScriptResult(result)) {
+        throw new Error('Page script returned unexpected result');
+      }
       if (result.error) return { error: result.error };
 
       const viewportInfo = `Viewport: ${result.viewport.width}x${result.viewport.height}`;
@@ -1126,7 +1267,7 @@ const readPageTool: ToolDefinition = {
 // Tool: resize_window (Pe)
 // =============================================================================
 
-const resizeWindowTool: ToolDefinition = {
+const resizeWindowTool: ToolDefinition<ResizeWindowToolInput> = {
   name: 'resize_window',
   description:
     "Resize the current browser window to specified dimensions. Useful for testing responsive designs or setting up specific screen sizes. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -1139,7 +1280,7 @@ const resizeWindowTool: ToolDefinition = {
         "Tab ID to get the window for. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const { width, height, tabId } = input;
       if (!width || !height) throw new Error('Both width and height parameters are required');
@@ -1195,11 +1336,11 @@ const resizeWindowTool: ToolDefinition = {
 
 const MCP_NATIVE_SESSION = 'mcp-native-session';
 
-const tabsContextTool: ToolDefinition = {
+const tabsContextTool: ToolDefinition<EmptyToolInput> = {
   name: 'tabs_context',
   description: 'Get context information about all tabs in the current tab group',
   parameters: {},
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (_input, context): Promise<ToolResult> => {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
 
@@ -1244,11 +1385,11 @@ const tabsContextTool: ToolDefinition = {
 // Tool: tabs_create (Be)
 // =============================================================================
 
-const tabsCreateTool: ToolDefinition = {
+const tabsCreateTool: ToolDefinition<EmptyToolInput> = {
   name: 'tabs_create',
   description: 'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
   parameters: {},
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (_input, context): Promise<ToolResult> => {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
 
@@ -1297,7 +1438,7 @@ const turnAnswerStartSchema: {
   required: []
 };
 
-const turnAnswerStartTool: ToolDefinition = {
+const turnAnswerStartTool: ToolDefinition<EmptyToolInput> = {
   name: 'turn_answer_start',
   description:
     'Call this immediately before your text response to the user for this turn. Required every turn - whether or not you made tool calls. After calling, write your response. No more tools after this.',
@@ -1340,19 +1481,21 @@ const updatePlanInputSchema: {
   required: ['domains', 'approach']
 };
 
-const updatePlanTool: ToolDefinition = {
+const updatePlanTool: ToolDefinition<UpdatePlanToolInput> = {
   name: 'update_plan',
   description:
     'Present a plan to the user for approval before taking actions. The user will see the domains you intend to visit and your approach. Once approved, you can proceed with actions on the approved domains without additional permission prompts.',
   parameters: updatePlanInputSchema.properties,
-  async execute(input: any, context: ToolContext): Promise<ToolResult> {
-    const validationError = (function validatePlan(plan: any) {
-      const planData = plan;
+  async execute(input, context): Promise<ToolResult> {
+    const validationError = (function validatePlan(plan: UpdatePlanToolInput | Record<string, unknown>) {
+      const planData = isRecord(plan) ? plan : {};
+      const domains = planData.domains;
+      const approach = planData.approach;
       const errors: Record<string, string> = {};
-      if (!planData.domains || !Array.isArray(planData.domains)) {
+      if (!Array.isArray(domains)) {
         errors.domains = 'Required field missing or not an array';
       }
-      if (!planData.approach || !Array.isArray(planData.approach)) {
+      if (!Array.isArray(approach)) {
         errors.approach = 'Required field missing or not an array';
       }
       if (Object.keys(errors).length > 0) {
@@ -1393,17 +1536,18 @@ const updatePlanTool: ToolDefinition = {
       actionData: { plan: { domains: domainsWithCategories, approach } }
     };
   },
-  setPromptsConfig(config: any) {
-    if (config.toolDescription) {
+  setPromptsConfig(config: Record<string, unknown>) {
+    if (typeof config.toolDescription === 'string') {
       this.description = config.toolDescription;
     }
-    if (config.inputPropertyDescriptions) {
+    if (isRecord(config.inputPropertyDescriptions)) {
+      const inputPropertyDescriptions = config.inputPropertyDescriptions;
       const props = updatePlanInputSchema.properties;
-      if (config.inputPropertyDescriptions.domains) {
-        props.domains.description = config.inputPropertyDescriptions.domains;
+      if (typeof inputPropertyDescriptions.domains === 'string') {
+        props.domains.description = inputPropertyDescriptions.domains;
       }
-      if (config.inputPropertyDescriptions.approach) {
-        props.approach.description = config.inputPropertyDescriptions.approach;
+      if (typeof inputPropertyDescriptions.approach === 'string') {
+        props.approach.description = inputPropertyDescriptions.approach;
       }
     }
   },
@@ -1421,7 +1565,7 @@ const updatePlanTool: ToolDefinition = {
 // Tool: read_console_messages (De)
 // =============================================================================
 
-const readConsoleMessagesTool: ToolDefinition = {
+const readConsoleMessagesTool: ToolDefinition<ReadConsoleMessagesToolInput> = {
   name: 'read_console_messages',
   description:
     "Read browser console messages (console.log, console.error, console.warn, etc.) from a specific tab. Useful for debugging JavaScript errors, viewing application logs, or understanding what's happening in the browser console. Returns console messages from the current domain only. If you don't have a valid tab ID, use tabs_context first to get available tabs. IMPORTANT: Always provide a pattern to filter messages - without a pattern, you may get too many irrelevant messages.",
@@ -1451,7 +1595,7 @@ const readConsoleMessagesTool: ToolDefinition = {
       required: false
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const { tabId, onlyErrors = false, clear = false, pattern, limit = 100 } = input;
       if (!context?.tabId) throw new Error('No active tab found');
@@ -1459,6 +1603,7 @@ const readConsoleMessagesTool: ToolDefinition = {
       const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+      const trackedTabId = tab.id;
       const tabUrl = tab.url;
       if (!tabUrl) throw new Error('No URL available for active tab');
 
@@ -1477,13 +1622,13 @@ const readConsoleMessagesTool: ToolDefinition = {
       }
 
       try {
-        await cdpDebugger.enableConsoleTracking(tab.id!);
+        await cdpDebugger.enableConsoleTracking(trackedTabId);
       } catch {
         // ignore
       }
 
-      const messages = cdpDebugger.getConsoleMessages(tab.id!, onlyErrors, pattern);
-      if (clear) cdpDebugger.clearConsoleMessages(tab.id!);
+      const messages = cdpDebugger.getConsoleMessages(trackedTabId, onlyErrors, pattern);
+      if (clear) cdpDebugger.clearConsoleMessages(trackedTabId);
 
       if (0 === messages.length) {
         return {
@@ -1501,7 +1646,7 @@ const readConsoleMessagesTool: ToolDefinition = {
       const hasMore = messages.length > limit;
 
       const formatted = limitedMessages
-        .map((msg: any, idx: number) => {
+        .map((msg: ConsoleMessage, idx: number) => {
           const time = new Date(msg.timestamp).toLocaleTimeString();
           const location =
             msg.url && void 0 !== msg.lineNumber
@@ -1575,7 +1720,7 @@ const readConsoleMessagesTool: ToolDefinition = {
 // Tool: read_network_requests (Re)
 // =============================================================================
 
-const readNetworkRequestsTool: ToolDefinition = {
+const readNetworkRequestsTool: ToolDefinition<ReadNetworkRequestsToolInput> = {
   name: 'read_network_requests',
   description:
     "Read HTTP network requests (XHR, Fetch, documents, images, etc.) from a specific tab. Useful for debugging API calls, monitoring network activity, or understanding what requests a page is making. Returns all network requests made by the current page, including cross-origin requests. Requests are automatically cleared when the page navigates to a different domain. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -1605,7 +1750,7 @@ const readNetworkRequestsTool: ToolDefinition = {
       required: false
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       const { tabId, urlPattern, clear = false, limit = 100 } = input;
       if (!context?.tabId) throw new Error('No active tab found');
@@ -1613,6 +1758,7 @@ const readNetworkRequestsTool: ToolDefinition = {
       const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+      const trackedTabId = tab.id;
       const tabUrl = tab.url;
       if (!tabUrl) throw new Error('No URL available for active tab');
 
@@ -1631,13 +1777,13 @@ const readNetworkRequestsTool: ToolDefinition = {
       }
 
       try {
-        await cdpDebugger.enableNetworkTracking(tab.id!);
+        await cdpDebugger.enableNetworkTracking(trackedTabId);
       } catch {
         // ignore
       }
 
-      const requests = cdpDebugger.getNetworkRequests(tab.id!, urlPattern);
-      if (clear) cdpDebugger.clearNetworkRequests(tab.id!);
+      const requests = cdpDebugger.getNetworkRequests(trackedTabId, urlPattern);
+      if (clear) cdpDebugger.clearNetworkRequests(trackedTabId);
 
       if (0 === requests.length) {
         let requestType = 'network requests';
@@ -1657,7 +1803,7 @@ const readNetworkRequestsTool: ToolDefinition = {
       const hasMore = requests.length > limit;
 
       const formatted = limitedRequests
-        .map((req: any, idx: number) => {
+        .map((req: NetworkRequest, idx: number) => {
           const status = req.status || 'pending';
           return `${idx + 1}. url: ${req.url}\n   method: ${req.method}\n   statusCode: ${status}`;
         })

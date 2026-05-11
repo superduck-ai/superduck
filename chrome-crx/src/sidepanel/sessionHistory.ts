@@ -1,6 +1,17 @@
 import type { ApiConversationMessage } from '../messageTypes';
 import { isRecord, isTextContentBlock, isToolUseContentBlock } from '../messageTypes';
 
+function isApiUsage(value: unknown): value is ApiConversationMessage['usage'] {
+  return (
+    isRecord(value) &&
+    typeof value.input_tokens === 'number' &&
+    typeof value.output_tokens === 'number' &&
+    (value.cache_creation_input_tokens === null ||
+      typeof value.cache_creation_input_tokens === 'number') &&
+    (value.cache_read_input_tokens === null || typeof value.cache_read_input_tokens === 'number')
+  );
+}
+
 export function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
@@ -44,9 +55,7 @@ export function normalizeHistoricalMessage(raw: unknown): ApiConversationMessage
       role: raw.role,
       content,
       ...(typeof raw.id === 'string' ? { id: raw.id } : {}),
-      ...(isRecord(raw.usage)
-        ? { usage: raw.usage as unknown as ApiConversationMessage['usage'] }
-        : {}),
+      ...(isApiUsage(raw.usage) ? { usage: raw.usage } : {}),
       ...(typeof raw.stop_reason === 'string'
         ? { stop_reason: raw.stop_reason as ApiConversationMessage['stop_reason'] }
         : {})

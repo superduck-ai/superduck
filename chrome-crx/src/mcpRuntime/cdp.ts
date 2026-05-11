@@ -18,6 +18,7 @@ import {
   setDebuggerListenerRegistered
 } from './cdpState';
 import type {
+  CdpCaptureScreenshotResult,
   ClickOptions,
   ConsoleMessage,
   ConsoleTabData,
@@ -34,6 +35,77 @@ import type {
 // =============================================================================
 // CDP Section - Chrome Debugger Protocol
 // =============================================================================
+
+interface DebuggerRemoteObject {
+  value?: unknown;
+  description?: string;
+}
+
+interface DebuggerCallFrame {
+  functionName?: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+}
+
+interface ConsoleApiCalledParams {
+  type?: string;
+  args?: DebuggerRemoteObject[];
+  timestamp?: number;
+  stackTrace?: {
+    callFrames?: DebuggerCallFrame[];
+  };
+}
+
+interface ExceptionDetails {
+  exception?: {
+    description?: string;
+  };
+  text?: string;
+  timestamp?: number;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  stackTrace?: {
+    callFrames?: DebuggerCallFrame[];
+  };
+}
+
+interface ExceptionThrownParams {
+  exceptionDetails?: ExceptionDetails;
+}
+
+interface RequestWillBeSentParams {
+  requestId: string;
+  request: {
+    url: string;
+    method: string;
+  };
+  documentURL?: string;
+}
+
+interface ResponseReceivedParams {
+  requestId: string;
+  response: {
+    status?: number;
+  };
+}
+
+interface LoadingFailedParams {
+  requestId: string;
+}
+
+type DispatchMouseEventParams = {
+  type: string;
+  x: number;
+  y: number;
+  modifiers: number;
+  button?: string;
+  clickCount?: number;
+  buttons?: number;
+  deltaX?: number;
+  deltaY?: number;
+};
 
 // --- ChromeDebuggerProtocol class (J) ---
 class ChromeDebuggerProtocol {
@@ -78,29 +150,30 @@ class ChromeDebuggerProtocol {
       globalThis.__cdpDebuggerEventHandler = (
         source: chrome.debugger.Debuggee,
         method: string,
-        params: any
+        params: unknown
       ) => {
         const tabId = source.tabId;
         if (!tabId) return;
 
         if ('Runtime.consoleAPICalled' === method) {
+          const consoleParams = params as ConsoleApiCalledParams;
           const message: ConsoleMessage = {
-            type: params.type || 'log',
-            text: params.args
-              ?.map((arg: any) =>
+            type: consoleParams.type || 'log',
+            text: consoleParams.args
+              ?.map((arg) =>
                 void 0 !== arg.value ? String(arg.value) : arg.description || ''
               )
-              .join(' '),
-            timestamp: params.timestamp || Date.now(),
-            url: params.stackTrace?.callFrames?.[0]?.url,
-            lineNumber: params.stackTrace?.callFrames?.[0]?.lineNumber,
-            columnNumber: params.stackTrace?.callFrames?.[0]?.columnNumber,
-            args: params.args
+              .join(' ') || '',
+            timestamp: consoleParams.timestamp || Date.now(),
+            url: consoleParams.stackTrace?.callFrames?.[0]?.url,
+            lineNumber: consoleParams.stackTrace?.callFrames?.[0]?.lineNumber,
+            columnNumber: consoleParams.stackTrace?.callFrames?.[0]?.columnNumber,
+            args: consoleParams.args
           };
           const domain = this.extractDomain(message.url);
           this.addConsoleMessage(tabId, domain, message);
         } else if ('Runtime.exceptionThrown' === method) {
-          const exceptionDetails = params.exceptionDetails;
+          const exceptionDetails = (params as ExceptionThrownParams).exceptionDetails;
           const exceptionMessage: ConsoleMessage = {
             type: 'exception',
             text:
@@ -113,7 +186,7 @@ class ChromeDebuggerProtocol {
             columnNumber: exceptionDetails?.columnNumber,
             stackTrace: exceptionDetails?.stackTrace?.callFrames
               ?.map(
-                (frame: any) =>
+                (frame) =>
                   `    at ${frame.functionName || '<anonymous>'} (${frame.url}:${frame.lineNumber}:${frame.columnNumber})`
               )
               .join('\n')
@@ -121,9 +194,10 @@ class ChromeDebuggerProtocol {
           const domain = this.extractDomain(exceptionMessage.url);
           this.addConsoleMessage(tabId, domain, exceptionMessage);
         } else if ('Network.requestWillBeSent' === method) {
-          const requestId = params.requestId;
-          const request = params.request;
-          const documentURL = params.documentURL;
+          const requestParams = params as RequestWillBeSentParams;
+          const requestId = requestParams.requestId;
+          const request = requestParams.request;
+          const documentURL = requestParams.documentURL;
           const networkRequest: NetworkRequest = {
             requestId,
             url: request.url,
@@ -133,8 +207,9 @@ class ChromeDebuggerProtocol {
           const domain = this.extractDomain(pageUrl);
           this.addNetworkRequest(tabId, domain, networkRequest);
         } else if ('Network.responseReceived' === method) {
-          const requestId = params.requestId;
-          const response = params.response;
+          const responseParams = params as ResponseReceivedParams;
+          const requestId = responseParams.requestId;
+          const response = responseParams.response;
           const tabData = ChromeDebuggerProtocol.networkRequestsByTab.get(tabId);
           if (tabData) {
             const matchingRequest = tabData.requestMap.get(requestId);
@@ -143,7 +218,7 @@ class ChromeDebuggerProtocol {
             }
           }
         } else if ('Network.loadingFailed' === method) {
-          const requestId = params.requestId;
+          const requestId = (params as LoadingFailedParams).requestId;
           const tabData = ChromeDebuggerProtocol.networkRequestsByTab.get(tabId);
           if (tabData) {
             const matchingRequest = tabData.requestMap.get(requestId);
@@ -277,9 +352,13 @@ class ChromeDebuggerProtocol {
     });
   }
 
-  async sendCommand(tabId: number, method: string, params?: any): Promise<any> {
-    try {
-      return await new Promise((resolve, reject) => {
+  async sendCommand<TResult extends object | undefined = object | undefined>(
+    tabId: number,
+    method: string,
+    params?: Record<string, unknown>
+  ): Promise<TResult> {
+    const executeCommand = () =>
+      new Promise<object | undefined>((resolve, reject) => {
         chrome.debugger.sendCommand({ tabId }, method, params, (result) => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
@@ -288,26 +367,21 @@ class ChromeDebuggerProtocol {
           }
         });
       });
+
+    try {
+      return (await executeCommand()) as TResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.toLowerCase().includes('debugger is not attached')) {
         await this.attachDebugger(tabId);
-        return new Promise((resolve, reject) => {
-          chrome.debugger.sendCommand({ tabId }, method, params, (result) => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve(result);
-            }
-          });
-        });
+        return (await executeCommand()) as TResult;
       }
       throw error;
     }
   }
 
   async dispatchMouseEvent(tabId: number, eventParams: MouseEventParams): Promise<void> {
-    const params: any = {
+    const params: DispatchMouseEventParams = {
       type: eventParams.type,
       x: Math.round(eventParams.x),
       y: Math.round(eventParams.y),
@@ -742,12 +816,16 @@ class ChromeDebuggerProtocol {
         devicePixelRatio
       } = scriptResults[0].result;
 
-      const captureResult = await this.sendCommand(tabId, 'Page.captureScreenshot', {
+      const captureResult = await this.sendCommand<CdpCaptureScreenshotResult>(
+        tabId,
+        'Page.captureScreenshot',
+        {
         format,
         ...((format === 'jpeg' || format === 'webp') && { quality }),
         captureBeyondViewport: false,
         fromSurface: true
-      });
+        }
+      );
 
       if (!captureResult || !captureResult.data) {
         throw new Error('Failed to capture screenshot via CDP');

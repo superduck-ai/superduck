@@ -18,7 +18,9 @@ import {
   turnAnswerStartTool,
   updatePlanTool,
   uploadImageTool,
-  type ToolDefinition
+  type ToolContext,
+  type ToolDefinition,
+  type ToolResult
 } from '../browserAutomation';
 import { superduckTools, superduckToolNames } from '../superduckTools';
 
@@ -30,6 +32,14 @@ interface ShortcutLookupArgs {
   shortcutId?: string;
   command?: string;
 }
+
+type ShortcutRecord = NonNullable<Awaited<ReturnType<typeof promptManager.getPromptById>>>;
+type RuntimeToolExecute = {
+  bivarianceHack(input: unknown, context: ToolContext): Promise<ToolResult>;
+}['bivarianceHack'];
+type ToolRegistryEntry = Omit<ToolDefinition<unknown, ToolResult>, 'execute'> & {
+  execute: RuntimeToolExecute;
+};
 
 async function executeShortcutTask(options: {
   tabId: number;
@@ -256,7 +266,7 @@ const shortcutsListTool: ToolDefinition = {
   parameters: {},
   execute: async () => {
     try {
-      const allPrompts = (await promptManager.getAllPrompts()).map((p: any) => ({
+      const allPrompts = (await promptManager.getAllPrompts()).map((p) => ({
         id: p.id,
         ...(p.command && { command: p.command }),
         ...(p.type && { type: p.type }),
@@ -312,7 +322,7 @@ const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
       if (!shortcutId && !command) {
         return { error: 'Either shortcutId or command is required.' };
       }
-      let shortcut: any;
+      let shortcut: ShortcutRecord | null = null;
       if (shortcutId) {
         shortcut = await promptManager.getPromptById(shortcutId);
       }
@@ -397,7 +407,7 @@ const shortcutsExecuteTool: ToolDefinition<ShortcutLookupArgs> = {
         return {
           error: 'No tab context available. Cannot execute shortcut without a target tab.'
         };
-      let shortcut: any;
+      let shortcut: ShortcutRecord | null = null;
       if (shortcutId) {
         shortcut = await promptManager.getPromptById(shortcutId);
       } else if (command) {
@@ -461,9 +471,9 @@ const shortcutsExecuteTool: ToolDefinition<ShortcutLookupArgs> = {
   })
 };
 
-let _allTools: Array<ToolDefinition<any>> | null = null;
+let _allTools: ToolRegistryEntry[] | null = null;
 
-export function getAllTools(): Array<ToolDefinition<any>> {
+export function getAllTools(): ToolRegistryEntry[] {
   if (!_allTools) {
     _allTools = [
       javascriptTool,
@@ -493,7 +503,7 @@ export function getAllTools(): Array<ToolDefinition<any>> {
   return _allTools;
 }
 
-export const allTools: Array<ToolDefinition<any>> = [
+export const allTools: ToolRegistryEntry[] = [
   javascriptTool,
   navigateTool,
   computerTool,

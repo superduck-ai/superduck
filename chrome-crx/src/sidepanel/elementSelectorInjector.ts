@@ -15,7 +15,13 @@ interface ElementInfo {
   };
 }
 
-interface CapturedEvent {
+export interface TypedElementInfo {
+  tagName: string;
+  selector: string;
+  name: string;
+}
+
+export interface CapturedEvent {
   element: ElementInfo;
   url: string;
   timestamp: number;
@@ -24,11 +30,35 @@ interface CapturedEvent {
   viewportHeight: number;
   clickCoordinates?: { x: number; y: number };
   typedText?: string;
-  typedInElement?: {
-    tagName: string;
-    selector: string;
-    name: string;
-  };
+  typedInElement?: TypedElementInfo;
+}
+
+type ElementSelectionMessage = {
+  type: 'ELEMENT_SELECTION';
+  cancelled?: boolean;
+  elementInfo?: ElementInfo;
+  url?: string;
+  viewportWidth?: number;
+  viewportHeight?: number;
+  clickCoordinates?: { x: number; y: number };
+  typedText?: string;
+  typedInElement?: TypedElementInfo;
+};
+
+type CancelElementSelectorMessage = {
+  type: 'CANCEL_ELEMENT_SELECTOR';
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isCancelElementSelectorMessage(message: unknown): message is CancelElementSelectorMessage {
+  return isRecord(message) && message.type === 'CANCEL_ELEMENT_SELECTOR';
+}
+
+function isElementSelectionMessage(message: unknown): message is ElementSelectionMessage {
+  return isRecord(message) && message.type === 'ELEMENT_SELECTION';
 }
 
 class ElementSelectorInjector {
@@ -43,8 +73,8 @@ class ElementSelectorInjector {
 
   async injectElementSelector(tabId: number): Promise<CapturedEvent | null> {
     return new Promise((resolve) => {
-      const messageListener = async (message: any, sender: chrome.runtime.MessageSender) => {
-        if (sender.tab?.id === tabId && message.type === 'ELEMENT_SELECTION') {
+      const messageListener = async (message: unknown, sender: chrome.runtime.MessageSender) => {
+        if (sender.tab?.id === tabId && isElementSelectionMessage(message)) {
           chrome.runtime.onMessage.removeListener(messageListener);
 
           if (message.cancelled) {
@@ -56,16 +86,16 @@ class ElementSelectorInjector {
               url: message.url || '',
               timestamp: Date.now(),
               tabId: eventTabId,
-              viewportWidth: message.viewportWidth,
-              viewportHeight: message.viewportHeight,
+              viewportWidth: message.viewportWidth ?? 0,
+              viewportHeight: message.viewportHeight ?? 0,
               clickCoordinates: message.clickCoordinates,
               typedText: message.typedText,
-              typedInElement: message.typedInElement,
+              typedInElement: message.typedInElement
             });
           }
         }
 
-        if (message.type === 'CANCEL_ELEMENT_SELECTOR') {
+        if (isCancelElementSelectorMessage(message)) {
           chrome.runtime.onMessage.removeListener(messageListener);
           resolve(null);
         }
@@ -83,7 +113,7 @@ class ElementSelectorInjector {
       chrome.scripting.executeScript(
         {
           target: { tabId },
-          func: elementSelectorScript, // Use standalone function
+          func: elementSelectorScript // Use standalone function
         },
         () => {
           if (chrome.runtime.lastError) {
@@ -102,7 +132,12 @@ class ElementSelectorInjector {
 // Standalone function for injection (not a class method)
 // This function will be serialized and injected into the page
 function elementSelectorScript() {
-  const win = window as any;
+  interface SelectorWindow extends Window {
+    __clickListenerActive?: boolean;
+    __keystrokeListenersActive?: boolean;
+  }
+
+  const win = window as SelectorWindow;
 
   // Prevent multiple injections
   if (win.__clickListenerActive) {
@@ -112,8 +147,13 @@ function elementSelectorScript() {
   win.__clickListenerActive = true;
 
   // Listen for cancel messages
-  const cancelListener = (message: any) => {
-    if (message.type === 'CANCEL_ELEMENT_SELECTOR') {
+  const cancelListener = (message: unknown) => {
+    if (
+      typeof message === 'object' &&
+      message !== null &&
+      'type' in message &&
+      message.type === 'CANCEL_ELEMENT_SELECTOR'
+    ) {
       document.removeEventListener('click', clickListener, true);
       document.removeEventListener('keydown', escapeListener, true);
       document.removeEventListener('keydown', keystrokeListener, true);
@@ -132,15 +172,22 @@ function elementSelectorScript() {
 
   // Helper to get class name
   const getClassName = (element: Element): string => {
-    if (!element.className || element.className === null) {
+    const classNameValue: unknown = element.className;
+
+    if (!classNameValue) {
       return '';
     }
 
-    if (typeof element.className === 'object' && 'baseVal' in element.className) {
-      return (element.className as any).baseVal || '';
+    if (
+      typeof classNameValue === 'object' &&
+      classNameValue !== null &&
+      'baseVal' in classNameValue
+    ) {
+      const value = classNameValue.baseVal;
+      return typeof value === 'string' ? value : '';
     }
 
-    return String(element.className);
+    return String(classNameValue);
   };
 
   // Setup keystroke listeners (only if not already active)
@@ -194,38 +241,39 @@ function elementSelectorScript() {
       return;
     }
 
-    const tagName = currentInputElement.tagName.toLowerCase();
+    const inputElement = currentInputElement;
+    const tagName = inputElement.tagName.toLowerCase();
 
     // Only capture keystrokes in editable elements
     if (
       !(
         tagName === 'textarea' ||
         (tagName === 'input' &&
-          !(currentInputElement as HTMLInputElement).type.match(/submit|button|checkbox|radio|file/)) ||
-        currentInputElement.getAttribute('contenteditable') === 'true'
+          !(inputElement as HTMLInputElement).type.match(/submit|button|checkbox|radio|file/)) ||
+        inputElement.getAttribute('contenteditable') === 'true'
       )
     ) {
       return;
     }
 
     const key = event.key;
-    const className = getClassName(currentInputElement);
+    const className = getClassName(inputElement);
 
     const sendKeystrokeUpdate = () => {
       chrome.runtime.sendMessage({
         type: 'KEYSTROKE_UPDATE',
         text: keystrokeBuffer.join(''),
         element: {
-          tagName: currentInputElement!.tagName.toLowerCase(),
-          selector: currentInputElement!.id
-            ? `#${currentInputElement!.id}`
+          tagName: inputElement.tagName.toLowerCase(),
+          selector: inputElement.id
+            ? `#${inputElement.id}`
             : className
-            ? `${currentInputElement!.tagName.toLowerCase()}.${className.trim().split(/\s+/).join('.')}`
-            : currentInputElement!.tagName.toLowerCase(),
+            ? `${inputElement.tagName.toLowerCase()}.${className.trim().split(/\s+/).join('.')}`
+            : inputElement.tagName.toLowerCase(),
           name:
-            currentInputElement!.getAttribute('name') ||
-            currentInputElement!.getAttribute('placeholder') ||
-            currentInputElement!.getAttribute('aria-label') ||
+            inputElement.getAttribute('name') ||
+            inputElement.getAttribute('placeholder') ||
+            inputElement.getAttribute('aria-label') ||
             '',
         },
       });
@@ -392,7 +440,7 @@ function elementSelectorScript() {
 
       // Capture any typed text before the click
       let typedText: string | undefined;
-      let typedInElement: any;
+      let typedInElement: HTMLElement | null = null;
 
       if (keystrokeBuffer.length > 0) {
         typedText = keystrokeBuffer.join('');
@@ -424,7 +472,7 @@ function elementSelectorScript() {
                   typedInElement.getAttribute('name') ||
                   typedInElement.getAttribute('placeholder') ||
                   typedInElement.getAttribute('aria-label') ||
-                  '',
+                  ''
               }
             : undefined,
         });
@@ -435,13 +483,13 @@ function elementSelectorScript() {
       // Simulate the actual click after a delay
       setTimeout(() => {
         try {
-          if (typeof (element as any).click === 'function') {
-            (element as any).click();
+          if (element instanceof HTMLElement) {
+            element.click();
           } else {
             const clickEvent = new MouseEvent('click', {
               view: window,
               bubbles: true,
-              cancelable: true,
+              cancelable: true
             });
             element.dispatchEvent(clickEvent);
           }

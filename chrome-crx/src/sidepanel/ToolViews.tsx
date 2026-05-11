@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
+import type { ApiImageContentBlock, ApiTextContentBlock } from '../messageTypes';
+import { isImageContentBlock, isRecord, isTextContentBlock } from '../messageTypes';
 import { useIntlSafe } from '../index-react-dom-intl';
 import { ExternalLinkIcon, GlobeIcon, SearchIcon } from './icons';
 import { ShimmerText } from './StatusDisplay';
@@ -12,8 +14,69 @@ const TimelineContext = createContext<{
   hasCollapseHeader: boolean;
 }>({ hasCollapseHeader: false });
 
-export const TIMELINE_SNAPPY_OUT = [0.19, 1, 0.22, 1] as const;
+export const TIMELINE_SNAPPY_OUT: [number, number, number, number] = [0.19, 1, 0.22, 1];
 export const TIMELINE_ANIM_DURATION = 0.2;
+
+type ToolInputLike = string | Record<string, unknown> | null | undefined;
+
+interface KnowledgeContentBlock {
+  type: 'knowledge';
+  title?: string;
+  url?: string;
+  metadata?: {
+    type?: string;
+    favicon_url?: string;
+  };
+  text?: string;
+}
+
+type ToolResultContentBlock = ApiTextContentBlock | ApiImageContentBlock | KnowledgeContentBlock;
+
+interface ToolResultLike {
+  content?: string | ToolResultContentBlock[];
+  is_error?: boolean;
+}
+
+interface SearchResult {
+  title: string;
+  url: string;
+  faviconUrl?: string;
+}
+
+type KnowledgeSearchResultBlock = KnowledgeContentBlock & {
+  url: string;
+};
+
+type ParsedSearchEntry = Record<string, unknown> & {
+  url: string;
+};
+
+function isKnowledgeContentBlock(block: unknown): block is KnowledgeContentBlock {
+  return isRecord(block) && block.type === 'knowledge';
+}
+
+function getToolResultContentArray(
+  content: ToolResultLike['content']
+): ToolResultContentBlock[] | null {
+  if (!Array.isArray(content)) return null;
+  return content.filter(
+    (block): block is ToolResultContentBlock =>
+      isKnowledgeContentBlock(block) || isTextContentBlock(block) || isImageContentBlock(block)
+  );
+}
+
+function getToolInputField(input: ToolInputLike, field: string): string {
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input);
+      return isRecord(parsed) && typeof parsed[field] === 'string' ? parsed[field] : '';
+    } catch {
+      return '';
+    }
+  }
+
+  return isRecord(input) && typeof input[field] === 'string' ? input[field] : '';
+}
 
 export const TimelineGroupItem = React.memo(function TimelineGroupItem({
   icon,
@@ -169,7 +232,7 @@ export const TimelineGroup = React.memo(function TimelineGroup({
                     collapsed: { opacity: 0, height: 0 }
                   }}
                   transition={{
-                    ease: TIMELINE_SNAPPY_OUT as unknown as string,
+                    ease: TIMELINE_SNAPPY_OUT,
                     duration: TIMELINE_ANIM_DURATION
                   }}
                   style={{
@@ -420,34 +483,33 @@ const SearchResultRow = React.memo(function SearchResultRow({
   );
 });
 
-function parseSearchResults(
-  toolResult: any
-): Array<{ title: string; url: string; faviconUrl?: string }> {
+function parseSearchResults(toolResult?: ToolResultLike): SearchResult[] {
   if (!toolResult?.content) return [];
   try {
-    if (Array.isArray(toolResult.content)) {
-      const knowledge = toolResult.content.filter(
-        (content: any) =>
-          content.type === 'knowledge' && content.metadata?.type === 'webpage_metadata'
+    const content = getToolResultContentArray(toolResult.content);
+    if (content) {
+      const knowledge = content.filter(
+        (block): block is KnowledgeContentBlock =>
+          isKnowledgeContentBlock(block) && block.metadata?.type === 'webpage_metadata'
       );
       if (knowledge.length > 0) {
-        return knowledge.map((content: any) => ({
-          title: content.title || '',
-          url: content.url || '',
-          faviconUrl: content.metadata?.favicon_url
-        }));
+        return knowledge
+          .filter((block): block is KnowledgeSearchResultBlock => typeof block.url === 'string')
+          .map((block) => ({
+            title: block.title || '',
+            url: block.url,
+            faviconUrl: block.metadata?.favicon_url
+          }));
       }
     }
 
-    let text = '';
-    if (typeof toolResult.content === 'string') {
-      text = toolResult.content;
-    } else if (Array.isArray(toolResult.content)) {
-      text = toolResult.content
-        .filter((content: any) => content.type === 'text')
-        .map((content: any) => content.text)
-        .join('\n');
-    }
+    const text =
+      typeof toolResult.content === 'string'
+        ? toolResult.content
+        : content
+            ?.filter((block): block is ApiTextContentBlock => isTextContentBlock(block))
+            .map((block) => block.text)
+            .join('\n') || '';
 
     const linksIndex = text.indexOf('Links:');
     if (linksIndex === -1) return [];
@@ -488,14 +550,12 @@ function parseSearchResults(
     const array = JSON.parse(afterLinks.slice(0, end));
     if (!Array.isArray(array)) return [];
     return array
-      .filter((entry: any) => typeof entry?.url === 'string')
-      .map((entry: any) => {
-        let domain: string | undefined;
-        try {
-          domain = new URL(entry.url).hostname;
-        } catch {}
-        return { title: entry.title || '', url: entry.url, siteDomain: domain };
-      });
+      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+      .filter((entry): entry is ParsedSearchEntry => typeof entry.url === 'string')
+      .map((entry) => ({
+        title: typeof entry.title === 'string' ? entry.title : '',
+        url: entry.url
+      }));
   } catch {
     return [];
   }
@@ -512,8 +572,8 @@ export const WebSearchToolCell = React.memo(function WebSearchToolCell({
   isStreaming,
   onResultClick
 }: {
-  input: any;
-  toolResult: any;
+  input: ToolInputLike;
+  toolResult?: ToolResultLike;
   renderMode?: ToolRenderMode;
   isFirstBlockOfMessage?: boolean;
   isLastBlockOfMessage?: boolean;
@@ -525,16 +585,7 @@ export const WebSearchToolCell = React.memo(function WebSearchToolCell({
   const intl = useIntlSafe();
   const results = useMemo(() => parseSearchResults(toolResult), [toolResult]);
   const count = results.length;
-  let query = '';
-  if (typeof input === 'string') {
-    try {
-      query = JSON.parse(input)?.query || '';
-    } catch {
-      query = '';
-    }
-  } else {
-    query = input?.query || '';
-  }
+  const query = getToolInputField(input, 'query');
 
   const isComplete = count > 0 || !isStreaming;
   const displayText = isComplete
@@ -601,8 +652,8 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
   isStreaming,
   onUrlClick
 }: {
-  input: any;
-  toolResult: any;
+  input: ToolInputLike;
+  toolResult?: ToolResultLike;
   renderMode?: ToolRenderMode;
   isFirstBlockOfMessage?: boolean;
   isLastBlockOfMessage?: boolean;
@@ -612,7 +663,7 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
   onUrlClick?: (url: string) => void;
 }) {
   const intl = useIntlSafe();
-  const url = String(input?.url || '');
+  const url = getToolInputField(input, 'url');
   const hostname = useMemo(() => {
     try {
       return new URL(url).hostname;
@@ -624,15 +675,23 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
   const pageInfo = useMemo(() => {
     if (!toolResult?.content || isError) return null;
     try {
-      const content = toolResult.content;
+      const content = getToolResultContentArray(toolResult.content);
       if (!Array.isArray(content)) return null;
-      const knowledge = content.find((item: any) => item.type === 'knowledge' && item.title);
+      const knowledge = content.find(
+        (item): item is KnowledgeContentBlock =>
+          isKnowledgeContentBlock(item) && typeof item.title === 'string'
+      );
       if (knowledge) return { title: knowledge.title };
-      const textPart = content.find((item: any) => item.type === 'text');
+      const textPart = content.find((item): item is ApiTextContentBlock => isTextContentBlock(item));
       if (textPart?.text) {
         try {
           const parsed = JSON.parse(textPart.text);
-          if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].title) {
+          if (
+            Array.isArray(parsed) &&
+            parsed.length > 0 &&
+            isRecord(parsed[0]) &&
+            typeof parsed[0].title === 'string'
+          ) {
             return { title: parsed[0].title };
           }
         } catch {}

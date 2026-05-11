@@ -13,6 +13,16 @@
  */
 
 import { cdpDebugger } from './cdp';
+import type {
+  CdpAccessibilityTreeResult,
+  CdpDomAttributesResult,
+  CdpDomDescribeNodeResult,
+  CdpDomGetDocumentResult,
+  CdpDomQuerySelectorAllResult,
+  CdpDomQuerySelectorResult,
+  CdpDomResolveNodeResult,
+  CdpRuntimeEvaluateResult
+} from './cdpTypes';
 
 // ============================================================================
 // Types
@@ -37,6 +47,15 @@ interface AXNode {
   childIds?: (string | number)[];
   backendDOMNodeId?: number;
   ignored?: boolean;
+}
+
+interface DomNodeTree {
+  nodeName?: string;
+  nodeType?: number;
+  nodeId?: number;
+  backendNodeId?: number;
+  children?: DomNodeTree[];
+  contentDocument?: DomNodeTree;
 }
 
 interface TreeNode {
@@ -97,6 +116,10 @@ export class SnapshotMaxCharsError extends Error {
 export interface SnapshotResult {
   content: string;
   refMappings: RefMapping[];
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
 }
 
 // ============================================================================
@@ -422,7 +445,7 @@ async function findCursorInteractiveElements(
         if (role && interactiveRoles[role]) continue;
         var cs = getComputedStyle(el);
         var hasCursor = cs.cursor === 'pointer';
-        var hasOnClick = el.hasAttribute('onclick') || (el as any).onclick !== null;
+        var hasOnClick = el.hasAttribute('onclick') || el.onclick !== null;
         var ti = el.getAttribute('tabindex');
         var hasTabIndex = ti !== null && ti !== '-1';
         var ce = el.getAttribute('contenteditable');
@@ -482,20 +505,27 @@ async function findCursorInteractiveElements(
     });
 
     const totalCount = scanResults?.reduce(
-      (sum, r) => sum + (((r.result as any)?.count as number) || 0),
+      (sum, r) => sum + (((r.result as { count?: number } | undefined)?.count as number) || 0),
       0
     ) ?? 0;
     if (totalCount === 0) return { cursorIds, hiddenInputs };
 
     // Step 2: 通过 DOM.getDocument (pierce iframes) + DOM.querySelectorAll 获取标记元素
-    const docResult = await cdpDebugger.sendCommand(tabId, 'DOM.getDocument', { depth: -1, pierce: true });
+    const docResult = await cdpDebugger.sendCommand<CdpDomGetDocumentResult>(
+      tabId,
+      'DOM.getDocument',
+      { depth: -1, pierce: true }
+    );
     if (!docResult?.root) return { cursorIds, hiddenInputs };
 
     // 收集所有 document 节点（主文档 + iframe 内文档）的 nodeId
     const documentNodeIds: number[] = [];
-    const collectDocumentNodes = (node: any) => {
+    const collectDocumentNodes = (node?: DomNodeTree) => {
+      if (!node) return;
       if (node.nodeName === '#document' || node.nodeType === 9) {
-        documentNodeIds.push(node.nodeId);
+        if (typeof node.nodeId === 'number') {
+          documentNodeIds.push(node.nodeId);
+        }
       }
       if (node.children) {
         for (const child of node.children) collectDocumentNodes(child);
@@ -511,10 +541,14 @@ async function findCursorInteractiveElements(
     const queryResults = await Promise.all(
       documentNodeIds.map(async (docNodeId) => {
         try {
-          const r = await cdpDebugger.sendCommand(tabId, 'DOM.querySelectorAll', {
-            nodeId: docNodeId,
-            selector: '[data-__sd-ci]',
-          });
+          const r = await cdpDebugger.sendCommand<CdpDomQuerySelectorAllResult>(
+            tabId,
+            'DOM.querySelectorAll',
+            {
+              nodeId: docNodeId,
+              selector: '[data-__sd-ci]'
+            }
+          );
           return r?.nodeIds ?? [];
         } catch {
           return [];
@@ -531,8 +565,12 @@ async function findCursorInteractiveElements(
         batch.map(async (nid) => {
           try {
             const [desc, attrs] = await Promise.all([
-              cdpDebugger.sendCommand(tabId, 'DOM.describeNode', { nodeId: nid }),
-              cdpDebugger.sendCommand(tabId, 'DOM.getAttributes', { nodeId: nid }),
+              cdpDebugger.sendCommand<CdpDomDescribeNodeResult>(tabId, 'DOM.describeNode', {
+                nodeId: nid
+              }),
+              cdpDebugger.sendCommand<CdpDomAttributesResult>(tabId, 'DOM.getAttributes', {
+                nodeId: nid
+              })
             ]);
             const backendNodeId: number | null = desc?.node?.backendNodeId ?? null;
             const flatAttrs: string[] = attrs?.attributes ?? [];
@@ -846,7 +884,10 @@ async function fetchAXTree(tabId: number): Promise<AXNode[]> {
   await cdpDebugger.sendCommand(tabId, 'DOM.enable');
   await cdpDebugger.sendCommand(tabId, 'Accessibility.enable');
 
-  const mainResult = await cdpDebugger.sendCommand(tabId, 'Accessibility.getFullAXTree');
+  const mainResult = await cdpDebugger.sendCommand<CdpAccessibilityTreeResult<AXNode>>(
+    tabId,
+    'Accessibility.getFullAXTree'
+  );
   const mainNodes: AXNode[] = mainResult?.nodes ?? [];
   if (mainNodes.length === 0) return [];
 
@@ -862,10 +903,14 @@ async function fetchAXTree(tabId: number): Promise<AXNode[]> {
       const backendId = ifNode.backendDOMNodeId!;
       let frameId: string | undefined;
       try {
-        const desc = await cdpDebugger.sendCommand(tabId, 'DOM.describeNode', {
-          backendNodeId: backendId,
-          depth: 1,
-        });
+        const desc = await cdpDebugger.sendCommand<CdpDomDescribeNodeResult>(
+          tabId,
+          'DOM.describeNode',
+          {
+            backendNodeId: backendId,
+            depth: 1
+          }
+        );
         frameId = desc?.node?.contentDocument?.frameId;
       } catch {
         // describeNode 失败 → 跳过此 iframe
@@ -873,11 +918,15 @@ async function fetchAXTree(tabId: number): Promise<AXNode[]> {
       }
       if (!frameId) return null;
 
-      let childResp: any;
+      let childResp: CdpAccessibilityTreeResult<AXNode> | null = null;
       try {
-        childResp = await cdpDebugger.sendCommand(tabId, 'Accessibility.getFullAXTree', {
-          frameId,
-        });
+        childResp = await cdpDebugger.sendCommand<CdpAccessibilityTreeResult<AXNode>>(
+          tabId,
+          'Accessibility.getFullAXTree',
+          {
+            frameId
+          }
+        );
       } catch {
         // 跨域 OOPIF / detached frame → 静默跳过（Phase 2 再处理）
         return null;
@@ -948,15 +997,23 @@ async function resolveLinkUrls(tabId: number, treeNodes: TreeNode[]): Promise<vo
         const bid = treeNodes[idx].backendNodeId;
         if (bid === null) return;
         try {
-          const r = await cdpDebugger.sendCommand(tabId, 'DOM.resolveNode', { backendNodeId: bid });
+          const r = await cdpDebugger.sendCommand<CdpDomResolveNodeResult>(
+            tabId,
+            'DOM.resolveNode',
+            { backendNodeId: bid }
+          );
           const objectId: string | undefined = r?.object?.objectId;
           if (!objectId) return;
           try {
-            const call = await cdpDebugger.sendCommand(tabId, 'Runtime.callFunctionOn', {
-              objectId,
-              functionDeclaration: 'function() { return this.href; }',
-              returnByValue: true,
-            });
+            const call = await cdpDebugger.sendCommand<CdpRuntimeEvaluateResult>(
+              tabId,
+              'Runtime.callFunctionOn',
+              {
+                objectId,
+                functionDeclaration: 'function() { return this.href; }',
+                returnByValue: true
+              }
+            );
             const href = call?.result?.value;
             if (typeof href === 'string' && href) {
               treeNodes[idx].url = href;
@@ -981,31 +1038,37 @@ async function resolveLinkUrls(tabId: number, treeNodes: TreeNode[]): Promise<vo
  */
 async function collectSubtreeBackendIds(tabId: number, selector: string): Promise<Set<number>> {
   // 用 DOM.querySelector 参数化传 selector，避免 Runtime.evaluate 拼字符串带来的代码注入面。
-  const doc = await cdpDebugger.sendCommand(tabId, 'DOM.getDocument', { depth: 0 });
+  const doc = await cdpDebugger.sendCommand<CdpDomGetDocumentResult>(tabId, 'DOM.getDocument', {
+    depth: 0
+  });
   const rootNodeId: number | undefined = doc?.root?.nodeId;
   if (typeof rootNodeId !== 'number') {
     throw new Error('Failed to get document root for selector lookup');
   }
-  let qs: any;
+  let qs: CdpDomQuerySelectorResult | undefined;
   try {
-    qs = await cdpDebugger.sendCommand(tabId, 'DOM.querySelector', {
+    qs = await cdpDebugger.sendCommand<CdpDomQuerySelectorResult>(tabId, 'DOM.querySelector', {
       nodeId: rootNodeId,
-      selector,
+      selector
     });
   } catch (err) {
-    throw new Error(`Invalid selector '${selector}': ${(err as Error).message}`);
+    throw new Error(`Invalid selector '${selector}': ${getErrorMessage(err)}`);
   }
   const matchedNodeId: number | undefined = qs?.nodeId;
   if (!matchedNodeId) {
     throw new Error(`Selector '${selector}' matched no element`);
   }
-  const describe = await cdpDebugger.sendCommand(tabId, 'DOM.describeNode', {
-    nodeId: matchedNodeId,
-    depth: -1,
-    pierce: true,
-  });
+  const describe = await cdpDebugger.sendCommand<CdpDomDescribeNodeResult>(
+    tabId,
+    'DOM.describeNode',
+    {
+      nodeId: matchedNodeId,
+      depth: -1,
+      pierce: true
+    }
+  );
   const ids = new Set<number>();
-  const collect = (n: any) => {
+  const collect = (n?: DomNodeTree) => {
     if (!n) return;
     if (typeof n.backendNodeId === 'number') ids.add(n.backendNodeId);
     if (Array.isArray(n.children)) n.children.forEach(collect);

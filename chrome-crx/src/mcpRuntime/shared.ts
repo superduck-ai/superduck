@@ -1,4 +1,5 @@
 import { PromptService } from '../extensionServices';
+import type { ToolResult, ToolTabSummary } from './pageToolsSupport/types';
 
 export const PermissionTools = {
   EXECUTE_JAVASCRIPT: 'execute_javascript',
@@ -22,11 +23,28 @@ export const PermissionType = {
   DOMAIN_TRANSITION: 'domain_transition'
 } as const;
 
+interface SecurityCheckResult extends ToolResult {
+  error: string;
+}
+
+interface ScreenRecorderFrame {
+  base64: string;
+  action?: {
+    type: string;
+    [key: string]: unknown;
+  };
+  frameNumber?: number;
+  timestamp?: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  devicePixelRatio?: number;
+}
+
 export async function checkUrlSecurity(
   _tabId: number,
   url: string,
   actionName: string
-): Promise<any | null> {
+): Promise<SecurityCheckResult | null> {
   try {
     const blockedProtocols = ['chrome:', 'chrome-extension:', 'about:', 'data:', 'javascript:'];
     for (const protocol of blockedProtocols) {
@@ -42,8 +60,8 @@ export async function checkUrlSecurity(
 
 export const screenRecorder = {
   isRecording: (_groupId: number): boolean => false,
-  getFrames: (_groupId: number): any[] => [],
-  addFrame: (_groupId: number, _frame: any): void => {},
+  getFrames: (_groupId: number): ScreenRecorderFrame[] => [],
+  addFrame: (_groupId: number, _frame: ScreenRecorderFrame): void => {},
   startRecording: (_groupId: number): void => {},
   stopRecording: (_groupId: number): void => {}
 };
@@ -75,11 +93,18 @@ export function extractAppName(url: string): string | undefined {
   }
 }
 
-export function formatTabsOutput(tabs: any[], tabGroupId?: number, activeTabId?: number): string {
+export function formatTabsOutput(
+  tabs: ToolTabSummary[] | null | undefined,
+  tabGroupId?: number,
+  activeTabId?: number
+): string {
   if (!tabs || tabs.length === 0) return 'No tabs available.';
-  const lines = tabs.map((t: any) => {
-    const active = activeTabId !== undefined && t.id === activeTabId ? ' (active)' : '';
-    return `- tabId ${t.id}: "${t.title}" (${t.url})${active}`;
+  const lines = tabs.map((tab) => {
+    const tabId = typeof tab.id === 'number' ? tab.id : 'unknown';
+    const title = typeof tab.title === 'string' ? tab.title : '';
+    const url = typeof tab.url === 'string' ? tab.url : '';
+    const active = activeTabId !== undefined && tab.id === activeTabId ? ' (active)' : '';
+    return `- tabId ${tabId}: "${title}" (${url})${active}`;
   });
   return `Tab Group ${tabGroupId ?? 'unknown'}:\n${lines.join('\n')}`;
 }

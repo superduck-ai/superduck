@@ -26,8 +26,33 @@ export interface MessageLimitBannerState {
 export const CONTEXT_WINDOW = 200000;
 export const MAX_TOKENS = 10000;
 
+interface UsageStats {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseWindows(value: unknown): MessageLimitState['windows'] | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const windows: NonNullable<MessageLimitState['windows']> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!isRecord(entry) || typeof entry.status !== 'string') continue;
+    windows[key] = {
+      status: entry.status,
+      resets_at: typeof entry.resets_at === 'number' ? entry.resets_at : undefined
+    };
+  }
+  return windows;
+}
+
 export function calculateMessageLimitFromUsage(
-  usage: any,
+  usage: UsageStats | null | undefined,
   contextWindow: number = CONTEXT_WINDOW
 ): MessageLimitState {
   const inputTokens = usage?.input_tokens || 0;
@@ -47,8 +72,9 @@ export function calculateMessageLimitFromUsage(
 }
 
 export function parseMessageLimit(value: unknown): MessageLimitState | null {
-  if (!value || typeof value !== 'object') return null;
-  const rawType = (value as any).type;
+  if (!isRecord(value)) return null;
+
+  const rawType = value.type;
   if (
     rawType !== 'within_limit' &&
     rawType !== 'approaching_limit' &&
@@ -58,18 +84,12 @@ export function parseMessageLimit(value: unknown): MessageLimitState | null {
   }
   return {
     type: rawType,
-    percentUsed:
-      typeof (value as any).percentUsed === 'number' ? (value as any).percentUsed : undefined,
-    resetsAt: typeof (value as any).resetsAt === 'number' ? (value as any).resetsAt : undefined,
-    remaining: typeof (value as any).remaining === 'number' ? (value as any).remaining : undefined,
-    windows:
-      (value as any).windows && typeof (value as any).windows === 'object'
-        ? (value as any).windows
-        : undefined,
+    percentUsed: typeof value.percentUsed === 'number' ? value.percentUsed : undefined,
+    resetsAt: typeof value.resetsAt === 'number' ? value.resetsAt : undefined,
+    remaining: typeof value.remaining === 'number' ? value.remaining : undefined,
+    windows: parseWindows(value.windows),
     overageDisabledReason:
-      typeof (value as any).overageDisabledReason === 'string'
-        ? (value as any).overageDisabledReason
-        : undefined
+      typeof value.overageDisabledReason === 'string' ? value.overageDisabledReason : undefined
   };
 }
 
@@ -90,13 +110,13 @@ export function parseRateLimitFromError(error: unknown): MessageLimitState | nul
 
   const parseCandidate = (candidate: string): MessageLimitState | null => {
     try {
-      const parsed = JSON.parse(candidate);
+      const parsed: unknown = JSON.parse(candidate);
       const rateLimit = parseMessageLimit(parsed);
       if (rateLimit) return rateLimit;
-      if (parsed?.error?.message && typeof parsed.error.message === 'string') {
+      if (isRecord(parsed) && isRecord(parsed.error) && typeof parsed.error.message === 'string') {
         return parseCandidate(parsed.error.message);
       }
-      if (parsed?.message && typeof parsed.message === 'string') {
+      if (isRecord(parsed) && typeof parsed.message === 'string') {
         return parseCandidate(parsed.message);
       }
       return null;
@@ -119,7 +139,7 @@ export function parseRateLimitHeaders(headers: Record<string, string>): MessageL
   const unified = headers['anthropic-ratelimit-unified-status'];
   if (!unified || unified === 'allowed') return { type: 'within_limit' };
 
-  const windows: any = {};
+  const windows: NonNullable<MessageLimitState['windows']> = {};
   const parseWindow = (key: string) => {
     const status = headers[`anthropic-ratelimit-unified-${key}-status`];
     const reset = headers[`anthropic-ratelimit-unified-${key}-reset`];
@@ -171,8 +191,8 @@ export function shouldUpdateMessageLimit(
   if (next.type !== 'within_limit' && current.type !== 'within_limit') {
     if (current.resetsAt !== next.resetsAt) return true;
     if (current.overageDisabledReason !== next.overageDisabledReason) return true;
-    const curOvg = (current as any).windows?.overage?.status;
-    const nextOvg = (next as any).windows?.overage?.status;
+    const curOvg = current.windows?.overage?.status;
+    const nextOvg = next.windows?.overage?.status;
     if (curOvg !== nextOvg) return true;
     if (
       current.type === 'approaching_limit' &&

@@ -1,8 +1,8 @@
 import React, { useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
-import { Node, mergeAttributes } from '@tiptap/core';
+import Placeholder, { type PlaceholderOptions } from '@tiptap/extension-placeholder';
+import { Node, mergeAttributes, type JSONContent } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
 import { ReactRenderer } from '@tiptap/react';
 import Suggestion, { SuggestionOptions } from '@tiptap/suggestion';
@@ -238,8 +238,8 @@ export const RichTextInput = forwardRef<RichTextInputHandle, RichTextInputProps>
           (ext) => ext.name === 'placeholder'
         );
         if (placeholderExt) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (placeholderExt.options as any).placeholder = placeholder || '';
+          const placeholderOptions = placeholderExt.options as PlaceholderOptions;
+          placeholderOptions.placeholder = placeholder || '';
           editor.view.dispatch(editor.state.tr);
         }
       }
@@ -258,12 +258,15 @@ function getEditorContent(editor: Editor | null): string {
   const json = editor.getJSON();
   let text = '';
 
-  function traverse(node: any) {
+  function traverse(node: JSONContent) {
     if (node.type === 'shortcutChip') {
-      text += `/${node.attrs.command}`;
-    } else if (node.type === 'text') {
+      const command = node.attrs?.command;
+      if (typeof command === 'string') {
+        text += `/${command}`;
+      }
+    } else if (node.type === 'text' && typeof node.text === 'string') {
       text += node.text;
-    } else if (node.content) {
+    } else if (Array.isArray(node.content)) {
       node.content.forEach(traverse);
     }
 

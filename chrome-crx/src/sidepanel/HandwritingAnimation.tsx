@@ -6,7 +6,24 @@ type StrokePoint = [number, number, number];
 type Stroke = { p: StrokePoint[]; d: number; a: number };
 type Glyph = { w: number; t: number; s: Stroke[] };
 
-const GLYPHS = glyphData as unknown as Record<string, Glyph>;
+function normalizeGlyphs(data: typeof glyphData): Record<string, Glyph> {
+  return Object.fromEntries(
+    Object.entries(data).map(([key, glyph]) => [
+      key,
+      {
+        w: glyph.w,
+        t: glyph.t,
+        s: glyph.s.map((stroke) => ({
+          d: stroke.d,
+          a: stroke.a,
+          p: stroke.p.map((point): StrokePoint => [point[0], point[1], point[2]])
+        }))
+      }
+    ])
+  );
+}
+
+const GLYPHS = normalizeGlyphs(glyphData);
 const UNITS_PER_EM = 1024;
 const ASCENDER = 957;
 
@@ -17,8 +34,8 @@ function ensureFontFace() {
   const style = document.createElement('style');
   style.textContent = `@font-face { font-family: 'Satisfy'; src: url(${satisfyFontUrl}); font-display: swap; }`;
   document.head.appendChild(style);
-  if ((document as any).fonts?.load) {
-    (document as any).fonts.load(`16px Satisfy`).catch(() => {});
+  if (document.fonts?.load) {
+    void document.fonts.load(`16px Satisfy`).catch(() => {});
   }
 }
 
@@ -103,12 +120,13 @@ export const HandwritingAnimation: React.FC<Props> = ({
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    const context = ctx;
+    context.scale(dpr, dpr);
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
     const resolvedColor =
       color === 'currentColor' ? getComputedStyle(container).color : color;
-    ctx.strokeStyle = resolvedColor;
+    context.strokeStyle = resolvedColor;
 
     const baselineY = fontSize * 1.05;
 
@@ -134,11 +152,11 @@ export const HandwritingAnimation: React.FC<Props> = ({
         const b = points[i + 1];
         const [ax, ay] = transform(a[0], a[1], offsetX);
         const [bx, by] = transform(b[0], b[1], offsetX);
-        ctx!.lineWidth = pressureToWidth((a[2] + b[2]) / 2);
-        ctx!.beginPath();
-        ctx!.moveTo(ax, ay);
-        ctx!.lineTo(bx, by);
-        ctx!.stroke();
+        context.lineWidth = pressureToWidth((a[2] + b[2]) / 2);
+        context.beginPath();
+        context.moveTo(ax, ay);
+        context.lineTo(bx, by);
+        context.stroke();
       }
       // Partial trailing segment, lerp endpoint by frac
       if (lastFull < points.length - 1 && frac > 0) {
@@ -148,11 +166,11 @@ export const HandwritingAnimation: React.FC<Props> = ({
         const [bx, by] = transform(b[0], b[1], offsetX);
         const px = ax + (bx - ax) * frac;
         const py = ay + (by - ay) * frac;
-        ctx!.lineWidth = pressureToWidth(a[2] + (b[2] - a[2]) * frac);
-        ctx!.beginPath();
-        ctx!.moveTo(ax, ay);
-        ctx!.lineTo(px, py);
-        ctx!.stroke();
+        context.lineWidth = pressureToWidth(a[2] + (b[2] - a[2]) * frac);
+        context.beginPath();
+        context.moveTo(ax, ay);
+        context.lineTo(px, py);
+        context.stroke();
       }
     }
 
@@ -175,7 +193,7 @@ export const HandwritingAnimation: React.FC<Props> = ({
       if (cancelled) return;
       if (!startTime) startTime = now;
       const elapsed = now - startTime;
-      ctx!.clearRect(0, 0, widthPx, heightPx);
+      context.clearRect(0, 0, widthPx, heightPx);
 
       for (const gt of glyphTimings) {
         if (elapsed < gt.startMs) break;

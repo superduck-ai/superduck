@@ -7,11 +7,32 @@ export interface AccountSettings {
   [key: string]: unknown;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'boolean');
+}
+
+function parseAccountSettings(value: unknown): AccountSettings {
+  if (!isRecord(value)) {
+    throw new Error('Account settings response has unexpected shape');
+  }
+
+  return {
+    ...value,
+    enabled_mcp_tools: isBooleanRecord(value.enabled_mcp_tools)
+      ? value.enabled_mcp_tools
+      : undefined
+  };
+}
+
 export function useAccountSettingsQuery(enabled = true) {
   return useQuery<AccountSettings>({
     queryKey: ['account-settings'],
     queryFn: async () =>
-      apiClient.fetch('/api/oauth/account/settings', {
+      apiClient.fetchJson('/api/oauth/account/settings', parseAccountSettings, {
         headers: { 'anthropic-beta': 'oauth-2025-04-20' }
       }),
     enabled

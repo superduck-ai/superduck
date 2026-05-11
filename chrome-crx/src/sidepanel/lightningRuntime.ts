@@ -1,26 +1,47 @@
 import type React from 'react';
+import type { ModelsConfigFeatureValue, ModelOptionConfig } from '../extensionServices/featureFlags';
+import type { ApiConversationMessage } from '../messageTypes';
+import { isRecord } from '../messageTypes';
 import { formatTabsOutput, tabGroupManager } from '../mcpRuntime';
 
-export async function executeWithPermission(
-  action: () => Promise<any>,
-  onPermissionRequest?: (result: any) => Promise<boolean>
-): Promise<{ denied: boolean; result?: any }> {
+interface PermissionRequiredResult extends Record<string, unknown> {
+  type: 'permission_required';
+}
+
+interface IterationPhaseSummary {
+  ttfbMs: number;
+  streamingMs: number;
+  commandExecutionMs: number;
+  pageSettleMs: number;
+  screenshotMs: number;
+}
+
+interface TimingSummaryEntry {
+  count: number;
+  totalMs: number;
+  avgMs: number;
+  ips: number;
+  avgPhases?: IterationPhaseSummary;
+}
+
+function isPermissionRequiredResult(value: unknown): value is PermissionRequiredResult {
+  return isRecord(value) && value.type === 'permission_required';
+}
+
+function isModelOptionConfig(option: string | ModelOptionConfig): option is ModelOptionConfig {
+  return typeof option !== 'string';
+}
+
+export async function executeWithPermission<TResult>(
+  action: () => Promise<TResult>,
+  onPermissionRequest?: (result: PermissionRequiredResult) => Promise<boolean>
+): Promise<{ denied: boolean; result?: TResult }> {
   const result = await action();
-  if (
-    result &&
-    typeof result === 'object' &&
-    'type' in result &&
-    result.type === 'permission_required'
-  ) {
+  if (isPermissionRequiredResult(result)) {
     if (onPermissionRequest) {
       if (await onPermissionRequest(result)) {
         const retryResult = await action();
-        if (
-          retryResult &&
-          typeof retryResult === 'object' &&
-          'type' in retryResult &&
-          retryResult.type === 'permission_required'
-        ) {
+        if (isPermissionRequiredResult(retryResult)) {
           return { denied: true };
         }
         return { denied: false, result: retryResult };
@@ -46,7 +67,7 @@ export async function getUpdatedTabContext(
 
     const contextKey =
       tabs
-        .map((tab: any) => tab.id)
+        .map((tab) => tab.id)
         .sort((left: number, right: number) => left - right)
         .join(',') + `:${activeTabId}`;
     if (contextKey === lastContextRef.current) return null;
@@ -58,10 +79,14 @@ export async function getUpdatedTabContext(
   }
 }
 
-export function resolveEffortLevel(effort: string, model: string, modelsConfig: any): string {
+export function resolveEffortLevel(
+  effort: string,
+  model: string,
+  modelsConfig: ModelsConfigFeatureValue | undefined
+): string {
   if (effort === 'none') return 'none';
-  const modelOption = (modelsConfig.options ?? []).find(
-    (option: any) => typeof option !== 'string' && option.model === model
+  const modelOption = (modelsConfig?.options ?? []).find(
+    (option): option is ModelOptionConfig => isModelOptionConfig(option) && option.model === model
   );
   const effortOptions = modelOption?.effort_options;
   if (effortOptions && effortOptions.length > 0 && effortOptions.includes(effort)) return effort;
@@ -104,7 +129,7 @@ export function clearTimings(): void {
 export function getTimingSummary() {
   const timings = [...iterationTimings];
   const totalDurationMs = timings.reduce((sum, timing) => sum + timing.durationMs, 0);
-  const byMode: Record<string, any> = {};
+  const byMode: Record<string, TimingSummaryEntry> = {};
 
   for (const timing of timings) {
     if (!byMode[timing.mode]) {
@@ -162,5 +187,5 @@ export function getTimingSummary() {
 }
 
 export const WITHIN_LIMIT_RESULT = { type: 'within_limit' } as const;
-export const EMPTY_MESSAGE_HISTORY: any[] = [];
-export const NOOP_RETRY = async () => {};
+export const EMPTY_MESSAGE_HISTORY: ApiConversationMessage[] = [];
+export const NOOP_RETRY = async (): Promise<void> => {};

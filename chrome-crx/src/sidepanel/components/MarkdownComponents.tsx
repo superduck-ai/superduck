@@ -4,6 +4,28 @@ import { Check, Copy } from 'lucide-react';
 import type { Components } from 'react-markdown';
 import type { PluggableList } from 'unified';
 
+type MarkdownExtraProps = {
+  node?: unknown;
+};
+
+type MarkdownElementProps<Tag extends keyof React.JSX.IntrinsicElements> =
+  React.ComponentPropsWithoutRef<Tag> & MarkdownExtraProps;
+
+type MarkdownCodeProps = React.HTMLAttributes<HTMLElement> &
+  MarkdownExtraProps & {
+    inline?: boolean;
+    children?: React.ReactNode;
+  };
+
+type MarkdownPreProps = React.ComponentPropsWithoutRef<'pre'> &
+  MarkdownExtraProps & {
+    children?: React.ReactNode;
+  };
+
+type RemarkMathPlugin = typeof import('remark-math').default;
+type RehypeKatexPlugin = typeof import('rehype-katex').default;
+type RehypeKatexOptions = import('rehype-katex').Options;
+
 // =============================================================================
 // Copy to clipboard hook (matches bundle's useCopyToClipboard)
 // =============================================================================
@@ -494,11 +516,7 @@ function ConfirmableLink({
   if (!href) return <a {...props}>{children}</a>;
 
   if (isRelativePath(href)) {
-    return (
-      <span className={`underline ${className || ''}`} {...(props as any)}>
-        {children}
-      </span>
-    );
+    return <span className={`underline ${className || ''}`}>{children}</span>;
   }
 
   const openLink = () => window.open(href, '_blank');
@@ -591,27 +609,27 @@ let cachedStandardMarkdownComponents: Components | null = null;
 export function createStandardMarkdownComponents(): Components {
   if (cachedStandardMarkdownComponents) return cachedStandardMarkdownComponents;
   cachedStandardMarkdownComponents = {
-    h1: ({ node, children, ...props }: any) => (
+    h1: ({ node, children, ...props }: MarkdownElementProps<'h1'>) => (
       <h1 className="text-text-100 mt-3 -mb-1 text-[1.375rem] font-bold" {...props}>
         {processChildrenForSwatches(children)}
       </h1>
     ),
-    h2: ({ node, children, ...props }: any) => (
+    h2: ({ node, children, ...props }: MarkdownElementProps<'h2'>) => (
       <h2 className="text-text-100 mt-3 -mb-1 text-[1.125rem] font-bold" {...props}>
         {processChildrenForSwatches(children)}
       </h2>
     ),
-    h3: ({ node, children, ...props }: any) => (
+    h3: ({ node, children, ...props }: MarkdownElementProps<'h3'>) => (
       <h3 className="text-text-100 mt-2 -mb-1 text-base font-bold" {...props}>
         {processChildrenForSwatches(children)}
       </h3>
     ),
-    h4: ({ node, children, ...props }: any) => (
+    h4: ({ node, children, ...props }: MarkdownElementProps<'h4'>) => (
       <h4 className="text-text-100 mt-2 -mb-1 text-base font-bold" {...props}>
         {processChildrenForSwatches(children)}
       </h4>
     ),
-    p: ({ node, children, ...props }: any) => {
+    p: ({ node, children, ...props }: MarkdownElementProps<'p'>) => {
       const childArr = Children.toArray(children);
       const whitespaceClass =
         childArr.length === 1 && typeof childArr[0] === 'string' && childArr[0].includes('\n')
@@ -626,37 +644,39 @@ export function createStandardMarkdownComponents(): Components {
         </p>
       );
     },
-    blockquote: ({ node, children, ...props }: any) => (
+    blockquote: ({ node, children, ...props }: MarkdownElementProps<'blockquote'>) => (
       <blockquote className="ml-2 border-l-4 border-border-300/10 pl-4 text-text-300" {...props}>
         {processChildrenForSwatches(children)}
       </blockquote>
     ),
-    li: ({ node, children, ...props }: any) => (
+    li: ({ node, children, ...props }: MarkdownElementProps<'li'>) => (
       <li className="whitespace-normal break-words pl-2" {...props}>
         {processChildrenForSwatches(children)}
       </li>
     ),
-    ul: ({ node, ...props }: any) => (
+    ul: ({ node, ...props }: MarkdownElementProps<'ul'>) => (
       <ul
         className="[li_&]:mb-0 [li_&]:mt-1 [li_&]:gap-1 [&:not(:last-child)_ul]:pb-1 [&:not(:last-child)_ol]:pb-1 list-disc flex flex-col gap-1 pl-8 mb-3"
         {...props}
       />
     ),
-    ol: ({ node, ...props }: any) => (
+    ol: ({ node, ...props }: MarkdownElementProps<'ol'>) => (
       <ol
         className="[li_&]:mb-0 [li_&]:mt-1 [li_&]:gap-1 [&:not(:last-child)_ul]:pb-1 [&:not(:last-child)_ol]:pb-1 list-decimal flex flex-col gap-1 pl-8 mb-3"
         {...props}
       />
     ),
-    img: ({ node, ...props }: any) => <ImageShowButton {...props} />,
-    pre({ node, children, ...props }: any) {
+    img: ({ node, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & MarkdownExtraProps) => (
+      <ImageShowButton {...props} />
+    ),
+    pre({ node, children, ...props }: MarkdownPreProps) {
       // Extract the single <code> child's text content
       const codeChild = Children.only(children);
-      if (isValidElement(codeChild)) {
-        const codeChildren = Children.toArray((codeChild as any).props.children);
+      if (isValidElement<{ className?: string; children?: React.ReactNode }>(codeChild)) {
+        const codeChildren = Children.toArray(codeChild.props.children);
         if (codeChildren.length === 1 && typeof codeChildren[0] === 'string') {
           return (
-            <CodeBlock className={(codeChild as any).props.className} {...props}>
+            <CodeBlock className={codeChild.props.className} {...props}>
               {codeChildren[0]}
             </CodeBlock>
           );
@@ -665,13 +685,13 @@ export function createStandardMarkdownComponents(): Components {
       // Fallback for unexpected pre content
       return <pre {...props}>{children}</pre>;
     },
-    code: InlineCode as any,
-    a({ node, ...props }: any) {
+    code: InlineCode,
+    a({ node, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & MarkdownExtraProps) {
       const linkClasses =
         'underline underline-offset-2 decoration-1 decoration-current/40 hover:decoration-current focus:decoration-current';
       return <ConfirmableLink className={linkClasses} {...props} />;
     },
-    table: ({ node, ...props }: any) => (
+    table: ({ node, ...props }: MarkdownElementProps<'table'>) => (
       <div className="overflow-x-auto w-full px-2 mb-6">
         <table
           className="min-w-full border-collapse text-sm leading-[1.7] whitespace-normal"
@@ -679,16 +699,18 @@ export function createStandardMarkdownComponents(): Components {
         />
       </div>
     ),
-    thead: ({ node, ...props }: any) => <thead className="text-left" {...props} />,
-    tr: ({ node, ...props }: any) => <tr {...props} />,
-    td({ node, children, ...props }: any) {
+    thead: ({ node, ...props }: MarkdownElementProps<'thead'>) => (
+      <thead className="text-left" {...props} />
+    ),
+    tr: ({ node, ...props }: MarkdownElementProps<'tr'>) => <tr {...props} />,
+    td({ node, children, ...props }: MarkdownElementProps<'td'>) {
       return (
         <td className="border-b-0.5 border-border-300/30 py-2 pr-4 align-top" {...props}>
           {processChildrenForSwatches(flattenChildren(children))}
         </td>
       );
     },
-    th({ node, children, ...props }: any) {
+    th({ node, children, ...props }: MarkdownElementProps<'th'>) {
       return (
         <th
           className="text-text-100 border-b-0.5 border-border-300/60 py-2 pr-4 align-top font-bold"
@@ -698,7 +720,7 @@ export function createStandardMarkdownComponents(): Components {
         </th>
       );
     },
-    hr: ({ node, ...props }: any) => (
+    hr: ({ node, ...props }: MarkdownElementProps<'hr'>) => (
       <hr className="border-border-200 border-t-0.5 my-3 mx-1.5" {...props} />
     )
   };
@@ -714,16 +736,24 @@ export const STANDARD_MARKDOWN_GRID_CLASS = 'grid-cols-1 grid [&_>_*]:min-w-0 ga
 // Math plugin support (bundle's ua — lazy-loads remark-math + rehype-katex)
 // =============================================================================
 
-let mathPluginsCache: { remarkMath: any; rehypeKatex: any } | null = null;
-let mathPluginsPromise: Promise<{ remarkMath: any; rehypeKatex: any } | null> | null = null;
+let mathPluginsCache: { remarkMath: RemarkMathPlugin; rehypeKatex: RehypeKatexPlugin } | null = null;
+let mathPluginsPromise:
+  | Promise<{ remarkMath: RemarkMathPlugin; rehypeKatex: RehypeKatexPlugin } | null>
+  | null = null;
 
 /**
  * Hook to lazy-load remark-math and rehype-katex plugins.
  * Returns them once loaded, undefined before that.
  * Matches bundle's `ua` (lines 3285-3296).
  */
-export function useMathPlugins(): { remarkMath?: any; rehypeKatex?: any } {
-  const [plugins, setPlugins] = useState<{ remarkMath?: any; rehypeKatex?: any }>(
+export function useMathPlugins(): {
+  remarkMath?: RemarkMathPlugin;
+  rehypeKatex?: RehypeKatexPlugin;
+} {
+  const [plugins, setPlugins] = useState<{
+    remarkMath?: RemarkMathPlugin;
+    rehypeKatex?: RehypeKatexPlugin;
+  }>(
     () => mathPluginsCache ?? {}
   );
 
@@ -753,7 +783,7 @@ export function useMathPlugins(): { remarkMath?: any; rehypeKatex?: any } {
  * Build the full remarkPlugins array, optionally including math.
  * Matches bundle's N useMemo (lines 13660-13663).
  */
-export function buildRemarkPlugins(remarkMath?: any): PluggableList {
+export function buildRemarkPlugins(remarkMath?: RemarkMathPlugin): PluggableList {
   const plugins: PluggableList = [];
   // remark-gfm is added externally
   if (remarkMath) {
@@ -766,10 +796,11 @@ export function buildRemarkPlugins(remarkMath?: any): PluggableList {
  * Build the full rehypePlugins array, optionally including katex.
  * Matches bundle's j useMemo (lines 13663-13666).
  */
-export function buildRehypePlugins(rehypeKatex?: any): PluggableList {
+export function buildRehypePlugins(rehypeKatex?: RehypeKatexPlugin): PluggableList {
   const plugins: PluggableList = [];
   if (rehypeKatex) {
-    plugins.push([rehypeKatex, { errorColor: 'inherit' }]);
+    const options: RehypeKatexOptions = { errorColor: 'inherit' };
+    plugins.push([rehypeKatex, options]);
   }
   return plugins;
 }

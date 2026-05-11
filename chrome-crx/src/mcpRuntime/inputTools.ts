@@ -8,6 +8,14 @@ import {
   screenshotToViewportCoords,
   scrollViaContentScript
 } from './cdp';
+import type {
+  CdpCaptureScreenshotResult,
+  CdpDomDescribeNodeResult,
+  CdpDomGetContentQuadsResult,
+  CdpDomGetFrameOwnerResult,
+  CdpPageFrameTreeNode,
+  CdpPageGetFrameTreeResult
+} from './cdpTypes';
 import { resolveStaleRef, getRefBackendNodeId } from './refBridge';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 
@@ -29,6 +37,61 @@ interface ComputerToolParams {
 interface ClickOptions {
   skipIndicator?: boolean;
 }
+
+type FormInputValue = string | number | boolean;
+
+interface FormInputToolParams {
+  ref: string;
+  value: FormInputValue;
+  tabId?: number;
+}
+
+interface FormInputScriptResult extends ToolResult {
+  success?: boolean;
+  action?: string;
+  ref?: string;
+  element_type?: string;
+  previous_value?: string | boolean;
+  new_value?: string | boolean;
+  message?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isScrollToRefResult(value: unknown): value is ScrollToRefResult {
+  return (
+    isRecord(value) &&
+    typeof value.success === 'boolean' &&
+    (value.error === undefined || typeof value.error === 'string') &&
+    (value.coordinates === undefined ||
+      (Array.isArray(value.coordinates) &&
+        value.coordinates.length === 2 &&
+        value.coordinates.every((entry) => typeof entry === 'number')))
+  );
+}
+
+function isFormInputScriptResult(value: unknown): value is FormInputScriptResult {
+  return (
+    isRecord(value) &&
+    (value.error === undefined || typeof value.error === 'string') &&
+    (value.success === undefined || typeof value.success === 'boolean') &&
+    (value.action === undefined || typeof value.action === 'string') &&
+    (value.ref === undefined || typeof value.ref === 'string') &&
+    (value.element_type === undefined || typeof value.element_type === 'string') &&
+    (value.previous_value === undefined ||
+      typeof value.previous_value === 'string' ||
+      typeof value.previous_value === 'boolean') &&
+    (value.new_value === undefined ||
+      typeof value.new_value === 'string' ||
+      typeof value.new_value === 'boolean') &&
+    (value.message === undefined || typeof value.message === 'string') &&
+    (value.output === undefined || typeof value.output === 'string')
+  );
+}
+
+type PermissionManagerLike = ToolContext['permissionManager'];
 
 // ToolContext and ToolResult interfaces defined below in the tool definitions section
 
@@ -142,8 +205,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         const tabUrl = tab.url;
         if (!tabUrl) throw new Error('No URL available for active tab');
 
-        const getRequiredPermission = (action: string): any => {
-          const permissionMap: Record<string, any> = {
+        const getRequiredPermission = (action: string): PermissionActionType => {
+          const permissionMap = {
             screenshot: PermissionActionType.READ_PAGE_CONTENT,
             scroll: PermissionActionType.READ_PAGE_CONTENT,
             scroll_to: PermissionActionType.READ_PAGE_CONTENT,
@@ -156,9 +219,10 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             left_click_drag: PermissionActionType.CLICK,
             type: PermissionActionType.TYPE,
             key: PermissionActionType.TYPE
-          };
-          if (!permissionMap[action]) throw new Error(`Unsupported action: ${action}`);
-          return permissionMap[action];
+          } satisfies Record<string, PermissionActionType>;
+          const permission = permissionMap[action as keyof typeof permissionMap];
+          if (!permission) throw new Error(`Unsupported action: ${action}`);
+          return permission;
         };
 
         const requiredPermission = getRequiredPermission(toolParams.action);
@@ -214,17 +278,29 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
       }
 
       const currentUrl = tab.url;
+      const requireCurrentUrl = (): string => {
+        if (!currentUrl) {
+          throw new Error('No URL available for active tab');
+        }
+        return currentUrl;
+      };
       let result: ToolResult;
       const clickOptions = context.skipIndicator ? { skipIndicator: true } : undefined;
 
       switch (toolParams.action) {
         case 'left_click':
         case 'right_click':
-          result = await executeClick(effectiveTabId, toolParams, 1, currentUrl!, clickOptions);
+          result = await executeClick(
+            effectiveTabId,
+            toolParams,
+            1,
+            requireCurrentUrl(),
+            clickOptions
+          );
           break;
 
         case 'type':
-          result = await executeType(effectiveTabId, toolParams, currentUrl!);
+          result = await executeType(effectiveTabId, toolParams, requireCurrentUrl());
           break;
 
         case 'screenshot':
@@ -245,19 +321,31 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           break;
 
         case 'key':
-          result = await executeKey(effectiveTabId, toolParams, currentUrl!);
+          result = await executeKey(effectiveTabId, toolParams, requireCurrentUrl());
           break;
 
         case 'left_click_drag':
-          result = await executeDrag(effectiveTabId, toolParams, currentUrl!);
+          result = await executeDrag(effectiveTabId, toolParams, requireCurrentUrl());
           break;
 
         case 'double_click':
-          result = await executeClick(effectiveTabId, toolParams, 2, currentUrl!, clickOptions);
+          result = await executeClick(
+            effectiveTabId,
+            toolParams,
+            2,
+            requireCurrentUrl(),
+            clickOptions
+          );
           break;
 
         case 'triple_click':
-          result = await executeClick(effectiveTabId, toolParams, 3, currentUrl!, clickOptions);
+          result = await executeClick(
+            effectiveTabId,
+            toolParams,
+            3,
+            requireCurrentUrl(),
+            clickOptions
+          );
           break;
 
         case 'zoom':
@@ -265,11 +353,11 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           break;
 
         case 'scroll_to':
-          result = await executeScrollTo(effectiveTabId, toolParams, currentUrl!);
+          result = await executeScrollTo(effectiveTabId, toolParams, requireCurrentUrl());
           break;
 
         case 'hover':
-          result = await executeHover(effectiveTabId, toolParams, currentUrl!);
+          result = await executeHover(effectiveTabId, toolParams, requireCurrentUrl());
           break;
 
         default:
@@ -395,20 +483,24 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
 // --- scrollToElementByRef helper (te) ---
 
 function pickFrameResult<T extends { error?: string }>(
-  results: chrome.scripting.InjectionResult[]
+  results: chrome.scripting.InjectionResult[],
+  isResult: (value: unknown) => value is T
 ): T | null {
   for (const sr of results) {
-    const r = sr.result as T;
+    const r = sr.result;
+    if (!isResult(r)) continue;
     if (r && !r.error?.includes('No element found')) return r;
   }
-  return (results[0]?.result as T) ?? null;
+  const firstResult = results[0]?.result;
+  return isResult(firstResult) ? firstResult : null;
 }
 
-async function execWithStaleRecovery<T extends { error?: string }>(
+async function execWithStaleRecovery<T extends { error?: string }, TArgs extends unknown[]>(
   tabId: number,
   ref: string,
-  func: (...args: any[]) => T,
-  args: any[]
+  func: (...args: TArgs) => T,
+  args: TArgs,
+  isResult: (value: unknown) => value is T
 ): Promise<T | null> {
   const results = await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
@@ -417,7 +509,7 @@ async function execWithStaleRecovery<T extends { error?: string }>(
   });
   if (!results?.length) return null;
 
-  let result = pickFrameResult<T>(results);
+  let result = pickFrameResult(results, isResult);
 
   if (result?.error?.includes('No element found')) {
     const recovered = await resolveStaleRef(tabId, ref);
@@ -428,7 +520,7 @@ async function execWithStaleRecovery<T extends { error?: string }>(
         args
       });
       if (retryResults?.length) {
-        const retryResult = pickFrameResult<T>(retryResults);
+        const retryResult = pickFrameResult(retryResults, isResult);
         if (retryResult) result = retryResult;
       }
     }
@@ -456,8 +548,10 @@ async function getFrameOffsetForNode(
 ): Promise<{ x: number; y: number } | null> {
   try {
     const [desc, frameTree] = await Promise.all([
-      cdpDebugger.sendCommand(tabId, 'DOM.describeNode', { backendNodeId }),
-      cdpDebugger.sendCommand(tabId, 'Page.getFrameTree')
+      cdpDebugger.sendCommand<CdpDomDescribeNodeResult>(tabId, 'DOM.describeNode', {
+        backendNodeId
+      }),
+      cdpDebugger.sendCommand<CdpPageGetFrameTreeResult>(tabId, 'Page.getFrameTree')
     ]);
     let frameId: string | undefined = desc?.node?.frameId;
     if (!frameId) return { x: 0, y: 0 };
@@ -466,7 +560,7 @@ async function getFrameOffsetForNode(
     if (!mainFrameId) return null;
 
     const parentOf = new Map<string, string>();
-    const walk = (node: any) => {
+    const walk = (node?: CdpPageFrameTreeNode) => {
       const pid = node?.frame?.id;
       if (!pid) return;
       for (const child of node.childFrames ?? []) {
@@ -474,20 +568,28 @@ async function getFrameOffsetForNode(
         walk(child);
       }
     };
-    walk(frameTree.frameTree);
+    walk(frameTree?.frameTree);
 
     let offsetX = 0;
     let offsetY = 0;
     // 最多 16 跳：防御异常的 frame 树（如循环引用）导致死循环，正常嵌套远不会到这个深度。
     for (let hop = 0; hop < 16 && frameId !== mainFrameId; hop++) {
-      const owner = await cdpDebugger.sendCommand(tabId, 'DOM.getFrameOwner', { frameId });
+      const owner = await cdpDebugger.sendCommand<CdpDomGetFrameOwnerResult>(
+        tabId,
+        'DOM.getFrameOwner',
+        { frameId }
+      );
       const ownerBackendNodeId: number | undefined = owner?.backendNodeId;
       if (!ownerBackendNodeId) return null;
 
-      const quads = await cdpDebugger.sendCommand(tabId, 'DOM.getContentQuads', {
-        backendNodeId: ownerBackendNodeId
-      });
-      const quad = quads?.quads?.[0] as number[] | undefined;
+      const quads = await cdpDebugger.sendCommand<CdpDomGetContentQuadsResult>(
+        tabId,
+        'DOM.getContentQuads',
+        {
+          backendNodeId: ownerBackendNodeId
+        }
+      );
+      const quad = quads?.quads?.[0];
       if (!quad) return null;
       offsetX += quad[0];
       offsetY += quad[1];
@@ -507,13 +609,10 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
   const scrollScript = (elementRef: string) => {
     try {
       let element: Element | null = null;
-      if (
-        (window as any).__superduckElementMap &&
-        (window as any).__superduckElementMap[elementRef]
-      ) {
-        element = (window as any).__superduckElementMap[elementRef].deref() || null;
+      if (window.__superduckElementMap?.[elementRef]) {
+        element = window.__superduckElementMap[elementRef].deref() || null;
         if (!element || !document.contains(element)) {
-          delete (window as any).__superduckElementMap[elementRef];
+          delete window.__superduckElementMap[elementRef];
           element = null;
         }
       }
@@ -548,7 +647,13 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
   };
 
   try {
-    const result = await execWithStaleRecovery<ScrollToRefResult>(tabId, ref, scrollScript, [ref]);
+      const result = await execWithStaleRecovery<ScrollToRefResult, [string]>(
+        tabId,
+        ref,
+        scrollScript,
+        [ref],
+        isScrollToRefResult
+      );
 
     if (!result) {
       return { success: false, error: 'Failed to execute script to get element coordinates' };
@@ -565,8 +670,12 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
 
     if (backendNodeId !== null) {
       try {
-        const quads = await cdpDebugger.sendCommand(tabId, 'DOM.getContentQuads', { backendNodeId });
-        const quad = quads?.quads?.[0] as number[] | undefined;
+        const quads = await cdpDebugger.sendCommand<CdpDomGetContentQuadsResult>(
+          tabId,
+          'DOM.getContentQuads',
+          { backendNodeId }
+        );
+        const quad = quads?.quads?.[0];
         if (quad) {
           localCoords = [
             (quad[0] + quad[2] + quad[4] + quad[6]) / 4,
@@ -751,7 +860,7 @@ async function executeWait(params: ComputerToolParams): Promise<ToolResult> {
 async function executeScroll(
   tabId: number,
   params: ComputerToolParams,
-  permissionManager: any,
+  permissionManager: PermissionManagerLike,
   options?: ClickOptions
 ): Promise<ToolResult> {
   if (!params.coordinate || params.coordinate.length !== 2) {
@@ -860,7 +969,7 @@ async function executeScroll(
 // --- tryTakePostScrollScreenshot helper ---
 async function tryTakePostScrollScreenshot(
   tabId: number,
-  permissionManager: any,
+  permissionManager: PermissionManagerLike,
   options?: ClickOptions
 ): Promise<{ base64Image: string; imageFormat: string } | undefined> {
   try {
@@ -1077,12 +1186,16 @@ async function executeZoom(tabId: number, params: ComputerToolParams): Promise<T
     await tabGroupManager.hideIndicatorForToolUse(tabId);
 
     try {
-      const captureResult = await cdpDebugger.sendCommand(tabId, 'Page.captureScreenshot', {
-        format: 'png',
-        captureBeyondViewport: false,
-        fromSurface: true,
-        clip: { x: x0, y: y0, width: regionWidth, height: regionHeight, scale: 1 }
-      });
+      const captureResult = await cdpDebugger.sendCommand<CdpCaptureScreenshotResult>(
+        tabId,
+        'Page.captureScreenshot',
+        {
+          format: 'png',
+          captureBeyondViewport: false,
+          fromSurface: true,
+          clip: { x: x0, y: y0, width: regionWidth, height: regionHeight, scale: 1 }
+        }
+      );
 
       if (!captureResult || !captureResult.data) {
         throw new Error('Failed to capture zoomed screenshot via CDP');
@@ -1187,7 +1300,7 @@ async function executeHover(
 // Tool: form_input (Ee)
 // =============================================================================
 
-const formInputTool: ToolDefinition = {
+const formInputTool: ToolDefinition<FormInputToolParams> = {
   name: 'form_input',
   description:
     "Set values in form elements using element reference ID from the read_page or find tools. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
@@ -1207,7 +1320,7 @@ const formInputTool: ToolDefinition = {
         "Tab ID to set form value in. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
     }
   },
-  execute: async (input: any, context: ToolContext): Promise<ToolResult> => {
+  execute: async (input: FormInputToolParams, context: ToolContext): Promise<ToolResult> => {
     try {
       const params = input;
       if (!params?.ref) throw new Error('ref parameter is required');
@@ -1218,6 +1331,7 @@ const formInputTool: ToolDefinition = {
       const effectiveTabId = await tabGroupManager.getEffectiveTabId(params.tabId, context.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+      const activeTabId = tab.id;
       const tabUrl = tab.url;
       if (!tabUrl) throw new Error('No URL available for active tab');
 
@@ -1239,16 +1353,16 @@ const formInputTool: ToolDefinition = {
       const originalUrl = tab.url;
       if (!originalUrl) return { error: 'Unable to get original URL for security check' };
 
-      const securityCheck = await checkUrlSecurity(tab.id!, originalUrl, 'form input action');
+      const securityCheck = await checkUrlSecurity(activeTabId, originalUrl, 'form input action');
       if (securityCheck) return securityCheck;
 
-      const formInputScript = (ref: string, value: any) => {
+      const formInputScript = (ref: string, value: FormInputValue): FormInputScriptResult => {
         try {
-          let element: HTMLElement | null = null;
-          if ((window as any).__superduckElementMap && (window as any).__superduckElementMap[ref]) {
-            element = (window as any).__superduckElementMap[ref].deref() || null;
+          let element: Element | null = null;
+          if (window.__superduckElementMap?.[ref]) {
+            element = window.__superduckElementMap[ref].deref() || null;
             if (!element || !document.contains(element)) {
-              delete (window as any).__superduckElementMap[ref];
+              delete window.__superduckElementMap[ref];
               element = null;
             }
           }
@@ -1385,7 +1499,7 @@ const formInputTool: ToolDefinition = {
           }
 
           return {
-            error: `Element type "${(element as any).tagName}" is not a supported form input`
+            error: `Element type "${element.tagName}" is not a supported form input`
           };
         } catch (err) {
           return {
@@ -1394,7 +1508,13 @@ const formInputTool: ToolDefinition = {
         }
       };
 
-      const formResult = await execWithStaleRecovery<any>(tab.id!, params.ref, formInputScript, [params.ref, params.value]);
+      const formResult = await execWithStaleRecovery<FormInputScriptResult, [string, FormInputValue]>(
+        activeTabId,
+        params.ref,
+        formInputScript,
+        [params.ref, params.value],
+        isFormInputScriptResult
+      );
 
       if (!formResult)
         throw new Error('Failed to execute form input');

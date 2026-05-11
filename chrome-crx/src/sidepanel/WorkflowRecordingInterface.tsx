@@ -6,7 +6,7 @@ import { Button, TextInput } from '../components/ui';
 import { Trash2, Play, Pause, Mic, MicOff, X } from 'lucide-react';
 import { WorkflowStepsList, WorkflowStep } from './WorkflowStepsList';
 import { Tooltip } from './Tooltip';
-import { generateWorkflowSummary } from './sessionPool';
+import { generateWorkflowSummary, type ModelInvoker } from './sessionPool';
 
 interface RecordingState {
   isRecording: boolean;
@@ -26,7 +26,7 @@ interface WorkflowRecordingInterfaceProps {
   onRemoveStep: (index: number) => void;
   onUpdateStep: (index: number, updates: Partial<WorkflowStep>) => void;
   onSave: (steps: WorkflowStep[], summary: string, workflowTitle?: string) => void;
-  createMessage: (message: any, signal?: AbortSignal, label?: string) => Promise<any>;
+  createMessage: ModelInvoker;
   isGeneratingSummary: boolean;
   setIsGeneratingSummary: (value: boolean) => void;
   currentUrl?: string;

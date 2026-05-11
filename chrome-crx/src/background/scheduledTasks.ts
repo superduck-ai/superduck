@@ -2,11 +2,10 @@ import {
   promptService,
   setStorageValue,
   StorageKeys,
+  type SavedPrompt,
 } from "../extensionServices";
 import { tabGroupManager } from "../mcpRuntime";
 import type { ScheduledTask } from "./types";
-
-type SavedPromptRecord = Record<string, unknown>;
 
 interface SidepanelWindowOptions {
   sessionId: string;
@@ -161,25 +160,25 @@ export function createScheduledTaskManager() {
     });
   }
 
-  async function getSavedPrompt(promptId: string): Promise<SavedPromptRecord | undefined> {
+  async function getSavedPrompt(promptId: string): Promise<SavedPrompt | undefined> {
     const storage = await chrome.storage.local.get([StorageKeys.SAVED_PROMPTS]);
-    const prompts = (storage[StorageKeys.SAVED_PROMPTS] || []) as SavedPromptRecord[];
+    const prompts = (storage[StorageKeys.SAVED_PROMPTS] || []) as SavedPrompt[];
     return prompts.find((prompt) => prompt.id === promptId);
   }
 
-  function buildTaskFromSavedPrompt(savedPrompt: SavedPromptRecord): ScheduledTask {
+  function buildTaskFromSavedPrompt(savedPrompt: SavedPrompt): ScheduledTask {
     return {
-      id: savedPrompt.id as string,
-      name: (savedPrompt.command as string) || "Scheduled Task",
-      prompt: savedPrompt.prompt as string,
-      url: savedPrompt.url as string | undefined,
+      id: savedPrompt.id,
+      name: savedPrompt.command || "Scheduled Task",
+      prompt: savedPrompt.prompt,
+      url: savedPrompt.url,
       enabled: true,
       skipPermissions: savedPrompt.skipPermissions !== false,
-      model: savedPrompt.model as string | undefined,
+      model: savedPrompt.model,
     };
   }
 
-  function isRecurringPrompt(savedPrompt: SavedPromptRecord): boolean {
+  function isRecurringPrompt(savedPrompt: SavedPrompt): boolean {
     return savedPrompt.repeatType === "monthly" || savedPrompt.repeatType === "annually";
   }
 
@@ -197,9 +196,9 @@ export function createScheduledTaskManager() {
     }
   }
 
-  async function rescheduleRecurringPrompt(savedPrompt: SavedPromptRecord, promptId: string) {
+  async function rescheduleRecurringPrompt(savedPrompt: SavedPrompt, promptId: string) {
     try {
-      await promptService.updateAlarmForPrompt(savedPrompt as any);
+      await promptService.updateAlarmForPrompt(savedPrompt);
     } catch {
       const retryAlarmName = `retry_${promptId}`;
       try {
@@ -247,7 +246,7 @@ export function createScheduledTaskManager() {
       if (!savedPrompt || !isRecurringPrompt(savedPrompt)) return;
 
       try {
-        await promptService.updateAlarmForPrompt(savedPrompt as any);
+        await promptService.updateAlarmForPrompt(savedPrompt);
       } catch {
         await notify(
           "Scheduled Task Needs Attention",

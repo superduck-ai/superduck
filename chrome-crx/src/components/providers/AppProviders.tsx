@@ -29,6 +29,14 @@ type CookieStore = {
   delete: (name: string) => void;
 };
 
+type ElectronThemeMode = 'light' | 'dark' | 'system';
+
+type AppWindow = Window & {
+  electronWindowControl?: {
+    setThemeMode?: (mode: ElectronThemeMode) => void;
+  };
+};
+
 const CookiesContext = createContext<CookieStore | null>(null);
 
 const cookies: CookieStore = {
@@ -71,6 +79,27 @@ interface LocalStorageEnvelope<T> {
   value: T;
   tabId: string;
   timestamp: number;
+}
+
+function isExtensionUserProfile(value: unknown): value is ExtensionUserProfile {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'account' in value &&
+    'organization' in value &&
+    typeof value.account === 'object' &&
+    value.account !== null &&
+    typeof value.organization === 'object' &&
+    value.organization !== null &&
+    typeof (value.account as { uuid?: unknown }).uuid === 'string' &&
+    typeof (value.account as { email?: unknown }).email === 'string' &&
+    typeof (value.account as { has_claude_max?: unknown }).has_claude_max === 'boolean' &&
+    typeof (value.account as { has_claude_pro?: unknown }).has_claude_pro === 'boolean' &&
+    typeof (value.organization as { uuid?: unknown }).uuid === 'string' &&
+    typeof (value.organization as { organization_type?: unknown }).organization_type === 'string' &&
+    ((value.organization as { rate_limit_tier?: unknown }).rate_limit_tier === undefined ||
+      typeof (value.organization as { rate_limit_tier?: unknown }).rate_limit_tier === 'string')
+  );
 }
 
 function isLocalStorageEnvelope<T>(value: unknown): value is LocalStorageEnvelope<T> {
@@ -296,7 +325,8 @@ function ThemeProvider({
   }, [handleMediaChange, mode]);
 
   useEffect(() => {
-    (window as any).electronWindowControl?.setThemeMode?.(mode === 'auto' ? 'system' : mode);
+    const appWindow = window as AppWindow;
+    appWindow.electronWindowControl?.setThemeMode?.(mode === 'auto' ? 'system' : mode);
   }, [mode]);
 
   return (
@@ -369,7 +399,13 @@ const Spinner: React.FC = () => {
 const useProfileQuery = (enabled = true) =>
   useQuery<ExtensionUserProfile>({
     queryKey: ['userProfile'],
-    queryFn: async () => (await apiClient.fetch('/api/oauth/profile')) as ExtensionUserProfile,
+    queryFn: async () =>
+      apiClient.fetchJson('/api/oauth/profile', (value) => {
+        if (!isExtensionUserProfile(value)) {
+          throw new Error('Profile response has unexpected shape');
+        }
+        return value;
+      }),
     enabled,
     staleTime: 3e5,
     gcTime: 6e5,

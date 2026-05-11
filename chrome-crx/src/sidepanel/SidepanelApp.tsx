@@ -142,7 +142,9 @@ import {
   filterSyntheticMessages,
   getSettleTimes,
   manageScreenshotHistory,
-  parseCompactCommands
+  parseCompactCommands,
+  type LightningMessage,
+  type ParsedCommand
 } from './lightningCommands';
 import {
   clearTimings,
@@ -209,9 +211,23 @@ import {
 } from './sidepanelUtils';
 import type {
   ApiConversationMessage,
+  ApiInputContentBlock,
+  ApiImageContentBlock,
+  ApiMessageBlock,
   ApiResponseMessage,
+  ApiTextContentBlock,
+  ApiToolResultBlock,
+  ApiToolResultContentBlock,
+  ApiToolUseBlock,
   ApiUsage,
   CreateApiMessageParams
+} from '../messageTypes';
+import {
+  isImageContentBlock,
+  isRecord,
+  isTextContentBlock,
+  isToolResultContentBlock,
+  isToolUseContentBlock
 } from '../messageTypes';
 import type { ToolProviderSchema } from '../mcpRuntime/pageToolsSupport/types';
 import {
@@ -278,7 +294,7 @@ interface PermissionPromptData {
     text?: string;
     fromDomain?: string;
     toDomain?: string;
-    plan?: any;
+    plan?: PlanStructure;
     imageId?: string;
     start_coordinate?: [number, number];
     remoteMcp?: {
@@ -356,6 +372,223 @@ interface SessionIndexEntry {
   updatedAt: number;
   model?: string;
   preview?: string;
+}
+
+type ToolInputRecord = Record<string, unknown>;
+type PermissionGrantScope = {
+  type: 'netloc' | 'domain_transition';
+  netloc?: string;
+  fromDomain?: string;
+  toDomain?: string;
+};
+type SupportedImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
+type Base64ImageSource = {
+  type: 'base64';
+  media_type: string;
+  data: string;
+  metadata?: Record<string, unknown>;
+};
+
+type Base64ImageBlock = ApiImageContentBlock & {
+  source: Base64ImageSource;
+};
+
+type ToolResultDisplayContent =
+  | string
+  | {
+      text: string;
+      images: Base64ImageBlock[];
+    };
+
+type LightningContentArray = Exclude<LightningMessage['content'], string>;
+type LightningSystemPromptBlock = Extract<LightningContentArray[number], { type: 'text' }>;
+type LightningCreateApiMessageParams = {
+  model?: string;
+  maxTokens: number;
+  messages: LightningMessage[];
+  system: LightningSystemPromptBlock[] | string;
+};
+type ResponseWithMessageLimit = ApiResponseMessage & {
+  message_limit?: unknown;
+};
+type CommandExecutionResult = {
+  action: string;
+  input: ParsedCommand['args'] | PlanStructure | Record<string, unknown>;
+  output: string;
+  durationMs: number;
+};
+
+interface ConversationGroup {
+  type: 'conversation';
+  userMessage: ApiConversationMessage;
+  hasVisibleUser: boolean;
+  toolResults: ApiToolResultBlock[];
+  assistantBlocks: ApiMessageBlock[];
+}
+
+interface SummaryGroup {
+  type: 'summary';
+  message: ApiConversationMessage;
+}
+
+type MessageGroup = ConversationGroup | SummaryGroup;
+
+const PERMISSION_ACTION_TYPES = new Set<string>(Object.values(PermissionActionType));
+
+interface TimelineGroupItemData {
+  block: ApiToolUseBlock | ApiToolResultBlock;
+  index: number;
+  renderable: boolean;
+}
+
+interface TimelineGroupData {
+  items: TimelineGroupItemData[];
+  startIndex: number;
+  isLastBlockOfMessage: boolean;
+}
+
+type GroupedContentBlock =
+  | {
+      type: 'single';
+      content: ApiMessageBlock;
+      index: number;
+    }
+  | {
+      type: 'group';
+      content: TimelineGroupData;
+      index: number;
+    };
+
+function isBase64ImageSource(source: unknown): source is Base64ImageSource {
+  return (
+    isRecord(source) &&
+    source.type === 'base64' &&
+    typeof source.media_type === 'string' &&
+    typeof source.data === 'string'
+  );
+}
+
+function isBase64ImageBlock(block: unknown): block is Base64ImageBlock {
+  return isImageContentBlock(block) && isBase64ImageSource(block.source);
+}
+
+function getTextFromBlockContent(
+  content: string | readonly unknown[] | null | undefined,
+  separator: string = '\n'
+): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.filter(isTextContentBlock).map((block) => block.text).join(separator);
+}
+
+function getBase64ImageBlocks(content: readonly unknown[] | null | undefined): Base64ImageBlock[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter(isBase64ImageBlock);
+}
+
+function normalizeToolResultContent(
+  content: ApiConversationMessage['content'] | undefined,
+  fallback: string
+): ApiToolResultBlock['content'] {
+  if (typeof content === 'string') {
+    return content || fallback;
+  }
+  if (!Array.isArray(content)) {
+    return fallback;
+  }
+  const filtered = content.filter(
+    (block): block is ApiToolResultContentBlock =>
+      isTextContentBlock(block) || isImageContentBlock(block)
+  );
+  return filtered.length > 0 ? filtered : fallback;
+}
+
+function getStringField(input: ToolInputRecord | undefined, field: string): string | undefined {
+  return input && typeof input[field] === 'string' ? input[field] : undefined;
+}
+
+function isPermissionPromptData(value: unknown): value is PermissionPromptData {
+  return (
+    isRecord(value) &&
+    value.type === 'permission_required' &&
+    typeof value.url === 'string' &&
+    typeof value.tool === 'string' &&
+    PERMISSION_ACTION_TYPES.has(value.tool)
+  );
+}
+
+function getStreamHeaders(stream: unknown): Headers | null {
+  if (!isRecord(stream) || !isRecord(stream.response)) return null;
+  return stream.response.headers instanceof Headers ? stream.response.headers : null;
+}
+
+function getRuntimeEvaluateValue(result: unknown): boolean {
+  return isRecord(result) && isRecord(result.result) && result.result.value === true;
+}
+
+function isChatRole(value: unknown): value is ChatRole {
+  return value === 'system' || value === 'user' || value === 'assistant';
+}
+
+function isChatMessage(value: unknown): value is ChatMessage {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    isChatRole(value.role) &&
+    typeof value.text === 'string'
+  );
+}
+
+function isApiConversationMessage(value: unknown): value is ApiConversationMessage {
+  return (
+    isRecord(value) &&
+    isChatRole(value.role) &&
+    (typeof value.content === 'string' || Array.isArray(value.content))
+  );
+}
+
+function isSessionSnapshot(value: unknown): value is SessionSnapshot {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.uiMessages) &&
+    value.uiMessages.every(isChatMessage) &&
+    Array.isArray(value.apiMessages) &&
+    value.apiMessages.every(isApiConversationMessage) &&
+    typeof value.selectedModel === 'string' &&
+    isPermissionMode(value.permissionMode) &&
+    (value.createdAt === undefined || typeof value.createdAt === 'number') &&
+    (value.conversationUuid === undefined || typeof value.conversationUuid === 'string') &&
+    (value.remoteSessionId === undefined || typeof value.remoteSessionId === 'string')
+  );
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
+}
+
+function normalizeImageMediaType(mediaType: string | undefined): SupportedImageMediaType {
+  if (
+    mediaType === 'image/jpeg' ||
+    mediaType === 'image/png' ||
+    mediaType === 'image/gif' ||
+    mediaType === 'image/webp'
+  ) {
+    return mediaType;
+  }
+
+  switch (mediaType) {
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    default:
+      return 'image/png';
+  }
 }
 
 const SESSION_CONVERSATION_MAP_KEY = 'sidepanel_conversation_map_v1';
@@ -444,8 +677,8 @@ function UserMessageRow({
   onSavePrompt,
   onEditShortcut
 }: {
-  content: any;
-  toolResults?: any[];
+  content: ApiConversationMessage['content'];
+  toolResults?: ApiToolResultBlock[];
   onSavePrompt?: (text: string) => void;
   onEditShortcut?: (id: string) => void;
 }) {
@@ -457,21 +690,17 @@ function UserMessageRow({
   const remarkPlugins = useMemo(() => [remarkGfm], []);
 
   let text = '';
-  let images: any[] = [];
+  let images: Base64ImageBlock[] = [];
   const hasToolResults = (toolResults?.length ?? 0) > 0;
-  const isToolResultOnly = hasToolResults && !text;
 
   if (typeof content === 'string') {
     text = content;
   } else if (Array.isArray(content)) {
-    text = content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
-      .join('\n');
-    images = content.filter((b: any) => {
-      if (b.type !== 'image') return false;
+    text = getTextFromBlockContent(content);
+    images = getBase64ImageBlocks(content).filter((image) => {
       // Filter out _autoScreenshot and workflow-step images like the bundle does
-      if (b.source?.metadata?.fileName === '_autoScreenshot') return false;
+      const metadata = isRecord(image.source.metadata) ? image.source.metadata : undefined;
+      if (metadata?.fileName === '_autoScreenshot') return false;
       return true;
     });
   }
@@ -499,8 +728,7 @@ function UserMessageRow({
       >
         {images.length > 0 && (
           <div className={'flex flex-wrap gap-2 justify-end ' + (displayText ? 'mb-2' : 'py-5')}>
-            {images.map((img: any, idx: number) => {
-              if (img.source?.type !== 'base64') return null;
+            {images.map((img, idx) => {
               const src = `data:${img.source.media_type};base64,${img.source.data}`;
               return (
                 <div
@@ -622,7 +850,7 @@ interface UseLightningModeProps {
   currentUrl: string | null;
   onShareRequested: (() => Promise<boolean>) | null;
   permissionMode: string;
-  onPermissionRequired?: (result: any) => Promise<boolean>;
+  onPermissionRequired?: (result: Record<string, unknown>) => Promise<boolean>;
   permissionManager: PermissionManager;
   enabled?: boolean;
 }
@@ -641,7 +869,7 @@ function useLightningMode({
   permissionManager,
   enabled = true
 }: UseLightningModeProps) {
-  const [lnMessages, setLnMessages] = useState<any[]>([]);
+  const [lnMessages, setLnMessages] = useState<LightningMessage[]>([]);
   const [lnIsLoading, setLnIsLoading] = useState(false);
   const [lnError, setLnError] = useState<string | null>(null);
   const [lnLastStopReason, setLnLastStopReason] = useState<{
@@ -663,10 +891,10 @@ function useLightningMode({
   sessionIdRef.current = sessionId;
 
   const planApprovedRef = useRef(false);
-  const clientRef = useRef<any>(null);
+  const clientRef = useRef<MessagesClient | null>(null);
   const cancelledRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const systemPromptRef = useRef<any[] | null>(null);
+  const systemPromptRef = useRef<LightningSystemPromptBlock[] | null>(null);
   const lnMessagesRef = useRef(lnMessages);
   lnMessagesRef.current = lnMessages;
   const tabContextHashRef = useRef<string | null>(null);
@@ -702,7 +930,9 @@ function useLightningMode({
   useEffect(() => {
     if (!enabled || (!apiKey && !authToken)) return;
     (async () => {
-      const storedConfig = (await getStorageValue(StorageKeys.PURL_CONFIG)) || purlConfigFeature;
+      const storedConfig =
+        (await getStorageValue<PurlConfigFeatureValue | null>(StorageKeys.PURL_CONFIG)) ||
+        purlConfigFeature;
       const merged = {
         ...LIGHTNING_DEFAULT_CONFIG,
         ...((storedConfig && typeof storedConfig === 'object' ? storedConfig : {}) as Partial<
@@ -744,7 +974,9 @@ function useLightningMode({
     const platform = isMac ? 'Mac' : 'Windows/Linux';
     const platformModifier = isMac ? 'cmd' : 'ctrl';
 
-    const storedConfig = (await getStorageValue(StorageKeys.PURL_CONFIG)) || purlConfigFeature;
+    const storedConfig =
+      (await getStorageValue<PurlConfigFeatureValue | null>(StorageKeys.PURL_CONFIG)) ||
+      purlConfigFeature;
     const rawPrompt: string =
       storedConfig?.systemPrompt ||
       purlPromptFeature ||
@@ -761,10 +993,10 @@ function useLightningMode({
       key in templateVars ? templateVars[key] : _match
     );
 
-    const systemParts: any[] = [{ type: 'text', text: processedPrompt }];
+    const systemParts: LightningSystemPromptBlock[] = [{ type: 'text', text: processedPrompt }];
 
     // Also add user system prompt if configured
-    const userSystemPrompt = await getStorageValue(StorageKeys.SYSTEM_PROMPT);
+    const userSystemPrompt = await getStorageValue<string>(StorageKeys.SYSTEM_PROMPT);
     if (userSystemPrompt) {
       systemParts.push({ type: 'text', text: userSystemPrompt });
     }
@@ -782,11 +1014,12 @@ function useLightningMode({
   // Listen for PURL_CONFIG storage changes
   useEffect(() => {
     if (!enabled) return;
-    const listener = (changes: any, areaName: string) => {
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== 'local' || !(StorageKeys.PURL_CONFIG in changes)) return;
+      const nextConfigValue = changes[StorageKeys.PURL_CONFIG]?.newValue;
       const newConfig = {
         ...LIGHTNING_DEFAULT_CONFIG,
-        ...changes[StorageKeys.PURL_CONFIG].newValue
+        ...(isRecord(nextConfigValue) ? nextConfigValue : {})
       } as LightningConfig & Partial<PurlConfigFeatureValue>;
       modelOverrideRef.current = newConfig.modelOverride || null;
       effortRef.current = newConfig.effort;
@@ -803,14 +1036,14 @@ function useLightningMode({
 
   /** Create API message (non-streaming, for external callers). */
   const createApiMessage = useCallback(
-    async (params: { model?: string; maxTokens: number; messages: any[]; system: any }) => {
+    async (params: LightningCreateApiMessageParams) => {
       if (!clientRef.current) throw new Error('Client not initialized');
       const fast = isFastModel();
       const betas = ['oauth-2025-04-20'];
       if (fast) betas.push('fast-mode-2026-02-01');
       const model = params.model || getEffectiveModel();
       const mappedModel = await mapModelName(getBaseModel(model));
-      const requestBody: any = {
+      const requestBody = {
         model: mappedModel,
         max_tokens: params.maxTokens,
         messages: params.messages,
@@ -825,8 +1058,8 @@ function useLightningMode({
 
   /** Track analytics event — bundle's i function inside oe */
   const trackToolCall = useCallback(
-    (toolName: string, success: boolean, extra?: Record<string, any>) => {
-      const props: any = {
+    (toolName: string, success: boolean, extra?: Record<string, unknown>) => {
+      const props: Record<string, unknown> = {
         name: toolName,
         sessionId: sessionIdRef.current,
         permissions: permissionMode,
@@ -851,10 +1084,12 @@ function useLightningMode({
     async (
       message: string,
       attachments: Array<{ base64: string; mediaType: string }> | undefined,
-      _systemPromptOverride: any,
+      _systemPromptOverride: unknown,
       _isContinue: boolean
     ) => {
-      if (!clientRef.current || !systemPromptRef.current) {
+      const client = clientRef.current;
+      const systemPrompt = systemPromptRef.current;
+      if (!client || !systemPrompt) {
         setLnError('Chat session not initialized. Check your connection.');
         return;
       }
@@ -871,7 +1106,7 @@ function useLightningMode({
 
       try {
         // Build user message content blocks
-        const userContent: any[] = [];
+        const userContent: LightningContentArray = [];
 
         // Add tab context as system reminder
         if (tabId) {
@@ -880,7 +1115,7 @@ function useLightningMode({
             if (tabs.length > 0) {
               tabContextHashRef.current =
                 tabs
-                  .map((t: any) => t.id)
+                  .map((t) => t.id)
                   .sort((a: number, b: number) => a - b)
                   .join(',') + `:${tabId}`;
               const tabContext = formatTabsOutput(tabs, undefined, tabId);
@@ -902,7 +1137,11 @@ function useLightningMode({
           for (const att of attachments) {
             userContent.push({
               type: 'image',
-              source: { type: 'base64', media_type: att.mediaType, data: att.base64 }
+              source: {
+                type: 'base64',
+                media_type: normalizeImageMediaType(att.mediaType),
+                data: att.base64
+              }
             });
           }
         }
@@ -927,7 +1166,7 @@ function useLightningMode({
               type: 'image',
               source: {
                 type: 'base64',
-                media_type: `image/${screenshot.format ?? 'jpeg'}`,
+                media_type: normalizeImageMediaType(screenshot.format),
                 data: screenshot.base64
               },
               _autoScreenshot: true
@@ -945,7 +1184,10 @@ function useLightningMode({
           });
         }
 
-        const allMessages = [...lnMessagesRef.current, { role: 'user', content: userContent }];
+        const allMessages: LightningMessage[] = [
+          ...lnMessagesRef.current,
+          { role: 'user', content: userContent }
+        ];
         let activeTabId = tabId!;
         let continueLoop = true;
         let iterationCount = 0;
@@ -1005,12 +1247,12 @@ function useLightningMode({
             const effort = resolveEffortLevel(effortRef.current, model, modelsConfigRef.current);
             const fast = isFastModel();
             const mappedModel = await mapModelName(getBaseModel(model));
-            const requestBody: any = {
+            const requestBody = {
               messages: apiMessages,
               model: mappedModel,
               max_tokens: 10000,
               tools: [],
-              system: systemPromptRef.current,
+              system: systemPrompt,
               ...(effort !== 'none' && { output_config: { effort } }),
               betas: [
                 'oauth-2025-04-20',
@@ -1021,7 +1263,7 @@ function useLightningMode({
               stop_sequences: ['\n<<END>>']
             };
 
-            const stream = clientRef.current.beta.messages.stream(requestBody, {
+            const stream = client.beta.messages.stream(requestBody, {
               signal: abortControllerRef.current?.signal
             });
 
@@ -1141,7 +1383,14 @@ function useLightningMode({
 
             // ST (select_tab) must be first command
             const stIndex = commands.findIndex((c) => c.type === 'select_tab');
-            let stError: any = null;
+            let stError:
+              | {
+                  action: 'error';
+                  input: ParsedCommand['args'] | Record<string, never>;
+                  output: string;
+                  durationMs: number;
+                }
+              | null = null;
             if (stIndex > 0) {
               commands.splice(stIndex);
               stError = {
@@ -1151,15 +1400,20 @@ function useLightningMode({
                 durationMs: 0
               };
             } else if (stIndex === 0) {
+              const selectTabCommand = commands[0];
               const tabs = await tabGroupManager.getValidTabsWithMetadata(activeTabId);
-              const tabIds = new Set(tabs.map((t: any) => t.id));
-              if (tabIds.has(commands[0].args.tabId)) {
-                activeTabId = commands[0].args.tabId;
-              } else {
+              const tabIds = new Set(
+                tabs
+                  .map((tab) => tab.id)
+                  .filter((tabId): tabId is number => typeof tabId === 'number')
+              );
+              if (selectTabCommand?.type === 'select_tab' && tabIds.has(selectTabCommand.args.tabId)) {
+                activeTabId = selectTabCommand.args.tabId;
+              } else if (selectTabCommand?.type === 'select_tab') {
                 stError = {
                   action: 'error',
-                  input: commands[0].args,
-                  output: `Tab ${commands[0].args.tabId} is not in the current tab group.`,
+                  input: selectTabCommand.args,
+                  output: `Tab ${selectTabCommand.args.tabId} is not in the current tab group.`,
                   durationMs: 0
                 };
               }
@@ -1184,12 +1438,7 @@ function useLightningMode({
               'lightning_command_execution',
               async (cmdSpan: Span) => {
                 cmdSpan.setAttribute('command_count', commands.length);
-                const results: Array<{
-                  action: string;
-                  input: any;
-                  output: string;
-                  durationMs: number;
-                }> = [];
+                const results: CommandExecutionResult[] = [];
 
                 if (stError && stIndex === 0) {
                   results.push(stError);
@@ -1638,7 +1887,7 @@ function useLightningMode({
                         }),
                         new Promise<null>((resolve) => setTimeout(() => resolve(null), timeLeft))
                       ]);
-                      if ((evalResult as any)?.result?.value === true) break;
+                      if (getRuntimeEvaluateValue(evalResult)) break;
                     } catch {
                       break;
                     }
@@ -1717,7 +1966,9 @@ function useLightningMode({
                 _synthetic: true
               });
 
-              const resultContent: any[] = [{ type: 'text', text: result.output }];
+              const resultContent: ApiToolResultContentBlock[] = [
+                { type: 'text', text: result.output }
+              ];
               if (isLast && screenshotBase64) {
                 resultContent.push({
                   type: 'image',
@@ -1738,7 +1989,7 @@ function useLightningMode({
             }
 
             // Build the real user message with tab context + text outputs + screenshot
-            const nextUserContent: any[] = [];
+            const nextUserContent: LightningContentArray = [];
 
             // Check for tab context changes
             const tabContextUpdate = await getUpdatedTabContext(
@@ -2121,7 +2372,7 @@ function PlanCard({
 }: {
   plan: PlanStructure;
   isStreaming?: boolean;
-  toolResult?: any;
+  toolResult?: ApiToolResultBlock;
 }) {
   const [showModal, setShowModal] = useState(false);
 
@@ -2292,8 +2543,8 @@ const UpdatePlanCell = React.memo(function UpdatePlanCell({
   isLastItemInGroup,
   isStreaming
 }: {
-  input: any;
-  toolResult: any;
+  input?: ToolInputRecord;
+  toolResult?: ApiToolResultBlock;
   renderMode?: 'Standard' | 'TimelineGroup';
   isFirstBlockOfMessage?: boolean;
   isLastBlockOfMessage?: boolean;
@@ -2316,23 +2567,23 @@ const UpdatePlanCell = React.memo(function UpdatePlanCell({
   }, []);
 
   // Parse plan structure from input
-  const planStructure: PlanStructure | null = input
-    ? { domains: input.domains || [], approach: input.approach || [] }
-    : null;
+  const planStructure = useMemo<PlanStructure | null>(() => {
+    if (!input) return null;
+    return {
+      domains: Array.isArray(input.domains)
+        ? input.domains.filter((domain): domain is string => typeof domain === 'string')
+        : [],
+      approach: Array.isArray(input.approach)
+        ? input.approach.filter((step): step is string => typeof step === 'string')
+        : []
+    };
+  }, [input]);
 
   // Determine plan status
   const planStatus = useMemo(() => {
     if (isStreaming || !toolResult) return 'creating';
     if (toolResult?.content) {
-      const text =
-        typeof toolResult.content === 'string'
-          ? toolResult.content
-          : Array.isArray(toolResult.content)
-            ? toolResult.content
-                .filter((c: any) => c.type === 'text')
-                .map((c: any) => c.text)
-                .join('\n')
-            : '';
+      const text = getTextFromBlockContent(toolResult.content);
       if (text.includes('approved') || text.includes('Approved')) return 'approved';
       if (text.includes('rejected') || text.includes('Rejected')) return 'rejected';
     }
@@ -2405,8 +2656,8 @@ const BrowserToolCell = React.memo(function BrowserToolCell({
 }: {
   toolName: string;
   toolDisplayName?: string;
-  input: any;
-  toolResult: any;
+  input?: ToolInputRecord;
+  toolResult?: ApiToolResultBlock;
   renderMode?: 'Standard' | 'TimelineGroup';
   isFirstBlockOfMessage?: boolean;
   isLastBlockOfMessage?: boolean;
@@ -2445,11 +2696,7 @@ const BrowserToolCell = React.memo(function BrowserToolCell({
     if (typeof toolResult.content === 'string') return null;
 
     // Handle both array and non-array content
-    const content = Array.isArray(toolResult.content) ? toolResult.content : [];
-
-    const imageContent = content.find(
-      (c: any) => c.type === 'image' && c.source?.type === 'base64'
-    );
+    const imageContent = getBase64ImageBlocks(toolResult.content)[0];
 
     if (imageContent) {
       return `data:${imageContent.source.media_type};base64,${imageContent.source.data}`;
@@ -2518,8 +2765,8 @@ function ToolUseItem({
   toolDisplayName: explicitDisplayName,
   explicitIcon
 }: {
-  block: any;
-  toolResult?: any;
+  block: ApiToolUseBlock;
+  toolResult?: ApiToolResultBlock;
   isStreaming: boolean;
   renderMode?: 'Standard' | 'TimelineGroup';
   isFirstBlockOfMessage?: boolean;
@@ -2532,6 +2779,10 @@ function ToolUseItem({
   const intl = useIntlSafe();
   const [resultExpanded, setResultExpanded] = useState(false);
   const [requestExpanded, setRequestExpanded] = useState(false);
+  const input = useMemo<ToolInputRecord | undefined>(
+    () => (isRecord(block.input) ? block.input : undefined),
+    [block.input]
+  );
   const hasResult = !!toolResult;
   const isComplete = hasResult || !isStreaming;
   const isActive = !hasResult && isStreaming;
@@ -2559,25 +2810,23 @@ function ToolUseItem({
     if (!toolResult) return null;
     if (typeof toolResult.content === 'string') return toolResult.content;
     if (Array.isArray(toolResult.content)) {
-      const textParts = toolResult.content
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('\n');
-      const images = toolResult.content.filter((c: any) => c.type === 'image');
-      return { text: textParts, images };
+      return {
+        text: getTextFromBlockContent(toolResult.content),
+        images: getBase64ImageBlocks(toolResult.content)
+      } satisfies Exclude<ToolResultDisplayContent, string>;
     }
     return null;
-  }, [toolResult]);
+  }, [toolResult]) as ToolResultDisplayContent | null;
 
   // Request content (tool input) for the "Request" badge
   const requestContent = useMemo(() => {
-    if (!block.input || Object.keys(block.input).length === 0) return null;
+    if (!input || Object.keys(input).length === 0) return null;
     try {
-      return JSON.stringify(block.input, null, 2);
+      return JSON.stringify(input, null, 2);
     } catch {
       return null;
     }
-  }, [block.input]);
+  }, [input]);
 
   const hasResultContent = !!resultContent;
   const hasRequestContent = !!requestContent;
@@ -2631,7 +2880,7 @@ function ToolUseItem({
               >
                 <div className="p-2 flex flex-col gap-2 max-h-[200px] overflow-y-auto [&_pre]:!text-xs [&_code]:!text-xs">
                   <pre className="text-xs text-text-400 font-mono whitespace-pre-wrap">
-                    {requestContent!.slice(0, 2000)}
+                    {requestContent?.slice(0, 2000)}
                   </pre>
                 </div>
               </div>
@@ -2691,10 +2940,10 @@ function ToolUseItem({
                       )}
                       {resultContent.images?.length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                          {resultContent.images.map((img: any, idx: number) => (
+                          {resultContent.images.map((img, idx) => (
                             <img
                               key={idx}
-                              src={`data:${img.source?.media_type};base64,${img.source?.data}`}
+                              src={`data:${img.source.media_type};base64,${img.source.data}`}
                               alt="tool result"
                               className="w-20 h-20 object-cover rounded"
                             />
@@ -2748,17 +2997,13 @@ function ToolUseItem({
 // --- Content Blocks Renderer (matching bundle's cv) ---
 
 /** Checks if a block should be grouped in a timeline (tool_use or tool_result) */
-function isTimelineBlock(block: any): boolean {
-  return ['tool_use', 'tool_result'].includes(block.type);
+function isTimelineBlock(block: ApiMessageBlock): block is ApiToolUseBlock | ApiToolResultBlock {
+  return isToolUseContentBlock(block) || isToolResultContentBlock(block);
 }
 
 /** Groups consecutive tool blocks, matching bundle's grouping algorithm in cv */
-function groupBlocks(blocks: any[]): Array<{
-  type: 'single' | 'group';
-  content: any;
-  index: number;
-}> {
-  const result: Array<{ type: 'single' | 'group'; content: any; index: number }> = [];
+function groupBlocks(blocks: ApiMessageBlock[]): GroupedContentBlock[] {
+  const result: GroupedContentBlock[] = [];
   const visited = new Set<number>();
 
   blocks.forEach((block, i) => {
@@ -2800,9 +3045,9 @@ function ContentBlocksRenderer({
   isStreaming,
   allMessages
 }: {
-  blocks: any[];
+  blocks: ApiMessageBlock[];
   isStreaming: boolean;
-  allMessages: any[];
+  allMessages: ApiConversationMessage[];
 }) {
   const [showCollapsed, setShowCollapsed] = useState(false);
   const intl = useIntlSafe();
@@ -2813,7 +3058,8 @@ function ContentBlocksRenderer({
   const { blocksBeforeAnswer, blocksAfterAnswer, hasFinalAnswer } = useMemo(() => {
     let answerIdx = -1;
     for (let i = 0; i < blocks.length; i++) {
-      if (blocks[i].type === 'tool_use' && blocks[i].name === 'turn_answer_start') {
+      const block = blocks[i];
+      if (isToolUseContentBlock(block) && block.name === 'turn_answer_start') {
         answerIdx = i;
         break;
       }
@@ -2831,8 +3077,10 @@ function ContentBlocksRenderer({
   // Count tool_use blocks for collapse logic
   const toolUseCount = useMemo(() => {
     const targetBlocks = hasFinalAnswer ? blocksBeforeAnswer : blocks;
-    return targetBlocks.filter((b: any) => b.type === 'tool_use' && b.name !== 'turn_answer_start')
-      .length;
+    return targetBlocks.filter(
+      (block): block is ApiToolUseBlock =>
+        isToolUseContentBlock(block) && block.name !== 'turn_answer_start'
+    ).length;
   }, [blocks, blocksBeforeAnswer, hasFinalAnswer]);
 
   const isTurnComplete = !isStreaming;
@@ -2867,7 +3115,7 @@ function ContentBlocksRenderer({
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 transition={{
-                  ease: TIMELINE_SNAPPY_OUT as unknown as string,
+                  ease: TIMELINE_SNAPPY_OUT,
                   duration: TIMELINE_ANIM_DURATION
                 }}
                 className="overflow-hidden"
@@ -2968,7 +3216,7 @@ function ContentBlocksRenderer({
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{
-                ease: TIMELINE_SNAPPY_OUT as unknown as string,
+                ease: TIMELINE_SNAPPY_OUT,
                 duration: TIMELINE_ANIM_DURATION
               }}
               className="overflow-hidden"
@@ -3027,16 +3275,16 @@ const BlockRenderer = React.memo(function BlockRenderer({
   remarkMath,
   rehypeKatex
 }: {
-  block: any;
+  block: ApiMessageBlock;
   index: number;
-  blocks: any[];
+  blocks: ApiMessageBlock[];
   renderMode?: 'Standard' | 'TimelineGroup';
   isFirstItemInGroup?: boolean;
   isLastItemInGroup?: boolean;
   isStreaming: boolean;
-  allMessages: any[];
-  remarkMath?: any;
-  rehypeKatex?: any;
+  allMessages: ApiConversationMessage[];
+  remarkMath?: ReturnType<typeof useMathPlugins>['remarkMath'];
+  rehypeKatex?: ReturnType<typeof useMathPlugins>['rehypeKatex'];
 }) {
   const isFirst = index === 0;
   const isLast = index === blocks.length - 1;
@@ -3051,13 +3299,13 @@ const BlockRenderer = React.memo(function BlockRenderer({
 
   // Memoize processed text for text blocks
   const processedText = useMemo(() => {
-    if (block.type === 'text' && block.text) {
+    if (isTextContentBlock(block) && block.text) {
       return preprocessMarkdownText(block.text);
     }
     return '';
-  }, [block.type, block.text]);
+  }, [block]);
 
-  if (block.type === 'text') {
+  if (isTextContentBlock(block)) {
     const text = block.text;
     if (!text) return null;
     const textColor = renderMode === 'TimelineGroup' ? 'text-text-100' : undefined;
@@ -3079,15 +3327,16 @@ const BlockRenderer = React.memo(function BlockRenderer({
     );
   }
 
-  if (block.type === 'tool_use') {
+  if (isToolUseContentBlock(block)) {
     if (block.name === 'turn_answer_start') return null;
 
     // Find the tool result from allMessages
-    let toolResult: any = undefined;
+    let toolResult: ApiToolResultBlock | undefined;
     for (const msg of allMessages) {
       if (msg.role === 'user' && Array.isArray(msg.content)) {
         const found = msg.content.find(
-          (c: any) => c.type === 'tool_result' && c.tool_use_id === block.id
+          (contentBlock): contentBlock is ApiToolResultBlock =>
+            isToolResultContentBlock(contentBlock) && contentBlock.tool_use_id === block.id
         );
         if (found) {
           toolResult = found;
@@ -3096,7 +3345,7 @@ const BlockRenderer = React.memo(function BlockRenderer({
       }
     }
 
-    const input = block.input;
+    const input = isRecord(block.input) ? block.input : undefined;
     const streamingForTool = isStreaming && !toolResult;
 
     // Route to specialized components matching bundle's lv routing logic
@@ -3183,36 +3432,39 @@ const BlockRenderer = React.memo(function BlockRenderer({
       derivedDisplayName = info.text;
       derivedIcon = resolveToolIcon(info.icon, 16);
     } else if (block.name === 'bash' || block.name === 'Bash' || block.name === 'bash_tool') {
-      derivedDisplayName = input?.description || input?.command || undefined;
+      derivedDisplayName = getStringField(input, 'description') || getStringField(input, 'command');
     } else if (
       block.name === 'str_replace' ||
       block.name === 'str_replace_editor' ||
       block.name === 'Edit'
     ) {
-      derivedDisplayName = input?.path
+      const inputPath = getStringField(input, 'path');
+      derivedDisplayName = inputPath
         ? intlBlock.formatMessage(
             { id: 'editing', defaultMessage: 'Editing {fileName}' },
-            { fileName: input.path }
+            { fileName: inputPath }
           )
         : undefined;
     } else if (block.name === 'Read') {
-      derivedDisplayName = input?.file_path
+      const filePath = getStringField(input, 'file_path');
+      derivedDisplayName = filePath
         ? intlBlock.formatMessage(
             { id: 'reading', defaultMessage: 'Reading {fileName}' },
-            { fileName: input.file_path }
+            { fileName: filePath }
           )
         : undefined;
     } else if (block.name === 'Write') {
-      derivedDisplayName = input?.file_path
+      const filePath = getStringField(input, 'file_path');
+      derivedDisplayName = filePath
         ? intlBlock.formatMessage(
             { id: 'writing_file', defaultMessage: 'Writing {fileName}' },
-            { fileName: input.file_path }
+            { fileName: filePath }
           )
         : undefined;
     } else if (block.name === 'Glob' || block.name === 'Grep') {
-      derivedDisplayName = input?.pattern || undefined;
+      derivedDisplayName = getStringField(input, 'pattern');
     } else if (block.name === 'Task') {
-      derivedDisplayName = input?.description || undefined;
+      derivedDisplayName = getStringField(input, 'description');
     } else if (MCP_TOOL_REGEX.test(block.name)) {
       // MCP tools — extract display name from tool name
       const match = block.name.match(/^mcp__[0-9a-f-]+__(.+)$/);
@@ -3250,18 +3502,18 @@ function AssistantMessageRow({
   isStreaming,
   allMessages
 }: {
-  blocks: any[];
+  blocks: ApiMessageBlock[];
   isStreaming: boolean;
-  allMessages: any[];
+  allMessages: ApiConversationMessage[];
 }) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
   const intl = useIntlSafe();
 
   // Strip system reminders from text blocks
-  const processedBlocks = useMemo(() => {
+  const processedBlocks = useMemo<ApiMessageBlock[]>(() => {
     return blocks.map((block) => {
-      if (block.type === 'text' && block.text) {
+      if (isTextContentBlock(block) && block.text) {
         const text = block.text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '');
         return { ...block, text };
       }
@@ -3274,16 +3526,16 @@ function AssistantMessageRow({
     const content = processedBlocks;
     let answerIdx = -1;
     for (let i = 0; i < content.length; i++) {
-      if (content[i].type === 'tool_use' && content[i].name === 'turn_answer_start') {
+      const block = content[i];
+      if (isToolUseContentBlock(block) && block.name === 'turn_answer_start') {
         answerIdx = i;
         break;
       }
     }
-    const textBlocks = (answerIdx >= 0 ? content.slice(answerIdx + 1) : content)
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text ?? '')
+    return (answerIdx >= 0 ? content.slice(answerIdx + 1) : content)
+      .filter(isTextContentBlock)
+      .map((block) => block.text)
       .join('');
-    return textBlocks;
   }, [processedBlocks]);
 
   const handleCopy = async () => {
@@ -3424,7 +3676,7 @@ const MessageList = React.memo(function MessageList({
   isAgentRunning,
   scrollRefs
 }: {
-  apiMessages: any[];
+  apiMessages: ApiConversationMessage[];
   streamingTextStore: StreamingTextStore;
   isAgentRunning: boolean;
   scrollRefs?: {
@@ -3449,7 +3701,7 @@ const MessageList = React.memo(function MessageList({
   );
 
   const groups = useMemo(() => {
-    const result: any[] = [];
+    const result: MessageGroup[] = [];
 
     for (let i = 0; i < apiMessages.length; i++) {
       const msg = apiMessages[i];
@@ -3464,7 +3716,7 @@ const MessageList = React.memo(function MessageList({
 
       if (msg.role === 'user') {
         const toolResults = Array.isArray(msg.content)
-          ? msg.content.filter((c: any) => c.type === 'tool_result')
+          ? msg.content.filter(isToolResultContentBlock)
           : [];
         const isToolResultOnly = toolResults.length > 0;
 
@@ -3478,13 +3730,10 @@ const MessageList = React.memo(function MessageList({
               );
             }
             if (Array.isArray(msg.content)) {
-              const text = msg.content
-                .filter((c: any) => c.type === 'text')
-                .map((c: any) => c.text)
-                .join('')
+              const text = getTextFromBlockContent(msg.content, '')
                 .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
                 .trim();
-              const hasImages = msg.content.some((c: any) => c.type === 'image');
+              const hasImages = msg.content.some(isImageContentBlock);
               return text.length > 0 || hasImages;
             }
             return false;
@@ -3509,9 +3758,9 @@ const MessageList = React.memo(function MessageList({
       } else if (msg.role === 'assistant' && result.length > 0) {
         const lastGroup = result[result.length - 1];
         if (lastGroup.type === 'conversation') {
-          const blocks = Array.isArray(msg.content)
+          const blocks: ApiMessageBlock[] = Array.isArray(msg.content)
             ? msg.content
-            : [{ type: 'text', text: msg.content }];
+            : [{ type: 'text', text: msg.content } as ApiTextContentBlock];
           lastGroup.assistantBlocks.push(...blocks);
         }
       }
@@ -3527,7 +3776,8 @@ const MessageList = React.memo(function MessageList({
   // to assign scrollRefs (matching bundle's xv logic)
   let lastUserGroupIndex = -1;
   for (let i = displayGroups.length - 1; i >= 0; i--) {
-    if (displayGroups[i].type === 'conversation' && displayGroups[i].hasVisibleUser) {
+    const group = displayGroups[i];
+    if (group.type === 'conversation' && group.hasVisibleUser) {
       lastUserGroupIndex = i;
       break;
     }
@@ -3538,7 +3788,7 @@ const MessageList = React.memo(function MessageList({
     lastUserGroupIndex >= 0 ? displayGroups.slice(0, lastUserGroupIndex + 1) : displayGroups;
   const afterGroups = lastUserGroupIndex >= 0 ? displayGroups.slice(lastUserGroupIndex + 1) : [];
 
-  const renderGroup = (group: any, index: number, isLastUserGroup: boolean) => {
+  const renderGroup = (group: MessageGroup, index: number, isLastUserGroup: boolean) => {
     if (group.type === 'summary') {
       return <ConversationSummary key={`summary-${index}`} message={group.message} />;
     }
@@ -3624,7 +3874,7 @@ function InlinePermissionPrompt({
   prompt: PermissionPromptData;
   onAllow: (
     duration: PermissionDuration,
-    scope: { type: string; netloc?: string; fromDomain?: string; toDomain?: string }
+    scope: PermissionGrantScope
   ) => void;
   onDeny: () => void;
   disableAlwaysAllow?: boolean;
@@ -3973,7 +4223,7 @@ export function SidepanelApp() {
     loadModelMapping().then(setModelMapping);
 
     // Listen for storage changes
-    const listener = (changes: any, areaName: string) => {
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== 'local') return;
       const mappingKeys = Object.values(MODEL_MAPPING_KEYS);
       if (mappingKeys.some((key) => key in changes)) {
@@ -4194,10 +4444,13 @@ export function SidepanelApp() {
   const createApiMessageRef = useRef<
     ((params: CreateApiMessageParams) => Promise<ApiResponseMessage>) | null
   >(null);
-  const stableCreateMessage = useCallback(async (request: any) => {
+  const stableCreateMessage = useCallback(async ({ modelClass, ...request }: ModelRequest) => {
     const fn = createApiMessageRef.current;
     if (!fn) throw new Error('Client not initialized');
-    return fn(request);
+    return fn({
+      ...request,
+      ...(modelClass === 'small_fast' ? { modelClass } : {})
+    });
   }, []);
 
   // Workflow recording hook
@@ -4229,17 +4482,15 @@ export function SidepanelApp() {
       sessionId: string,
       conversationUuid?: string | null
     ): Promise<SessionSnapshot | undefined> => {
-      const sessionSnapshot = (await getStorageValue(getHistoryStorageKey(sessionId))) as
-        | SessionSnapshot
-        | undefined;
-      if (sessionSnapshot && typeof sessionSnapshot === 'object') {
+      const sessionSnapshot = await getStorageValue(getHistoryStorageKey(sessionId));
+      if (isSessionSnapshot(sessionSnapshot)) {
         return sessionSnapshot;
       }
       if (!conversationUuid) return undefined;
-      const conversationSnapshot = (await getStorageValue(
+      const conversationSnapshot = await getStorageValue(
         getConversationStorageKey(conversationUuid)
-      )) as SessionSnapshot | undefined;
-      if (conversationSnapshot && typeof conversationSnapshot === 'object') {
+      );
+      if (isSessionSnapshot(conversationSnapshot)) {
         return conversationSnapshot;
       }
       return undefined;
@@ -4712,15 +4963,18 @@ export function SidepanelApp() {
     const ctrl = new AbortController();
     (async () => {
       try {
-        const page = await (messagesClient as any).models.list(
-          {},
-          { signal: ctrl.signal }
-        );
-        const first = page?.data?.[0];
-        const ctxLen = (first as any)?.context_length;
-        if (first?.id && typeof ctxLen === 'number') {
-          serverContextLengthRef.current = ctxLen;
-          setServerModelInfo({ id: first.id, contextLength: ctxLen });
+        const modelsApi = 'models' in messagesClient ? messagesClient.models : null;
+        if (!isRecord(modelsApi) || typeof modelsApi.list !== 'function') return;
+        const page = await modelsApi.list({}, { signal: ctrl.signal });
+        if (!isRecord(page) || !Array.isArray(page.data)) return;
+        const first = page.data[0];
+        if (
+          isRecord(first) &&
+          typeof first.id === 'string' &&
+          typeof first.context_length === 'number'
+        ) {
+          serverContextLengthRef.current = first.context_length;
+          setServerModelInfo({ id: first.id, contextLength: first.context_length });
         }
       } catch {
         /* ignore — will fall back to default budget */
@@ -4798,7 +5052,11 @@ export function SidepanelApp() {
   createApiMessageRef.current = createApiMessage;
 
   const invokeSessionModel = useCallback(
-    async (request: ModelRequest) => createApiMessage(request as CreateApiMessageParams),
+    async ({ modelClass, ...request }: ModelRequest) =>
+      createApiMessage({
+        ...request,
+        ...(modelClass === 'small_fast' ? { modelClass } : {})
+      }),
     [createApiMessage]
   );
 
@@ -4806,12 +5064,12 @@ export function SidepanelApp() {
   const handlePermissionAllow = useCallback(
     async (
       duration: PermissionDuration,
-      scope: { type: string; netloc?: string; fromDomain?: string; toDomain?: string }
+      scope: PermissionGrantScope
     ) => {
       if (!permissionPrompt || !permissionResolveRef.current) return;
       const pm = getPermissionManager();
       await pm.grantPermission(
-        scope as any,
+        scope,
         duration,
         duration === PermissionDuration.ONCE ? permissionPrompt.toolUseId : undefined
       );
@@ -4868,13 +5126,18 @@ export function SidepanelApp() {
     currentUrl: currentPageUrl,
     onShareRequested: null,
     permissionMode,
-    onPermissionRequired,
+    onPermissionRequired: onPermissionRequired
+      ? async (result) => {
+          if (!isPermissionPromptData(result)) return false;
+          return onPermissionRequired(result);
+        }
+      : undefined,
     permissionManager: getPermissionManager(),
     enabled: isPurlMode
   });
 
   const executeToolUse = useCallback(
-    async (toolUse: ToolUseBlock) => {
+    async (toolUse: ToolUseBlock): Promise<ApiToolResultBlock> => {
       if (typeof query.tabId !== 'number') {
         return {
           type: 'tool_result',
@@ -4895,17 +5158,24 @@ export function SidepanelApp() {
           permissionMode: permissionModeRef.current,
           toolUseId: toolUse.id,
           messagesClient,
-          onPermissionRequired: async (permissionData: any, permTabId: number) => {
-            return onPermissionRequired(permissionData as PermissionPromptData);
+          onPermissionRequired: async (permissionData: unknown, _permTabId: number) => {
+            if (!isPermissionPromptData(permissionData)) return false;
+            return onPermissionRequired(permissionData);
           }
         });
 
-        const content = await formatToolResult(result);
-        const hasError = !!(result && typeof result === 'object' && (result as any).is_error);
+        const content = await formatToolResult({
+          output: result.output,
+          error: result.error,
+          base64Image: result.base64Image,
+          imageFormat: result.imageFormat,
+          content: result.content
+        });
+        const hasError = isRecord(result) && result.is_error === true;
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: content || 'Tool executed.',
+          content: normalizeToolResultContent(content, 'Tool executed.'),
           ...(hasError ? { is_error: true } : {})
         };
       } catch (error) {
@@ -4956,7 +5226,7 @@ export function SidepanelApp() {
       setIsCompacting(true);
       try {
         const compactor = new ConversationCompactor(
-          async (params) => createApiMessage(params),
+          async (params: CreateApiMessageParams) => createApiMessage(params),
           intl.locale,
           serverContextLengthRef.current
         );
@@ -5044,10 +5314,7 @@ export function SidepanelApp() {
           model: 'claude-haiku-4-5-20251001'
         });
         if (response?.content) {
-          const fullText = response.content
-            .filter((b: any) => b.type === 'text')
-            .map((b: any) => b.text)
-            .join('\n');
+          const fullText = getTextFromBlockContent(response.content);
           const match =
             fullText.match(/<status>(.*?)<\/status>/s) || fullText.match(/^(.*?)<\/status>/s);
           if (match?.[1]) {
@@ -5063,7 +5330,7 @@ export function SidepanelApp() {
 
   // Generate a conversation title from the first user message (matches original In)
   const generateConversationTitle = useCallback(
-    async (userMessage: any) => {
+    async (userMessage: Pick<ApiConversationMessage, 'content'>) => {
       if (typeof query.tabId !== 'number') return;
       try {
         const title = await generateConversationTitleFunction(
@@ -5165,14 +5432,18 @@ export function SidepanelApp() {
           baseMessages = await compactConversation(false);
         }
 
-        const userContent: any[] = [];
+        const userContent: ApiInputContentBlock[] = [];
         if (trimmed) {
           userContent.push({ type: 'text', text: trimmed });
         }
         for (const attachment of attachments) {
           userContent.push({
             type: 'image',
-            source: { type: 'base64', media_type: attachment.mediaType, data: attachment.base64 }
+            source: {
+              type: 'base64',
+              media_type: normalizeImageMediaType(attachment.mediaType),
+              data: attachment.base64
+            }
           });
         }
         if (attachments.length > 0 && options?.isAnnotated) {
@@ -5188,7 +5459,7 @@ export function SidepanelApp() {
             const availableTabs = await tabGroupManager.getValidTabsWithMetadata(query.tabId);
             if (availableTabs && availableTabs.length > 0) {
               const tabInfo = {
-                availableTabs: availableTabs.map((t: any) => ({
+                availableTabs: availableTabs.map((t) => ({
                   id: t.id,
                   title: t.title,
                   url: t.url
@@ -5276,8 +5547,9 @@ export function SidepanelApp() {
               // Add cache_control to the last tool schema
               let preparedTools = toolSchemas.length ? [...toolSchemas] : undefined;
               if (preparedTools && preparedTools.length > 0) {
-                preparedTools = preparedTools.map((t: any, idx: number) =>
-                  idx === preparedTools!.length - 1
+                const lastToolIndex = preparedTools.length - 1;
+                preparedTools = preparedTools.map((t, idx) =>
+                  idx === lastToolIndex
                     ? { ...t, cache_control: { type: 'ephemeral' } }
                     : t
                 );
@@ -5300,10 +5572,10 @@ export function SidepanelApp() {
 
               // Parse rate limit headers from connect event
               stream.on('connect', () => {
-                const response = (stream as any).response;
-                if (response?.headers) {
+                const headersFromStream = getStreamHeaders(stream);
+                if (headersFromStream) {
                   const headers: Record<string, string> = {};
-                  response.headers.forEach((value: string, name: string) => {
+                  headersFromStream.forEach((value, name) => {
                     if (name.startsWith('anthropic-ratelimit-')) {
                       headers[name] = value;
                     }
@@ -5335,7 +5607,7 @@ export function SidepanelApp() {
                 }
               });
 
-              const response = await stream.finalMessage();
+              const response: ResponseWithMessageLimit = await stream.finalMessage();
 
               // Cancel any pending RAF and flush final accumulated text
               if (streamingRafId !== null) {
@@ -5374,9 +5646,9 @@ export function SidepanelApp() {
               const assistantMessage: ApiConversationMessage = {
                 role: 'assistant',
                 content: assistantContent,
-                usage: (response as any).usage,
-                id: (response as any).id,
-                stop_reason: (response as any).stop_reason
+                usage: response.usage,
+                id: response.id,
+                stop_reason: response.stop_reason
               };
               workingMessages = [...workingMessages, assistantMessage];
 
@@ -5384,27 +5656,25 @@ export function SidepanelApp() {
               setApiMessages(workingMessages);
 
               setLastStopReason({
-                reason: (response as any).stop_reason || 'end_turn',
-                messageId: (response as any).id
+                reason: response.stop_reason || 'end_turn',
+                messageId: response.id
               });
-              const parsedMessageLimit = parseMessageLimit((response as any).message_limit);
+              const parsedMessageLimit = parseMessageLimit(response.message_limit);
               setMessageLimit(
                 parsedMessageLimit ??
                 calculateMessageLimitFromUsage(
-                  (response as any).usage || {},
+                  response.usage || {},
                   serverContextLengthRef.current
                 )
               );
               setMessageLimitDismissed(false);
 
-              if ((response as any).stop_reason !== 'tool_use') {
+              if (response.stop_reason !== 'tool_use') {
                 await sendCompletionNotification();
                 break;
               }
 
-              const toolUses = assistantContent.filter(
-                (item: any) => item && typeof item === 'object' && item.type === 'tool_use'
-              ) as ToolUseBlock[];
+              const toolUses = assistantContent.filter(isToolUseContentBlock);
               if (toolUses.length === 0) {
                 break;
               }
@@ -5413,7 +5683,7 @@ export function SidepanelApp() {
               const realToolUses = toolUses.filter((t) => t.name !== 'turn_answer_start');
               const answerStartTools = toolUses.filter((t) => t.name === 'turn_answer_start');
 
-              const toolResults: any[] = [];
+              const toolResults: ApiToolResultBlock[] = [];
 
               // Return empty results for turn_answer_start
               for (const toolUse of answerStartTools) {
@@ -5581,7 +5851,7 @@ export function SidepanelApp() {
                 if (limitState.type === 'exceeded_limit' || limitState.type === 'approaching_limit') {
                   try {
                     const compactor = new ConversationCompactor(
-                      async (params: any) => createApiMessage(params),
+                      async (params: CreateApiMessageParams) => createApiMessage(params),
                       intl.locale,
                       serverContextLengthRef.current
                     );
@@ -6012,10 +6282,7 @@ export function SidepanelApp() {
 
       if (!resolvedRemoteSessionId && currentConversationUuid) {
         const rawRemoteMap = await getStorageValue(SESSION_REMOTE_MAP_KEY, {});
-        const remoteMap =
-          rawRemoteMap && typeof rawRemoteMap === 'object'
-            ? (rawRemoteMap as Record<string, string>)
-            : {};
+        const remoteMap = isStringRecord(rawRemoteMap) ? rawRemoteMap : {};
         const mappedRemoteSessionId = remoteMap[currentConversationUuid];
         if (typeof mappedRemoteSessionId === 'string' && mappedRemoteSessionId) {
           resolvedRemoteSessionId = mappedRemoteSessionId;
@@ -6040,8 +6307,7 @@ export function SidepanelApp() {
               restoredSnapshot
             );
             const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-            const currentMap =
-              rawMap && typeof rawMap === 'object' ? (rawMap as Record<string, string>) : {};
+            const currentMap = isStringRecord(rawMap) ? rawMap : {};
             if (currentMap[currentConversationUuid] !== activeSessionId) {
               await setStorageValue(SESSION_CONVERSATION_MAP_KEY, {
                 ...currentMap,
@@ -6142,8 +6408,7 @@ export function SidepanelApp() {
           const conversationKey = getConversationStorageKey(activeConversationUuid);
           await setStorageValue(conversationKey, snapshot);
           const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-          const currentMap =
-            rawMap && typeof rawMap === 'object' ? (rawMap as Record<string, string>) : {};
+          const currentMap = isStringRecord(rawMap) ? rawMap : {};
           if (currentMap[activeConversationUuid] !== activeSessionId) {
             await setStorageValue(SESSION_CONVERSATION_MAP_KEY, {
               ...currentMap,
@@ -6152,10 +6417,7 @@ export function SidepanelApp() {
           }
           if (activeRemoteSessionId) {
             const rawRemoteMap = await getStorageValue(SESSION_REMOTE_MAP_KEY, {});
-            const currentRemoteMap =
-              rawRemoteMap && typeof rawRemoteMap === 'object'
-                ? (rawRemoteMap as Record<string, string>)
-                : {};
+            const currentRemoteMap = isStringRecord(rawRemoteMap) ? rawRemoteMap : {};
             if (currentRemoteMap[activeConversationUuid] !== activeRemoteSessionId) {
               await setStorageValue(SESSION_REMOTE_MAP_KEY, {
                 ...currentRemoteMap,
@@ -6433,13 +6695,9 @@ export function SidepanelApp() {
           const targetConversationUuid = message.conversationUuid;
           void (async () => {
             const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-            const conversationMap =
-              rawMap && typeof rawMap === 'object' ? (rawMap as Record<string, string>) : {};
+            const conversationMap = isStringRecord(rawMap) ? rawMap : {};
             const rawRemoteMap = await getStorageValue(SESSION_REMOTE_MAP_KEY, {});
-            const remoteMap =
-              rawRemoteMap && typeof rawRemoteMap === 'object'
-                ? (rawRemoteMap as Record<string, string>)
-                : {};
+            const remoteMap = isStringRecord(rawRemoteMap) ? rawRemoteMap : {};
 
             let targetSessionId = conversationMap[targetConversationUuid];
             let targetRemoteSessionId =
@@ -6449,10 +6707,10 @@ export function SidepanelApp() {
             let targetCreatedAt = Date.now();
 
             if (!targetSessionId) {
-              const aliasSnapshot = (await getStorageValue(
+              const aliasSnapshot = await getStorageValue(
                 getConversationStorageKey(targetConversationUuid)
-              )) as SessionSnapshot | undefined;
-              if (aliasSnapshot?.createdAt && typeof aliasSnapshot.createdAt === 'number') {
+              );
+              if (isSessionSnapshot(aliasSnapshot) && typeof aliasSnapshot.createdAt === 'number') {
                 targetSessionId = crypto.randomUUID();
                 await setStorageValue(getHistoryStorageKey(targetSessionId), aliasSnapshot);
                 targetCreatedAt = aliasSnapshot.createdAt;
@@ -6954,10 +7212,22 @@ export function SidepanelApp() {
 
   const handleConvertToScheduledTask = useCallback(() => {
     if (effectiveIsAgentRunning || isConvertingToTask) return;
-    const lastUserPrompt = [...effectiveMessages]
+    const lastUserPrompt = [...effectiveApiMessages]
       .reverse()
-      .find((message) => message.role === 'user' && message.text.trim())?.text;
-    const promptToConvert = (lastUserPrompt || input).trim();
+      .find((message) => {
+        if (message.role !== 'user') return false;
+        const text =
+          typeof message.content === 'string'
+            ? message.content
+            : getTextFromBlockContent(message.content, '');
+        return text.trim().length > 0;
+      });
+    const resolvedLastUserPrompt = lastUserPrompt
+      ? typeof lastUserPrompt.content === 'string'
+        ? lastUserPrompt.content
+        : getTextFromBlockContent(lastUserPrompt.content, '')
+      : '';
+    const promptToConvert = (resolvedLastUserPrompt || input).trim();
     if (!promptToConvert) {
       setRuntimeError('Nothing to convert yet. Send a message first.');
       setIsHeaderMenuOpen(false);
@@ -7000,7 +7270,7 @@ export function SidepanelApp() {
     input,
     effectiveIsAgentRunning,
     isConvertingToTask,
-    effectiveMessages,
+    effectiveApiMessages,
     permissionMode
   ]);
 
@@ -7661,10 +7931,10 @@ export function SidepanelApp() {
                                   id="high_risk_superduck_can_take_most_actions_on"
                                   defaultMessage="<bold>HIGH RISK:</bold> SuperDuck can take most actions on the internet now. This setting could put your data at risk. <link>See safe use tips</link>"
                                   values={{
-                                    bold: (chunks: any) => (
+                                    bold: (chunks: React.ReactNode) => (
                                       <span className="font-bold">{chunks}</span>
                                     ),
-                                    link: (chunks: any) => (
+                                    link: (chunks: React.ReactNode) => (
                                       <button
                                         onClick={() =>
                                           chrome.tabs.create({ url: SAFE_USE_TIPS_URL })
@@ -8274,7 +8544,7 @@ export function SidepanelApp() {
                   setPromptToSave({ prompt: summary });
                   stopRecording();
                 }}
-                createMessage={createApiMessage}
+                createMessage={invokeSessionModel}
                 isGeneratingSummary={isGeneratingSummary}
                 setIsGeneratingSummary={setIsGeneratingSummary}
                 currentUrl={currentPageUrl}

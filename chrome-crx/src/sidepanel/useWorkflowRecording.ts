@@ -3,7 +3,11 @@ import { useIntlSafe, type SupportedLocale } from '../index-react-dom-intl';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { useScreenCapture } from './useScreenCapture';
 import { useTabStatusListener } from './useTabStatusListener';
-import { elementSelectorInjector, isValidUrl } from './elementSelectorInjector';
+import {
+  elementSelectorInjector,
+  isValidUrl,
+  type CapturedEvent as InjectedCapturedEvent
+} from './elementSelectorInjector';
 import { generateWorkflowStepDescription, type ModelInvoker } from './sessionPool';
 
 // Extend Window interface for Speech Recognition
@@ -71,6 +75,27 @@ interface KeystrokeUpdate {
   text: string;
   element: ElementInfo;
   isFinal: boolean;
+}
+
+function normalizeCapturedEvent(event: InjectedCapturedEvent): CapturedEvent {
+  return {
+    type: 'ELEMENT_SELECTION',
+    element: event.element,
+    url: event.url,
+    tabId: event.tabId,
+    timestamp: event.timestamp,
+    clickCoordinates: event.clickCoordinates,
+    viewportWidth: event.viewportWidth,
+    viewportHeight: event.viewportHeight,
+    typedText: event.typedText,
+    typedInElement: event.typedInElement
+      ? {
+          tagName: event.typedInElement.tagName,
+          selector: event.typedInElement.selector,
+          attributes: { name: event.typedInElement.name }
+        }
+      : undefined
+  };
 }
 
 interface UseWorkflowRecordingProps {
@@ -684,7 +709,7 @@ export const useWorkflowRecording = ({
                   const result = await elementSelectorInjector.injectElementSelector(eventTabId);
                   injectionPendingTabsRef.current.delete(eventTabId);
                   if (result) {
-                    await handleCapturedEvent(result as any);
+                    await handleCapturedEvent(normalizeCapturedEvent(result));
                   }
                 } catch {
                   injectionPendingTabsRef.current.delete(eventTabId);
@@ -837,7 +862,7 @@ export const useWorkflowRecording = ({
                 .then((result) => {
                   injectionPendingTabsRef.current.delete(activatedTabId);
                   if (result) {
-                    handleCapturedEvent(result as any);
+                    handleCapturedEvent(normalizeCapturedEvent(result));
                   }
                 })
                 .catch(() => {
@@ -860,7 +885,7 @@ export const useWorkflowRecording = ({
             .then((result) => {
               injectionPendingTabsRef.current.delete(initialTabId);
               if (result) {
-                handleCapturedEvent(result as any);
+                handleCapturedEvent(normalizeCapturedEvent(result));
               }
             })
             .catch(() => {
@@ -951,7 +976,7 @@ export const useWorkflowRecording = ({
           .then((result) => {
             injectionPendingTabsRef.current.delete(activeTabId);
             if (result) {
-              handleCapturedEvent(result as any);
+              handleCapturedEvent(normalizeCapturedEvent(result));
             }
           })
           .catch(() => {
@@ -1090,7 +1115,7 @@ export const useWorkflowRecording = ({
               .then((result) => {
                 injectionPendingTabsRef.current.delete(activeTabId);
                 if (result) {
-                  handleCapturedEvent(result as any);
+                  handleCapturedEvent(normalizeCapturedEvent(result));
                 }
               })
               .catch(() => {
@@ -1131,7 +1156,7 @@ export const useWorkflowRecording = ({
                   .then((result) => {
                     injectionPendingTabsRef.current.delete(activeTabId);
                     if (result) {
-                      handleCapturedEvent(result as any);
+                      handleCapturedEvent(normalizeCapturedEvent(result));
                     }
                   })
                   .catch(() => {

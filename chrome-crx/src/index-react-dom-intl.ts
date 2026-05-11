@@ -27,6 +27,14 @@ export const LOCALE_DISPLAY_NAMES: Record<SupportedLocale, string> = {
 const PREFERRED_LOCALE_STORAGE_KEY = 'preferred_locale';
 const missingTranslationCache = new Set<string>();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
+}
+
 function isSupportedLocale(value: unknown): value is SupportedLocale {
   return typeof value === 'string' && SUPPORTED_LOCALES.includes(value as SupportedLocale);
 }
@@ -164,8 +172,8 @@ function FormattedMessageInner(props: FormattedMessageProps): React.ReactElement
 }
 
 export const MemoizedFormattedMessage = memo(FormattedMessageInner, (previous, next) => {
-  const previousValues = previous.values as Record<string, unknown> | undefined;
-  const nextValues = next.values as Record<string, unknown> | undefined;
+  const previousValues = isRecord(previous.values) ? previous.values : undefined;
+  const nextValues = isRecord(next.values) ? next.values : undefined;
 
   const { values: _previousValues, ...previousRest } = previous;
   const { values: _nextValues, ...nextRest } = next;
@@ -203,7 +211,8 @@ export function IntlMessageLoaderProvider({
           return;
         }
 
-        const nextMessages = (await response.json()) as Record<string, string>;
+        const responseBody: unknown = await response.json();
+        const nextMessages = isStringRecord(responseBody) ? responseBody : {};
         if (!isDisposed) {
           setMessages(nextMessages);
         }

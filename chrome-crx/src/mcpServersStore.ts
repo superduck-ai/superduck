@@ -24,7 +24,13 @@ export function dataUrlToBlob(dataUrl: string): Blob {
 export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
+    reader.onloadend = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Failed to read blob as data URL"));
+        return;
+      }
+      resolve(reader.result);
+    };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
@@ -70,11 +76,11 @@ export function generateSessionId(): string {
 export interface McpServer {
   uuid: string;
   connected: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface McpTool {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface McpServersState {

@@ -1,5 +1,6 @@
 import React from 'react';
-import { PromptService } from '../extensionServices';
+import { PromptService, type SavedPrompt } from '../extensionServices';
+import type { ApiConversationMessage } from '../messageTypes';
 import { Tooltip } from './Tooltip';
 
 export const SHORTCUT_MARKER_RE = /\[\[shortcut:([^:]+):([^\]]+)\]\]/g;
@@ -63,7 +64,7 @@ function ShortcutChipInMessage({
 
 function resolveShortcutMarkersInText(
   text: string,
-  promptsById: Map<string, { prompt: string }>
+  promptsById: Map<string, Pick<SavedPrompt, 'prompt'>>
 ): string {
   if (!text.includes('[[shortcut:')) return text;
   SHORTCUT_MARKER_RE.lastIndex = 0;
@@ -118,21 +119,27 @@ export async function resolveShortcutMarkersForCopy(text: string): Promise<strin
   return resolveShortcutMarkersInText(text, promptsById);
 }
 
-export async function resolveShortcutMarkersInMessages(messages: any[]): Promise<any[]> {
+function isTextBlock(block: unknown): block is { type: 'text'; text: string } {
+  return (
+    typeof block === 'object' &&
+    block !== null &&
+    'type' in block &&
+    'text' in block &&
+    (block as { type?: unknown }).type === 'text' &&
+    typeof (block as { text?: unknown }).text === 'string'
+  );
+}
+
+export async function resolveShortcutMarkersInMessages(
+  messages: ApiConversationMessage[]
+): Promise<ApiConversationMessage[]> {
   const hasMarkers = messages.some((message) => {
     if (typeof message.content === 'string') {
       return message.content.includes('[[shortcut:');
     }
 
     if (Array.isArray(message.content)) {
-      return message.content.some(
-        (block: any) =>
-          typeof block === 'object' &&
-          block !== null &&
-          block.type === 'text' &&
-          typeof block.text === 'string' &&
-          block.text.includes('[[shortcut:')
-      );
+      return message.content.some((block) => isTextBlock(block) && block.text.includes('[[shortcut:'));
     }
 
     return false;
@@ -149,13 +156,8 @@ export async function resolveShortcutMarkersInMessages(messages: any[]): Promise
     }
 
     if (Array.isArray(message.content)) {
-      const content = message.content.map((block: any) => {
-        if (
-          typeof block === 'object' &&
-          block !== null &&
-          block.type === 'text' &&
-          typeof block.text === 'string'
-        ) {
+      const content = message.content.map((block) => {
+        if (isTextBlock(block)) {
           return { ...block, text: resolveShortcutMarkersInText(block.text, promptsById) };
         }
 

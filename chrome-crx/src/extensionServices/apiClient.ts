@@ -9,10 +9,10 @@ export const apiClient = new (class {
     this.baseURL = getConfig().apiBaseUrl;
   }
 
-  async fetch(
+  private async getAuthorizedResponse(
     path: string,
-    options: RequestInit & { headers?: Record<string, string> } = {}
-  ): Promise<any> {
+    options: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
+  ): Promise<Response> {
     const token = await getAccessToken();
     if (!token) throw new Error('No valid OAuth token available');
 
@@ -21,18 +21,44 @@ export const apiClient = new (class {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       'anthropic-client-platform': 'claude_browser_extension',
-      ...(options.headers as Record<string, string>)
+      ...(options.headers ?? {})
     };
     const response = await fetch(url, { ...options, headers });
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
+    return response;
+  }
+
+  async fetch(
+    path: string,
+    options: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
+  ): Promise<Blob | null> {
+    const response = await this.getAuthorizedResponse(path, options);
 
     const contentType = response.headers.get('content-type');
     if (response.status === 204) return null;
-    if (contentType?.includes('application/json')) return response.json();
     if (contentType) return response.blob();
     return null;
+  }
+
+  async fetchJson<TResponse>(
+    path: string,
+    parse: (value: unknown) => TResponse,
+    options: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
+  ): Promise<TResponse> {
+    const response = await this.getAuthorizedResponse(path, options);
+    if (response.status === 204) {
+      throw new Error('Expected JSON response but received 204 No Content');
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      throw new Error(`Expected JSON response but received ${contentType ?? 'unknown content type'}`);
+    }
+
+    const responseBody: unknown = await response.json();
+    return parse(responseBody);
   }
 
   async fetchEventSource(path: string, options: FetchEventSourceOptions): Promise<() => void> {

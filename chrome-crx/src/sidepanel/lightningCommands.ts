@@ -1,3 +1,12 @@
+import type {
+  ApiConversationMessage,
+  ApiImageContentBlock,
+  ApiMessageBlock,
+  ApiToolResultContentBlock
+} from '../messageTypes';
+import { isImageContentBlock, isToolResultContentBlock } from '../messageTypes';
+import type { BetaCacheControlEphemeral } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+
 const COMMAND_PREFIX_REGEX = /^(ST|NT|LT|DC|TC|RC|PL|C|H|T|K|S|D|Z|N|J|W)\b/;
 
 const COMMAND_REGEXES: Record<string, RegExp> = {
@@ -22,15 +31,65 @@ const COMMAND_REGEXES: Record<string, RegExp> = {
 
 const MULTI_LINE_COMMANDS = new Set(['T', 'J', 'PL']);
 
-export interface ParsedCommand {
-  type: string;
-  args: Record<string, any>;
-}
+type Coordinate = [number, number];
+type Region = [number, number, number, number];
+
+export type ParsedCommand =
+  | {
+      type: 'left_click' | 'right_click' | 'double_click' | 'triple_click' | 'hover';
+      args: { coordinate: Coordinate };
+    }
+  | {
+      type: 'type' | 'key' | 'js' | 'plan' | 'error';
+      args: { text: string };
+    }
+  | {
+      type: 'scroll';
+      args: { scroll_direction: string; scroll_amount: number; coordinate: Coordinate };
+    }
+  | {
+      type: 'left_click_drag';
+      args: { start_coordinate: Coordinate; coordinate: Coordinate };
+    }
+  | {
+      type: 'zoom';
+      args: { region: Region };
+    }
+  | {
+      type: 'select_tab';
+      args: { tabId: number };
+    }
+  | {
+      type: 'new_tab' | 'navigate';
+      args: { url: string };
+    }
+  | {
+      type: 'list_tabs' | 'wait';
+      args: Record<string, never>;
+    };
 
 export interface ParseResult {
   commands: ParsedCommand[];
   description: string;
 }
+
+type LightningImageBlock = ApiImageContentBlock & {
+  _autoScreenshot?: boolean;
+};
+
+export type LightningContentBlock =
+  | (Exclude<ApiMessageBlock, ApiImageContentBlock> & {
+      cache_control?: BetaCacheControlEphemeral | null;
+    })
+  | (LightningImageBlock & {
+      cache_control?: BetaCacheControlEphemeral | null;
+    });
+
+export type LightningMessage = Omit<ApiConversationMessage, 'content'> & {
+  content: string | LightningContentBlock[];
+  _synthetic?: boolean;
+  _syntheticResult?: boolean;
+};
 
 function parseCommand(prefix: string, line: string): ParsedCommand | null {
   const regex = COMMAND_REGEXES[prefix];
@@ -175,48 +234,60 @@ export function getSettleTimes(commands: ParsedCommand[]): { minMs: number; maxM
   return { minMs: 0, maxMs: 0 };
 }
 
-export function filterSyntheticMessages(messages: any[]): any[] {
+function isAutoScreenshotImageBlock(block: LightningContentBlock): block is LightningImageBlock {
+  return isImageContentBlock(block) && block._autoScreenshot === true;
+}
+
+export function filterSyntheticMessages(messages: LightningMessage[]): LightningMessage[] {
   return messages
-    .filter((m: any) => !m._synthetic)
-    .map((m: any) => {
-      let msg = m;
+    .filter((message) => !message._synthetic)
+    .map((message) => {
+      let msg = message;
       if (msg._syntheticResult) {
         msg = { ...msg };
         delete msg._syntheticResult;
       }
-      if (Array.isArray(msg.content)) {
-        if (msg.content.some((c: any) => c._autoScreenshot)) {
-          msg = {
-            ...msg,
-            content: msg.content.map((c: any) => {
-              if (!c._autoScreenshot) return c;
-              const cleaned = { ...c };
-              delete cleaned._autoScreenshot;
-              return cleaned;
-            })
-          };
-        }
+
+      if (!Array.isArray(msg.content)) {
+        return msg;
       }
-      return msg;
+
+      if (!msg.content.some(isAutoScreenshotImageBlock)) {
+        return msg;
+      }
+
+      return {
+        ...msg,
+        content: msg.content.map((block) => {
+          if (!isAutoScreenshotImageBlock(block)) return block;
+          const cleaned = { ...block };
+          delete cleaned._autoScreenshot;
+          return cleaned;
+        })
+      };
     });
 }
 
-function blockContainsImage(block: any): boolean {
-  if (!block || typeof block !== 'object') return false;
-  if (block.type === 'image') return true;
-  if (block.type === 'tool_result' && Array.isArray(block.content)) {
-    return block.content.some((nestedBlock: any) => blockContainsImage(nestedBlock));
+function blockContainsImage(block: unknown): boolean {
+  if (isImageContentBlock(block)) return true;
+  if (isToolResultContentBlock(block) && Array.isArray(block.content)) {
+    return block.content.some((nestedBlock) => blockContainsImage(nestedBlock));
   }
   return false;
 }
 
-function pruneImagesFromBlock(block: any): any {
-  if (!block || typeof block !== 'object') return block;
-  if (block.type === 'image') return null;
-  if (block.type === 'tool_result' && Array.isArray(block.content)) {
+function pruneImagesFromToolResultContent(
+  block: ApiToolResultContentBlock
+): ApiToolResultContentBlock | null {
+  return isImageContentBlock(block) ? null : block;
+}
+
+function pruneImagesFromBlock(block: LightningContentBlock): LightningContentBlock | null {
+  if (isImageContentBlock(block)) return null;
+  if (isToolResultContentBlock(block) && Array.isArray(block.content)) {
     const prunedContent = block.content
-      .map((nestedBlock: any) => pruneImagesFromBlock(nestedBlock))
-      .filter((nestedBlock: any) => nestedBlock !== null);
+      .map((nestedBlock) => pruneImagesFromToolResultContent(nestedBlock))
+      .filter((nestedBlock): nestedBlock is ApiToolResultContentBlock => nestedBlock !== null);
     return {
       ...block,
       content: prunedContent.length > 0 ? prunedContent : ''
@@ -225,13 +296,16 @@ function pruneImagesFromBlock(block: any): any {
   return block;
 }
 
-export function manageScreenshotHistory(messages: any[], screenshotHistory: number): any[] {
+export function manageScreenshotHistory(
+  messages: LightningMessage[],
+  screenshotHistory: number
+): LightningMessage[] {
   if (screenshotHistory === 0) return messages;
 
   const imageIndices: number[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (Array.isArray(msg.content) && msg.content.some((block: any) => blockContainsImage(block))) {
+    if (Array.isArray(msg.content) && msg.content.some((block) => blockContainsImage(block))) {
       imageIndices.push(i);
     }
   }
@@ -243,12 +317,12 @@ export function manageScreenshotHistory(messages: any[], screenshotHistory: numb
       if (keepSet.has(idx)) return msg;
       if (Array.isArray(msg.content)) {
         const filtered = msg.content
-          .map((block: any) => pruneImagesFromBlock(block))
-          .filter((block: any) => block !== null);
+          .map((block) => pruneImagesFromBlock(block))
+          .filter((block): block is LightningContentBlock => block !== null);
         if (filtered.length === 0) return null;
         return { ...msg, content: filtered };
       }
       return msg;
     })
-    .filter(Boolean);
+    .filter((message): message is LightningMessage => message !== null);
 }

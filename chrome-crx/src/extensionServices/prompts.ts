@@ -27,7 +27,7 @@ export type NewSavedPrompt = Omit<SavedPrompt, 'id' | 'prompt'> & { id?: string;
 
 export class PromptService {
   static async getAllPrompts(): Promise<SavedPrompt[]> {
-    return (await getStorageValue(StorageKeys.SAVED_PROMPTS)) || [];
+    return (await getStorageValue<SavedPrompt[]>(StorageKeys.SAVED_PROMPTS)) || [];
   }
 
   static async getPromptById(id: string): Promise<SavedPrompt | undefined> {

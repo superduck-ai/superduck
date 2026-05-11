@@ -18,6 +18,10 @@ type ToolRequestMessage = {
   [key: string]: unknown;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export interface NativeHostStatus {
   nativeHostInstalled: boolean;
   mcpConnected: boolean;
@@ -89,32 +93,36 @@ export function createNativeHostManager(): NativeHostManager {
 
   async function handleToolRequest(message: ToolRequestMessage) {
     try {
-      const { method, params } = message as { method: string; params: Record<string, unknown> };
+      const method = message.method;
+      const params = message.params;
 
       if (method !== "execute_tool") {
         sendToolResponse({ content: `Unknown method: ${method}` });
         return;
       }
 
-      if (!params?.tool) {
+      if (!params || typeof params.tool !== "string") {
         sendToolResponse(createErrorResponse("No tool specified"));
         return;
       }
 
-      const args = (params.args as Record<string, unknown>) || {};
-      const clientId = params.client_id as string | undefined;
+      const args = isRecord(params.args) ? params.args : {};
+      const clientId = typeof params.client_id === "string" ? params.client_id : undefined;
 
-      sendToolResponse(
-        await executeTool({
-          toolName: params.tool as string,
-          args,
-          tabId: parseOptionalInt(args.tabId),
-          tabGroupId: parseOptionalInt(args.tabGroupId),
-          clientId,
-          source: "native-messaging",
-          permissionMode: "skip_all_permission_checks",
-        }),
-      );
+      const result = await executeTool({
+        toolName: params.tool,
+        args,
+        tabId: parseOptionalInt(args.tabId),
+        tabGroupId: parseOptionalInt(args.tabGroupId),
+        clientId,
+        source: "native-messaging",
+        permissionMode: "skip_all_permission_checks",
+      });
+
+      sendToolResponse({
+        content: result.content ?? "",
+        is_error: result.is_error,
+      });
     } catch (err) {
       sendToolResponse(
         createErrorResponse(
@@ -264,12 +272,13 @@ export function createNativeHostManager(): NativeHostManager {
   }
 
   async function getStatus(): Promise<NativeHostStatus> {
-    if (nativePort && nativeHostInstalled) {
+    const port = nativePort;
+    if (port && nativeHostInstalled) {
       if (statusTimeout) clearTimeout(statusTimeout);
 
       return new Promise((resolve) => {
         statusResolve = resolve;
-        nativePort!.postMessage({ type: "get_status" });
+        port.postMessage({ type: "get_status" });
         statusTimeout = setTimeout(() => {
           statusResolve = null;
           resolve({ nativeHostInstalled, mcpConnected });

@@ -11,7 +11,7 @@ import React, {
 } from 'react';
 import { useIntl } from 'react-intl';
 import { createLucideIcon } from 'lucide-react';
-import { cva } from 'class-variance-authority';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Slottable } from '@radix-ui/react-slot';
 import * as ToggleGroupPrimitive from '@radix-ui/react-toggle-group';
@@ -21,16 +21,32 @@ import _ from 'lodash';
 import { cn } from '@/lib/utils';
 import { isChineseLocale } from '@/utils/locale';
 
-function setRef(ref: any, value: any) {
+type RefCleanup = void | (() => void);
+type ComposableRef<T> =
+  | ((instance: T | null) => RefCleanup)
+  | React.MutableRefObject<T | null>
+  | null
+  | undefined;
+
+interface IconBaseProps extends Omit<React.ComponentPropsWithoutRef<'svg'>, 'color'> {
+  alt?: string;
+  color?: string;
+  size?: number | string;
+  weight?: string;
+  mirrored?: boolean;
+  weights: Map<string, React.ReactNode>;
+}
+
+function setRef<T>(ref: ComposableRef<T>, value: T | null): RefCleanup {
   if (typeof ref === 'function') return ref(value);
   if (typeof ref === 'object' && ref !== null && 'current' in ref) {
     ref.current = value;
   }
 }
 
-function composeRefs(...refs: any[]) {
-  const cleanups = new Map();
-  return (node: any) => {
+function composeRefs<T>(...refs: ComposableRef<T>[]) {
+  const cleanups = new Map<ComposableRef<T>, () => void>();
+  return (node: T | null) => {
     if (
       (refs.forEach((ref) => {
         const cleanup = setRef(ref, node);
@@ -49,7 +65,7 @@ function composeRefs(...refs: any[]) {
   };
 }
 
-function useComposedRefs(...refs: any[]) {
+function useComposedRefs<T>(...refs: ComposableRef<T>[]) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useCallback(composeRefs(...refs), refs);
 }
@@ -174,7 +190,7 @@ const PhosphorIconContext = createContext({
   mirrored: false
 });
 
-const IconBase = forwardRef((props: any, ref: any) => {
+const IconBase = forwardRef<SVGSVGElement, IconBaseProps>((props, ref) => {
   const { alt, color, size, weight, mirrored, children, weights, ...rest } = props;
   const ctx = useContext(PhosphorIconContext);
 
@@ -197,7 +213,7 @@ const IconBase = forwardRef((props: any, ref: any) => {
 });
 IconBase.displayName = 'IconBase';
 
-const CalendarIcon: React.FC<any> = (props) => (
+const CalendarIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path
       fillRule="evenodd"
@@ -207,37 +223,37 @@ const CalendarIcon: React.FC<any> = (props) => (
   </SuperDuckIcon>
 );
 
-const CircleCheckIcon: React.FC<any> = (props) => (
+const CircleCheckIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path d="M10 2.5C14.1421 2.5 17.5 5.85786 17.5 10C17.5 14.1421 14.1421 17.5 10 17.5C5.85786 17.5 2.5 14.1421 2.5 10C2.5 5.85786 5.85786 2.5 10 2.5ZM10 3.5C6.41015 3.5 3.5 6.41015 3.5 10C3.5 13.5899 6.41015 16.5 10 16.5C13.5899 16.5 16.5 13.5899 16.5 10C16.5 6.41015 13.5899 3.5 10 3.5ZM12.6094 7.1875C12.7819 6.97187 13.0969 6.93687 13.3125 7.10938C13.5281 7.28188 13.5631 7.59687 13.3906 7.8125L9.39062 12.8125C9.30178 12.9236 9.16935 12.9912 9.02734 12.999C8.92097 13.0049 8.81649 12.9768 8.72852 12.9199L8.64648 12.8535L6.64648 10.8535L6.58203 10.7754C6.45387 10.5813 6.47562 10.3173 6.64648 10.1465C6.81735 9.97562 7.08131 9.95387 7.27539 10.082L7.35352 10.1465L8.97266 11.7656L12.6094 7.1875Z" />
   </SuperDuckIcon>
 );
 
-const VerticalDotsIcon: React.FC<any> = (props) => (
+const VerticalDotsIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path d="M10 14C10.5523 14 11 14.4477 11 15C11 15.5523 10.5523 16 10 16C9.44772 16 9 15.5523 9 15C9 14.4477 9.44772 14 10 14ZM10 9C10.5523 9 11 9.44772 11 10C11 10.5523 10.5523 11 10 11C9.44772 11 9 10.5523 9 10C9 9.44772 9.44772 9 10 9ZM10 4C10.5523 4 11 4.44772 11 5C11 5.55228 10.5523 6 10 6C9.44772 6 9 5.55228 9 5C9 4.44772 9.44772 4 10 4Z" />
   </SuperDuckIcon>
 );
 
-const PenIcon: React.FC<any> = (props) => (
+const PenIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path d="M9.72821 2.87934C10.0318 2.10869 10.9028 1.72933 11.6735 2.03266L14.4655 3.13226C15.236 3.43593 15.6145 4.30697 15.3112 5.07758L11.3903 15.0307C11.2954 15.2717 11.1394 15.4835 10.9391 15.6459L10.8513 15.7123L7.7077 17.8979C7.29581 18.1843 6.73463 17.9917 6.57294 17.5356L6.54657 17.4409L5.737 13.6987C5.67447 13.4092 5.69977 13.107 5.80829 12.8315L9.72821 2.87934ZM6.73798 13.1987C6.70201 13.2903 6.69385 13.3906 6.71454 13.4868L7.44501 16.8627L10.28 14.892L10.3376 14.8452C10.3909 14.7949 10.4325 14.7332 10.4597 14.6645L13.0974 7.96723L9.37567 6.50141L6.73798 13.1987ZM11.3073 2.96332C11.0504 2.86217 10.7601 2.98864 10.6589 3.24555L9.74188 5.57074L13.4636 7.03754L14.3806 4.71137C14.4817 4.45445 14.3552 4.16413 14.0983 4.06293L11.3073 2.96332Z" />
   </SuperDuckIcon>
 );
 
-const TrashIcon: React.FC<any> = (props) => (
+const TrashIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path d="M11.3232 1.5C11.9365 1.50011 12.4881 1.87396 12.7158 2.44336L13.3379 4H17.5L17.6006 4.00977C17.8285 4.0563 18 4.25829 18 4.5C18 4.7417 17.8285 4.94371 17.6006 4.99023L17.5 5H15.9629L15.0693 16.6152C15.0091 17.3965 14.3578 17.9999 13.5742 18H6.42578C5.6912 17.9999 5.07237 17.4697 4.94824 16.7598L4.93066 16.6152L4.03711 5H2.5C2.22387 5 2.00002 4.77613 2 4.5C2 4.22386 2.22386 4 2.5 4H6.66211L7.28418 2.44336L7.33105 2.33887C7.58152 1.82857 8.10177 1.5001 8.67676 1.5H11.3232ZM5.92773 16.5381C5.94778 16.7985 6.16464 16.9999 6.42578 17H13.5742C13.8354 16.9999 14.0522 16.7985 14.0723 16.5381L14.9609 5H5.03906L5.92773 16.5381ZM8.5 8C8.77613 8 8.99998 8.22388 9 8.5V13.5C9 13.7761 8.77614 14 8.5 14C8.22386 14 8 13.7761 8 13.5V8.5C8.00002 8.22388 8.22387 8 8.5 8ZM11.5 8C11.7761 8 12 8.22386 12 8.5V13.5C12 13.7761 11.7761 14 11.5 14C11.2239 14 11 13.7761 11 13.5V8.5C11 8.22386 11.2239 8 11.5 8ZM8.67676 2.5C8.49802 2.5001 8.33492 2.59525 8.24609 2.74609L8.21289 2.81445L7.73828 4H12.2617L11.7871 2.81445C11.7112 2.62471 11.5276 2.50011 11.3232 2.5H8.67676Z" />
   </SuperDuckIcon>
 );
 
-const WarningIcon: React.FC<any> = (props) => (
+const WarningIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path d="M8.70798 3.70804C9.25201 2.78523 10.5372 2.72763 11.1738 3.53519L11.292 3.70804L17.792 14.7383C18.3812 15.7382 17.6606 17 16.5 17H3.49995C2.33937 17 1.61881 15.7382 2.20795 14.7383L8.70798 3.70804ZM10.3916 4.15824C10.1794 3.88887 9.75069 3.90817 9.56931 4.21586L3.06928 15.2461C2.87297 15.5794 3.11314 16 3.49995 16H16.5C16.8869 16 17.1271 15.5794 16.9307 15.2461L10.4306 4.21586L10.3916 4.15824ZM9.99998 13C10.4142 13 10.75 13.3358 10.75 13.75C10.7499 14.1642 10.4142 14.5 9.99998 14.5C9.58582 14.5 9.25002 14.1642 9.24998 13.75C9.24998 13.3358 9.58579 13.0001 9.99998 13ZM9.99998 8.00003C10.2761 8.00003 10.5 8.22389 10.5 8.50003V11.5C10.4999 11.7761 10.2761 12 9.99998 12C9.72389 12 9.50003 11.7761 9.49998 11.5V8.50003C9.49998 8.22391 9.72386 8.00007 9.99998 8.00003Z" />
   </SuperDuckIcon>
 );
 
-const CloseIcon: React.FC<any> = (props) => (
+const CloseIcon: React.FC<SuperDuckIconProps> = (props) => (
   <SuperDuckIcon {...props}>
     <path d="M15.1465 4.14642C15.3418 3.95121 15.6583 3.95118 15.8536 4.14642C16.0487 4.34168 16.0488 4.65822 15.8536 4.85346L10.7071 9.99997L15.8536 15.1465C16.0487 15.3417 16.0488 15.6583 15.8536 15.8535C15.6828 16.0244 15.4187 16.0461 15.2247 15.918L15.1465 15.8535L10 10.707L4.85352 15.8535C4.65827 16.0486 4.34168 16.0486 4.14648 15.8535C3.95129 15.6583 3.95142 15.3418 4.14648 15.1465L9.293 9.99997L4.14648 4.85346C3.95142 4.65818 3.95129 4.34162 4.14648 4.14642C4.34168 3.95128 4.65825 3.95138 4.85352 4.14642L10 9.29294L15.1465 4.14642Z" />
   </SuperDuckIcon>
@@ -246,7 +262,10 @@ const CloseIcon: React.FC<any> = (props) => (
 const TooltipRoot = TooltipPrimitive.Root;
 const TooltipTrigger = TooltipPrimitive.Trigger;
 
-const DefaultTooltipContent = forwardRef<any, any>(({ className, ...props }, ref) => (
+const DefaultTooltipContent = forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, ...props }, ref) => (
   <TooltipPrimitive.Content
     ref={ref}
     className={cn(
@@ -305,7 +324,30 @@ const buttonVariants = cva(
   }
 );
 
-const Button = forwardRef<HTMLButtonElement, any>(
+type ButtonVariantProps = VariantProps<typeof buttonVariants>;
+
+interface ButtonProps
+  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'color' | 'onClick'>,
+    ButtonVariantProps {
+  loading?: boolean;
+  href?: string;
+  target?: React.HTMLAttributeAnchorTarget;
+  rel?: string;
+  download?: string | boolean;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  onLinkClick?: React.MouseEventHandler<HTMLAnchorElement>;
+  prepend?: React.ReactNode;
+  append?: React.ReactNode;
+  tooltip?: React.ReactNode;
+  tooltipSide?: React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>['side'];
+  tooltipDelay?: number;
+  tooltipDisabled?: boolean;
+  tooltipHoverable?: boolean;
+  shortcut?: React.ReactNode;
+  colorized?: boolean;
+}
+
+const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>(
   (
     {
       className,
@@ -315,6 +357,7 @@ const Button = forwardRef<HTMLButtonElement, any>(
       loading,
       href,
       onLinkClick,
+      onClick,
       target,
       prepend,
       append,
@@ -356,6 +399,7 @@ const Button = forwardRef<HTMLButtonElement, any>(
       variantStyle,
       loading && '!text-transparent ![text-shadow:_none]'
     );
+    const anchorRest = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
 
     const content = (
       <>
@@ -373,21 +417,22 @@ const Button = forwardRef<HTMLButtonElement, any>(
 
     const button = href ? (
       <a
-        ref={ref as any}
+        ref={ref as React.Ref<HTMLAnchorElement>}
         href={href}
         target={target}
         className={buttonClass}
         onClick={onLinkClick}
-        {...rest}
+        {...anchorRest}
       >
         {content}
       </a>
     ) : (
       <button
-        ref={ref}
+        ref={ref as React.Ref<HTMLButtonElement>}
         type={type}
         className={buttonClass}
         disabled={disabled || loading}
+        onClick={onClick}
         aria-label={
           !rest['aria-label'] && tooltip && isIconOnly && typeof tooltip === 'string'
             ? tooltip
@@ -454,7 +499,21 @@ const inputVariants = cva(
   }
 );
 
-const TextInput = forwardRef<HTMLInputElement, any>(
+type InputVariantProps = VariantProps<typeof inputVariants>;
+
+type TextInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> &
+  Omit<InputVariantProps, 'error'> & {
+  label?: React.ReactNode;
+  secondaryLabel?: React.ReactNode;
+  labelClassName?: string;
+  onValueChange?: (value: string) => void;
+  automaticallyFocusAndSelect?: boolean;
+  prepend?: React.ReactNode;
+  append?: React.ReactNode;
+  error?: boolean | string;
+};
+
+const TextInput = forwardRef<HTMLInputElement, TextInputProps>(
   (
     {
       autoFocus,
@@ -476,7 +535,7 @@ const TextInput = forwardRef<HTMLInputElement, any>(
     },
     ref
   ) => {
-    const inputClass = cn(inputVariants({ size, error, className }), className);
+    const inputClass = cn(inputVariants({ size, error: Boolean(error), className }), className);
     const generatedId = useGeneratedId({ id, label });
     const innerRef = useRef<HTMLInputElement>(null);
     const composedRef = useComposedRefs(ref, innerRef);
@@ -584,7 +643,20 @@ function ErrorMessage({ children, className }: { children: React.ReactNode; clas
   );
 }
 
-const TextArea = forwardRef<HTMLTextAreaElement, any>(
+interface TextAreaProps
+  extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'placeholder'> {
+  minRows?: number;
+  label?: React.ReactNode;
+  insetLabel?: boolean;
+  labelClassName?: string;
+  error?: boolean | string;
+  onValueChange?: (value: string) => void;
+  customScrollbar?: boolean;
+  fullHeight?: boolean;
+  placeholder?: string | string[];
+}
+
+const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(
   (
     {
       id,
@@ -998,6 +1070,9 @@ function DatePicker({
   className?: string;
   minDate?: Date;
 }) {
+  type CalendarOnChangeValue = Parameters<
+    NonNullable<React.ComponentProps<typeof Calendar>['onChange']>
+  >[0];
   const intl = useIntl();
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState<'bottom' | 'top'>('bottom');
@@ -1072,7 +1147,7 @@ function DatePicker({
           >
             <Calendar
               value={dateValue}
-              onChange={(date: any) => {
+              onChange={(date: CalendarOnChangeValue) => {
                 if (date instanceof Date) {
                   onChange(date.toISOString().split('T')[0]);
                   setIsOpen(false);
@@ -1476,6 +1551,10 @@ function DropdownMenu({
   const ref = useRef<HTMLDivElement>(null);
   void unstyledTrigger;
 
+  type ClosableDropdownMenuItemProps = {
+    __closeMenu?: () => void;
+  };
+
   useEffect(() => {
     if (!open) return;
     const handler = (event: MouseEvent) => {
@@ -1491,8 +1570,8 @@ function DropdownMenu({
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl min-w-[8rem] text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
           {React.Children.map(children, (child) =>
-            React.isValidElement(child)
-              ? React.cloneElement(child as React.ReactElement<any>, {
+            React.isValidElement<ClosableDropdownMenuItemProps>(child)
+              ? React.cloneElement(child, {
                   __closeMenu: () => setOpen(false)
                 })
               : child

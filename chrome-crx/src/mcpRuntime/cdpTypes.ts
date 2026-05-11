@@ -15,7 +15,7 @@ export interface ConsoleMessage {
   url?: string;
   lineNumber?: number;
   columnNumber?: number;
-  args?: any[];
+  args?: unknown[];
   stackTrace?: string;
 }
 
@@ -85,4 +85,98 @@ export interface ScreenshotOptions {
 
 export interface ClickOptions {
   skipIndicator?: boolean;
+}
+
+export interface CdpRemoteObject {
+  type?: string;
+  subtype?: string;
+  value?: unknown;
+  description?: string;
+  objectId?: string;
+}
+
+export interface CdpExceptionCallFrame {
+  functionName?: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+}
+
+export interface CdpExceptionDetails {
+  exception?: {
+    description?: string;
+    value?: unknown;
+  };
+  text?: string;
+  timestamp?: number;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  stackTrace?: {
+    callFrames?: CdpExceptionCallFrame[];
+  };
+}
+
+export interface CdpRuntimeEvaluateResult {
+  result?: CdpRemoteObject;
+  exceptionDetails?: CdpExceptionDetails;
+}
+
+export interface CdpDomNode {
+  nodeName?: string;
+  nodeType?: number;
+  nodeId?: number;
+  backendNodeId?: number;
+  frameId?: string;
+  children?: CdpDomNode[];
+  contentDocument?: CdpDomNode & { frameId?: string };
+}
+
+export interface CdpDomGetDocumentResult {
+  root?: CdpDomNode;
+}
+
+export interface CdpDomDescribeNodeResult {
+  node?: CdpDomNode;
+}
+
+export interface CdpDomQuerySelectorAllResult {
+  nodeIds?: number[];
+}
+
+export interface CdpDomQuerySelectorResult {
+  nodeId?: number;
+}
+
+export interface CdpDomAttributesResult {
+  attributes?: string[];
+}
+
+export interface CdpDomResolveNodeResult {
+  object?: CdpRemoteObject;
+}
+
+export interface CdpPageFrameTreeNode {
+  frame?: { id?: string };
+  childFrames?: CdpPageFrameTreeNode[];
+}
+
+export interface CdpPageGetFrameTreeResult {
+  frameTree?: CdpPageFrameTreeNode;
+}
+
+export interface CdpDomGetFrameOwnerResult {
+  backendNodeId?: number;
+}
+
+export interface CdpDomGetContentQuadsResult {
+  quads?: number[][];
+}
+
+export interface CdpAccessibilityTreeResult<TNode = unknown> {
+  nodes?: TNode[];
+}
+
+export interface CdpCaptureScreenshotResult {
+  data?: string;
 }

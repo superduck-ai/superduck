@@ -5,12 +5,8 @@ function useStorageState<T>(key: string, defaultValue: T): [T, (value: T) => Pro
   const [state, setState] = useState<T>(defaultValue);
 
   useEffect(() => {
-    getStorageValue(key).then((value: any) => {
-      if (value !== undefined) {
-        setState(value);
-      }
-    });
-  }, [key]);
+    void getStorageValue(key, defaultValue).then(setState);
+  }, [defaultValue, key]);
 
   useEffect(() => {
     const listener = (
@@ -18,13 +14,13 @@ function useStorageState<T>(key: string, defaultValue: T): [T, (value: T) => Pro
       areaName: string
     ) => {
       if (areaName === 'local' && key in changes) {
-        setState(changes[key].newValue as T);
+        void getStorageValue(key, defaultValue).then(setState);
       }
     };
 
     chrome.storage.onChanged.addListener(listener);
     return () => chrome.storage.onChanged.removeListener(listener);
-  }, [key]);
+  }, [defaultValue, key]);
 
   const setter = useCallback(
     async (value: T) => {

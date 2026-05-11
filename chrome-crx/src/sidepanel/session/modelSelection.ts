@@ -28,7 +28,7 @@ export function useStickyModelSelection() {
     async (availableModels: ModelOptionLike[], isQuickMode = false): Promise<string | null> => {
       try {
         const storageKey = getStickyModelStorageKey(isQuickMode);
-        const stored = await getStorageValue(storageKey);
+        const stored = await getStorageValue<string>(storageKey);
         if (!stored) return null;
 
         const exists = availableModels.some((entry) => entry.model === stored);
