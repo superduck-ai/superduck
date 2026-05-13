@@ -1,4 +1,4 @@
-import type { ResizeParams, ScreenshotResult } from './cdpTypes';
+import type { ScreenshotResult } from './cdpTypes';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -22,7 +22,6 @@ export async function processScreenshotInContentScript(options: {
   viewportWidth: number;
   viewportHeight: number;
   devicePixelRatio: number;
-  resizeParams: ResizeParams;
   maxBase64Chars: number;
   initialJpegQuality: number;
   jpegQualityStep: number;
@@ -34,7 +33,6 @@ export async function processScreenshotInContentScript(options: {
     viewportWidth,
     viewportHeight,
     devicePixelRatio,
-    resizeParams,
     maxBase64Chars,
     initialJpegQuality,
     jpegQualityStep,
@@ -48,7 +46,6 @@ export async function processScreenshotInContentScript(options: {
       vpWidth: number,
       vpHeight: number,
       dpr: number,
-      resize: ResizeParams,
       maxChars: number,
       initialQuality: number,
       qualityStep: number,
@@ -80,20 +77,6 @@ export async function processScreenshotInContentScript(options: {
             ctx.drawImage(img, 0, 0);
           }
 
-          const aspectRatio = imgWidth / imgHeight;
-          const pxPerToken = resize.pxPerToken || 28;
-          const maxTargetTokens = resize.maxTargetTokens || 1568;
-          const currentTokens = Math.ceil((imgWidth / pxPerToken) * (imgHeight / pxPerToken));
-
-          let targetWidth = imgWidth;
-          let targetHeight = imgHeight;
-
-          if (currentTokens > maxTargetTokens) {
-            const scaleFactor = Math.sqrt(maxTargetTokens / currentTokens);
-            targetWidth = Math.round(imgWidth * scaleFactor);
-            targetHeight = Math.round(targetWidth / aspectRatio);
-          }
-
           const compressToFit = (sourceCanvas: HTMLCanvasElement): string => {
             let quality = initialQuality;
             let result = sourceCanvas.toDataURL('image/jpeg', quality).split(',')[1];
@@ -104,33 +87,11 @@ export async function processScreenshotInContentScript(options: {
             return result;
           };
 
-          if (targetWidth >= imgWidth && targetHeight >= imgHeight) {
-            const compressed = compressToFit(canvas);
-            return void resolve({
-              base64: compressed,
-              width: imgWidth,
-              height: imgHeight,
-              format: 'jpeg',
-              viewportWidth: vpWidth,
-              viewportHeight: vpHeight
-            });
-          }
-
-          const targetCanvas = document.createElement('canvas');
-          targetCanvas.width = targetWidth;
-          targetCanvas.height = targetHeight;
-          const targetCtx = targetCanvas.getContext('2d');
-          if (!targetCtx) {
-            return void reject(new Error('Failed to get target canvas context'));
-          }
-
-          targetCtx.drawImage(canvas, 0, 0, imgWidth, imgHeight, 0, 0, targetWidth, targetHeight);
-
-          const compressed = compressToFit(targetCanvas);
+          const compressed = compressToFit(canvas);
           resolve({
             base64: compressed,
-            width: targetWidth,
-            height: targetHeight,
+            width: imgWidth,
+            height: imgHeight,
             format: 'jpeg',
             viewportWidth: vpWidth,
             viewportHeight: vpHeight
@@ -147,7 +108,6 @@ export async function processScreenshotInContentScript(options: {
       viewportWidth,
       viewportHeight,
       devicePixelRatio,
-      resizeParams,
       maxBase64Chars,
       initialJpegQuality,
       jpegQualityStep,
