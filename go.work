@@ -8,6 +8,6 @@
 // Toolchain pin matches chrome-native-host/go.mod and the version installed
 // in .devcontainer. Bump both in lockstep when upgrading Go.
 
-go 1.25
+go 1.25.0
 
 use ./chrome-native-host
