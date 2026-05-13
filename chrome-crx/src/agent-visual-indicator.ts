@@ -1,6 +1,9 @@
 import { CursorRenderer } from './cursorAnimation/cursorRenderer';
 
 (function () {
+  if ((window as any).__superduck_agent_indicator_loaded__) return;
+  (window as any).__superduck_agent_indicator_loaded__ = true;
+
   // I18n support
   const SUPPORTED_LOCALES = ['en-US', 'zh-CN'] as const;
   const DEFAULT_LOCALE = 'en-US';
@@ -55,6 +58,80 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   let staticIndicatorHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let ellipsisInterval: ReturnType<typeof setInterval> | null = null;
   let isMcpEnabled = false;
+
+  function getDocumentMountRoot(): HTMLElement {
+    return document.body ?? document.documentElement;
+  }
+
+  // Shadow DOM isolation
+  let shadowHostEl: HTMLElement | null = null;
+  let shadowRoot: ShadowRoot | null = null;
+  let shadowOverlayEl: HTMLElement | null = null;
+
+  function ensureShadowRoot(): ShadowRoot {
+    if (shadowRoot) return shadowRoot;
+
+    shadowHostEl = document.createElement('div');
+    shadowHostEl.id = 'superduck-agent-overlay-root';
+    shadowHostEl.style.cssText = `
+      all: initial;
+      display: block;
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 2147483646;
+      overflow: visible;
+    `;
+
+    shadowRoot = shadowHostEl.attachShadow({ mode: 'closed' });
+
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      .superduck-agent-overlay {
+        all: initial;
+        display: block;
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: visible;
+        pointer-events: none;
+        z-index: 2147483646;
+      }
+      @keyframes superduck-glass-breathe {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+      }
+      @keyframes superduck-glow-breathe {
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 1; }
+      }
+      @keyframes superduck-cursor-click-ripple {
+        0% { transform: translate(-50%, -50%) scale(0); opacity: 0.7; }
+        100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+      }
+      @media print {
+        .superduck-agent-overlay { display: none; }
+      }
+    `;
+    shadowRoot.appendChild(styleEl);
+
+    shadowOverlayEl = document.createElement('div');
+    shadowOverlayEl.className = 'superduck-agent-overlay';
+    shadowOverlayEl.setAttribute('aria-hidden', 'true');
+    shadowRoot.appendChild(shadowOverlayEl);
+
+    getDocumentMountRoot().appendChild(shadowHostEl);
+    return shadowRoot;
+  }
+
+  function getOverlayContainer(): HTMLElement {
+    ensureShadowRoot();
+    return shadowOverlayEl!;
+  }
+
   let cursorRenderer: CursorRenderer | null = null;
   try {
     cursorRenderer = new CursorRenderer();
@@ -70,29 +147,6 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     } catch (e) {
       console.error('[Agent Indicator] cursorRenderer call failed', e);
     }
-  }
-
-  // ============================================
-  // Styles
-  // ============================================
-
-  function injectAnimationStyles(): void {
-    if (document.getElementById('superduck-agent-animation-styles')) return;
-
-    const styleEl = document.createElement('style');
-    styleEl.id = 'superduck-agent-animation-styles';
-    styleEl.textContent = `
-      @keyframes superduck-glass-breathe {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 1; }
-      }
-      @keyframes superduck-glow-breathe {
-        0%, 100% { opacity: 0.25; }
-        50% { opacity: 1; }
-      }
-
-    `;
-    document.head.appendChild(styleEl);
   }
 
   // ============================================
@@ -687,44 +741,37 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
    * Show agent indicators (glow border and stop button)
    */
   async function showAgentIndicators(): Promise<void> {
-    console.log(
-      '[Agent Indicator] showAgentIndicators called, isMcpEnabled:',
-      isMcpEnabled,
-      'isAgentActive:',
-      isAgentActive
-    );
-
     isAgentActive = true;
 
-    // Kick off i18n in parallel — only the stop-button text needs it, and
-    // every t() call has a Chinese fallback. Don't block visual elements on it.
     const i18nPromise = loadI18n();
 
-    // Inject animation styles
-    injectAnimationStyles();
+    const overlay = getOverlayContainer();
 
-    // Create/show glow border
+    // Wire cursor renderer to overlay container inside shadow DOM
+    safeCursor((r) => r.setAttachRoot(overlay));
+
+    // Create/show glow border (inside shadow DOM)
     if (glowBorderEl) {
       glowBorderEl.style.display = '';
     } else {
       glowBorderEl = createGlowBorder();
-      document.body.appendChild(glowBorderEl);
+      overlay.appendChild(glowBorderEl);
     }
 
-    // Create/show water ripple
+    // Create/show water ripple (inside shadow DOM)
     if (waterRippleContainerEl) {
       waterRippleContainerEl.style.display = '';
     } else {
       waterRippleContainerEl = createWaterRipple();
-      document.body.appendChild(waterRippleContainerEl);
+      overlay.appendChild(waterRippleContainerEl);
     }
 
-    // Create/show blocking overlay
+    // Create/show blocking overlay (stays in host DOM for event interception)
     if (blockingOverlayEl) {
       blockingOverlayEl.style.display = '';
     } else {
       blockingOverlayEl = createBlockingOverlay();
-      document.body.appendChild(blockingOverlayEl);
+      getDocumentMountRoot().appendChild(blockingOverlayEl);
     }
 
     // Animate the always-visible elements in immediately, before i18n.
@@ -736,8 +783,6 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
 
     safeCursor((r) => r.showIdle());
 
-    // Stop button uses translated text; wait for i18n so we don't flash
-    // fallback Chinese strings to non-Chinese locales.
     await i18nPromise;
 
     if (!isAgentActive) return;
@@ -748,10 +793,10 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
         stopContainerEl.style.setProperty('display', 'flex', 'important');
       } else {
         stopContainerEl = createStopContainer();
-        document.body.appendChild(stopContainerEl);
+        overlay.appendChild(stopContainerEl);
       }
       if (stopContainerEl && !stopContainerEl.parentNode) {
-        document.body.appendChild(stopContainerEl);
+        overlay.appendChild(stopContainerEl);
       }
       requestAnimationFrame(() => {
         if (stopContainerEl) {
@@ -821,6 +866,13 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
           stopContainerEl = null;
         }
         safeCursor((r) => r.hide());
+        // Remove shadow host after all children are cleaned up
+        if (shadowHostEl && shadowHostEl.parentNode) {
+          shadowHostEl.parentNode.removeChild(shadowHostEl);
+        }
+        shadowHostEl = null;
+        shadowRoot = null;
+        shadowOverlayEl = null;
       }
     }, 300);
   }
@@ -833,12 +885,12 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
 
     if (staticIndicatorEl) {
       if (!staticIndicatorEl.parentNode) {
-        document.body.appendChild(staticIndicatorEl);
+        getDocumentMountRoot().appendChild(staticIndicatorEl);
       }
       staticIndicatorEl.style.display = '';
     } else {
       staticIndicatorEl = createStaticIndicator();
-      document.body.appendChild(staticIndicatorEl);
+      getDocumentMountRoot().appendChild(staticIndicatorEl);
     }
 
     // Clear existing heartbeat and start new one
@@ -896,7 +948,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
       | 'STOP_AGENT'
       | 'SWITCH_TO_MAIN_TAB'
       | 'DISMISS_STATIC_INDICATOR_FOR_GROUP'
-      | 'ANIMATE_CURSOR_TO';
+      | 'ANIMATE_CURSOR_TO'
+      | 'CONTENT_PING';
     isMcp?: boolean;
     fromTabId?: string;
     x?: number;
@@ -917,14 +970,7 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
       (async () => {
         switch (message.type) {
           case 'SHOW_AGENT_INDICATORS':
-            console.log(
-              '[Agent Indicator] SHOW_AGENT_INDICATORS received, isMcp:',
-              message.isMcp,
-              'current isMcpEnabled:',
-              isMcpEnabled
-            );
             isMcpEnabled = isMcpEnabled || message.isMcp === true;
-            console.log('[Agent Indicator] After update, isMcpEnabled:', isMcpEnabled);
             await showAgentIndicators();
             sendResponse({ success: true });
             break;
@@ -947,17 +993,11 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
               ellipsisInterval = null;
             }
 
-            // Remove elements from DOM entirely to guarantee they cannot
-            // appear in any screenshot method (CDP or captureVisibleTab).
-            // Element references are preserved in module variables for re-insertion.
-            if (glowBorderEl?.parentNode) glowBorderEl.parentNode.removeChild(glowBorderEl);
-            if (waterRippleContainerEl?.parentNode)
-              waterRippleContainerEl.parentNode.removeChild(waterRippleContainerEl);
+            // Detach shadowHost (contains glow/ripple/stop/cursor) from DOM
+            if (shadowHostEl?.parentNode) shadowHostEl.parentNode.removeChild(shadowHostEl);
+            // Blocking overlay lives in host DOM
             if (blockingOverlayEl?.parentNode)
               blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
-            if (stopContainerEl?.parentNode)
-              stopContainerEl.parentNode.removeChild(stopContainerEl);
-            safeCursor((r) => r.detachFromDOM());
             if (staticIndicatorEl?.parentNode && isStaticIndicatorActive)
               staticIndicatorEl.parentNode.removeChild(staticIndicatorEl);
 
@@ -978,7 +1018,7 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
             }
 
             // For visible tabs, wait for compositor commit to keep screenshots clean.
-            void document.body.offsetWidth;
+            void getDocumentMountRoot().offsetWidth;
             requestAnimationFrame(() => {
               requestAnimationFrame(() => {
                 setTimeout(respondOnce, 50);
@@ -991,15 +1031,12 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
 
           case 'SHOW_AFTER_TOOL_USE':
             if (isHiddenForToolUse) {
-              // Re-insert elements into DOM (references preserved in module variables)
-              if (glowBorderEl && !glowBorderEl.parentNode) document.body.appendChild(glowBorderEl);
-              if (waterRippleContainerEl && !waterRippleContainerEl.parentNode)
-                document.body.appendChild(waterRippleContainerEl);
+              // Re-attach shadowHost (all shadow DOM children come back with it)
+              if (shadowHostEl && !shadowHostEl.parentNode)
+                getDocumentMountRoot().appendChild(shadowHostEl);
+              // Blocking overlay lives in host DOM
               if (blockingOverlayEl && !blockingOverlayEl.parentNode)
-                document.body.appendChild(blockingOverlayEl);
-              if (stopContainerEl && !stopContainerEl.parentNode)
-                document.body.appendChild(stopContainerEl);
-              safeCursor((r) => r.reattachToDOM());
+                getDocumentMountRoot().appendChild(blockingOverlayEl);
 
               if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
                 waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
@@ -1020,7 +1057,7 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
               staticIndicatorEl &&
               !staticIndicatorEl.parentNode
             ) {
-              document.body.appendChild(staticIndicatorEl);
+              getDocumentMountRoot().appendChild(staticIndicatorEl);
             }
 
             isHiddenForToolUse = false;
@@ -1053,6 +1090,10 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
               console.error('[Agent Indicator] animateTo failed', e);
               sendResponse({ success: false });
             }
+            break;
+
+          case 'CONTENT_PING':
+            sendResponse({ success: true });
             break;
 
           default:
@@ -1094,22 +1135,15 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     if (isHiddenForToolUse) return;
     if (!isAgentActive) return;
 
-    // Recover elements that got detached from DOM
-    if (stopContainerEl && !stopContainerEl.parentNode) {
-      console.warn('[SuperDuck Agent] Recovering detached stop button');
-      document.body.appendChild(stopContainerEl);
+    // Recover shadow host if detached
+    if (shadowHostEl && !shadowHostEl.parentNode) {
+      console.warn('[SuperDuck Agent] Recovering detached shadow host');
+      getDocumentMountRoot().appendChild(shadowHostEl);
     }
-    if (glowBorderEl && !glowBorderEl.parentNode) {
-      console.warn('[SuperDuck Agent] Recovering detached glow border');
-      document.body.appendChild(glowBorderEl);
-    }
-    if (waterRippleContainerEl && !waterRippleContainerEl.parentNode) {
-      console.warn('[SuperDuck Agent] Recovering detached water ripple');
-      document.body.appendChild(waterRippleContainerEl);
-    }
+    // Blocking overlay lives in host DOM
     if (blockingOverlayEl && !blockingOverlayEl.parentNode) {
       console.warn('[SuperDuck Agent] Recovering detached blocking overlay');
-      document.body.appendChild(blockingOverlayEl);
+      getDocumentMountRoot().appendChild(blockingOverlayEl);
     }
     safeCursor((r) => r.reattachToDOM());
   }, 2000); // Check every 2 seconds

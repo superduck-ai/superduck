@@ -60,13 +60,23 @@ export class CursorRenderer {
   private pendingResolve: (() => void) | null = null;
   private safetyTimer: ReturnType<typeof setTimeout> | null = null;
   private cursorAssetUrl: string | null = null;
+  private attachRoot: ShadowRoot | HTMLElement | null = null;
 
-  constructor() {
+  constructor(attachRoot?: ShadowRoot | HTMLElement) {
+    this.attachRoot = attachRoot ?? null;
     try {
       this.cursorAssetUrl = chrome.runtime.getURL('cursor-chat.png');
     } catch {
       this.cursorAssetUrl = null;
     }
+  }
+
+  setAttachRoot(root: ShadowRoot | HTMLElement): void {
+    this.attachRoot = root;
+  }
+
+  private getAttachTarget(): HTMLElement | ShadowRoot {
+    return this.attachRoot ?? document.body;
   }
 
   animateTo(x: number, y: number, action: CursorAction | string): Promise<void> {
@@ -121,16 +131,9 @@ export class CursorRenderer {
     this.sweepRipples();
   }
 
-  detachFromDOM(): void {
-    if (this.layerEl?.parentNode) {
-      this.layerEl.parentNode.removeChild(this.layerEl);
-    }
-    this.sweepRipples();
-  }
-
   reattachToDOM(): void {
     if (this.layerEl && !this.layerEl.parentNode) {
-      document.body.appendChild(this.layerEl);
+      this.getAttachTarget().appendChild(this.layerEl);
     }
   }
 
@@ -159,7 +162,7 @@ export class CursorRenderer {
       this.createDOM();
     }
     if (this.layerEl && !this.layerEl.parentNode) {
-      document.body.appendChild(this.layerEl);
+      this.getAttachTarget().appendChild(this.layerEl);
     }
     if (!this.state) {
       this.state = this.createInitialState();
@@ -227,7 +230,8 @@ export class CursorRenderer {
   }
 
   private sweepRipples(): void {
-    document.querySelectorAll('.superduck-cursor-ripple').forEach((el) => el.remove());
+    const root = this.getAttachTarget();
+    root.querySelectorAll('.superduck-cursor-ripple').forEach((el) => el.remove());
   }
 
   // --- State ---
@@ -577,7 +581,7 @@ export class CursorRenderer {
   }
 
   private createClickRipple(x: number, y: number): void {
-    this.injectRippleKeyframes();
+    const root = this.getAttachTarget();
     const ripple = document.createElement('div');
     ripple.className = 'superduck-cursor-ripple';
     Object.assign(ripple.style, {
@@ -594,23 +598,10 @@ export class CursorRenderer {
       animation: 'superduck-cursor-click-ripple 0.4s ease-out forwards',
       transform: 'translate(-50%, -50%)'
     });
-    document.body.appendChild(ripple);
+    root.appendChild(ripple);
     setTimeout(() => {
       if (ripple.parentNode) ripple.remove();
     }, 450);
-  }
-
-  private injectRippleKeyframes(): void {
-    if (document.getElementById('superduck-cursor-ripple-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'superduck-cursor-ripple-styles';
-    style.textContent = `
-      @keyframes superduck-cursor-click-ripple {
-        0% { transform: translate(-50%, -50%) scale(0); opacity: 0.7; }
-        100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
   }
 
   // --- Helpers ---

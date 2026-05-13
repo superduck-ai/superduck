@@ -158,11 +158,10 @@ class ChromeDebuggerProtocol {
           const consoleParams = params as ConsoleApiCalledParams;
           const message: ConsoleMessage = {
             type: consoleParams.type || 'log',
-            text: consoleParams.args
-              ?.map((arg) =>
-                void 0 !== arg.value ? String(arg.value) : arg.description || ''
-              )
-              .join(' ') || '',
+            text:
+              consoleParams.args
+                ?.map((arg) => (void 0 !== arg.value ? String(arg.value) : arg.description || ''))
+                .join(' ') || '',
             timestamp: consoleParams.timestamp || Date.now(),
             url: consoleParams.stackTrace?.callFrames?.[0]?.url,
             lineNumber: consoleParams.stackTrace?.callFrames?.[0]?.lineNumber,
@@ -247,24 +246,17 @@ class ChromeDebuggerProtocol {
    * and hide the visual indicators on the affected tab.
    */
   registerDebuggerDetachHandler(): void {
-    chrome.debugger.onDetach.addListener(
-      (source: chrome.debugger.Debuggee, reason: string) => {
-        if (reason !== 'canceled_by_user') return;
-        const tabId = source.tabId;
-        if (!tabId) return;
+    chrome.debugger.onDetach.addListener((source: chrome.debugger.Debuggee, reason: string) => {
+      const tabId = source.tabId;
+      if (!tabId) return;
 
-        console.log('[CDP] Debugger detached by user for tab', tabId, '– stopping agent');
+      chrome.tabs.sendMessage(tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
+      tabGroupManager.setTabIndicatorState(tabId, 'none').catch(() => {});
 
-        // Immediately hide indicators on the page via content script
-        chrome.tabs.sendMessage(tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
+      if (reason !== 'canceled_by_user') return;
 
-        // Broadcast STOP_AGENT so the sidepanel (if open) aborts the request
-        chrome.runtime.sendMessage({ type: 'STOP_AGENT', targetTabId: tabId }).catch(() => {});
-
-        // Update group metadata for consistency
-        tabGroupManager.setTabIndicatorState(tabId, 'none').catch(() => {});
-      }
-    );
+      chrome.runtime.sendMessage({ type: 'STOP_AGENT', targetTabId: tabId }).catch(() => {});
+    });
   }
 
   defaultResizeParams: ResizeParams = {
@@ -281,6 +273,7 @@ class ChromeDebuggerProtocol {
     const target: chrome.debugger.Debuggee = { tabId };
     const wasNetworkTracking = ChromeDebuggerProtocol.networkTrackingEnabled.has(tabId);
     const wasConsoleTracking = ChromeDebuggerProtocol.consoleTrackingEnabled.has(tabId);
+    const wasAttached = await this.isDebuggerAttached(tabId);
 
     try {
       await this.detachDebugger(tabId);
@@ -297,6 +290,10 @@ class ChromeDebuggerProtocol {
         }
       });
     });
+
+    if (!wasAttached) {
+      tabGroupManager.showRunningIndicatorImmediately(tabId, true).catch(() => {});
+    }
 
     this.registerDebuggerEventHandlers();
 
@@ -819,10 +816,10 @@ class ChromeDebuggerProtocol {
         tabId,
         'Page.captureScreenshot',
         {
-        format,
-        ...((format === 'jpeg' || format === 'webp') && { quality }),
-        captureBeyondViewport: false,
-        fromSurface: true
+          format,
+          ...((format === 'jpeg' || format === 'webp') && { quality }),
+          captureBeyondViewport: false,
+          fromSurface: true
         }
       );
 

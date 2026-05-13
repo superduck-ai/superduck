@@ -74,6 +74,8 @@ class TabGroupManager {
   blocklistListeners = new Set<(groupId: number, category: string | undefined) => void>();
   indicatorUpdateTimer: ReturnType<typeof setTimeout> | null = null;
   INDICATOR_UPDATE_DELAY = 100;
+  private contentScriptReadyTabs = new Set<number>();
+  private pendingInjections = new Map<number, Promise<boolean>>();
   pendingRegroups = new Map<number, PendingRegroup>();
   processingMainTabRemoval = new Set<number>();
   mcpTabGroupId: number | null = null;
@@ -88,6 +90,7 @@ class TabGroupManager {
 
   startTabRemovalListener(): void {
     chrome.tabs.onRemoved.addListener(async (tabId: number) => {
+      this.contentScriptReadyTabs.delete(tabId);
       for (const [groupId, status] of this.groupBlocklistStatuses.entries())
         status.categoriesByTab.has(tabId) &&
           (await this.removeTabFromBlocklistTracking(groupId, tabId));
@@ -541,23 +544,22 @@ class TabGroupManager {
         matchingMeta = meta;
         break;
       }
-    return tabs
-      .flatMap((tab) => {
-        if (typeof tab.id !== 'number') {
-          return [];
-        }
+    return tabs.flatMap((tab) => {
+      if (typeof tab.id !== 'number') {
+        return [];
+      }
 
-        const state = matchingMeta?.memberStates.get(tab.id);
-        return [
-          {
-            tabId: tab.id,
-            url: tab.url || '',
-            title: tab.title || '',
-            joinedAt: Date.now(),
-            indicatorState: state?.indicatorState || 'none'
-          }
-        ];
-      });
+      const state = matchingMeta?.memberStates.get(tab.id);
+      return [
+        {
+          tabId: tab.id,
+          url: tab.url || '',
+          title: tab.title || '',
+          joinedAt: Date.now(),
+          indicatorState: state?.indicatorState || 'none'
+        }
+      ];
+    });
   }
 
   async getGroupDetails(mainTabId: number): Promise<GroupWithMembers> {
@@ -1073,7 +1075,12 @@ class TabGroupManager {
     return requestedTabId;
   }
 
-  async setTabIndicatorState(tabId: number, state: string, isMcp?: boolean): Promise<void> {
+  async setTabIndicatorState(
+    tabId: number,
+    state: string,
+    isMcp?: boolean,
+    queueUpdate = true
+  ): Promise<void> {
     let chromeGroupId: number | undefined;
     let found = false;
     for (const [, meta] of this.groupMetadata.entries()) {
@@ -1090,7 +1097,9 @@ class TabGroupManager {
         break;
       }
     }
-    this.queueIndicatorUpdate(tabId, state);
+    if (queueUpdate) {
+      this.queueIndicatorUpdate(tabId, state);
+    }
   }
 
   async setGroupIndicatorState(mainTabId: number, state: string): Promise<void> {
@@ -1210,6 +1219,89 @@ class TabGroupManager {
     await this.setGroupIndicatorState(mainTabId, 'pulsing');
   }
 
+  async showRunningIndicatorImmediately(tabId: number, isMcp = true): Promise<void> {
+    await this.setTabIndicatorState(tabId, 'pulsing', isMcp, false);
+    await this.ensureIndicatorContentScript(tabId);
+    await this.sendIndicatorMessage(tabId, 'SHOW_AGENT_INDICATORS', isMcp);
+  }
+
+  private async ensureIndicatorContentScript(tabId: number): Promise<boolean> {
+    if (this.contentScriptReadyTabs.has(tabId)) return true;
+
+    const existing = this.pendingInjections.get(tabId);
+    if (existing) return existing;
+
+    const promise = this.doEnsureContentScript(tabId).finally(() => {
+      this.pendingInjections.delete(tabId);
+    });
+    this.pendingInjections.set(tabId, promise);
+    return promise;
+  }
+
+  private async doEnsureContentScript(tabId: number): Promise<boolean> {
+    if (await this.pingContentScript(tabId)) {
+      this.contentScriptReadyTabs.add(tabId);
+      return true;
+    }
+
+    const indicatorScriptPath = this.getIndicatorContentScriptPath();
+    if (!indicatorScriptPath) return false;
+
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: [indicatorScriptPath],
+        injectImmediately: true
+      });
+    } catch {
+      return false;
+    }
+
+    for (const delay of [0, 30, 60]) {
+      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+      if (await this.pingContentScript(tabId)) {
+        this.contentScriptReadyTabs.add(tabId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private indicatorScriptPathResolved = false;
+  private indicatorScriptPath: string | null = null;
+
+  private getIndicatorContentScriptPath(): string | null {
+    if (this.indicatorScriptPathResolved) return this.indicatorScriptPath;
+    this.indicatorScriptPathResolved = true;
+
+    const manifest = chrome.runtime.getManifest();
+    for (const cs of manifest.content_scripts ?? []) {
+      const file = cs.js?.find((f: string) => f.includes('agent-visual-indicator'));
+      if (file) {
+        this.indicatorScriptPath = file;
+        return file;
+      }
+    }
+    return null;
+  }
+
+  private async pingContentScript(tabId: number): Promise<boolean> {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    try {
+      const response = await Promise.race([
+        chrome.tabs.sendMessage(tabId, { type: 'CONTENT_PING' }),
+        new Promise((r) => {
+          timeoutId = setTimeout(() => r(null), 500);
+        })
+      ]);
+      clearTimeout(timeoutId!);
+      return (response as any)?.success === true;
+    } catch {
+      clearTimeout(timeoutId!);
+      return false;
+    }
+  }
+
   async stopRunning(): Promise<void> {
     for (const [, meta] of this.groupMetadata.entries())
       for (const [tabId] of meta.memberStates) await this.setTabIndicatorState(tabId, 'none');
@@ -1316,8 +1408,7 @@ class TabGroupManager {
     isMcp?: boolean;
   }): Promise<void> {
     const { tabId, isRunning, isMcp } = options;
-    let state: string;
-    state = this.isMainTab(tabId) && isRunning ? 'pulsing' : 'static';
+    const state = this.isMainTab(tabId) && isRunning ? 'pulsing' : 'static';
     await this.setTabIndicatorState(tabId, state, isMcp);
   }
 
@@ -1561,15 +1652,36 @@ class TabGroupManager {
         }
   }
 
-  async sendIndicatorMessage(tabId: number, messageType: string, isMcp?: boolean): Promise<void> {
+  async sendIndicatorMessage(
+    tabId: number,
+    messageType: string,
+    isMcp?: boolean
+  ): Promise<boolean> {
+    const buildMessage = () => ({
+      type: messageType,
+      isMcp
+    });
+
     try {
-      await chrome.tabs.sendMessage(tabId, {
-        type: messageType,
-        isMcp
-      });
-    } catch {
-      // Expected when the content script is not loaded in the target tab
-      // (e.g. tab just opened, navigated away, or on a restricted page).
+      await chrome.tabs.sendMessage(tabId, buildMessage());
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isNoListener =
+        errMsg.includes('Receiving end does not exist') ||
+        errMsg.includes('Could not establish connection');
+      if (!isNoListener) return false;
+
+      this.contentScriptReadyTabs.delete(tabId);
+      const injected = await this.ensureIndicatorContentScript(tabId);
+      if (!injected) return false;
+
+      try {
+        await chrome.tabs.sendMessage(tabId, buildMessage());
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 }

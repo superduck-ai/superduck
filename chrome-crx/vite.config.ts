@@ -3,7 +3,7 @@ import { crx } from '@crxjs/vite-plugin';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
-import { copyFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
+import { copyFileSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import manifest from './manifest.json';
 
 /**
@@ -36,8 +36,52 @@ function copyI18nCatalogs(): Plugin {
   };
 }
 
+/**
+ * @crxjs/vite-plugin wraps content scripts in an IIFE. With sourcemaps enabled
+ * under the current Vite/Rolldown build, the wrapper trailer can be emitted on
+ * the same line as the sourceMappingURL comment, which comments it out and
+ * leaves the content script syntactically invalid.
+ */
+function fixContentScriptSourceMapTrailer(): Plugin {
+  return {
+    name: 'fix-content-script-sourcemap-trailer',
+    writeBundle() {
+      const outDir = resolve(__dirname, 'dist');
+      const visit = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const file = resolve(dir, entry.name);
+          if (entry.isDirectory()) {
+            visit(file);
+            continue;
+          }
+          if (!entry.isFile() || !file.endsWith('.js')) continue;
+
+          const source = readFileSync(file, 'utf8');
+          const fixed = source.replace(
+            /\/\/# sourceMappingURL=([^\n]+\.js\.map)\}\)\(\)\s*$/u,
+            '})();\n//# sourceMappingURL=$1'
+          );
+          if (fixed !== source) {
+            writeFileSync(file, fixed);
+          }
+        }
+      };
+
+      if (existsSync(outDir)) {
+        visit(outDir);
+      }
+    }
+  };
+}
+
 export default defineConfig({
-  plugins: [crx({ manifest }), react(), tailwindcss(), copyI18nCatalogs()],
+  plugins: [
+    crx({ manifest }),
+    react(),
+    tailwindcss(),
+    copyI18nCatalogs(),
+    fixContentScriptSourceMapTrailer()
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
