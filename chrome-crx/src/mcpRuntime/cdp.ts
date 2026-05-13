@@ -2,7 +2,6 @@ import { screenshotContextManager } from './shared';
 import { tabGroupManager } from './tabState';
 import { processScreenshotInContentScript } from './cdpContentScriptScreenshot';
 import {
-  calculateTargetDimensions,
   checkDomainSecurity,
   generateUniqueId,
   screenshotToViewportCoords,
@@ -788,7 +787,7 @@ class ChromeDebuggerProtocol {
     resizeParams?: ResizeParams,
     options?: ScreenshotOptions
   ): Promise<ScreenshotResult> {
-    const resize = resizeParams || this.defaultResizeParams;
+    void resizeParams;
     const format = options?.format ?? 'png';
     const quality = options?.quality ?? 100 * ChromeDebuggerProtocol.INITIAL_JPEG_QUALITY;
 
@@ -839,8 +838,7 @@ class ChromeDebuggerProtocol {
           rawBase64,
           viewportWidth,
           viewportHeight,
-          devicePixelRatio,
-          resize
+          devicePixelRatio
         );
       }
 
@@ -864,14 +862,7 @@ class ChromeDebuggerProtocol {
             imgHeight = Math.round(img.height / devicePixelRatio);
           }
 
-          const [targetWidth, targetHeight] = calculateTargetDimensions(
-            imgWidth,
-            imgHeight,
-            resize
-          );
-          const needsResize = imgWidth !== targetWidth || imgHeight !== targetHeight;
-
-          if (!needsDownscale && !needsResize) {
+          if (!needsDownscale) {
             return void resolve({
               base64: rawBase64,
               width: imgWidth,
@@ -891,33 +882,15 @@ class ChromeDebuggerProtocol {
             ctx.drawImage(img, 0, 0);
           }
 
-          if (!needsResize) {
-            const base64 = canvas.toDataURL(`image/${format}`).split(',')[1];
-            return void resolve({
-              base64,
-              width: imgWidth,
-              height: imgHeight,
-              format,
-              viewportWidth,
-              viewportHeight
-            });
-          }
-
-          const targetCanvas = document.createElement('canvas');
-          const targetCtx = targetCanvas.getContext('2d');
-          if (!targetCtx) {
-            return void reject(new Error('Failed to create 2D context for target resizing'));
-          }
-
-          targetCanvas.width = targetWidth;
-          targetCanvas.height = targetHeight;
-          targetCtx.drawImage(canvas, 0, 0, imgWidth, imgHeight, 0, 0, targetWidth, targetHeight);
-
-          const resizedBase64 = targetCanvas.toDataURL(`image/${format}`).split(',')[1];
+          const encodedDataUrl =
+            format === 'jpeg' || format === 'webp'
+              ? canvas.toDataURL(`image/${format}`, quality / 100)
+              : canvas.toDataURL(`image/${format}`);
+          const base64 = encodedDataUrl.split(',')[1];
           resolve({
-            base64: resizedBase64,
-            width: targetWidth,
-            height: targetHeight,
+            base64,
+            width: imgWidth,
+            height: imgHeight,
             format,
             viewportWidth,
             viewportHeight
@@ -943,8 +916,7 @@ class ChromeDebuggerProtocol {
     base64Data: string,
     viewportWidth: number,
     viewportHeight: number,
-    devicePixelRatio: number,
-    resizeParams: ResizeParams
+    devicePixelRatio: number
   ): Promise<ScreenshotResult> {
     const result = await processScreenshotInContentScript({
       tabId,
@@ -952,7 +924,6 @@ class ChromeDebuggerProtocol {
       viewportWidth,
       viewportHeight,
       devicePixelRatio,
-      resizeParams,
       maxBase64Chars: ChromeDebuggerProtocol.MAX_BASE64_CHARS,
       initialJpegQuality: ChromeDebuggerProtocol.INITIAL_JPEG_QUALITY,
       jpegQualityStep: ChromeDebuggerProtocol.JPEG_QUALITY_STEP,

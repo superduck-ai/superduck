@@ -20,11 +20,15 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8765", "listen address")
+	page := flag.String("page", "", "html file to serve for / and /index.html")
 	flag.Parse()
 
 	_, file, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(file)
 	htmlPath := filepath.Join(dir, "..", "cli_test.html")
+	if *page != "" {
+		htmlPath = *page
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {

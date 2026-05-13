@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SuperDuck 点击精度测试页</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #efe7dc;
+    --surface: rgba(255, 251, 245, 0.92);
+    --surface-strong: #fffdf8;
+    --text: #162126;
+    --muted: #5d6c72;
+    --line: rgba(22, 33, 38, 0.14);
+    --accent: #0d5c63;
+    --accent-soft: rgba(13, 92, 99, 0.12);
+    --warn: #b85c1e;
+    --ok: #157347;
+    --danger: #b42318;
+    --shadow: 0 16px 40px rgba(74, 48, 20, 0.12);
+    --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 26%),
+      radial-gradient(circle at top right, rgba(13, 92, 99, 0.12), transparent 22%),
+      linear-gradient(180deg, #f6efe6 0%, var(--bg) 100%);
+  }
+
+  a { color: inherit; }
+
+  .page {
+    width: min(1380px, calc(100vw - 32px));
+    margin: 0 auto;
+    padding: 28px 0 40px;
+  }
+
+  .hero,
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+  }
+
+  .hero {
+    padding: 24px 24px 18px;
+    margin-bottom: 20px;
+  }
+
+  .hero h1 {
+    margin: 0 0 8px;
+    font-size: clamp(28px, 5vw, 42px);
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+  }
+
+  .hero p {
+    margin: 0;
+    max-width: 920px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .tips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .tip {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(22, 33, 38, 0.1);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 330px;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .stack {
+    display: grid;
+    gap: 18px;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .panel h2 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .panel p.lead {
+    margin: 0 0 16px;
+    color: var(--muted);
+  }
+
+  .summary {
+    position: sticky;
+    top: 18px;
+    display: grid;
+    gap: 14px;
+  }
+
+  .metrics {
+    display: grid;
+    gap: 10px;
+  }
+
+  .metric {
+    padding: 14px;
+    border-radius: 18px;
+    background: var(--surface-strong);
+    border: 1px solid rgba(22, 33, 38, 0.08);
+  }
+
+  .metric label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .metric strong {
+    display: block;
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+
+  .metric small {
+    display: block;
+    margin-top: 8px;
+    color: var(--muted);
+  }
+
+  .metric.highlight {
+    background: linear-gradient(135deg, rgba(13, 92, 99, 0.12), rgba(255, 255, 255, 0.96));
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .action {
+    padding: 10px 14px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .action.secondary {
+    background: #dde8e9;
+    color: #18353b;
+  }
+
+  .grid-list {
+    display: grid;
+    gap: 14px;
+  }
+
+  .grid-card {
+    border: 1px solid rgba(22, 33, 38, 0.08);
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 20px;
+    padding: 14px;
+  }
+
+  .grid-card header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .grid-card h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .grid-card .desc {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .target-grid {
+    --size: 20px;
+    --gap: 4px;
+    display: grid;
+    grid-template-columns: repeat(var(--columns), var(--size));
+    gap: var(--gap);
+    width: max-content;
+    padding: 14px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 236, 226, 0.92));
+    border: 1px solid rgba(22, 33, 38, 0.08);
+    border-radius: 18px;
+  }
+
+  .target-row {
+    display: grid;
+    gap: 8px;
+  }
+
+  .target-button,
+  .strip-button,
+  .edge-target {
+    appearance: none;
+    border: 1px solid rgba(13, 92, 99, 0.22);
+    border-radius: 10px;
+    background:
+      radial-gradient(circle at center, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.6px),
+      linear-gradient(180deg, rgba(13, 92, 99, 0.14), rgba(255, 255, 255, 0.95));
+    color: #17343a;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  }
+
+  .target-button:hover,
+  .strip-button:hover,
+  .edge-target:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(13, 92, 99, 0.12);
+  }
+
+  .target-button.hit,
+  .strip-button.hit,
+  .edge-target.hit {
+    background:
+      radial-gradient(circle at center, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.6px),
+      linear-gradient(180deg, rgba(21, 115, 71, 0.22), rgba(225, 255, 238, 0.95));
+    border-color: rgba(21, 115, 71, 0.36);
+    color: #10492f;
+  }
+
+  .baseline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 14px;
+  }
+
+  .baseline .target-button {
+    min-height: 76px;
+    padding: 10px;
+    font-size: 15px;
+  }
+
+  .target-button {
+    width: var(--size, 20px);
+    height: var(--size, 20px);
+    padding: 0;
+    font-size: clamp(8px, calc(var(--size, 20px) * 0.34), 11px);
+  }
+
+  .target-button.compact {
+    font-size: 0;
+  }
+
+  .strip-wrap {
+    display: grid;
+    gap: 16px;
+  }
+
+  .strip-card {
+    padding: 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(22, 33, 38, 0.08);
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  .strip-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .strip-grid {
+    display: grid;
+    gap: 1px;
+    width: max-content;
+    padding: 12px;
+    background: rgba(22, 33, 38, 0.08);
+    border-radius: 16px;
+  }
+
+  .strip-grid.horizontal {
+    grid-template-columns: repeat(14, 18px);
+  }
+
+  .strip-grid.vertical {
+    grid-template-columns: 30px;
+    grid-auto-rows: 18px;
+  }
+
+  .strip-button {
+    width: 18px;
+    height: 30px;
+    border-radius: 6px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .strip-grid.vertical .strip-button {
+    width: 30px;
+    height: 18px;
+  }
+
+  .edge-frame {
+    position: relative;
+    min-height: 260px;
+    border-radius: 24px;
+    border: 1px dashed rgba(13, 92, 99, 0.3);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(240, 234, 222, 0.72)),
+      repeating-linear-gradient(0deg, transparent, transparent 31px, rgba(13, 92, 99, 0.05) 31px, rgba(13, 92, 99, 0.05) 32px),
+      repeating-linear-gradient(90deg, transparent, transparent 31px, rgba(13, 92, 99, 0.05) 31px, rgba(13, 92, 99, 0.05) 32px);
+    overflow: hidden;
+  }
+
+  .edge-note {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    color: var(--muted);
+    text-align: center;
+    max-width: 320px;
+  }
+
+  .edge-target {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 0;
+    border-radius: 8px;
+  }
+
+  .edge-target[data-pos="top-left"] { top: 8px; left: 8px; }
+  .edge-target[data-pos="top-center"] { top: 8px; left: calc(50% - 14px); }
+  .edge-target[data-pos="top-right"] { top: 8px; right: 8px; }
+  .edge-target[data-pos="mid-left"] { top: calc(50% - 14px); left: 8px; }
+  .edge-target[data-pos="mid-right"] { top: calc(50% - 14px); right: 8px; }
+  .edge-target[data-pos="bottom-left"] { bottom: 8px; left: 8px; }
+  .edge-target[data-pos="bottom-center"] { bottom: 8px; left: calc(50% - 14px); }
+  .edge-target[data-pos="bottom-right"] { bottom: 8px; right: 8px; }
+
+  .log {
+    margin: 0;
+    min-height: 220px;
+    max-height: 320px;
+    overflow: auto;
+    padding: 14px;
+    border-radius: 18px;
+    background: #10171b;
+    color: #baf3c8;
+    font: 12px/1.55 var(--mono);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .legend {
+    display: grid;
+    gap: 8px;
+    color: var(--muted);
+  }
+
+  .legend code,
+  .hero code {
+    font: 12px/1.4 var(--mono);
+    background: rgba(255, 255, 255, 0.76);
+    padding: 2px 6px;
+    border-radius: 8px;
+  }
+
+  .status-ok { color: var(--ok); }
+  .status-warn { color: var(--warn); }
+  .status-bad { color: var(--danger); }
+
+  @media (max-width: 1080px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .summary { position: static; }
+  }
+
+  @media (max-width: 720px) {
+    .page { width: min(100vw - 16px, 1380px); padding-top: 16px; }
+    .hero,
+    .panel { border-radius: 18px; }
+    .target-grid { overflow: auto; max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <section class="hero">
+    <h1>SuperDuck 点击精度测试页</h1>
+    <p>只验证左键单击。正确做法不是只做一块“密密麻麻的小按钮”，而是分层测：先测大按钮校准坐标，再测中等密度，再测极限密度和贴边误点。这个页面已经把这些场景拆开了，点完会立即记录目标、坐标、距目标中心偏移和离边缘余量。</p>
+    <div class="tips">
+      <span class="tip">建议浏览器缩放保持 100%</span>
+      <span class="tip">先测大按钮，再测 24px / 16px / 12px 网格</span>
+      <span class="tip">空白区域点击会记为 miss</span>
+      <span class="tip">推荐窗口最大化后再跑 CLI</span>
+    </div>
+  </section>
+
+  <div class="layout">
+    <main class="stack">
+      <section class="panel">
+        <h2>1. 基线校准</h2>
+        <p class="lead">先确认你的插件或 CLI 在正常尺寸目标上没有整体偏移。若这里都不稳定，后面的密集按钮测试没有参考价值。</p>
+        <div class="baseline" data-click-zone="baseline">
+          <button class="target-button" data-click-target="base-top-left" data-case="baseline" data-label="base-top-left" style="--size:76px">左上</button>
+          <button class="target-button" data-click-target="base-top-center" data-case="baseline" data-label="base-top-center" style="--size:76px">上中</button>
+          <button class="target-button" data-click-target="base-top-right" data-case="baseline" data-label="base-top-right" style="--size:76px">右上</button>
+          <button class="target-button" data-click-target="base-center-left" data-case="baseline" data-label="base-center-left" style="--size:76px">左中</button>
+          <button class="target-button" data-click-target="base-center" data-case="baseline" data-label="base-center" style="--size:76px">中心</button>
+          <button class="target-button" data-click-target="base-center-right" data-case="baseline" data-label="base-center-right" style="--size:76px">右中</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>2. 密集网格</h2>
+        <p class="lead">从 24px 到 12px 逐级变难。每个格子都有唯一 ID，适合验证“目标点位正确，但是否误点到邻居”。</p>
+        <div id="gridList" class="grid-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>3. 相邻误点陷阱</h2>
+        <p class="lead">这一组专门看“靠得很近时会不会点到隔壁”。横向条带适合测 X 轴偏差，纵向条带适合测 Y 轴偏差。</p>
+        <div class="strip-wrap">
+          <div class="strip-card">
+            <div class="strip-head">
+              <strong>横向条带</strong>
+              <span class="desc">14 个目标，宽 18px，高 30px，间隙 1px</span>
+            </div>
+            <div class="strip-grid horizontal" data-click-zone="strip-horizontal" id="stripHorizontal"></div>
+          </div>
+          <div class="strip-card">
+            <div class="strip-head">
+              <strong>纵向条带</strong>
+              <span class="desc">14 个目标，宽 30px，高 18px，间隙 1px</span>
+            </div>
+            <div class="strip-grid vertical" data-click-zone="strip-vertical" id="stripVertical"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>4. 框边靶位</h2>
+        <p class="lead">这一块用于看贴边位置是否存在额外偏移。它不是浏览器真实 viewport 边缘，但能很好暴露“目标靠边时更容易点错”的情况。</p>
+        <div class="edge-frame" data-click-zone="edge-frame" id="edgeFrame">
+          <div class="edge-note">
+            <strong>边缘靶位区域</strong><br />
+            8 个 28px 靶点，覆盖四角和四边中点。
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="summary">
+      <section class="panel">
+        <h2>实时统计</h2>
+        <div class="metrics">
+          <div class="metric highlight">
+            <label>最近目标</label>
+            <strong id="lastTarget">等待点击</strong>
+            <small id="lastCase">场景：-</small>
+          </div>
+          <div class="metric">
+            <label>命中 / Miss</label>
+            <strong><span id="hitCount">0</span> / <span id="missCount">0</span></strong>
+            <small id="uniqueCount">唯一命中目标：0</small>
+          </div>
+          <div class="metric">
+            <label>点击坐标</label>
+            <strong id="lastPoint">-</strong>
+            <small id="lastDelta">偏移：-</small>
+          </div>
+          <div class="metric">
+            <label>离边缘余量</label>
+            <strong id="lastMargin">-</strong>
+            <small id="lastJudge">状态：-</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>操作</h2>
+        <div class="controls">
+          <button class="action" id="resetButton" type="button">重置统计</button>
+          <button class="action secondary" id="clearLogButton" type="button">清空日志</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>建议用例</h2>
+        <div class="legend">
+          <div>1. 先点 6 个基线按钮，确认没有整体偏移。</div>
+          <div>2. 逐级测试 <code>grid-a</code> → <code>grid-b</code> → <code>grid-c</code>。</div>
+          <div>3. 若密集网格有误点，再测横/纵条带判断是 X 轴还是 Y 轴偏差。</div>
+          <div>4. 最后点边框靶位，确认靠边场景没有额外误差。</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>事件日志</h2>
+        <pre class="log" id="log"></pre>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+  const state = {
+    hitCount: 0,
+    missCount: 0,
+    uniqueHits: new Set(),
+    logLines: [],
+  };
+
+  const gridConfigs = [
+    {
+      id: "grid-a",
+      title: "Grid A",
+      description: "24px 按钮，间距 8px，6 列 x 4 行。先从这一组开始。",
+      rows: 4,
+      columns: 6,
+      size: 24,
+      gap: 8,
+      labelMode: "full",
+    },
+    {
+      id: "grid-b",
+      title: "Grid B",
+      description: "16px 按钮，间距 4px，8 列 x 5 行。适合验证普通高密度场景。",
+      rows: 5,
+      columns: 8,
+      size: 16,
+      gap: 4,
+      labelMode: "compact",
+    },
+    {
+      id: "grid-c",
+      title: "Grid C",
+      description: "12px 按钮，间距 2px，10 列 x 6 行。这里最容易出现邻居误点。",
+      rows: 6,
+      columns: 10,
+      size: 12,
+      gap: 2,
+      labelMode: "hidden",
+    },
+  ];
+
+  const edgePositions = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "mid-left",
+    "mid-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+  ];
+
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  function appendLog(line) {
+    const timestamp = new Date().toISOString().slice(11, 23);
+    state.logLines.push("[" + timestamp + "] " + line);
+    if (state.logLines.length > 120) {
+      state.logLines.splice(0, state.logLines.length - 120);
+    }
+    $("log").textContent = state.logLines.join("\n");
+    $("log").scrollTop = $("log").scrollHeight;
+  }
+
+  function formatPoint(x, y) {
+    return Math.round(x) + ", " + Math.round(y);
+  }
+
+  function classifyMargin(margin) {
+    if (margin >= 6) {
+      return { text: "安全", className: "status-ok" };
+    }
+    if (margin >= 2) {
+      return { text: "贴边", className: "status-warn" };
+    }
+    return { text: "极限", className: "status-bad" };
+  }
+
+  function updateCounters() {
+    $("hitCount").textContent = String(state.hitCount);
+    $("missCount").textContent = String(state.missCount);
+    $("uniqueCount").textContent = "唯一命中目标：" + state.uniqueHits.size;
+  }
+
+  function handleTargetClick(event) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const button = event.currentTarget;
+    const rect = button.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dx = event.clientX - centerX;
+    const dy = event.clientY - centerY;
+    const margin = Math.min(rect.width / 2 - Math.abs(dx), rect.height / 2 - Math.abs(dy));
+    const targetId = button.dataset.clickTarget || button.id || button.dataset.label || "-";
+    const caseId = button.dataset.case || "-";
+    const judge = classifyMargin(margin);
+
+    button.classList.add("hit");
+    state.hitCount += 1;
+    state.uniqueHits.add(targetId);
+    updateCounters();
+
+    $("lastTarget").textContent = targetId;
+    $("lastCase").textContent = "场景：" + caseId;
+    $("lastPoint").textContent = formatPoint(event.clientX, event.clientY);
+    $("lastDelta").textContent = "偏移：dx " + dx.toFixed(1) + " / dy " + dy.toFixed(1);
+    $("lastMargin").textContent = margin.toFixed(1) + "px";
+    $("lastJudge").innerHTML = "状态：<span class=\"" + judge.className + "\">" + judge.text + "</span>";
+
+    appendLog(
+      "HIT " +
+      targetId +
+      " [" +
+      caseId +
+      "] @ " +
+      formatPoint(event.clientX, event.clientY) +
+      " delta(" +
+      dx.toFixed(1) +
+      ", " +
+      dy.toFixed(1) +
+      ") margin " +
+      margin.toFixed(1) +
+      "px"
+    );
+  }
+
+  function handleMiss(event) {
+    if (event.button !== 0) {
+      return;
+    }
+    if (event.target.closest("[data-click-target]")) {
+      return;
+    }
+
+    const zone = event.currentTarget.dataset.clickZone || "unknown-zone";
+    state.missCount += 1;
+    updateCounters();
+
+    $("lastTarget").textContent = "MISS";
+    $("lastCase").textContent = "场景：" + zone;
+    $("lastPoint").textContent = formatPoint(event.clientX, event.clientY);
+    $("lastDelta").textContent = "偏移：无目标";
+    $("lastMargin").textContent = "-";
+    $("lastJudge").innerHTML = "状态：<span class=\"status-bad\">空白区点击</span>";
+
+    appendLog("MISS [" + zone + "] @ " + formatPoint(event.clientX, event.clientY));
+  }
+
+  function createGridCard(config) {
+    const card = document.createElement("article");
+    card.className = "grid-card";
+
+    const header = document.createElement("header");
+    const title = document.createElement("h3");
+    title.textContent = config.title;
+    const desc = document.createElement("span");
+    desc.className = "desc";
+    desc.textContent = config.description;
+    header.appendChild(title);
+    header.appendChild(desc);
+    card.appendChild(header);
+
+    const grid = document.createElement("div");
+    grid.className = "target-grid";
+    grid.dataset.clickZone = config.id;
+    grid.style.setProperty("--columns", String(config.columns));
+    grid.style.setProperty("--size", config.size + "px");
+    grid.style.setProperty("--gap", config.gap + "px");
+
+    for (let row = 1; row <= config.rows; row += 1) {
+      for (let column = 1; column <= config.columns; column += 1) {
+        const button = document.createElement("button");
+        const label = config.id + "-r" + row + "-c" + column;
+        button.type = "button";
+        button.className = "target-button";
+        button.dataset.clickTarget = label;
+        button.dataset.case = config.id;
+        button.dataset.label = label;
+        button.title = label;
+        button.setAttribute("aria-label", label);
+
+        if (config.labelMode === "full") {
+          button.textContent = row + "-" + column;
+        } else if (config.labelMode === "compact") {
+          button.textContent = String((row - 1) * config.columns + column);
+        } else {
+          button.classList.add("compact");
+        }
+
+        button.addEventListener("click", handleTargetClick);
+        grid.appendChild(button);
+      }
+    }
+
+    grid.addEventListener("click", handleMiss);
+    card.appendChild(grid);
+    return card;
+  }
+
+  function createStrip(containerId, caseId, count, vertical) {
+    const container = $(containerId);
+    for (let index = 1; index <= count; index += 1) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "strip-button";
+      button.dataset.clickTarget = caseId + "-" + index;
+      button.dataset.case = caseId;
+      button.title = caseId + "-" + index;
+      button.setAttribute("aria-label", caseId + "-" + index);
+      button.addEventListener("click", handleTargetClick);
+      container.appendChild(button);
+    }
+    container.addEventListener("click", handleMiss);
+  }
+
+  function createEdgeTargets() {
+    const frame = $("edgeFrame");
+    edgePositions.forEach(function (pos) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "edge-target";
+      button.dataset.pos = pos;
+      button.dataset.clickTarget = "edge-" + pos;
+      button.dataset.case = "edge-frame";
+      button.title = "edge-" + pos;
+      button.setAttribute("aria-label", "edge-" + pos);
+      button.addEventListener("click", handleTargetClick);
+      frame.appendChild(button);
+    });
+    frame.addEventListener("click", handleMiss);
+  }
+
+  function getTargetCenter(targetId) {
+    const element = document.querySelector('[data-click-target="' + targetId + '"]');
+    if (!element) {
+      throw new Error("target not found: " + targetId);
+    }
+    const rect = element.getBoundingClientRect();
+    return {
+      targetId: targetId,
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2),
+      width: Number(rect.width.toFixed(2)),
+      height: Number(rect.height.toFixed(2)),
+      top: Number(rect.top.toFixed(2)),
+      left: Number(rect.left.toFixed(2)),
+    };
+  }
+
+  function scrollTargetIntoView(targetId) {
+    const element = document.querySelector('[data-click-target="' + targetId + '"]');
+    if (!element) {
+      throw new Error("target not found: " + targetId);
+    }
+    element.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+    return getTargetCenter(targetId);
+  }
+
+  function bindBaseTargets() {
+    document.querySelectorAll(".baseline [data-click-target]").forEach(function (button) {
+      button.addEventListener("click", handleTargetClick);
+    });
+    document.querySelectorAll("[data-click-zone='baseline']").forEach(function (zone) {
+      zone.addEventListener("click", handleMiss);
+    });
+  }
+
+  function resetAll() {
+    state.hitCount = 0;
+    state.missCount = 0;
+    state.uniqueHits.clear();
+    state.logLines = [];
+    document.querySelectorAll(".hit").forEach(function (node) {
+      node.classList.remove("hit");
+    });
+    $("lastTarget").textContent = "等待点击";
+    $("lastCase").textContent = "场景：-";
+    $("lastPoint").textContent = "-";
+    $("lastDelta").textContent = "偏移：-";
+    $("lastMargin").textContent = "-";
+    $("lastJudge").textContent = "状态：-";
+    $("log").textContent = "";
+    updateCounters();
+    appendLog("state reset");
+  }
+
+  function getStateSnapshot() {
+    return {
+      hitCount: state.hitCount,
+      missCount: state.missCount,
+      uniqueHits: Array.from(state.uniqueHits),
+      lastTarget: $("lastTarget").textContent.trim(),
+      lastCase: $("lastCase").textContent.trim(),
+      lastPoint: $("lastPoint").textContent.trim(),
+      lastDelta: $("lastDelta").textContent.trim(),
+      lastMargin: $("lastMargin").textContent.trim(),
+      lastJudge: $("lastJudge").textContent.trim(),
+      log: $("log").textContent,
+    };
+  }
+
+  function getCompactStateSnapshot() {
+    return {
+      hitCount: state.hitCount,
+      missCount: state.missCount,
+      uniqueHitCount: state.uniqueHits.size,
+      lastTarget: $("lastTarget").textContent.trim(),
+      lastCase: $("lastCase").textContent.trim(),
+      lastPoint: $("lastPoint").textContent.trim(),
+      lastDelta: $("lastDelta").textContent.trim(),
+      lastMargin: $("lastMargin").textContent.trim(),
+      lastJudge: $("lastJudge").textContent.trim(),
+    };
+  }
+
+  function init() {
+    const gridList = $("gridList");
+    gridConfigs.forEach(function (config) {
+      gridList.appendChild(createGridCard(config));
+    });
+
+    createStrip("stripHorizontal", "strip-horizontal", 14, false);
+    createStrip("stripVertical", "strip-vertical", 14, true);
+    createEdgeTargets();
+    bindBaseTargets();
+    updateCounters();
+
+    $("resetButton").addEventListener("click", resetAll);
+    $("clearLogButton").addEventListener("click", function () {
+      state.logLines = [];
+      $("log").textContent = "";
+      appendLog("log cleared");
+    });
+
+    window.superduckClickTest = {
+      getCompactStateSnapshot: getCompactStateSnapshot,
+      getStateSnapshot: getStateSnapshot,
+      getTargetCenter: getTargetCenter,
+      reset: resetAll,
+      scrollTargetIntoView: scrollTargetIntoView,
+    };
+
+    appendLog("ready");
+  }
+
+  init();
+</script>
+</body>
+</html>
