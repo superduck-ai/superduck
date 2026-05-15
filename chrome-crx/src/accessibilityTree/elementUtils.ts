@@ -1,6 +1,66 @@
 import { EXCLUDED_TAGS, INTERACTIVE_TAGS, ROLE_BY_TAG, SEMANTIC_TAGS } from './constants';
 import type { TraversalOptions, ViewportSize } from './types';
 
+const SENSITIVE_INPUT_TYPES = new Set(['password', 'hidden']);
+
+const SENSITIVE_AUTOCOMPLETE_VALUES = new Set([
+  'cc-number',
+  'cc-csc',
+  'cc-exp',
+  'cc-exp-month',
+  'cc-exp-year',
+  'cc-type',
+  'new-password',
+  'current-password',
+  'one-time-code'
+]);
+
+export function isSensitiveField(element: Element): boolean {
+  const tagName = element.tagName.toLowerCase();
+  if (tagName !== 'input' && tagName !== 'textarea') {
+    return false;
+  }
+
+  const inputType = (element.getAttribute('type') ?? '').toLowerCase();
+  if (SENSITIVE_INPUT_TYPES.has(inputType)) {
+    return true;
+  }
+
+  const autocomplete = (element.getAttribute('autocomplete') ?? '').toLowerCase();
+  if (autocomplete && SENSITIVE_AUTOCOMPLETE_VALUES.has(autocomplete)) {
+    return true;
+  }
+
+  const ariaLabel = (element.getAttribute('aria-label') ?? '').toLowerCase();
+  const name = (element.getAttribute('name') ?? '').toLowerCase();
+  const id = (element.id ?? '').toLowerCase();
+  const placeholder = (element.getAttribute('placeholder') ?? '').toLowerCase();
+
+  const sensitivePatterns = [
+    'password',
+    'passwd',
+    'secret',
+    'otp',
+    'token',
+    'cvv',
+    'cvc',
+    'ssn',
+    'social.security'
+  ];
+  for (const pattern of sensitivePatterns) {
+    if (
+      ariaLabel.includes(pattern) ||
+      name.includes(pattern) ||
+      id.includes(pattern) ||
+      placeholder.includes(pattern)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function getViewport(): ViewportSize {
   return {
     height: window.innerHeight,
@@ -90,6 +150,10 @@ export function getElementName(element: Element): string {
   }
 
   if (tagName === 'input') {
+    if (isSensitiveField(element)) {
+      return '[value redacted]';
+    }
+
     const inputElement = element as HTMLInputElement;
     const inputType = element.getAttribute('type') ?? '';
     const inputValue = element.getAttribute('value');
@@ -101,6 +165,10 @@ export function getElementName(element: Element): string {
     if (inputElement.value?.length < 50 && inputElement.value.trim()) {
       return inputElement.value.trim();
     }
+  }
+
+  if (tagName === 'textarea' && isSensitiveField(element)) {
+    return '[value redacted]';
   }
 
   if (['button', 'a', 'summary'].includes(tagName)) {

@@ -1,5 +1,12 @@
 import { cleanupDeadRefs, getElementRef, getOrCreateElementMap } from './refStore';
-import { getElementName, getElementRole, getViewport, normalizeTextForTree, shouldIncludeElement } from './elementUtils';
+import {
+  getElementName,
+  getElementRole,
+  getViewport,
+  isSensitiveField,
+  normalizeTextForTree,
+  shouldIncludeElement
+} from './elementUtils';
 import type {
   AccessibilityTreeResult,
   TreeFilter,
@@ -39,6 +46,7 @@ function appendElementLine(lines: string[], element: Element, depth: number): vo
   const role = getElementRole(element);
   const name = getElementName(element);
   const refId = getElementRef(getOrCreateElementMap(), element);
+  const sensitive = isSensitiveField(element);
 
   let line = `${' '.repeat(depth)}${role}`;
 
@@ -47,6 +55,10 @@ function appendElementLine(lines: string[], element: Element, depth: number): vo
   }
 
   line += ` [${refId}]`;
+
+  if (sensitive) {
+    line += ' [sensitive]';
+  }
 
   const href = element.getAttribute('href');
   if (href) {
@@ -58,9 +70,11 @@ function appendElementLine(lines: string[], element: Element, depth: number): vo
     line += ` type="${type}"`;
   }
 
-  const placeholder = element.getAttribute('placeholder');
-  if (placeholder) {
-    line += ` placeholder="${placeholder}"`;
+  if (!sensitive) {
+    const placeholder = element.getAttribute('placeholder');
+    if (placeholder) {
+      line += ` placeholder="${placeholder}"`;
+    }
   }
 
   lines.push(line);
