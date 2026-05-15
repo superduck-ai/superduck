@@ -143,9 +143,14 @@ export function getElementName(element: Element): string {
   }
 
   if (element.id) {
-    const labelElement = document.querySelector<HTMLLabelElement>(`label[for="${element.id}"]`);
-    if (labelElement?.textContent?.trim()) {
-      return labelElement.textContent.trim();
+    try {
+      const safeId = CSS.escape(element.id);
+      const labelElement = document.querySelector<HTMLLabelElement>(`label[for="${safeId}"]`);
+      if (labelElement?.textContent?.trim()) {
+        return labelElement.textContent.trim();
+      }
+    } catch {
+      // Ignore invalid selectors from page-controlled IDs
     }
   }
 
