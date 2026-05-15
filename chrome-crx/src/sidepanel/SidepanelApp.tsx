@@ -8,6 +8,7 @@ import React, {
   useState,
   useSyncExternalStore
 } from 'react';
+import { BorderBeam } from 'border-beam';
 import { BUILT_IN_MODELS, DEFAULT_MODEL } from '../constants/models';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -623,6 +624,24 @@ function createStreamingTextStore() {
       }
     }
   };
+}
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener('change', updatePreference);
+
+    return () => mediaQuery.removeEventListener('change', updatePreference);
+  }, []);
+
+  return prefersReducedMotion;
 }
 
 type PermissionModeOption = {
@@ -4275,6 +4294,7 @@ export function SidepanelApp() {
   const [isConvertingToTask, setIsConvertingToTask] = useState(false);
   const [attachmentCount, setAttachmentCount] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState<PromptAttachmentPayload[]>([]);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const [pairingPrompt, setPairingPrompt] = useState<PairingPromptState | null>(null);
   const [pairingName, setPairingName] = useState('');
   const [hasBrowserControlPermissionAccepted, setHasBrowserControlPermissionAccepted] = useState<
@@ -6006,6 +6026,11 @@ export function SidepanelApp() {
     isPurlMode && lightningResult ? lightningResult.currentStatus : currentStatus;
   const effectiveRuntimeError =
     isPurlMode && lightningResult ? lightningResult.error : runtimeError;
+  const effectiveIsCompacting = isPurlMode && lightningResult ? false : isCompacting;
+  const isChatInputRunning = effectiveIsAgentRunning || effectiveIsCompacting;
+  const isChatInputBeamActive = !prefersReducedMotion && isChatInputRunning;
+  const chatInputSurfaceClass =
+    'bg-bg-000 rounded-2xl relative transition-all focus-within:outline-none cursor-text shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/3.5%),0_0_0_0.5px_hsla(var(--border-300)/0.15)] hover:shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/3.5%),0_0_0_0.5px_hsla(var(--border-200)/0.3)] focus-within:shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/7.5%),0_0_0_0.5px_hsla(var(--border-200)/0.3)]';
   useEffect(() => {
     const msg = effectiveRuntimeError;
     if (!msg) return;
@@ -6018,7 +6043,6 @@ export function SidepanelApp() {
   const effectiveSetMessages =
     isPurlMode && lightningResult ? lightningResult.setMessages : setMessages;
   const effectiveHasInteractiveTools = isPurlMode && lightningResult ? false : hasInteractiveTools;
-  const effectiveIsCompacting = isPurlMode && lightningResult ? false : isCompacting;
 
   // Route sendPrompt: in lightning mode, delegate to lightningResult.sendMessage
   const effectiveSendPrompt = useCallback(
@@ -8038,40 +8062,53 @@ export function SidepanelApp() {
                     {!(lastStopReason?.reason === 'refusal' && fallbackConfig) &&
                       !recordingState.isRecording && (
                         <>
-                          <div
-                            data-chat-input-container="true"
-                            className="bg-bg-000 rounded-2xl relative z-30 transition-all focus-within:outline-none cursor-text shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/3.5%),0_0_0_0.5px_hsla(var(--border-300)/0.15)] hover:shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/3.5%),0_0_0_0.5px_hsla(var(--border-200)/0.3)] focus-within:shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/7.5%),0_0_0_0.5px_hsla(var(--border-200)/0.3)]"
-                            onClick={() => inputRef.current?.focus()}
+                          <BorderBeam
+                            size="line"
+                            colorVariant="ocean"
+                            theme="auto"
+                            duration={2.8}
+                            strength={0.6}
+                            brightness={1.1}
+                            saturation={0.9}
+                            hueRange={20}
+                            active={isChatInputBeamActive}
+                            borderRadius={16}
+                            className="relative z-30 block w-full rounded-2xl !overflow-visible"
                           >
-                            {pendingAttachments.length > 0 ? (
-                              <div className="px-4 pt-3 pb-1 flex flex-wrap gap-2">
-                                {pendingAttachments.map((attachment) => (
-                                  <div
-                                    key={attachment.id}
-                                    className="inline-flex items-center gap-1.5 max-w-full rounded-lg border border-border-300 bg-bg-100 px-2 py-1 text-xs text-text-200"
-                                  >
-                                    <Paperclip size={12} className="shrink-0 text-text-300" />
-                                    <span className="truncate max-w-[180px]">
-                                      {attachment.fileName}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        removeAttachment(attachment.id);
-                                      }}
-                                      className="shrink-0 rounded hover:bg-bg-200 p-0.5 text-text-300"
-                                      aria-label="Remove attachment"
+                            <div
+                              data-chat-input-container="true"
+                              className={chatInputSurfaceClass}
+                              onClick={() => inputRef.current?.focus()}
+                            >
+                              {pendingAttachments.length > 0 ? (
+                                <div className="px-4 pt-3 pb-1 flex flex-wrap gap-2">
+                                  {pendingAttachments.map((attachment) => (
+                                    <div
+                                      key={attachment.id}
+                                      className="inline-flex items-center gap-1.5 max-w-full rounded-lg border border-border-300 bg-bg-100 px-2 py-1 text-xs text-text-200"
                                     >
-                                      <X size={12} />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
+                                      <Paperclip size={12} className="shrink-0 text-text-300" />
+                                      <span className="truncate max-w-[180px]">
+                                        {attachment.fileName}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          removeAttachment(attachment.id);
+                                        }}
+                                        className="shrink-0 rounded hover:bg-bg-200 p-0.5 text-text-300"
+                                        aria-label="Remove attachment"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
 
-                            <div className={`px-4 ${showCommandMenu ? 'pt-3 pb-1' : 'pt-4 pb-2'}`}>
-                              <div className="relative">
+                              <div className={`px-4 ${showCommandMenu ? 'pt-3 pb-1' : 'pt-4 pb-2'}`}>
+                                <div className="relative">
                                 {/* Shortcuts menu */}
                                 {showCommandMenu && (
                                   <div ref={commandMenuRef}>
@@ -8516,6 +8553,7 @@ export function SidepanelApp() {
                               </div>
                             </div>
                           </div>
+                          </BorderBeam>
                           <div className="flex justify-center py-1.5 text-text-500 bg-bg-100">
                             <a
                               href="https://superduck-ai.github.io/superduck/"
