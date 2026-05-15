@@ -819,8 +819,6 @@ class ChromeDebuggerProtocol {
     options?: ScreenshotOptions
   ): Promise<ScreenshotResult> {
     const resize = resizeParams ?? this.defaultResizeParams;
-    const format = options?.format ?? 'jpeg';
-    const quality = options?.quality ?? 100 * ChromeDebuggerProtocol.INITIAL_JPEG_QUALITY;
 
     if (!options?.skipIndicator) {
       await tabGroupManager.hideIndicatorForToolUse(tabId);
@@ -854,8 +852,8 @@ class ChromeDebuggerProtocol {
         tabId,
         'Page.captureScreenshot',
         {
-          format,
-          ...((format === 'jpeg' || format === 'webp') && { quality }),
+          format: 'jpeg',
+          quality: 100 * ChromeDebuggerProtocol.INITIAL_JPEG_QUALITY,
           captureBeyondViewport: false,
           fromSurface: true
         }

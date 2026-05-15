@@ -78,8 +78,6 @@ export interface ScreenshotResult {
 }
 
 export interface ScreenshotOptions {
-  format?: string;
-  quality?: number;
   skipIndicator?: boolean;
 }
 

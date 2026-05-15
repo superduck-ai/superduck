@@ -56,13 +56,7 @@ export async function processScreenshotInContentScript(options: {
       maxTargetPx: number,
       maxTargetTokens: number
     ) => {
-      const detectImageMimeType = (b64: string): string => {
-        if (b64.startsWith('iVBOR')) return 'image/png';
-        if (b64.startsWith('/9j/')) return 'image/jpeg';
-        if (b64.startsWith('UklGR')) return 'image/webp';
-        return 'image/png';
-      };
-      const dataUrl = `data:${detectImageMimeType(imgBase64)};base64,${imgBase64}`;
+      const dataUrl = `data:image/jpeg;base64,${imgBase64}`;
       return new Promise<ScreenshotResult>((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
