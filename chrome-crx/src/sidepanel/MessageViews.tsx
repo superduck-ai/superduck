@@ -96,7 +96,7 @@ export function ScreenshotLightbox({
   const imgRef = useRef<HTMLImageElement>(null);
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
+  const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0, target: null as EventTarget | null });
 
   const zoom = ZOOM_STEPS[zoomIndex];
   const canZoomOut = zoomIndex > 0;
@@ -145,7 +145,8 @@ export function ScreenshotLightbox({
         x: event.clientX,
         y: event.clientY,
         tx: translate.x,
-        ty: translate.y
+        ty: translate.y,
+        target: event.target
       };
       (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     },
@@ -162,9 +163,19 @@ export function ScreenshotLightbox({
     [isDragging]
   );
 
-  const handlePointerUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent) => {
+      if (isDragging) {
+        const dx = Math.abs(event.clientX - dragStart.current.x);
+        const dy = Math.abs(event.clientY - dragStart.current.y);
+        if (dx < 4 && dy < 4 && dragStart.current.target === event.currentTarget) {
+          onClose();
+        }
+      }
+      setIsDragging(false);
+    },
+    [isDragging, onClose]
+  );
 
   return (
     <div
@@ -205,7 +216,10 @@ export function ScreenshotLightbox({
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors ml-2"
-            aria-label={intl.formatMessage({ defaultMessage: 'Close preview', id: 'close_preview' })}
+            aria-label={intl.formatMessage({
+              defaultMessage: 'Close preview',
+              id: 'close_preview'
+            })}
           >
             <X size={16} />
           </button>
@@ -218,7 +232,7 @@ export function ScreenshotLightbox({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        style={{ touchAction: 'none' }}
+        style={{ touchAction: 'none', cursor: isDragging ? 'grabbing' : 'grab' }}
       >
         <img
           ref={imgRef}
