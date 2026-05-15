@@ -73,10 +73,8 @@ export const MCP_NATIVE_SESSION_ID = `mcp_native_${Date.now()}`;
 // callers can `if (!shortcut)` without distinguishing missing vs undefined.
 export const promptManager = {
   getAllPrompts: () => PromptService.getAllPrompts(),
-  getPromptById: async (id: string) =>
-    (await PromptService.getPromptById(id)) ?? null,
-  getPromptByCommand: async (cmd: string) =>
-    (await PromptService.getPromptByCommand(cmd)) ?? null,
+  getPromptById: async (id: string) => (await PromptService.getPromptById(id)) ?? null,
+  getPromptByCommand: async (cmd: string) => (await PromptService.getPromptByCommand(cmd)) ?? null,
   recordPromptUsage: (id: string) => PromptService.recordPromptUsage(id)
 };
 
@@ -180,12 +178,19 @@ export const screenshotContextManager = new (class {
     }
   ) {
     if (info.viewportWidth && info.viewportHeight) {
-      this.contexts.set(tabId, {
+      const ctx = {
         viewportWidth: info.viewportWidth,
         viewportHeight: info.viewportHeight,
         screenshotWidth: info.width,
         screenshotHeight: info.height
-      });
+      };
+      this.contexts.set(tabId, ctx);
+      console.info(
+        `[ScreenshotContext] tab=${tabId} set vp=${ctx.viewportWidth}x${ctx.viewportHeight} ` +
+          `ss=${ctx.screenshotWidth}x${ctx.screenshotHeight} ` +
+          `scaleX=${(ctx.viewportWidth / ctx.screenshotWidth).toFixed(4)} ` +
+          `scaleY=${(ctx.viewportHeight / ctx.screenshotHeight).toFixed(4)}`
+      );
     }
   }
 

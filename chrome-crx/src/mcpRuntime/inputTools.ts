@@ -780,6 +780,7 @@ async function executeClick(
     const refResult = await scrollToElementByRef(tabId, params.ref);
     if (!refResult.success) return { error: refResult.error };
     [x, y] = refResult.coordinates!;
+    console.info(`[Click] ref=${params.ref} → resolved coords=(${x}, ${y})`);
   } else {
     if (!params.coordinate)
       throw new Error('Either ref or coordinate parameter is required for click action');
@@ -787,8 +788,18 @@ async function executeClick(
     const context = screenshotContextManager.getContext(tabId);
     if (context) {
       const [mappedX, mappedY] = screenshotToViewportCoords(x, y, context);
+      console.info(
+        `[Click] screenshot coords=(${x}, ${y}) → viewport coords=(${mappedX}, ${mappedY}) ` +
+          `context={vp:${context.viewportWidth}x${context.viewportHeight}, ss:${context.screenshotWidth}x${context.screenshotHeight}} ` +
+          `scaleX=${(context.viewportWidth / context.screenshotWidth).toFixed(4)} ` +
+          `scaleY=${(context.viewportHeight / context.screenshotHeight).toFixed(4)}`
+      );
       x = mappedX;
       y = mappedY;
+    } else {
+      console.warn(
+        `[Click] NO screenshot context for tab ${tabId}! Using raw coords=(${x}, ${y}) — this will be inaccurate if screenshot was resized`
+      );
     }
   }
 
@@ -901,6 +912,10 @@ async function executeScroll(
   const context = screenshotContextManager.getContext(tabId);
   if (context) {
     const [mappedX, mappedY] = screenshotToViewportCoords(x, y, context);
+    console.info(
+      `[Scroll] screenshot coords=(${x}, ${y}) → viewport coords=(${mappedX}, ${mappedY}) ` +
+        `scale=${(context.viewportWidth / context.screenshotWidth).toFixed(4)}`
+    );
     x = mappedX;
     y = mappedY;
   }
@@ -1199,14 +1214,26 @@ async function executeZoom(tabId: number, params: ComputerToolParams): Promise<T
 
     const viewportResult = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => ({ width: window.innerWidth, height: window.innerHeight })
+      func: () => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        devicePixelRatio: window.devicePixelRatio
+      })
     });
 
     if (!viewportResult || !viewportResult[0]?.result) {
       throw new Error('Failed to get viewport dimensions');
     }
 
-    const { width: vpWidth, height: vpHeight } = viewportResult[0].result;
+    const {
+      width: vpWidth,
+      height: vpHeight,
+      scrollX,
+      scrollY,
+      devicePixelRatio: dpr
+    } = viewportResult[0].result;
     if (x1 > vpWidth || y1 > vpHeight) {
       throw new Error(
         `Region exceeds viewport boundaries (${vpWidth}x${vpHeight}). Please choose a region within the visible viewport.`
@@ -1215,6 +1242,7 @@ async function executeZoom(tabId: number, params: ComputerToolParams): Promise<T
 
     const regionWidth = x1 - x0;
     const regionHeight = y1 - y0;
+    const scaleFactor = dpr || 1;
 
     await tabGroupManager.hideIndicatorForToolUse(tabId);
 
@@ -1226,7 +1254,13 @@ async function executeZoom(tabId: number, params: ComputerToolParams): Promise<T
           format: 'png',
           captureBeyondViewport: false,
           fromSurface: true,
-          clip: { x: x0, y: y0, width: regionWidth, height: regionHeight, scale: 1 }
+          clip: {
+            x: scrollX + x0,
+            y: scrollY + y0,
+            width: regionWidth,
+            height: regionHeight,
+            scale: 1 / scaleFactor
+          }
         }
       );
 

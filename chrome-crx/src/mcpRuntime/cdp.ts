@@ -285,7 +285,7 @@ class ChromeDebuggerProtocol {
     maxTargetTokens: 1568
   };
   static MAX_BASE64_CHARS: number = 1398100;
-  static INITIAL_JPEG_QUALITY: number = 0.85;
+  static INITIAL_JPEG_QUALITY: number = 0.75;
   static JPEG_QUALITY_STEP: number = 0.05;
   static MIN_JPEG_QUALITY: number = 0.1;
 
@@ -818,8 +818,8 @@ class ChromeDebuggerProtocol {
     resizeParams?: ResizeParams,
     options?: ScreenshotOptions
   ): Promise<ScreenshotResult> {
-    void resizeParams;
-    const format = options?.format ?? 'png';
+    const resize = resizeParams ?? this.defaultResizeParams;
+    const format = options?.format ?? 'jpeg';
     const quality = options?.quality ?? 100 * ChromeDebuggerProtocol.INITIAL_JPEG_QUALITY;
 
     if (!options?.skipIndicator) {
@@ -846,6 +846,10 @@ class ChromeDebuggerProtocol {
         devicePixelRatio
       } = scriptResults[0].result;
 
+      console.info(
+        `[Screenshot] viewport=${viewportWidth}x${viewportHeight} dpr=${devicePixelRatio}`
+      );
+
       const captureResult = await this.sendCommand<CdpCaptureScreenshotResult>(
         tabId,
         'Page.captureScreenshot',
@@ -863,78 +867,14 @@ class ChromeDebuggerProtocol {
 
       const rawBase64: string = captureResult.data;
 
-      if (typeof Image === 'undefined') {
-        return await this.processScreenshotInContentScript(
-          tabId,
-          rawBase64,
-          viewportWidth,
-          viewportHeight,
-          devicePixelRatio
-        );
-      }
-
-      const dataUrl = `data:image/${format};base64,${rawBase64}`;
-
-      const result = await new Promise<ScreenshotResult>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          let imgWidth = img.width;
-          let imgHeight = img.height;
-
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            return void reject(new Error('Failed to create 2D context for screenshot processing'));
-          }
-
-          const needsDownscale = devicePixelRatio > 1;
-          if (needsDownscale) {
-            imgWidth = Math.round(img.width / devicePixelRatio);
-            imgHeight = Math.round(img.height / devicePixelRatio);
-          }
-
-          if (!needsDownscale) {
-            return void resolve({
-              base64: rawBase64,
-              width: imgWidth,
-              height: imgHeight,
-              format,
-              viewportWidth,
-              viewportHeight
-            });
-          }
-
-          canvas.width = imgWidth;
-          canvas.height = imgHeight;
-
-          if (needsDownscale) {
-            ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, imgWidth, imgHeight);
-          } else {
-            ctx.drawImage(img, 0, 0);
-          }
-
-          const encodedDataUrl =
-            format === 'jpeg' || format === 'webp'
-              ? canvas.toDataURL(`image/${format}`, quality / 100)
-              : canvas.toDataURL(`image/${format}`);
-          const base64 = encodedDataUrl.split(',')[1];
-          resolve({
-            base64,
-            width: imgWidth,
-            height: imgHeight,
-            format,
-            viewportWidth,
-            viewportHeight
-          });
-        };
-        img.onerror = () => {
-          reject(new Error('Failed to load screenshot image'));
-        };
-        img.src = dataUrl;
-      });
-
-      screenshotContextManager.setContext(tabId, result);
-      return result;
+      return await this.processScreenshotInContentScript(
+        tabId,
+        rawBase64,
+        viewportWidth,
+        viewportHeight,
+        devicePixelRatio,
+        resize
+      );
     } finally {
       if (!options?.skipIndicator) {
         await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
@@ -947,7 +887,8 @@ class ChromeDebuggerProtocol {
     base64Data: string,
     viewportWidth: number,
     viewportHeight: number,
-    devicePixelRatio: number
+    devicePixelRatio: number,
+    resizeParams?: ResizeParams
   ): Promise<ScreenshotResult> {
     const result = await processScreenshotInContentScript({
       tabId,
@@ -958,9 +899,18 @@ class ChromeDebuggerProtocol {
       maxBase64Chars: ChromeDebuggerProtocol.MAX_BASE64_CHARS,
       initialJpegQuality: ChromeDebuggerProtocol.INITIAL_JPEG_QUALITY,
       jpegQualityStep: ChromeDebuggerProtocol.JPEG_QUALITY_STEP,
-      minJpegQuality: ChromeDebuggerProtocol.MIN_JPEG_QUALITY
+      minJpegQuality: ChromeDebuggerProtocol.MIN_JPEG_QUALITY,
+      resizeParams: resizeParams ?? this.defaultResizeParams
     });
     screenshotContextManager.setContext(tabId, result);
+    const ctx = screenshotContextManager.getContext(tabId);
+    console.info(
+      `[Screenshot] result=${result.width}x${result.height} fmt=${result.format} ` +
+        `context={vp:${ctx?.viewportWidth}x${ctx?.viewportHeight}, ss:${ctx?.screenshotWidth}x${ctx?.screenshotHeight}} ` +
+        `scaleX=${ctx ? (ctx.viewportWidth / ctx.screenshotWidth).toFixed(4) : 'N/A'} ` +
+        `scaleY=${ctx ? (ctx.viewportHeight / ctx.screenshotHeight).toFixed(4) : 'N/A'} ` +
+        `b64len=${result.base64.length}`
+    );
     return result;
   }
 }
