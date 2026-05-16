@@ -19,6 +19,7 @@ on:
       - 'chrome-crx/tsconfig.json'
       - 'chrome-native-host/**/*.go'
       - 'chrome-native-host/go.mod'
+      - 'site/index.html'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
@@ -28,6 +29,7 @@ on:
       - 'chrome-crx/tsconfig.json'
       - 'chrome-native-host/**/*.go'
       - 'chrome-native-host/go.mod'
+      - 'site/index.html'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -139,31 +141,8 @@ jobs:
             echo '</ul></body></html>'
           } > index.html
 
-      - name: Write index.html
-        run: |
-          cat > site/index.html <<'HTML'
-          <!doctype html>
-          <html lang="en">
-            <head>
-              <meta charset="utf-8" />
-              <title>SuperDuck API Reference</title>
-              <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <style>
-                body { font-family: -apple-system, system-ui, sans-serif; max-width: 720px; margin: 4rem auto; padding: 0 1rem; line-height: 1.5; }
-                h1 { margin-bottom: 0.25rem; }
-                code { background: #f4f4f5; padding: 0.1rem 0.3rem; border-radius: 4px; }
-              </style>
-            </head>
-            <body>
-              <h1>SuperDuck API Reference</h1>
-              <p>Auto-generated on each push to <code>main</code>.</p>
-              <ul>
-                <li><a href="typedoc/index.html">chrome-crx (TypeScript) – TypeDoc</a></li>
-                <li><a href="godoc/index.html">chrome-native-host (Go) – godoc snapshots</a></li>
-              </ul>
-            </body>
-          </html>
-          HTML
+      - name: Verify landing page exists
+        run: test -f site/index.html && echo "Landing page OK" || { echo "::error::site/index.html missing"; exit 1; }
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

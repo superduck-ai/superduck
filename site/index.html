@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SuperDuck — AI 浏览器助手 | 任意模型，全球可用</title>
+  <meta name="description" content="SuperDuck 是一款开源的 AI 浏览器助手 Chrome 扩展，全球可用，自由切换 Claude、DeepSeek、Qwen、Gemini、GPT 等任意模型。" />
+  <meta name="theme-color" content="#0c0b0a" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦆</text></svg>" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── reset ─────────────────────────────────────── */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    img,svg{display:block;max-width:100%}
+    button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+    a{color:inherit;text-decoration:none}
+
+    /* ─── tokens ────────────────────────────────────── */
+    :root {
+      /* warm dark — like ink on aged paper, inverted */
+      --ink-bg: #0c0b0a;
+      --ink-elev: #14120f;
+      --ink-deep: #1a1814;
+      --ink-line: rgba(245,241,234,0.07);
+      --ink-line-strong: rgba(245,241,234,0.16);
+
+      --paper: #f5f1ea;
+      --paper-dim: #a8a39a;
+      --paper-mute: #6b665d;
+      --paper-faint: #3d3a35;
+
+      --ember: #ff7a18;
+      --amber: #ffb547;
+      --ember-grad: linear-gradient(135deg,#ffb547 0%,#ff7a18 100%);
+      --ember-soft: rgba(255,154,50,.08);
+      --ember-glow: 0 0 80px rgba(255,154,50,.18);
+
+      --f-display: 'Fraunces', 'Iowan Old Style', 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', 'STSong', Georgia, serif;
+      --f-body: 'Geist', ui-sans-serif, system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      --f-mono: 'Geist Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --max-w: 1280px;
+      --gutter: clamp(1.25rem, 4.5vw, 3.5rem);
+    }
+
+    /* ─── base ──────────────────────────────────────── */
+    html {
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+    body {
+      font-family: var(--f-body);
+      font-weight: 400;
+      font-size: 16px;
+      line-height: 1.6;
+      letter-spacing: -0.005em;
+      background: var(--ink-bg);
+      color: var(--paper);
+      overflow-x: hidden;
+      /* subtle warm grain */
+      background-image:
+        radial-gradient(1200px 600px at 85% -10%, rgba(255,123,24,.06), transparent 60%),
+        radial-gradient(900px 500px at -10% 30%, rgba(255,181,71,.04), transparent 60%);
+      background-attachment: fixed;
+    }
+    body::before {
+      content: "";
+      position: fixed; inset: 0;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .96  0 0 0 0 .94  0 0 0 0 .91  0 0 0 .035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+      mix-blend-mode: overlay;
+      opacity: .55;
+      z-index: 999;
+    }
+    ::selection { background: var(--ember); color: #1a0e02; }
+
+    /* ─── layout primitives ─────────────────────────── */
+    .wrap { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--gutter); }
+    .hairline { height: 1px; background: var(--ink-line); width: 100%; transform-origin: left; }
+    .hairline-strong { background: var(--ink-line-strong); }
+
+    /* eyebrow / numerals */
+    .eyebrow {
+      font-family: var(--f-mono);
+      font-size: .7rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      display: inline-flex; align-items: center; gap: .65rem;
+    }
+    .eyebrow .num { color: var(--ember); font-weight: 500; }
+    .eyebrow .dash { width: 1.5rem; height: 1px; background: var(--paper-faint); display: inline-block; }
+
+    /* display headings */
+    h1,h2,h3 { font-family: var(--f-display); font-weight: 400; line-height: 1.02; letter-spacing: -0.035em; color: var(--paper); }
+    h1 em, h2 em, h3 em { font-style: italic; font-variation-settings: "opsz" 144; color: var(--amber); }
+
+    /* ─── top bar ───────────────────────────────────── */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: .9rem var(--gutter);
+      background: linear-gradient(180deg, rgba(12,11,10,0.92), rgba(12,11,10,0.75));
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid transparent;
+      transition: border-color .3s var(--ease);
+    }
+    .topbar.scrolled { border-bottom-color: var(--ink-line); }
+    .topbar-inner {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: clamp(.75rem, 2vw, 2rem);
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+    .brand {
+      display: inline-flex; align-items: center; gap: .55rem;
+      font-family: var(--f-display);
+      font-weight: 500;
+      font-size: clamp(1rem, 1.4vw, 1.15rem);
+      letter-spacing: -0.02em;
+      flex-shrink: 0;
+    }
+    .brand-mark {
+      width: 26px; height: 26px;
+      border-radius: 6px;
+      background: var(--ember-grad);
+      display: grid; place-items: center;
+      box-shadow: 0 0 0 1px rgba(255,154,50,.25), 0 4px 20px rgba(255,123,24,.18);
+    }
+    .brand-mark svg { width: 17px; height: 17px; }
+    .brand-tag {
+      font-family: var(--f-mono);
+      font-size: .62rem;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      padding: .2rem .45rem;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 3px;
+      margin-left: .25rem;
+    }
+    .nav-links {
+      display: flex; align-items: center; gap: clamp(.75rem, 1.6vw, 1.6rem);
+      font-family: var(--f-mono);
+      font-size: .72rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+    .nav-links a { transition: color .2s; }
+    .nav-links a:hover { color: var(--paper); }
+    .nav-cta {
+      font-family: var(--f-body);
+      font-weight: 500;
+      font-size: .82rem;
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--paper);
+      padding: .5rem .95rem;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 999px;
+      display: inline-flex; align-items: center; gap: .5rem;
+      transition: border-color .2s, background .2s;
+    }
+    .nav-cta:hover { border-color: var(--paper); background: rgba(245,241,234,.04); }
+
+    /* lang toggle */
+    .lang-toggle {
+      display: inline-flex; align-items: center;
+      padding: 2px;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 999px;
+      font-family: var(--f-mono);
+      font-size: .68rem;
+      line-height: 1;
+    }
+    .lang-toggle button {
+      padding: .38rem .6rem;
+      border-radius: 999px;
+      color: var(--paper-dim);
+      transition: color .15s, background .15s;
+      letter-spacing: .04em;
+    }
+    .lang-toggle button:hover { color: var(--paper); }
+    .lang-toggle button.active {
+      background: var(--paper);
+      color: var(--ink-bg);
+      font-weight: 600;
+    }
+
+    /* hide secondary nav items progressively as width shrinks */
+    @media (max-width: 1080px) { .brand-tag { display: none; } }
+    @media (max-width: 900px)  { .nav-links a.hide-sm { display: none; } }
+    @media (max-width: 520px) {
+      .nav-cta span, .nav-cta { font-size: 0; padding: .45rem .55rem; gap: 0; }
+      .nav-cta svg { width: 16px; height: 16px; }
+    }
+
+    /* ─── hero ──────────────────────────────────────── */
+    .hero {
+      padding: clamp(6.5rem, 14vh, 11rem) 0 clamp(3.5rem, 8vh, 6rem);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-eyebrow { margin-bottom: clamp(1.5rem, 4vw, 2.5rem); }
+    /* Latin baseline — large, dramatic */
+    .hero-title {
+      font-size: clamp(2.5rem, 7.5vw, 6.25rem);
+      font-weight: 300;
+      letter-spacing: -0.045em;
+      line-height: 1.0;
+      max-width: 18ch;
+      overflow-wrap: break-word;
+      word-break: keep-all;
+    }
+    /* CJK — characters are 1em wide blocks; needs smaller cap & looser line */
+    :lang(zh-CN) .hero-title,
+    :lang(zh) .hero-title {
+      font-size: clamp(2rem, 6vw, 5rem);
+      letter-spacing: -0.01em;
+      line-height: 1.18;
+      max-width: none;
+    }
+    .hero-title em {
+      font-style: italic;
+      font-variation-settings: "opsz" 144, "SOFT" 50;
+      background: var(--ember-grad);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-fill-color: transparent;
+      position: relative;
+    }
+    .hero-sub {
+      margin-top: clamp(1.5rem, 4vw, 2.5rem);
+      max-width: 540px;
+      width: 100%;
+      font-size: clamp(.98rem, 1.5vw, 1.125rem);
+      color: var(--paper-dim);
+      font-weight: 400;
+      line-height: 1.6;
+    }
+    .hero-sub strong { color: var(--paper); font-weight: 500; }
+    .hero-cta {
+      margin-top: clamp(2rem, 4vw, 3rem);
+      display: flex; gap: .75rem; flex-wrap: wrap; align-items: center;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: .6rem;
+      padding: .9rem 1.45rem;
+      font-family: var(--f-body);
+      font-weight: 500;
+      font-size: .92rem;
+      letter-spacing: -0.005em;
+      border-radius: 999px;
+      transition: transform .25s var(--ease), box-shadow .25s var(--ease), background .2s, border-color .2s;
+    }
+    .btn-primary {
+      background: var(--paper);
+      color: var(--ink-bg);
+      box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 10px 30px -10px rgba(245,241,234,.25);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 16px 40px -10px rgba(245,241,234,.35); }
+    .btn-ghost {
+      color: var(--paper);
+      border: 1px solid var(--ink-line-strong);
+    }
+    .btn-ghost:hover { border-color: var(--paper); background: rgba(245,241,234,.04); }
+    .btn .arrow { transition: transform .25s var(--ease); }
+    .btn:hover .arrow { transform: translateX(3px); }
+
+    /* hero seal — refined editorial monogram */
+    .hero-mark {
+      position: absolute;
+      right: 0;
+      bottom: -.5rem;
+      width: clamp(140px, 16vw, 220px);
+      aspect-ratio: 1;
+      pointer-events: none;
+      display: grid;
+      place-items: center;
+    }
+    .hero-mark::before {
+      content: "";
+      position: absolute; inset: -40%;
+      background: radial-gradient(circle, rgba(255,154,50,.22), transparent 55%);
+      filter: blur(30px);
+      z-index: 0;
+    }
+    .hero-mark .ring {
+      position: absolute; inset: 0;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 50%;
+      z-index: 1;
+    }
+    .hero-mark .seal-label {
+      position: absolute;
+      bottom: -1.6rem;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--f-mono);
+      font-size: .6rem;
+      letter-spacing: .25em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      white-space: nowrap;
+      z-index: 2;
+    }
+    .hero-mark svg {
+      position: relative;
+      width: 56%;
+      height: auto;
+      z-index: 2;
+      filter: drop-shadow(0 6px 24px rgba(255,123,24,.35));
+    }
+    @media (max-width: 980px) { .hero-mark { display: none; } }
+
+    /* ─── marquee ───────────────────────────────────── */
+    .marquee {
+      border-top: 1px solid var(--ink-line);
+      border-bottom: 1px solid var(--ink-line);
+      padding: 1.6rem 0;
+      overflow: hidden;
+      background: var(--ink-elev);
+    }
+    .marquee-track {
+      display: inline-flex;
+      gap: clamp(1.5rem, 4vw, 3rem);
+      animation: scroll-x 38s linear infinite;
+      white-space: nowrap;
+      font-family: var(--f-display);
+      font-style: italic;
+      font-size: clamp(1.15rem, 2.8vw, 2.2rem);
+      font-weight: 300;
+      color: var(--paper-mute);
+      letter-spacing: -0.02em;
+    }
+    .marquee-track span { display: inline-flex; align-items: center; gap: clamp(1.5rem, 4vw, 3rem); }
+    .marquee-track .dot {
+      width: 6px; height: 6px;
+      background: var(--ember);
+      border-radius: 50%;
+      display: inline-block;
+      opacity: .7;
+    }
+    .marquee:hover .marquee-track { animation-play-state: paused; }
+    @keyframes scroll-x {
+      to { transform: translateX(-50%); }
+    }
+
+    /* ─── sections ──────────────────────────────────── */
+    section { padding: clamp(4rem, 9vw, 7rem) 0; position: relative; }
+    .sec-head { margin-bottom: clamp(2.5rem, 5vw, 4rem); max-width: 760px; }
+    .sec-head .eyebrow { margin-bottom: clamp(1rem, 2vw, 1.5rem); }
+    .sec-title {
+      font-size: clamp(1.75rem, 4.5vw, 3.5rem);
+      font-weight: 300;
+      letter-spacing: -0.035em;
+      line-height: 1.05;
+      overflow-wrap: break-word;
+      word-break: keep-all;
+    }
+    :lang(zh-CN) .sec-title,
+    :lang(zh) .sec-title {
+      font-size: clamp(1.65rem, 4vw, 3rem);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+    .sec-title em {
+      font-style: italic;
+      background: var(--ember-grad);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .sec-lede {
+      margin-top: clamp(1rem, 2vw, 1.5rem);
+      font-size: clamp(.95rem, 1.4vw, 1.05rem);
+      color: var(--paper-dim);
+      max-width: 56ch;
+      line-height: 1.6;
+    }
+
+    /* ─── pillars / spec strip ──────────────────────── */
+    .pillars {
+      border-top: 1px solid var(--ink-line);
+      border-bottom: 1px solid var(--ink-line);
+      padding: 4rem 0;
+      background: var(--ink-elev);
+    }
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+    }
+    .pillar {
+      padding: 1.75rem 2.5rem;
+      border-left: 1px solid var(--ink-line);
+    }
+    .pillar:first-child { border-left: 0; padding-left: 0; }
+    .pillar:last-child { padding-right: 0; }
+    .pillar-num {
+      font-family: var(--f-mono);
+      font-size: .68rem;
+      letter-spacing: .14em;
+      color: var(--ember);
+      margin-bottom: 1.1rem;
+    }
+    .pillar-title {
+      font-family: var(--f-display);
+      font-size: 1.55rem;
+      font-weight: 400;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      margin-bottom: .85rem;
+    }
+    .pillar-desc {
+      font-size: .92rem;
+      color: var(--paper-dim);
+      line-height: 1.55;
+    }
+    @media (max-width: 820px) {
+      .pillars-grid { grid-template-columns: 1fr; }
+      .pillar { padding: 2rem 0; border-left: 0; border-top: 1px solid var(--ink-line); }
+      .pillar:first-child { border-top: 0; padding-top: 0; }
+    }
+
+    /* ─── capability list (editorial rows) ──────────── */
+    .cap-list { border-top: 1px solid var(--ink-line); }
+    .cap-row {
+      display: grid;
+      grid-template-columns: 80px 1fr 2fr 1fr;
+      gap: 2rem;
+      padding: 2.25rem 0;
+      border-bottom: 1px solid var(--ink-line);
+      align-items: baseline;
+      transition: background .3s var(--ease);
+    }
+    .cap-row:hover { background: linear-gradient(90deg, transparent, var(--ember-soft) 50%, transparent); }
+    .cap-num {
+      font-family: var(--f-mono);
+      font-size: .72rem;
+      color: var(--paper-mute);
+      letter-spacing: .1em;
+    }
+    .cap-title {
+      font-family: var(--f-display);
+      font-size: 1.5rem;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      color: var(--paper);
+    }
+    .cap-desc {
+      font-size: .96rem;
+      color: var(--paper-dim);
+      line-height: 1.5;
+    }
+    .cap-tag {
+      font-family: var(--f-mono);
+      font-size: .72rem;
+      color: var(--paper-mute);
+      letter-spacing: .04em;
+      text-align: right;
+    }
+    .cap-tag::before { content: "→ "; color: var(--ember); }
+    @media (max-width: 880px) {
+      .cap-row {
+        grid-template-columns: auto 1fr;
+        gap: .5rem 1.25rem;
+      }
+      .cap-title { grid-column: 2; }
+      .cap-desc { grid-column: 2; }
+      .cap-tag { grid-column: 2; text-align: left; }
+    }
+
+    /* ─── model mapping table ───────────────────────── */
+    .models-split {
+      display: grid;
+      grid-template-columns: 5fr 7fr;
+      gap: 4rem;
+      align-items: start;
+    }
+    .model-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--f-mono);
+      font-size: .9rem;
+    }
+    .model-table thead th {
+      text-align: left;
+      font-family: var(--f-mono);
+      font-weight: 500;
+      font-size: .68rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--ink-line-strong);
+    }
+    .model-table tbody td {
+      padding: 1.75rem 0;
+      border-bottom: 1px solid var(--ink-line);
+      vertical-align: top;
+    }
+    .model-table tbody tr:last-child td { border-bottom: 0; }
+    .slot-name {
+      font-family: var(--f-display);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 1.55rem;
+      color: var(--paper);
+      letter-spacing: -0.02em;
+    }
+    .slot-note {
+      display: block;
+      font-family: var(--f-body);
+      font-style: normal;
+      font-size: .72rem;
+      color: var(--paper-mute);
+      margin-top: .25rem;
+      letter-spacing: 0;
+    }
+    .model-code {
+      display: inline-block;
+      color: var(--paper);
+      letter-spacing: -0.01em;
+    }
+    .model-code.alt {
+      color: var(--paper-mute);
+      margin-left: .5rem;
+    }
+    @media (max-width: 820px) {
+      .models-split { grid-template-columns: 1fr; gap: 2rem; }
+    }
+
+    /* ─── architecture diagram ──────────────────────── */
+    .arch-block {
+      background: var(--ink-elev);
+      border: 1px solid var(--ink-line);
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      overflow-x: auto;
+    }
+    .arch-block pre {
+      font-family: var(--f-mono);
+      font-size: .82rem;
+      line-height: 1.7;
+      color: var(--paper-dim);
+      white-space: pre;
+    }
+    .arch-block pre .h { color: var(--paper); font-weight: 500; }
+    .arch-block pre .a { color: var(--amber); }
+    .arch-block pre .m { color: var(--paper-mute); }
+
+    /* ─── CLI / terminal ────────────────────────────── */
+    .cli-split {
+      display: grid;
+      grid-template-columns: 7fr 5fr;
+      gap: 4rem;
+      align-items: start;
+    }
+    .terminal {
+      background: var(--ink-elev);
+      border: 1px solid var(--ink-line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px -30px rgba(0,0,0,.5);
+    }
+    .terminal-head {
+      padding: .75rem 1.1rem;
+      border-bottom: 1px solid var(--ink-line);
+      display: flex; align-items: center; gap: .65rem;
+      font-family: var(--f-mono);
+      font-size: .68rem;
+      color: var(--paper-mute);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .terminal-head .pulse {
+      width: 7px; height: 7px;
+      background: var(--ember);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--ember);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 50% { opacity: .4; transform: scale(.85); } }
+    .terminal-body {
+      padding: 1.6rem 1.4rem 1.8rem;
+      font-family: var(--f-mono);
+      font-size: .82rem;
+      line-height: 1.85;
+      color: var(--paper);
+    }
+    .terminal-body .c { color: var(--paper-mute); }
+    .terminal-body .p { color: var(--ember); margin-right: .5rem; }
+    .terminal-body .s { color: var(--amber); }
+    .terminal-body .f { color: #8aa9c9; }
+    .terminal-body .ok { color: #7ee5a8; }
+    .terminal-body .sep { height: .9rem; }
+
+    .cli-explainer .sec-title { font-size: clamp(1.75rem, 3.5vw, 2.6rem); }
+    .cli-explainer .install-card {
+      margin-top: 2rem;
+      padding: 1.1rem 1.25rem;
+      background: var(--ink-elev);
+      border: 1px solid var(--ink-line);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem;
+      font-family: var(--f-mono);
+      font-size: .85rem;
+    }
+    .cli-explainer .install-card .cmd { color: var(--paper); }
+    .cli-explainer .install-card .cmd .pfx { color: var(--ember); margin-right: .5rem; }
+    .cli-explainer .install-card button {
+      font-family: var(--f-mono);
+      font-size: .68rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      padding: .35rem .65rem;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 999px;
+      transition: color .2s, border-color .2s;
+    }
+    .cli-explainer .install-card button:hover { color: var(--paper); border-color: var(--paper); }
+    .cli-explainer .install-card button.copied { color: var(--amber); border-color: var(--amber); }
+    .cli-chips {
+      display: flex; flex-wrap: wrap; gap: .5rem;
+      margin-top: 1.5rem;
+    }
+    .chip {
+      font-family: var(--f-mono);
+      font-size: .68rem;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+      padding: .38rem .7rem;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 999px;
+    }
+    @media (max-width: 880px) {
+      .cli-split { grid-template-columns: 1fr; gap: 2.5rem; }
+    }
+
+    /* ─── docs ──────────────────────────────────────── */
+    .docs-list { border-top: 1px solid var(--ink-line); }
+    .doc-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 2rem;
+      padding: 2.5rem 0;
+      border-bottom: 1px solid var(--ink-line);
+      transition: padding .35s var(--ease);
+    }
+    .doc-row:hover { padding-left: 1rem; padding-right: 1rem; }
+    .doc-meta { display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap; }
+    .doc-tag {
+      font-family: var(--f-mono);
+      font-size: .65rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--paper-mute);
+      padding: .3rem .5rem;
+      border: 1px solid var(--ink-line-strong);
+      border-radius: 3px;
+    }
+    .doc-title {
+      font-family: var(--f-display);
+      font-weight: 400;
+      font-size: 1.85rem;
+      letter-spacing: -0.025em;
+      color: var(--paper);
+    }
+    .doc-desc {
+      margin-top: .5rem;
+      color: var(--paper-dim);
+      font-size: .95rem;
+      max-width: 60ch;
+      line-height: 1.55;
+    }
+    .doc-arrow {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      border: 1px solid var(--ink-line-strong);
+      display: grid; place-items: center;
+      color: var(--paper);
+      transition: background .25s var(--ease), border-color .25s, transform .35s var(--ease);
+    }
+    .doc-row:hover .doc-arrow {
+      background: var(--ember-grad);
+      color: var(--ink-bg);
+      border-color: transparent;
+      transform: rotate(-45deg);
+    }
+    .doc-arrow svg { transition: transform .35s var(--ease); }
+
+    /* ─── closing band ──────────────────────────────── */
+    .close-band {
+      padding: clamp(5rem, 12vw, 9rem) 0;
+      text-align: center;
+      border-top: 1px solid var(--ink-line);
+      background: radial-gradient(ellipse at center, var(--ember-soft), transparent 70%);
+    }
+    .close-band h2 {
+      font-size: clamp(1.85rem, 5.5vw, 4rem);
+      font-weight: 300;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      overflow-wrap: break-word;
+      word-break: keep-all;
+    }
+    :lang(zh-CN) .close-band h2,
+    :lang(zh) .close-band h2 {
+      font-size: clamp(1.7rem, 4.5vw, 3.4rem);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+    .close-band h2 em {
+      font-style: italic;
+      background: var(--ember-grad);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .close-band p {
+      margin-top: clamp(1rem, 2vw, 1.5rem);
+      color: var(--paper-dim);
+      font-size: clamp(.95rem, 1.4vw, 1.05rem);
+      max-width: 48ch;
+      margin-left: auto; margin-right: auto;
+    }
+    .close-band .hero-cta { justify-content: center; margin-top: clamp(1.75rem, 3vw, 2.5rem); }
+
+    /* ─── footer ────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--ink-line);
+      padding: 3rem 0 4rem;
+      font-family: var(--f-mono);
+      font-size: .72rem;
+      letter-spacing: .04em;
+      color: var(--paper-mute);
+    }
+    .footer-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 2rem; flex-wrap: wrap;
+    }
+    .footer-inner a:hover { color: var(--paper); }
+    .footer-links { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+
+    /* ─── reveal animations ─────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity 1.1s var(--ease), transform 1.1s var(--ease);
+    }
+    .reveal.in { opacity: 1; transform: none; }
+    .reveal-line {
+      transform: scaleX(0);
+      transition: transform 1.2s var(--ease);
+    }
+    .reveal-line.in { transform: scaleX(1); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+      .reveal { opacity: 1; transform: none; }
+      .reveal-line { transform: none; }
+    }
+
+    /* ─── small-screen consolidation ────────────────── */
+    @media (max-width: 640px) {
+      .pillars { padding: 2.5rem 0; }
+      .pillars-grid { grid-template-columns: 1fr; gap: 0; }
+      .pillar { padding: 1.75rem 0; border-left: 0; border-top: 1px solid var(--ink-line); }
+      .pillar:first-child { border-top: 0; padding-top: 0; }
+      .pillar:last-child { padding-bottom: 0; }
+
+      .cap-row { padding: 1.75rem 0; gap: .5rem 1rem; grid-template-columns: auto 1fr; }
+      .cap-title { font-size: 1.25rem; }
+      .cap-desc { font-size: .92rem; }
+
+      .terminal-body { padding: 1.25rem 1.1rem 1.4rem; font-size: .78rem; line-height: 1.7; }
+      .terminal-head { font-size: .62rem; }
+
+      .install-card { flex-direction: column; align-items: stretch; gap: .75rem; }
+      .install-card button { align-self: flex-end; }
+
+      .doc-row { padding: 1.75rem 0; gap: 1rem; }
+      .doc-row:hover { padding-left: 0; padding-right: 0; }
+      .doc-title { font-size: 1.3rem; }
+      .doc-arrow { width: 38px; height: 38px; }
+
+      .arch-block { padding: 1.25rem 1rem; }
+      .arch-block pre { font-size: .68rem; line-height: 1.6; }
+
+      .btn { padding: .75rem 1.2rem; font-size: .88rem; }
+
+      .footer-inner { gap: 1rem; }
+      footer { padding: 2rem 0 2.5rem; }
+    }
+
+    @media (max-width: 420px) {
+      .marquee-track { font-size: 1.05rem; gap: 1.25rem; }
+      .marquee-track span { gap: 1.25rem; }
+      .marquee { padding: 1rem 0; }
+      .cap-tag { display: none; }
+      .lang-toggle { font-size: .62rem; }
+      .lang-toggle button { padding: .3rem .5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══════════════════════════════════════ -->
+<header class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <a href="#" class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 691 691" fill="none">
+          <g transform="translate(-40,-30) scale(3.5)">
+            <path d="m169 84.21c-1-1.48-2.95-.55-3.71-.4-7.87 1.62-14.13-2.58-15.8-6.78-3.52-9.28-10.11-14.24-20.14-14.24-12.25 0-19.28 10.39-19.28 20.83 0 5.19 1.67 9.8 4.65 15.41 2.2 4.2 2.13 7.12 7.48 8.63 8.07 2.33 16.24 2.76 21.72.25-3.16-2.99-2.79-12.58 3.54-13.11 7.44-.65 12.26-.59 18.24-5.02 2.09-1.62 4.42-3.72 3.3-5.57zm-30.76-2.6c-2.51 0-3.2-1.64-3.2-3.16 0-2.02 1.46-2.98 2.88-2.98 1.9 0 3.2 1.14 3.2 2.82s-.99 3.32-2.88 3.32z" fill="#1a0e02"/>
+            <path d="m153 122.8c-4.8-1.51-6.54-2.76-7.87-6.4-1.85 2.59-5.39 7.37-8.52 8.02-1.42-2.92.32-8.42 1.94-10.05-4.8-.28-11.27-2.44-20.65-.6-6.5 1.3-13 5.63-20.82 5.74-5.63.08-8.51 4.19-15.68 3.23-6.26-.86-10.32-5.65-12.32-6.74-2.95-.96-4.7 7.11-2.5 16 4.5 18.76 20.31 29.99 45.9 29.99 11.62 0 24.7-2.26 30.93-7.4 11.22-9.28 12.37-16.46 9.59-31.79z" fill="#1a0e02"/>
+            <path d="m74.12 86.06c0 6.32-2.95 9.57-12.04 11.09s-13.42 9.88-14.41 15.48c5.07-2.52 9.34-4.32 19.28-2.8 7.83 1.24 15.53 7.33 25.34 7.33 8.97 0 14.77-5.33 25.37-8.12-2.65-1.85-3.03-5.88-4.55-6.6-13.01-.52-23.28-16.01-38.99-16.38z" fill="#1a0e02"/>
+          </g>
+        </svg>
+      </span>
+      SuperDuck
+      <span class="brand-tag" data-zh="开源 · v0.2">Open · v0.2</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#capabilities" class="hide-sm" data-zh="能力">Capabilities</a>
+      <a href="#models" class="hide-sm" data-zh="模型">Models</a>
+      <a href="#cli" class="hide-sm" data-zh="命令行">CLI</a>
+      <a href="#docs" class="hide-sm" data-zh="文档">Docs</a>
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" data-lang="zh" aria-label="切换到中文">中</button>
+        <button type="button" data-lang="en" aria-label="Switch to English">EN</button>
+      </div>
+      <a href="https://github.com/superduck-ai/superduck" class="nav-cta" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<!-- ═══ HERO ══════════════════════════════════════════ -->
+<section class="hero">
+  <div class="wrap" style="position:relative">
+    <div class="hero-eyebrow eyebrow reveal">
+      <span class="num">01</span><span class="dash"></span>
+      <span data-zh="介绍 SuperDuck">Introducing SuperDuck</span>
+    </div>
+    <h1 class="hero-title reveal" data-zh="让复杂的浏览器操作，<br/><em>Duck&nbsp;不必</em>。">
+      Complex browser work?<br/><em>Just duck it</em>.
+    </h1>
+    <p class="hero-sub reveal" data-zh="一款开源的 AI 浏览器助手，把 <strong>Claude、DeepSeek、Qwen、Gemini、Kimi、GPT</strong>，以及任意 OpenAI 兼容 API，集成在一个克制、优雅的 Chrome 侧边面板里 — 不挑地区，不锁模型。">
+      An open-source AI browser assistant that brings <strong>Claude, DeepSeek, Qwen, Gemini, Kimi, GPT</strong> — and any OpenAI-compatible endpoint — into a restrained, elegant Chrome side panel. No region locks. No vendor lock-in.
+    </p>
+    <div class="hero-cta reveal">
+      <a href="https://www.npmjs.com/package/superduck-cli" class="btn btn-primary" target="_blank" rel="noopener" data-zh='安装 CLI<svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>'>
+        Install CLI
+        <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+      <a href="https://github.com/superduck-ai/superduck" class="btn btn-ghost" target="_blank" rel="noopener" data-zh='查看源码<svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>'>
+        View source
+        <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+    </div>
+
+    <div class="hero-mark reveal" aria-hidden="true">
+      <span class="ring"></span>
+      <svg viewBox="0 0 200 160" fill="none">
+        <defs>
+          <linearGradient id="ember-fill" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffb547"/>
+            <stop offset="1" stop-color="#ff7a18"/>
+          </linearGradient>
+        </defs>
+        <g transform="translate(0,-25)" fill="url(#ember-fill)">
+          <path d="m169 84.21c-1-1.48-2.95-.55-3.71-.4-7.87 1.62-14.13-2.58-15.8-6.78-3.52-9.28-10.11-14.24-20.14-14.24-12.25 0-19.28 10.39-19.28 20.83 0 5.19 1.67 9.8 4.65 15.41 2.2 4.2 2.13 7.12 7.48 8.63 8.07 2.33 16.24 2.76 21.72.25-3.16-2.99-2.79-12.58 3.54-13.11 7.44-.65 12.26-.59 18.24-5.02 2.09-1.62 4.42-3.72 3.3-5.57zm-30.76-2.6c-2.51 0-3.2-1.64-3.2-3.16 0-2.02 1.46-2.98 2.88-2.98 1.9 0 3.2 1.14 3.2 2.82s-.99 3.32-2.88 3.32z"/>
+          <path d="m153 122.8c-4.8-1.51-6.54-2.76-7.87-6.4-1.85 2.59-5.39 7.37-8.52 8.02-1.42-2.92.32-8.42 1.94-10.05-4.8-.28-11.27-2.44-20.65-.6-6.5 1.3-13 5.63-20.82 5.74-5.63.08-8.51 4.19-15.68 3.23-6.26-.86-10.32-5.65-12.32-6.74-2.95-.96-4.7 7.11-2.5 16 4.5 18.76 20.31 29.99 45.9 29.99 11.62 0 24.7-2.26 30.93-7.4 11.22-9.28 12.37-16.46 9.59-31.79z"/>
+          <path d="m74.12 86.06c0 6.32-2.95 9.57-12.04 11.09s-13.42 9.88-14.41 15.48c5.07-2.52 9.34-4.32 19.28-2.8 7.83 1.24 15.53 7.33 25.34 7.33 8.97 0 14.77-5.33 25.37-8.12-2.65-1.85-3.03-5.88-4.55-6.6-13.01-.52-23.28-16.01-38.99-16.38z"/>
+        </g>
+      </svg>
+      <span class="seal-label">SuperDuck · 02</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ MARQUEE TICKER ════════════════════════════════ -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <span>Claude <span class="dot"></span> DeepSeek <span class="dot"></span> Qwen <span class="dot"></span> Gemini <span class="dot"></span> Kimi <span class="dot"></span> GPT-4o <span class="dot"></span> Llama <span class="dot"></span> Mistral <span class="dot"></span> Yi <span class="dot"></span> GLM <span class="dot"></span> Doubao <span class="dot"></span> Grok <span class="dot"></span></span>
+    <span>Claude <span class="dot"></span> DeepSeek <span class="dot"></span> Qwen <span class="dot"></span> Gemini <span class="dot"></span> Kimi <span class="dot"></span> GPT-4o <span class="dot"></span> Llama <span class="dot"></span> Mistral <span class="dot"></span> Yi <span class="dot"></span> GLM <span class="dot"></span> Doubao <span class="dot"></span> Grok <span class="dot"></span></span>
+  </div>
+</div>
+
+<!-- ═══ PILLARS / SPEC STRIP ══════════════════════════ -->
+<section class="pillars" style="padding-top:4rem;padding-bottom:4rem">
+  <div class="wrap">
+    <div class="pillars-grid">
+      <div class="pillar reveal">
+        <div class="pillar-num">01 / Geography</div>
+        <h3 class="pillar-title" data-zh="无区域限制">No region lock</h3>
+        <p class="pillar-desc" data-zh="无需 VPN，全球任意地区可用。AI 助手始终在你浏览的地方陪伴。">Works the same on every continent. No VPN, no region gates — the assistant lives where you browse.</p>
+      </div>
+      <div class="pillar reveal">
+        <div class="pillar-num">02 / Vendors</div>
+        <h3 class="pillar-title" data-zh="任意模型">Any model</h3>
+        <p class="pillar-desc" data-zh="Claude、DeepSeek、Qwen、Kimi、Gemini、GPT — 或任意 OpenAI 兼容 API，按任务一键切换。">Claude, DeepSeek, Qwen, Kimi, Gemini, GPT — or any OpenAI-compatible endpoint. Per-task, one click.</p>
+      </div>
+      <div class="pillar reveal">
+        <div class="pillar-num">03 / Budget</div>
+        <h3 class="pillar-title" data-zh="灵活成本">Flexible cost</h3>
+        <p class="pillar-desc" data-zh="简单任务用便宜模型，复杂任务用强力模型。三个槽位灵活映射，从容控制预算。">Cheap models for trivial work, heavy ones for the hard parts. Three slots, your own routing rules.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CAPABILITIES ══════════════════════════════════ -->
+<section id="capabilities">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="eyebrow"><span class="num">02</span><span class="dash"></span><span data-zh="能力">Capabilities</span></div>
+      <h2 class="sec-title" data-zh="一个浏览器助手<br/>该有的<em>一切</em>。">Everything a browser<br/>assistant <em>should be</em>.</h2>
+      <p class="sec-lede" data-zh="为追求自由的高级用户与 AI 工程师打造。把企业级 AI 能力带入浏览器，界面克制，操作直接。">Built for power users and AI engineers who demand flexibility. Enterprise-grade capability, restrained interface, direct action.</p>
+    </header>
+
+    <div class="cap-list">
+      <div class="cap-row reveal">
+        <div class="cap-num">01</div>
+        <div class="cap-title" data-zh="多模型切换">Multi-model routing</div>
+        <div class="cap-desc" data-zh="把 Opus / Sonnet / Haiku 槽位映射到任意厂商模型，按任务复杂度即时切换。">Map Opus / Sonnet / Haiku slots to any provider's model. Switch per task, in a single click.</div>
+        <div class="cap-tag">/ slots</div>
+      </div>
+      <div class="cap-row reveal">
+        <div class="cap-num">02</div>
+        <div class="cap-title" data-zh="浏览器自动化">Browser automation</div>
+        <div class="cap-desc" data-zh="截图、点击、滚动、输入、跳转，并在当前标签页执行 JavaScript — 完整的浏览器操控。">Screenshot, click, scroll, type, navigate, and execute JavaScript on any active tab. Full browser control.</div>
+        <div class="cap-tag">/ cdp</div>
+      </div>
+      <div class="cap-row reveal">
+        <div class="cap-num">03</div>
+        <div class="cap-title" data-zh="工作流录制">Workflow recording</div>
+        <div class="cap-desc" data-zh="带语音解说录制浏览器操作，AI 之后可重放，实现可复用的精细自动化。">Record browser actions with voice narration. Let AI replay them — repeatable, fine-grained automation.</div>
+        <div class="cap-tag">/ record</div>
+      </div>
+      <div class="cap-row reveal">
+        <div class="cap-num">04</div>
+        <div class="cap-title" data-zh="MCP 运行时">MCP runtime</div>
+        <div class="cap-desc" data-zh="内置 Model Context Protocol 运行时，可对接任意 MCP 兼容服务，无限扩展工具能力。">Built-in Model Context Protocol runtime. Connect to any MCP-compatible server, extend tool capability without limit.</div>
+        <div class="cap-tag">/ mcp</div>
+      </div>
+      <div class="cap-row reveal">
+        <div class="cap-num">05</div>
+        <div class="cap-title" data-zh="精致界面">Refined interface</div>
+        <div class="cap-desc" data-zh="Markdown 语法高亮、LaTeX 数学公式、图片附件、亮/暗主题切换 — 阅读如纸本。">Markdown with syntax highlighting, LaTeX math, image attachments, light / dark themes. Reads like print.</div>
+        <div class="cap-tag">/ ui</div>
+      </div>
+      <div class="cap-row reveal">
+        <div class="cap-num">06</div>
+        <div class="cap-title" data-zh="多语言就绪">Bilingual by default</div>
+        <div class="cap-desc" data-zh="开箱即用的英文与简体中文国际化，可扩展更多语言。">Out-of-the-box English and Simplified Chinese internationalization. Extensible to more languages.</div>
+        <div class="cap-tag">/ i18n</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ MODEL MAPPING ═════════════════════════════════ -->
+<section id="models" style="background:var(--ink-elev);border-top:1px solid var(--ink-line);border-bottom:1px solid var(--ink-line)">
+  <div class="wrap">
+    <div class="models-split">
+      <header class="reveal">
+        <div class="eyebrow" style="margin-bottom:1.5rem"><span class="num">03</span><span class="dash"></span><span data-zh="模型映射">Model mapping</span></div>
+        <h2 class="sec-title" data-zh="你的模型，<br/><em>你做主</em>。">Your models,<br/><em>your rules</em>.</h2>
+        <p class="sec-lede" data-zh="在设置里填入自定义 API 端点，然后把每个槽位映射到你喜欢的模型。自由混搭厂商 — DeepSeek 做推理，GPT 写代码，Gemini 看图。">Point Settings at a custom API endpoint, then assign each slot to your preferred model. Mix providers freely — DeepSeek for reasoning, GPT for code, Gemini for vision.</p>
+      </header>
+      <div class="reveal">
+        <table class="model-table">
+          <thead>
+            <tr>
+              <th data-zh="槽位">Slot</th>
+              <th data-zh="默认">Default</th>
+              <th data-zh="自定义示例">Custom example</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="slot-name">Opus</span><span class="slot-note" data-zh="重型推理">heavy reasoning</span></td>
+              <td><span class="model-code">claude-opus-4-6</span></td>
+              <td><span class="model-code">deepseek-r1</span><span class="model-code alt">/ gpt-4o</span></td>
+            </tr>
+            <tr>
+              <td><span class="slot-name">Sonnet</span><span class="slot-note" data-zh="日常主力">daily driver</span></td>
+              <td><span class="model-code">claude-sonnet-4-6</span></td>
+              <td><span class="model-code">qwen-max</span><span class="model-code alt">/ kimi-k2.5</span></td>
+            </tr>
+            <tr>
+              <td><span class="slot-name">Haiku</span><span class="slot-note" data-zh="快速便宜">fast &amp; cheap</span></td>
+              <td><span class="model-code">claude-haiku-4-5</span></td>
+              <td><span class="model-code">deepseek-chat</span><span class="model-code alt">/ gemini-2.5-flash</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CLI ═══════════════════════════════════════════ -->
+<section id="cli">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="eyebrow"><span class="num">04</span><span class="dash"></span><span data-zh="命令行">Command line</span></div>
+      <h2 class="sec-title" data-zh="你的浏览器，<br/><em>可被 AI 调用</em>。">Your browser,<br/><em>callable as a tool</em>.</h2>
+    </header>
+
+    <div class="cli-split">
+      <div class="terminal reveal">
+        <div class="terminal-head">
+          <span class="pulse"></span>
+          <span>superduck • zsh</span>
+        </div>
+        <div class="terminal-body">
+          <div><span class="c" data-zh="# 1) 全局安装 CLI"># 1) install the CLI globally</span></div>
+          <div><span class="p">$</span>npm install -g <span class="s">superduck-cli</span></div>
+          <div class="sep"></div>
+          <div><span class="c" data-zh="# 2) 初始化 native host 与权限"># 2) bootstrap native host &amp; permissions</span></div>
+          <div><span class="p">$</span>superduck setup</div>
+          <div class="sep"></div>
+          <div><span class="c" data-zh="# 3) 自检：扩展 / native host / socket 全部就绪？"># 3) doctor: extension / native host / socket all wired?</span></div>
+          <div><span class="p">$</span>superduck doctor</div>
+          <div><span class="ok">  ✓ extension reachable</span></div>
+          <div><span class="ok">  ✓ native host installed</span></div>
+          <div><span class="ok">  ✓ socket /tmp/chrome-native-host.sock</span></div>
+          <div class="sep"></div>
+          <div><span class="c" data-zh="# 调用你正在运行的 Chrome"># talk to your running Chrome</span></div>
+          <div><span class="p">$</span>superduck context</div>
+          <div><span class="p">$</span>superduck fetch <span class="s">https://api.example.com</span></div>
+          <div><span class="p">$</span>superduck screenshot <span class="f">--output</span> page.png</div>
+        </div>
+      </div>
+
+      <aside class="cli-explainer reveal">
+        <h2 class="sec-title" data-zh="同一份登录态，<br/>同一份 Cookie。">Same login,<br/>same cookies.</h2>
+        <p class="sec-lede" data-zh="<code style=&quot;font-family:var(--f-mono);color:var(--paper)&quot;>superduck</code> CLI 让 AI 编程助手 — Claude Code、Codex、Cursor — 直接调用你当前运行的 Chrome。通过 Chrome Native Messaging 走 Unix domain socket 通信，没有 headless 浏览器，没有重新登录。">The <code style="font-family:var(--f-mono);color:var(--paper)">superduck</code> CLI lets AI coding agents — Claude Code, Codex, Cursor — drive your live Chrome session. Native Messaging over a Unix domain socket. No headless browser, no re-auth.</p>
+
+        <div class="install-card">
+          <span class="cmd"><span class="pfx">$</span>npm install -g superduck-cli</span>
+          <button id="copy-btn" type="button" data-zh="复制">Copy</button>
+        </div>
+
+        <div class="cli-chips">
+          <span class="chip">MCP Server</span>
+          <span class="chip" data-zh="原生消息">Native Messaging</span>
+          <span class="chip">Unix Socket</span>
+          <span class="chip" data-zh="发布于 npm">npm published</span>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Architecture diagram -->
+    <div class="arch-block reveal" style="margin-top:4rem">
+<pre><span class="m">┌────────────────────────────────────────────────────────────────────────────┐</span>
+<span class="m">│</span>  <span class="h">Agent CLI</span>  ───▶  <span class="h">superduck</span>  ───▶  <span class="h">native host</span>  ───▶  <span class="h">SuperDuck CRX</span>  ───▶  <span class="a">tab</span>  <span class="m">│</span>
+<span class="m">│</span>  <span class="m">claude code      this binary    Go process          chrome ext        live   │</span>
+<span class="m">│</span>                          <span class="m">└── UDS ─┘    └── chrome.runtime ─┘                  │</span>
+<span class="m">└────────────────────────────────────────────────────────────────────────────┘</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ DOCS ══════════════════════════════════════════ -->
+<section id="docs" style="background:var(--ink-elev);border-top:1px solid var(--ink-line);border-bottom:1px solid var(--ink-line)">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <div class="eyebrow"><span class="num">05</span><span class="dash"></span><span data-zh="API 参考">Reference</span></div>
+      <h2 class="sec-title" data-zh="浏览<em>项目文档</em>。">Browse the <em>reference</em>.</h2>
+      <p class="sec-lede" data-zh="每次推送到 <code style=&quot;font-family:var(--f-mono);color:var(--paper)&quot;>main</code> 时自动从源码生成，始终保持最新。">Auto-generated from source on every push to <code style="font-family:var(--f-mono);color:var(--paper)">main</code>. Always current.</p>
+    </header>
+
+    <div class="docs-list">
+      <a href="typedoc/index.html" class="doc-row reveal">
+        <div>
+          <div class="doc-meta">
+            <span class="doc-tag">TypeScript</span>
+            <span class="doc-title" data-zh="Chrome 扩展 API">Chrome Extension API</span>
+          </div>
+          <p class="doc-desc" data-zh="完整的 TypeDoc 参考 — 工具方法、MCP 运行时、CDP 绑定、权限管理与扩展服务。">Complete TypeDoc reference — utilities, MCP runtime, CDP bindings, permissions, and extension services.</p>
+        </div>
+        <span class="doc-arrow" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </span>
+      </a>
+
+      <a href="godoc/index.html" class="doc-row reveal">
+        <div>
+          <div class="doc-meta">
+            <span class="doc-tag">Go</span>
+            <span class="doc-title" data-zh="原生宿主与 CLI">Native Host &amp; CLI</span>
+          </div>
+          <p class="doc-desc" data-zh="Go 文档快照，涵盖原生消息宿主、MCP 服务器、SuperDuck CLI、桥接协议与内部包。">Go doc snapshots — native messaging host, MCP server, SuperDuck CLI, bridge protocol, and internal packages.</p>
+        </div>
+        <span class="doc-arrow" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </span>
+      </a>
+
+      <a href="https://www.npmjs.com/package/superduck-cli" target="_blank" rel="noopener" class="doc-row reveal">
+        <div>
+          <div class="doc-meta">
+            <span class="doc-tag">npm</span>
+            <span class="doc-title" data-zh="superduck-cli 包">superduck-cli package</span>
+          </div>
+          <p class="doc-desc" data-zh="发布到 npm 的 CLI 包，含 native binary 平台分发与 README 上手指南。">Published CLI with platform-specific native binaries and a README walk-through.</p>
+        </div>
+        <span class="doc-arrow" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CLOSING BAND ══════════════════════════════════ -->
+<section class="close-band">
+  <div class="wrap">
+    <h2 class="reveal" data-zh="模型壁垒、区域限制，<br/><em>Duck&nbsp;不必</em>。">Vendor locks. Region gates.<br/><em>Just duck it</em>.</h2>
+    <p class="reveal" data-zh="开源、克制、为高级用户打造。任意模型，任何浏览，今天就试试。">Open source. Restrained. Built for power users. Any model, any browse — try it today.</p>
+    <div class="hero-cta reveal">
+      <a href="https://www.npmjs.com/package/superduck-cli" class="btn btn-primary" target="_blank" rel="noopener" data-zh='安装 CLI<svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>'>
+        Install CLI
+        <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+      <a href="https://github.com/superduck-ai/superduck" class="btn btn-ghost" target="_blank" rel="noopener" data-zh='Star on GitHub<svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>'>
+        Star on GitHub
+        <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ════════════════════════════════════════ -->
+<footer>
+  <div class="wrap footer-inner">
+    <div data-zh="© SuperDuck · 开源 · ISC 许可">© SuperDuck · Open source · ISC licensed</div>
+    <div class="footer-links">
+      <a href="https://github.com/superduck-ai/superduck" target="_blank" rel="noopener">github</a>
+      <a href="https://www.npmjs.com/package/superduck-cli" target="_blank" rel="noopener">npm</a>
+      <a href="https://github.com/superduck-ai/superduck/releases" target="_blank" rel="noopener" data-zh="发布">releases</a>
+      <a href="https://github.com/superduck-ai/superduck/blob/main/LICENSE" target="_blank" rel="noopener" data-zh="许可证">license</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // ─── topbar shadow on scroll ─────────────────────────
+  const topbar = document.getElementById('topbar');
+  window.addEventListener('scroll', () => {
+    topbar.classList.toggle('scrolled', window.scrollY > 8);
+  }, { passive: true });
+
+  // ─── reveal on scroll (with stagger inside parent) ───
+  const reveal = (els) => {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const parent = entry.target.parentElement;
+        const siblings = parent ? Array.from(parent.querySelectorAll(':scope > .reveal, :scope > .reveal-line')) : [];
+        const idx = siblings.indexOf(entry.target);
+        entry.target.style.transitionDelay = `${Math.max(0, idx) * 0.07}s`;
+        entry.target.classList.add('in');
+        io.unobserve(entry.target);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    els.forEach(el => io.observe(el));
+  };
+  // Reveal hero immediately on load for impact
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.hero .reveal').forEach((el, i) => {
+      el.style.transitionDelay = `${0.1 + i * 0.09}s`;
+      el.classList.add('in');
+    });
+  });
+  reveal(document.querySelectorAll('.reveal:not(.hero .reveal), .reveal-line'));
+
+  // ─── copy install command ────────────────────────────
+  const copyBtn = document.getElementById('copy-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText('npm install -g superduck-cli');
+        const originalZh = copyBtn.dataset.zh;
+        const en = copyBtn.dataset.en;
+        const lang = document.documentElement.lang.startsWith('zh') ? 'zh' : 'en';
+        copyBtn.textContent = lang === 'zh' ? '已复制' : 'Copied';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.classList.remove('copied');
+          copyBtn.textContent = lang === 'zh' ? (originalZh || '复制') : (en || 'Copy');
+        }, 1600);
+      } catch (e) { /* ignore */ }
+    });
+  }
+
+  // ─── i18n (zh / en) ──────────────────────────────────
+  const I18N_META = {
+    zh: {
+      title: 'SuperDuck — AI 浏览器助手 | 任意模型，全球可用',
+      description: 'SuperDuck 是一款开源的 AI 浏览器助手 Chrome 扩展，全球可用，自由切换 Claude、DeepSeek、Qwen、Gemini、GPT 等任意模型。',
+      htmlLang: 'zh-CN',
+    },
+    en: {
+      title: 'SuperDuck — AI Browser Assistant | Any Model, Anywhere',
+      description: 'SuperDuck is an open-source AI browser assistant Chrome extension. Use any model — Claude, DeepSeek, Qwen, Gemini, GPT — anywhere in the world.',
+      htmlLang: 'en',
+    },
+  };
+  const i18nNodes = Array.from(document.querySelectorAll('[data-zh]'));
+  i18nNodes.forEach(el => { el.dataset.en = el.innerHTML; });
+
+  function setLang(lang) {
+    if (!I18N_META[lang]) lang = 'zh';
+    document.documentElement.lang = I18N_META[lang].htmlLang;
+    document.title = I18N_META[lang].title;
+    const desc = document.querySelector('meta[name="description"]');
+    if (desc) desc.setAttribute('content', I18N_META[lang].description);
+    i18nNodes.forEach(el => {
+      const v = el.dataset[lang];
+      if (typeof v === 'string') el.innerHTML = v;
+    });
+    document.querySelectorAll('.lang-toggle button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.lang === lang);
+      btn.setAttribute('aria-pressed', String(btn.dataset.lang === lang));
+    });
+    try { localStorage.setItem('sd-lang', lang); } catch (_) {}
+  }
+  document.querySelectorAll('.lang-toggle button').forEach(btn => {
+    btn.addEventListener('click', () => setLang(btn.dataset.lang));
+  });
+
+  let initialLang = 'zh';
+  try {
+    const saved = localStorage.getItem('sd-lang');
+    if (saved === 'zh' || saved === 'en') initialLang = saved;
+    else if (navigator.language && !navigator.language.toLowerCase().startsWith('zh')) initialLang = 'en';
+  } catch (_) {}
+  setLang(initialLang);
+</script>
+
+</body>
+</html>
