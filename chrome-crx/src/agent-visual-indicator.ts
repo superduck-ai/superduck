@@ -90,6 +90,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   let waterRippleAnimateFunc: (() => void) | null = null;
   let blockingOverlayEl: HTMLElement | null = null;
   let stopContainerEl: HTMLElement | null = null;
+  let stopContainerAnimFrame: number | null = null;
+  let stopContainerAnimateFunc: ((now: number) => void) | null = null;
   let staticIndicatorEl: HTMLElement | null = null;
   let isAgentActive = false;
   let isStaticIndicatorActive = false;
@@ -482,15 +484,130 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   // ============================================
 
   function createStopContainer(): HTMLElement {
-    const container = document.createElement('div');
-    container.id = 'superduck-agent-stop-container';
+    const darkMq = window.matchMedia('(prefers-color-scheme: dark)');
+    const getBorderColor = () => (darkMq.matches ? '#ffffff1a' : '#0000001a');
 
-    // ========== Parent: flex row, space-between ==========
-    container.style.cssText = `
+    // ========== Outer wrapper: positioning + rotating gradient clip ==========
+    const wrapper = document.createElement('div');
+    wrapper.id = 'superduck-agent-stop-container';
+    wrapper.style.cssText = `
       position: fixed;
       bottom: 116px;
       left: 50%;
       transform: translateX(-50%) translateY(100px);
+      padding: 2px;
+      border-radius: 42px;
+      overflow: clip;
+      pointer-events: auto;
+      z-index: 2147483647;
+      opacity: 0;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+      box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.06),
+        0 2px 6px rgba(0, 0, 0, 0.03);
+    `;
+
+    // ========== Moving border beam (BorderBeam style) ==========
+    const ringClip = document.createElement('div');
+    ringClip.style.cssText = `
+      position: absolute;
+      inset: 0;
+      border-radius: 42px;
+      overflow: clip;
+      padding: 2px;
+      -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 1;
+    `;
+
+    const beamLayer = document.createElement('div');
+    beamLayer.style.cssText = `
+      position: absolute;
+      width: 76px;
+      aspect-ratio: 1;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(148, 163, 184, 0.12) 12%,
+        rgba(191, 219, 254, 0.46) 28%,
+        rgba(147, 197, 253, 0.68) 42%,
+        rgba(248, 250, 252, 0.84) 52%,
+        rgba(125, 211, 252, 0.62) 64%,
+        rgba(59, 130, 246, 0.32) 82%,
+        transparent 100%
+      );
+      filter:
+        drop-shadow(0 0 2px rgba(255, 255, 255, 0.7))
+        drop-shadow(0 0 7px rgba(125, 211, 252, 0.34))
+        drop-shadow(0 0 14px rgba(96, 165, 250, 0.26));
+      opacity: 0.92;
+      offset-path: rect(0 auto auto 0 round 76px);
+      offset-distance: 20%;
+      pointer-events: none;
+    `;
+
+    // Port of Magic UI's BorderBeam motion model:
+    // a small beam travels on CSS offset-path, while a spring drives
+    // offset-distance from initialOffset to 100 + initialOffset each loop.
+    const initialOffset = 20;
+    const repeatDistance = 100;
+    const springStiffness = 60;
+    const springDamping = 20;
+    const settleEpsilon = 0.015;
+
+    let beamOffset = initialOffset;
+    let beamVelocity = 0;
+    let targetOffset = initialOffset + repeatDistance;
+    let lastFrameTime = 0;
+    let settleStartedAt = 0;
+
+    function springTick(now: number) {
+      if (!lastFrameTime) lastFrameTime = now;
+
+      const dt = Math.min((now - lastFrameTime) / 1000, 0.04);
+      lastFrameTime = now;
+
+      const distance = targetOffset - beamOffset;
+      const force = springStiffness * distance - springDamping * beamVelocity;
+      beamVelocity += force * dt;
+      beamOffset += beamVelocity * dt;
+
+      if (Math.abs(distance) < settleEpsilon && Math.abs(beamVelocity) < settleEpsilon) {
+        if (!settleStartedAt) settleStartedAt = now;
+      } else {
+        settleStartedAt = 0;
+      }
+
+      if (settleStartedAt && now - settleStartedAt > 140) {
+        targetOffset += repeatDistance;
+        settleStartedAt = 0;
+      }
+
+      beamLayer.style.offsetDistance = `${beamOffset}%`;
+      stopContainerAnimFrame = requestAnimationFrame(springTick);
+    }
+
+    stopContainerAnimateFunc = (now: number) => {
+      lastFrameTime = now;
+      springTick(now);
+    };
+    stopContainerAnimFrame = requestAnimationFrame(springTick);
+
+    ringClip.appendChild(beamLayer);
+
+    // ========== Inner container: layout + content ==========
+    const container = document.createElement('div');
+    container.style.cssText = `
+      position: relative;
+      z-index: 2;
       display: flex !important;
       flex-direction: row !important;
       flex-wrap: nowrap !important;
@@ -507,47 +624,40 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
       );
       backdrop-filter: blur(24px) saturate(1.8);
       -webkit-backdrop-filter: blur(24px) saturate(1.8);
-      border: 1px solid rgba(255, 255, 255, 0.55);
-      border-top-color: rgba(255, 255, 255, 0.8);
-      border-left-color: rgba(255, 255, 255, 0.65);
+      border: 1px solid ${getBorderColor()};
       border-radius: 40px;
       box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.06),
-        0 2px 6px rgba(0, 0, 0, 0.03),
         inset 0 1px 1px rgba(255, 255, 255, 0.9),
         inset 0 -1px 2px rgba(0, 0, 0, 0.03);
       pointer-events: auto;
-      z-index: 2147483647;
-      opacity: 0;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       user-select: none;
       white-space: nowrap;
     `;
 
-    const defaultBoxShadow = `
-      0 12px 40px rgba(0, 0, 0, 0.06),
-      0 2px 6px rgba(0, 0, 0, 0.03),
-      inset 0 1px 1px rgba(255, 255, 255, 0.9),
-      inset 0 -1px 2px rgba(0, 0, 0, 0.03)
-    `;
-    const hoverBoxShadow = `
-      0 0 12px rgba(230, 160, 90, 0.5),
-      0 0 28px rgba(230, 140, 85, 0.3),
-      0 0 48px rgba(255, 180, 120, 0.2),
-      0 12px 40px rgba(0, 0, 0, 0.06),
-      inset 0 1px 1px rgba(255, 255, 255, 0.9),
-      inset 0 -1px 2px rgba(0, 0, 0, 0.03)
-    `;
-
-    container.addEventListener('mouseenter', () => {
-      container.style.boxShadow = hoverBoxShadow;
-      container.style.borderColor = 'rgba(230, 160, 90, 0.4)';
+    darkMq.addEventListener('change', () => {
+      container.style.borderColor = getBorderColor();
     });
 
-    container.addEventListener('mouseleave', () => {
-      container.style.boxShadow = defaultBoxShadow;
-      container.style.borderColor = 'rgba(255, 255, 255, 0.55)';
+    const defaultWrapperShadow = `
+      0 12px 40px rgba(0, 0, 0, 0.06),
+      0 2px 6px rgba(0, 0, 0, 0.03)
+    `;
+    const hoverWrapperShadow = `
+      0 0 14px rgba(230, 160, 90, 0.38),
+      0 0 32px rgba(255, 190, 120, 0.22),
+      0 12px 40px rgba(0, 0, 0, 0.08),
+      0 2px 8px rgba(0, 0, 0, 0.05)
+    `;
+
+    wrapper.addEventListener('mouseenter', () => {
+      wrapper.style.boxShadow = hoverWrapperShadow;
+      container.style.borderColor = getBorderColor();
+    });
+
+    wrapper.addEventListener('mouseleave', () => {
+      wrapper.style.boxShadow = defaultWrapperShadow;
+      container.style.borderColor = getBorderColor();
     });
 
     // ========== Child A (left group): emoji + text + dots ==========
@@ -665,10 +775,12 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
       }
     });
 
-    // Two children only: leftGroup + takeOverBtn
+    // Assemble: wrapper > [ringClip > gradientLayer, container > [leftGroup, takeOverBtn]]
     container.appendChild(leftGroup);
     container.appendChild(takeOverBtn);
-    return container;
+    wrapper.appendChild(ringClip);
+    wrapper.appendChild(container);
+    return wrapper;
   }
 
   // ============================================
@@ -679,9 +791,7 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     const container = document.createElement('div');
     container.id = 'superduck-static-indicator-container';
     container.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; flex-shrink: 0; margin-right: 8px;">
-        <path d="M3.13946 10.6399L6.28757 8.87462L6.37405 8.73821L6.28757 8.6339H6.13189L5.60432 8.6018L3.80541 8.55366L2.24865 8.48947L0.735135 8.40923H0.492973L0.354595 8.32899L0.181622 8.1685L0.0345946 8.01605L0 7.85557L0.0345946 7.62287L0.138378 7.44634L0.224865 7.40622H0.354595L0.812973 7.44634L1.82486 7.51856L3.34703 7.62287L4.44541 7.68706L6.08 7.85557H6.33946L6.37405 7.75125L6.28757 7.68706L6.21838 7.62287L4.64432 6.55567L2.94054 5.4323L2.04973 4.78235L1.57405 4.45336L1.33189 4.14845L1.22811 3.92377L1.17622 3.69107L1.22811 3.47442L1.33189 3.28185L1.46162 3.13741L1.66054 2.99298H1.87676L2.24865 3.0331L2.39568 3.07322L2.99243 3.53059L4.26378 4.51755L5.92432 5.73721L6.16649 5.93781H6.27892V5.82548L6.16649 5.64092L5.26703 4.01204L4.30703 2.35105L3.87459 1.66098L3.76216 1.25176C3.7391 1.16082 3.69297 0.977332 3.69297 0.970913V0.762287L3.77946 0.505517L3.93513 0.240722L4.18595 0.0882648L4.4627 0H4.67892L4.83459 0.0240722L5.12865 0.0882648L5.4054 0.328987L5.82054 1.27583L6.48649 2.76028L7.52432 4.78235L7.82703 5.38415L7.99135 5.93781L8.05189 6.10632H8.15567V6.01003L8.24216 4.87061L8.39784 3.47442L8.55351 1.67703L8.6054 1.17151L8.85622 0.561685L8.9773 0.417252L9.21946 0.232698H9.35784L9.74703 0.417252L9.97189 0.665998L10.067 0.874624L10.0238 1.17151L9.83351 2.40722L9.46162 4.34102L9.21946 5.64092H9.35784L9.52216 5.47242L10.1795 4.60582L11.2778 3.22568L11.7622 2.68004L12.333 2.07823L12.6962 1.78937L13.0162 1.67703L13.3881 1.78937L13.7168 2.06219L13.8897 2.54363V2.76028L13.6649 3.32197L12.9557 4.22066L12.3676 4.98295L12.0043 5.56871L11.0011 7.02106V7.08526H11.1741L13.0768 6.67603L14.1059 6.49147L15.3341 6.28285L15.5762 6.34704L15.8876 6.53962L15.9481 6.80441L15.8876 7.12538L15.7319 7.34203L14.4173 7.66299L12.8778 7.97593L10.5854 8.51559C10.5705 8.51909 10.56 8.53236 10.56 8.54764C10.56 8.56468 10.573 8.57891 10.59 8.58044L11.6238 8.67402L12.0649 8.69809H13.1459L15.1611 8.85055L15.6886 9.19559L15.9481 9.39619L16 9.62086L15.9481 9.94985L15.8443 10.1023L15.4119 10.3029L15.1351 10.3591L14.0454 10.1023L11.4941 9.49248L10.6205 9.27583H10.4995V9.34804L11.2259 10.0622L12.5665 11.2658L14.2357 12.8225L14.3222 13.0953V13.2076L14.1059 13.5125L13.9243 13.5206L13.8811 13.4804L12.4108 12.3731L12.2984 12.325L11.84 11.8756L10.56 10.7924H10.4735V10.9047L10.7676 11.338L12.333 13.6891L12.4108 14.4112L12.2984 14.6439L11.8919 14.7884L11.667 14.7563L11.4508 14.7081L11.2605 14.5396L10.5254 13.4162L9.5827 11.9719L8.82162 10.672H8.79342C8.76039 10.672 8.73278 10.6972 8.7297 10.73L8.27676 15.5667L8.06919 15.8154L7.6454 16H7.58486L7.17838 15.6951L6.96216 15.1976L7.17838 14.2106L7.43784 12.9268L7.6454 11.9077L7.83567 10.6399L7.95187 10.2164C7.9548 10.2057 7.95069 10.1944 7.94161 10.1881C7.91157 10.1672 7.87034 10.1741 7.84878 10.2037L6.89297 11.5145L5.44 13.4804L4.28973 14.7081L4.01297 14.8205H3.80541L3.5373 14.5717V14.4514L3.58054 14.1304L3.84865 13.7372L5.44 11.7151L6.4 10.4554L7.01872 9.73222C7.04511 9.70139 7.04245 9.65523 7.0127 9.62763C7.00333 9.61894 6.98925 9.61773 6.97854 9.62471L2.75027 12.3811L1.99784 12.4774L1.66919 12.1725L1.71243 11.675L1.86811 11.5145L3.13946 10.6399Z" fill="#D97757"/>
-      </svg>
+      <span style="width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; flex-shrink: 0; margin-right: 8px; font-size: 16px; line-height: 1;" aria-hidden="true">🦆</span>
       <span style="vertical-align: middle; color: #141413; font-size: 14px; display: inline-block;">SuperDuck is active in this tab group</span>
       <div style="display: inline-block; width: 0.5px; height: 32px; background: rgba(31, 30, 29, 0.15); margin: 0 8px; vertical-align: middle;"></div>
       <button id="superduck-static-chat-button" style="position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 6px; background: transparent; border: none; cursor: pointer; pointer-events: auto; vertical-align: middle; width: 32px; height: 32px; border-radius: 8px; transition: background 0.2s;">
@@ -902,6 +1012,11 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
             clearInterval(ellipsisInterval);
             ellipsisInterval = null;
           }
+          if (stopContainerAnimFrame) {
+            cancelAnimationFrame(stopContainerAnimFrame);
+            stopContainerAnimFrame = null;
+          }
+          stopContainerAnimateFunc = null;
           stopContainerEl.parentNode.removeChild(stopContainerEl);
           stopContainerEl = null;
         }
@@ -1028,6 +1143,10 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
               cancelAnimationFrame(waterRippleAnimationId);
               waterRippleAnimationId = null;
             }
+            if (stopContainerAnimFrame) {
+              cancelAnimationFrame(stopContainerAnimFrame);
+              stopContainerAnimFrame = null;
+            }
             if (ellipsisInterval) {
               clearInterval(ellipsisInterval);
               ellipsisInterval = null;
@@ -1080,6 +1199,9 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
 
               if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
                 waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
+              }
+              if (stopContainerEl && !stopContainerAnimFrame && stopContainerAnimateFunc) {
+                stopContainerAnimFrame = requestAnimationFrame(stopContainerAnimateFunc);
               }
               if (stopContainerEl && !ellipsisInterval) {
                 const dotsEl = stopContainerEl.querySelector('span:last-of-type');
