@@ -97,15 +97,54 @@ export function formatCompactDiff(
     } else if (p.removed) {
       removed += lines.length;
       for (const line of lines) out.push('-' + line);
-    } else if (lines.length > 3) {
-      out.push(' ' + lines[0]);
-      out.push(`... (${lines.length - 2} unchanged) ...`);
-      out.push(' ' + lines[lines.length - 1]);
     } else {
-      for (const line of lines) out.push(' ' + line);
+      // 未变化区块：尝试 tree-level 折叠
+      const collapsed = collapseUnchangedSubtrees(lines);
+      for (const line of collapsed) out.push(' ' + line);
     }
   }
   return { added, removed, body: out.join('\n') };
+}
+
+function getIndentLevel(line: string): number {
+  const match = line.match(/^(\s*)/);
+  return match ? match[1].length : 0;
+}
+
+function collapseUnchangedSubtrees(lines: string[]): string[] {
+  if (lines.length <= 5) return lines;
+
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const indent = getIndentLevel(line);
+
+    // 找出这棵子树的范围（缩进大于当前行的连续后续行）
+    let subtreeEnd = i + 1;
+    while (subtreeEnd < lines.length && getIndentLevel(lines[subtreeEnd]) > indent) {
+      subtreeEnd++;
+    }
+    const subtreeSize = subtreeEnd - i;
+
+    if (subtreeSize > 4) {
+      // 大子树：只保留根行 + 折叠提示
+      const refMatch = line.match(/ref=ref_\d+/);
+      if (refMatch) {
+        result.push(`${line} [${subtreeSize - 1} children unchanged]`);
+      } else {
+        result.push(line);
+        result.push(`${' '.repeat(indent + 2)}... (${subtreeSize - 1} unchanged children) ...`);
+      }
+      i = subtreeEnd;
+    } else {
+      result.push(line);
+      i++;
+    }
+  }
+
+  return result;
 }
 
 const SNAPSHOT_LISTENERS_INSTALLED = Symbol.for('chrome-crx.snapshot-cache.listeners-installed');

@@ -582,6 +582,47 @@ function stripSystemReminders(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim();
 }
 
+function textMatchFallback(
+  treeContent: string,
+  query: string
+): ToolResult {
+  const queryTerms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  if (queryTerms.length === 0) return { error: 'Query is empty' };
+
+  const lines = treeContent.split('\n');
+  const scored: Array<{ line: string; ref: string; score: number }> = [];
+
+  for (const line of lines) {
+    const refMatch = line.match(/ref=(ref_\d+)/);
+    if (!refMatch) continue;
+    const lower = line.toLowerCase();
+    let score = 0;
+    for (const term of queryTerms) {
+      if (lower.includes(term)) score++;
+    }
+    if (score > 0) {
+      scored.push({ line: line.trim(), ref: refMatch[1], score });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored.slice(0, 20);
+
+  if (top.length === 0) {
+    return { error: `No matching elements found for "${query}"` };
+  }
+
+  const resultLines = top.map(
+    (m) => `- ${m.ref}: ${m.line.replace(/\[ref=ref_\d+\]/, '').trim()}`
+  );
+  return {
+    output: `Found ${scored.length} matching element${scored.length === 1 ? '' : 's'} (showing ${top.length}):\n\n${resultLines.join('\n')}`
+  };
+}
+
 const findTool: ToolDefinition<FindToolInput> = {
   name: 'find',
   description:
@@ -647,8 +688,10 @@ const findTool: ToolDefinition<FindToolInput> = {
 
       const pageData = treeResult[0].result;
       const createApiMessage = context?.createApiMessage;
-      if (!createApiMessage)
-        throw new Error('API client not available. Please check your API configuration.');
+      if (!createApiMessage) {
+        // 文本匹配兜底：无 sub-model 时用简单字符串匹配
+        return textMatchFallback(pageData.pageContent, query);
+      }
 
       pageData.pageContent.length; // side effect from original
 

@@ -5034,6 +5034,15 @@ export function SidepanelApp() {
           `Current model: ${selectedModel || 'default'}.`,
           `Permission mode: ${permissionMode}.`,
           `Platform: ${platform}. Use ${modifier} for shortcut modifier keys.`,
+          '',
+          'CLICK WORKFLOW (IMPORTANT):',
+          '1. Call read_page (filter: interactive) to get element refs (ref_1, ref_2, etc.)',
+          '2. Identify the target element by its ref from the accessibility tree',
+          '3. Call computer with action: left_click and ref: "ref_N" (NOT coordinate)',
+          '4. Refs are invalidated after page navigation — call read_page again after clicks that navigate',
+          'NEVER use screenshot coordinates for clicking. ALWAYS use ref from read_page.',
+          'Only use coordinate as absolute last resort for canvas/image-map elements that have no ref.',
+          '',
           'Before your final natural-language response, call turn_answer_start once for that turn.'
         ].join('\n')
       }

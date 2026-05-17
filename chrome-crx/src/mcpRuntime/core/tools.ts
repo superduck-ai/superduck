@@ -18,6 +18,7 @@ import {
   turnAnswerStartTool,
   updatePlanTool,
   uploadImageTool,
+  batchTool,
   type ToolContext,
   type ToolDefinition,
   type ToolResult
@@ -497,6 +498,7 @@ export function getAllTools(): ToolRegistryEntry[] {
       shortcutsListTool,
       shortcutsGetTool,
       shortcutsExecuteTool,
+      batchTool,
       ...superduckTools
     ];
   }
@@ -525,6 +527,7 @@ export const allTools: ToolRegistryEntry[] = [
   shortcutsListTool,
   shortcutsGetTool,
   shortcutsExecuteTool,
+  batchTool,
   ...superduckTools
 ];
 

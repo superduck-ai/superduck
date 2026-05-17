@@ -23,3 +23,4 @@ export {
 export type { ToolContext, ToolResult, ToolDefinition } from './pageTools';
 export { computerTool, formInputTool } from './inputTools';
 export { uploadImageTool, gifCreatorTool } from './mediaTools';
+export { batchTool } from './batchTool';

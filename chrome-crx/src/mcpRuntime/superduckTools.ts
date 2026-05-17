@@ -3,6 +3,7 @@
 // so it must follow the user's actual focus, not the panel's pinned group.
 
 import type { ToolDefinition } from './pageTools';
+import { cdpDebugger } from './cdp';
 
 interface ActiveContextArgs {
   tabId?: number;
@@ -56,6 +57,8 @@ interface ToolScriptResult {
   text?: string;
   value?: string;
   key?: string;
+  x?: number;
+  y?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -407,6 +410,8 @@ export const superduckClickTool: ToolDefinition<ClickArgs> = {
       const selector = args?.selector ? String(args.selector) : '';
       const text = args?.text ? String(args.text) : '';
       if (!selector && !text) return { error: 'selector or text is required' };
+
+      // Step 1: 找到元素并返回坐标（不在 content script 中点击）
       const _results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         args: [selector, text],
@@ -418,7 +423,7 @@ export const superduckClickTool: ToolDefinition<ClickArgs> = {
           } else {
             const needle = text.toLowerCase();
             const candidates = document.querySelectorAll(
-              'a,button,input,[role=button],[role=link]'
+              'a,button,input,[role=button],[role=link],[role=tab],[role=menuitem],label,summary,select,textarea,[onclick],[tabindex]'
             );
             for (const c of Array.from(candidates)) {
               const t = (c.textContent || '').trim().toLowerCase();
@@ -432,16 +437,24 @@ export const superduckClickTool: ToolDefinition<ClickArgs> = {
             if (!el) return { ok: false, reason: `no clickable element matches text: ${text}` };
           }
           (el as HTMLElement).scrollIntoView({ block: 'center' });
-          (el as HTMLElement).click();
+          if (el instanceof HTMLElement) el.offsetHeight; // force reflow
+          const rect = el.getBoundingClientRect();
           return {
             ok: true,
             tag: el.tagName.toLowerCase(),
-            text: (el.textContent || '').trim().slice(0, 80)
+            text: (el.textContent || '').trim().slice(0, 80),
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2)
           };
         }
       });
       const r = isToolScriptResult(_results?.[0]?.result) ? _results[0].result : undefined;
       if (!r?.ok) return { error: r?.reason || 'click failed' };
+
+      if (typeof r.x === 'number' && typeof r.y === 'number') {
+        await cdpDebugger.click(tab.id, r.x, r.y, 'left', 1, 0);
+      }
+
       return { output: JSON.stringify({ tabId: tab.id, ...r }) };
     } catch (err) {
       return {

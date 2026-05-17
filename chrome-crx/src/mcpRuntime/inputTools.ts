@@ -1,5 +1,5 @@
 import { PermissionActionType } from '../extensionServices';
-import { PermissionTools, checkUrlSecurity, screenshotContextManager } from './shared';
+import { PermissionTools, checkUrlSecurity, screenshotContextManager, waitForTabLoading } from './shared';
 import { tabGroupManager } from './tabState';
 import {
   cdpDebugger,
@@ -16,7 +16,8 @@ import type {
   CdpPageFrameTreeNode,
   CdpPageGetFrameTreeResult
 } from './cdpTypes';
-import { resolveStaleRef, getRefBackendNodeId } from './refBridge';
+import { resolveStaleRef, getRefBackendNodeId, getRefRole, getRefMetaByTab } from './refBridge';
+import { captureAnnotatedScreenshot } from './annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 
 interface ComputerToolParams {
@@ -32,6 +33,7 @@ interface ComputerToolParams {
   ref?: string;
   modifiers?: string;
   tabId?: number;
+  annotate?: boolean;
 }
 
 interface ClickOptions {
@@ -98,7 +100,7 @@ type PermissionManagerLike = ToolContext['permissionManager'];
 const computerTool: ToolDefinition<ComputerToolParams> = {
   name: 'computer',
   description:
-    "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* The screen's resolution is {self.display_width_px}x{self.display_height_px}.\n* Whenever you intend to click on an element like an icon, you should consult a screenshot to determine the coordinates of the element before moving the cursor.\n* If you tried clicking on a program or link but it failed to load, even after waiting, try adjusting your click location so that the tip of the cursor visually falls on the element that you want to click.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
+    "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* The screen's resolution is {self.display_width_px}x{self.display_height_px}.\n* For click actions, ALWAYS prefer using `ref` from read_page or find tools. ref-based clicks are more accurate and work with all AI models. Workflow: call read_page first to get element refs, then click using the ref.\n* Only use `coordinate` as a last resort when ref is unavailable (e.g., canvas, image maps, or custom-rendered graphics).\n* If you tried clicking on a program or link but it failed to load, even after waiting, try calling read_page again to get fresh refs and retry.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
   parameters: {
     action: {
       type: 'string',
@@ -118,7 +120,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         'hover'
       ],
       description:
-        'The action to perform:\n* `left_click`: Click the left mouse button at the specified coordinates.\n* `right_click`: Click the right mouse button at the specified coordinates to open context menus.\n* `double_click`: Double-click the left mouse button at the specified coordinates.\n* `triple_click`: Triple-click the left mouse button at the specified coordinates.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region and scale it to fill the viewport.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse cursor to the specified coordinates or element without clicking. Useful for revealing tooltips, dropdown menus, or triggering hover states.'
+        'The action to perform:\n* `left_click`: Click an element. Use `ref` from read_page (preferred) or `coordinate` as fallback.\n* `right_click`: Right-click an element. Use `ref` (preferred) or `coordinate`.\n* `double_click`: Double-click an element. Use `ref` (preferred) or `coordinate`.\n* `triple_click`: Triple-click an element. Use `ref` (preferred) or `coordinate`.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region and scale it to fill the viewport.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse cursor to the specified coordinates or element without clicking. Useful for revealing tooltips, dropdown menus, or triggering hover states.'
     },
     coordinate: {
       type: 'array',
@@ -126,7 +128,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
       minItems: 2,
       maxItems: 2,
       description:
-        '(x, y): The x (pixels from the left edge) and y (pixels from the top edge) coordinates. Required for `scroll` and `left_click_drag`. For click actions (left_click, right_click, double_click, triple_click), either `coordinate` or `ref` must be provided (not both).'
+        '(x, y): Fallback coordinate method — only use when ref is unavailable (canvas, image maps, custom-rendered graphics). The x (pixels from the left edge) and y (pixels from the top edge) coordinates. Required for `scroll` and `left_click_drag`. For click actions, prefer `ref` instead.'
     },
     text: {
       type: 'string',
@@ -175,7 +177,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
     ref: {
       type: 'string',
       description:
-        'Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Required for `scroll_to` action. Can be used as alternative to `coordinate` for click actions (left_click, right_click, double_click, triple_click).'
+        'PREFERRED: Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Always prefer ref over coordinate for clicks — it is more accurate and model-independent. Required for `scroll_to` action. For click actions (left_click, right_click, double_click, triple_click), use ref instead of coordinate whenever possible.'
     },
     modifiers: {
       type: 'string',
@@ -186,6 +188,11 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
       type: 'number',
       description:
         "Tab ID to execute the action on. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
+    },
+    annotate: {
+      type: 'boolean',
+      description:
+        'For screenshot action only. When true, overlays numbered labels on interactive elements. Each number maps to a ref_N from read_page. Use this to visually identify elements before clicking by ref.'
     }
   },
   execute: async (params: ComputerToolParams, context: ToolContext): Promise<ToolResult> => {
@@ -295,7 +302,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             toolParams,
             1,
             requireCurrentUrl(),
-            clickOptions
+            clickOptions,
+            context.permissionManager
           );
           break;
 
@@ -304,7 +312,20 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           break;
 
         case 'screenshot':
-          result = await executeScreenshot(effectiveTabId, clickOptions);
+          if (toolParams.annotate) {
+            const annotated = await captureAnnotatedScreenshot(effectiveTabId);
+            if (annotated) {
+              result = {
+                output: `Annotated screenshot with ${annotated.annotations.length} labeled elements:\n${annotated.legend}`,
+                base64Image: annotated.base64Image,
+                imageFormat: annotated.imageFormat
+              };
+            } else {
+              result = await executeScreenshot(effectiveTabId, clickOptions);
+            }
+          } else {
+            result = await executeScreenshot(effectiveTabId, clickOptions);
+          }
           break;
 
         case 'wait':
@@ -334,7 +355,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             toolParams,
             2,
             requireCurrentUrl(),
-            clickOptions
+            clickOptions,
+            context.permissionManager
           );
           break;
 
@@ -344,7 +366,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             toolParams,
             3,
             requireCurrentUrl(),
-            clickOptions
+            clickOptions,
+            context.permissionManager
           );
           break;
 
@@ -388,7 +411,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
   toProviderSchema: async () => ({
     name: 'computer',
     description:
-      "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* Whenever you intend to click on an element like an icon, you should consult a screenshot to determine the coordinates of the element before moving the cursor.\n* If you tried clicking on a program or link but it failed to load, even after waiting, try adjusting your click location so that the tip of the cursor visually falls on the element that you want to click.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
+      "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* For click actions, ALWAYS prefer using `ref` from read_page or find tools. ref-based clicks are more accurate and work with all AI models. Workflow: call read_page first to get element refs, then click using the ref.\n* Only use `coordinate` as a last resort when ref is unavailable (e.g., canvas, image maps, or custom-rendered graphics).\n* If you tried clicking on a program or link but it failed to load, even after waiting, try calling read_page again to get fresh refs and retry.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
     input_schema: {
       type: 'object',
       properties: {
@@ -410,7 +433,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             'hover'
           ],
           description:
-            'The action to perform:\n* `left_click`: Click the left mouse button at the specified coordinates.\n* `right_click`: Click the right mouse button at the specified coordinates to open context menus.\n* `double_click`: Double-click the left mouse button at the specified coordinates.\n* `triple_click`: Triple-click the left mouse button at the specified coordinates.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region for closer inspection.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse cursor to the specified coordinates or element without clicking. Useful for revealing tooltips, dropdown menus, or triggering hover states.'
+            'The action to perform:\n* `left_click`: Click an element. Use `ref` from read_page (preferred) or `coordinate` as fallback.\n* `right_click`: Right-click an element. Use `ref` (preferred) or `coordinate`.\n* `double_click`: Double-click an element. Use `ref` (preferred) or `coordinate`.\n* `triple_click`: Triple-click an element. Use `ref` (preferred) or `coordinate`.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region for closer inspection.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse cursor to the specified coordinates or element without clicking. Useful for revealing tooltips, dropdown menus, or triggering hover states.'
         },
         coordinate: {
           type: 'array',
@@ -418,7 +441,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           minItems: 2,
           maxItems: 2,
           description:
-            '(x, y): The x (pixels from the left edge) and y (pixels from the top edge) coordinates. Required for `left_click`, `right_click`, `double_click`, `triple_click`, and `scroll`. For `left_click_drag`, this is the end position.'
+            '(x, y): Fallback coordinate method — only use when ref is unavailable (canvas, image maps, custom-rendered graphics). The x (pixels from the left edge) and y (pixels from the top edge) coordinates. Required for `left_click`, `right_click`, `double_click`, `triple_click`, and `scroll`. For `left_click_drag`, this is the end position. For click actions, prefer `ref` instead.'
         },
         text: {
           type: 'string',
@@ -467,7 +490,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         ref: {
           type: 'string',
           description:
-            'Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Required for `scroll_to` action. Can be used as alternative to `coordinate` for click actions.'
+            'PREFERRED: Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Always prefer ref over coordinate for clicks — it is more accurate and model-independent. Required for `scroll_to` action. For click actions, use ref instead of coordinate whenever possible.'
         },
         modifiers: {
           type: 'string',
@@ -478,6 +501,11 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           type: 'number',
           description:
             "Tab ID to execute the action on. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
+        },
+        annotate: {
+          type: 'boolean',
+          description:
+            'For screenshot action only. When true, overlays numbered labels on interactive elements. Each number maps to a ref_N from read_page.'
         }
       },
       required: ['action', 'tabId']
@@ -610,8 +638,8 @@ async function getFrameOffsetForNode(
   }
 }
 
-async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollToRefResult> {
-  const scrollScript = (elementRef: string) => {
+async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?: { block: string; inline: string }): Promise<ScrollToRefResult> {
+  const scrollScript = (elementRef: string, alignment: { block: string; inline: string } | null) => {
     try {
       let element: Element | null = null;
       if (window.__superduckElementMap?.[elementRef]) {
@@ -629,14 +657,15 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
         };
       }
 
+      const align = alignment || { block: 'center', inline: 'center' };
       element.scrollIntoView({
         behavior: 'instant',
-        block: 'center',
-        inline: 'center'
+        block: align.block as ScrollLogicalPosition,
+        inline: align.inline as ScrollLogicalPosition
       });
 
       if (element instanceof HTMLElement) {
-        element.offsetHeight; // force reflow
+        element.offsetHeight;
       }
 
       const rect = element.getBoundingClientRect();
@@ -652,50 +681,90 @@ async function scrollToElementByRef(tabId: number, ref: string): Promise<ScrollT
   };
 
   try {
-    const result = await execWithStaleRecovery<ScrollToRefResult, [string]>(
+    const result = await execWithStaleRecovery<ScrollToRefResult, [string, { block: string; inline: string } | null]>(
       tabId,
       ref,
       scrollScript,
-      [ref],
+      [ref, scrollAlignment ?? null],
       isScrollToRefResult
     );
 
     if (!result) {
       return { success: false, error: 'Failed to execute script to get element coordinates' };
     }
-    if (!result.success) return result;
 
-    // 统一以 backendNodeId 为基准计算坐标，保证 iframe 与主框架一致：
-    // 1) 优先 CDP DOM.getContentQuads（对 CSS transform/clip 更稳），否则退回 content script 返回的
-    //    iframe-local 坐标；
-    // 2) 两者都是节点所在 document 的本地坐标，最后叠加该 document 相对主框架的累积 offset，
-    //    得到主框架坐标供上层 left_click 使用。
     const backendNodeId = getRefBackendNodeId(tabId, ref);
-    let localCoords: [number, number] | null = result.coordinates ?? null;
+
+    // content script 找不到元素但有 backendNodeId 时，跳过 content script 错误，走 CDP 路径
+    if (!result.success && backendNodeId !== null) {
+      console.info(`[scrollToRef] content script failed (${result.error}), but have backendNodeId=${backendNodeId}, trying CDP path`);
+      // 先用 CDP 滚动元素到可见区域
+      try {
+        await cdpDebugger.sendCommand(tabId, 'DOM.scrollIntoViewIfNeeded', { backendNodeId });
+      } catch {
+        // scrollIntoViewIfNeeded 失败不阻断流程
+      }
+    } else if (!result.success) {
+      return result;
+    }
+
+    let localCoords: [number, number] | null = result.success ? (result.coordinates ?? null) : null;
+    console.info(`[scrollToRef] ref=${ref}, backendNodeId=${backendNodeId}, contentScript coords=${localCoords}`);
 
     if (backendNodeId !== null) {
       try {
-        const quads = await cdpDebugger.sendCommand<CdpDomGetContentQuadsResult>(
-          tabId,
-          'DOM.getContentQuads',
-          { backendNodeId }
-        );
-        const quad = quads?.quads?.[0];
-        if (quad) {
-          localCoords = [
-            (quad[0] + quad[2] + quad[4] + quad[6]) / 4,
-            (quad[1] + quad[3] + quad[5] + quad[7]) / 4
-          ];
+        // 等待元素位置稳定（2 帧连续相同），防止动画/过渡中点击偏移
+        let stableCoords: [number, number] | null = null;
+        let prevQuad: number[] | null = null;
+        let consecutiveStable = 0;
+        for (let frame = 0; frame < 10; frame++) {
+          const quads = await cdpDebugger.sendCommand<CdpDomGetContentQuadsResult>(
+            tabId,
+            'DOM.getContentQuads',
+            { backendNodeId }
+          );
+          const quad = quads?.quads?.[0];
+          if (!quad) break;
+          if (prevQuad && quad.length === prevQuad.length && quad.every((v, i) => v === prevQuad![i])) {
+            consecutiveStable++;
+            if (consecutiveStable >= 2) {
+              stableCoords = [
+                (quad[0] + quad[2] + quad[4] + quad[6]) / 4,
+                (quad[1] + quad[3] + quad[5] + quad[7]) / 4
+              ];
+              break;
+            }
+          } else {
+            consecutiveStable = 0;
+          }
+          prevQuad = [...quad];
+          await new Promise((r) => setTimeout(r, 16));
+        }
+
+        if (stableCoords) {
+          console.info(`[scrollToRef] stable after CDP quads: (${stableCoords[0].toFixed(1)}, ${stableCoords[1].toFixed(1)})`);
+          localCoords = stableCoords;
+        } else {
+          // 超时未稳定，取最后一次 quads 的中心
+          if (prevQuad && prevQuad.length >= 8) {
+            localCoords = [
+              (prevQuad[0] + prevQuad[2] + prevQuad[4] + prevQuad[6]) / 4,
+              (prevQuad[1] + prevQuad[3] + prevQuad[5] + prevQuad[7]) / 4
+            ];
+          }
         }
       } catch {
         // 使用 content script 返回的本地坐标
       }
 
       const offset = await getFrameOffsetForNode(tabId, backendNodeId);
+      console.info(`[scrollToRef] frameOffset=${JSON.stringify(offset)}, localCoords=${localCoords}`);
       if (offset && localCoords) {
+        const finalCoords: [number, number] = [localCoords[0] + offset.x, localCoords[1] + offset.y];
+        console.info(`[scrollToRef] final=(${finalCoords[0].toFixed(1)}, ${finalCoords[1].toFixed(1)})`);
         return {
           success: true,
-          coordinates: [localCoords[0] + offset.x, localCoords[1] + offset.y]
+          coordinates: finalCoords
         };
       }
       // offset 解析失败且元素在 iframe：本地坐标不可直接用于主框架点击。仍返回本地坐标，
@@ -771,36 +840,110 @@ async function executeClick(
   params: ComputerToolParams,
   clickCount: number = 1,
   currentUrl?: string,
-  options?: ClickOptions
+  options?: ClickOptions,
+  permissionManager?: PermissionManagerLike
 ): Promise<ToolResult> {
-  let x: number;
-  let y: number;
+  let x = 0;
+  let y = 0;
 
   if (params.ref) {
-    const refResult = await scrollToElementByRef(tabId, params.ref);
-    if (!refResult.success) return { error: refResult.error };
-    [x, y] = refResult.coordinates!;
+    console.info(`[Click] ref=${params.ref}`);
+    const backendNodeId = getRefBackendNodeId(tabId, params.ref);
+    console.info(`[Click] backendNodeId=${backendNodeId}`);
+    const SCROLL_ALIGNMENTS: Array<{ block: ScrollLogicalPosition; inline: ScrollLogicalPosition }> = [
+      { block: 'center', inline: 'center' },
+      { block: 'end', inline: 'end' },
+      { block: 'start', inline: 'start' }
+    ];
+
+    let resolved = false;
+    for (const alignment of SCROLL_ALIGNMENTS) {
+      const refResult = await scrollToElementByRef(tabId, params.ref, alignment);
+      if (!refResult.success) {
+        console.info(`[Click] scrollToElementByRef FAILED: ${refResult.error}`);
+        return { error: refResult.error };
+      }
+      [x, y] = refResult.coordinates!;
+      console.info(`[Click] alignment=${alignment.block} → coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
+
+      if (backendNodeId !== null) {
+        try {
+          const hitResult = await cdpDebugger.sendCommand<{ backendNodeId: number; nodeId: number }>(
+            tabId, 'DOM.getNodeForLocation',
+            { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }
+          );
+          console.info(`[Click] hitTest: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, match=${hitResult?.backendNodeId === backendNodeId}`);
+          if (hitResult?.backendNodeId === backendNodeId) {
+            resolved = true;
+            break;
+          }
+          console.info(`[Click] hit-target mismatch: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, retrying with ${alignment.block}`);
+        } catch (e) {
+          console.info(`[Click] hitTest error: ${e instanceof Error ? e.message : 'unknown'}, proceeding`);
+          resolved = true;
+          break;
+        }
+      } else {
+        console.info(`[Click] no backendNodeId, skipping hitTest`);
+        resolved = true;
+        break;
+      }
+    }
+    if (!resolved) {
+      console.info(`[Click] all 3 alignments failed hitTest, using last coords`);
+      console.warn(`[Click] hit-target verification failed for ref=${params.ref}, proceeding with last coords`);
+    }
+    console.info(`[Click] final coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
     console.info(`[Click] ref=${params.ref} → resolved coords=(${x}, ${y})`);
-  } else {
-    if (!params.coordinate)
-      throw new Error('Either ref or coordinate parameter is required for click action');
+  } else if (params.coordinate) {
+    console.info(`[Click] AI passed coordinate=(${params.coordinate[0]}, ${params.coordinate[1]}), attempting auto-ref-match`);
     [x, y] = params.coordinate;
     const context = screenshotContextManager.getContext(tabId);
     if (context) {
       const [mappedX, mappedY] = screenshotToViewportCoords(x, y, context);
-      console.info(
-        `[Click] screenshot coords=(${x}, ${y}) → viewport coords=(${mappedX}, ${mappedY}) ` +
-          `context={vp:${context.viewportWidth}x${context.viewportHeight}, ss:${context.screenshotWidth}x${context.screenshotHeight}} ` +
-          `scaleX=${(context.viewportWidth / context.screenshotWidth).toFixed(4)} ` +
-          `scaleY=${(context.viewportHeight / context.screenshotHeight).toFixed(4)}`
-      );
+      console.info(`[Click] viewport=(${mappedX}, ${mappedY})`);
       x = mappedX;
       y = mappedY;
-    } else {
-      console.warn(
-        `[Click] NO screenshot context for tab ${tabId}! Using raw coords=(${x}, ${y}) — this will be inaccurate if screenshot was resized`
-      );
     }
+
+    // 自动匹配：用 DOM.getNodeForLocation 找坐标处的元素，匹配已知 ref
+    const refMeta = getRefMetaByTab(tabId);
+    if (refMeta && refMeta.size > 0) {
+      try {
+        const hitNode = await cdpDebugger.sendCommand<{ backendNodeId: number }>(
+          tabId, 'DOM.getNodeForLocation',
+          { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }
+        );
+        if (hitNode?.backendNodeId) {
+          // 在 refMeta 中查找匹配的 ref
+          let matchedRef: string | null = null;
+          for (const [refId, meta] of refMeta.entries()) {
+            if (meta.backendNodeId === hitNode.backendNodeId) {
+              matchedRef = refId;
+              break;
+            }
+          }
+          if (matchedRef) {
+            console.info(`[Click] auto-matched coordinate to ${matchedRef} (backendNodeId=${hitNode.backendNodeId}), switching to ref path`);
+            console.info(`[Click] auto-matched coordinate (${Math.round(x)}, ${Math.round(y)}) to ref=${matchedRef}`);
+            // 切换到 ref 路径：用 scrollToElementByRef 获取精确坐标
+            const refResult = await scrollToElementByRef(tabId, matchedRef);
+            if (refResult.success && refResult.coordinates) {
+              [x, y] = refResult.coordinates;
+              console.info(`[Click] ref-resolved coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
+            }
+          } else {
+            console.info(`[Click] backendNodeId=${hitNode.backendNodeId} not in refMeta, using raw coords`);
+          }
+        }
+      } catch (e) {
+        console.info(`[Click] auto-ref-match failed: ${e instanceof Error ? e.message : 'unknown'}`);
+      }
+    }
+
+    console.info(`[Click] final coords=(${x}, ${y})`);
+  } else {
+    throw new Error('Either ref or coordinate parameter is required for click action');
   }
 
   const button = params.action === 'right_click' ? 'right' : 'left';
@@ -818,16 +961,48 @@ async function executeClick(
       clickCount === 1 ? 'click' : clickCount === 2 ? 'doubleclick' : 'tripleclick';
     await animateCursorOnTab(tabId, x, y, actionName, options?.skipIndicator);
 
+    // Checkbox/radio: 记录点击前状态
+    let checkedBefore: boolean | null = null;
+    const refRole = params.ref ? getRefRole(tabId, params.ref) : null;
+    const isCheckableRole = refRole && ['checkbox', 'radio', 'switch', 'menuitemcheckbox', 'menuitemradio'].includes(refRole);
+    if (isCheckableRole && clickCount === 1) {
+      checkedBefore = await getElementCheckedState(tabId, params.ref!);
+    }
+
     await cdpDebugger.click(tabId, x, y, button, clickCount, modifiers, options);
+
+    // Checkbox/radio: 验证状态是否改变，未改变则 JS click 降级
+    if (isCheckableRole && clickCount === 1 && checkedBefore !== null) {
+      try {
+        const checkedAfter = await getElementCheckedState(tabId, params.ref!);
+        if (checkedAfter !== null && checkedAfter === checkedBefore) {
+          console.info(`[Click] checkbox/radio state unchanged after CDP click, trying JS click fallback`);
+          await jsClickFallback(tabId, params.ref!);
+        }
+      } catch {
+        // 验证失败不影响正常流程
+      }
+    }
 
     const clickLabel =
       clickCount === 1 ? 'Clicked' : clickCount === 2 ? 'Double-clicked' : 'Triple-clicked';
-    if (params.ref) {
-      return { output: `${clickLabel} on element ${params.ref}` };
+    const outputText = params.ref
+      ? `${clickLabel} on element ${params.ref} at (${Math.round(x)}, ${Math.round(y)})`
+      : `${clickLabel} at (${Math.round(params.coordinate![0])}, ${Math.round(params.coordinate![1])})`;
+
+    if (permissionManager && !options?.skipIndicator) {
+      await waitForTabLoading(tabId, 3000);
+      const postClickScreenshot = await tryTakePostScrollScreenshot(tabId, permissionManager, options);
+      if (postClickScreenshot) {
+        return {
+          output: outputText,
+          base64Image: postClickScreenshot.base64Image,
+          imageFormat: postClickScreenshot.imageFormat
+        };
+      }
     }
-    return {
-      output: `${clickLabel} at (${Math.round(params.coordinate![0])}, ${Math.round(params.coordinate![1])})`
-    };
+
+    return { output: outputText };
   } catch (error) {
     return { error: `Error clicking: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
@@ -1009,6 +1184,73 @@ async function executeScroll(
     if (manageIndicator) {
       await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
     }
+  }
+}
+
+// --- getElementCheckedState helper ---
+async function getElementCheckedState(tabId: number, ref: string): Promise<boolean | null> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: (elementRef: string) => {
+        const el = window.__superduckElementMap?.[elementRef]?.deref();
+        if (!el) return null;
+        // 1. Native input checked
+        if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) return el.checked;
+        // 2. ARIA checked
+        const ariaChecked = el.getAttribute('aria-checked');
+        if (ariaChecked !== null) return ariaChecked === 'true';
+        // 3. Label association
+        const label = el.closest('label') as HTMLLabelElement | null;
+        if (label?.control && label.control instanceof HTMLInputElement) return label.control.checked;
+        // 4. Nested input
+        const nested = el.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLInputElement | null;
+        if (nested) return nested.checked;
+        return null;
+      },
+      args: [ref]
+    });
+    for (const sr of results) {
+      if (sr.result !== undefined && sr.result !== null) return sr.result as boolean;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// --- jsClickFallback helper ---
+async function jsClickFallback(tabId: number, ref: string): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: (elementRef: string) => {
+        const el = window.__superduckElementMap?.[elementRef]?.deref();
+        if (!el) return;
+        // Tier 1: direct input click
+        if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
+          el.click();
+          return;
+        }
+        // Tier 2: label association
+        const label = el.closest('label') as HTMLLabelElement | null;
+        if (label?.control) {
+          (label.control as HTMLElement).click();
+          return;
+        }
+        // Tier 3: nested input
+        const nested = el.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLElement | null;
+        if (nested) {
+          nested.click();
+          return;
+        }
+        // Tier 4: direct click (ARIA role custom components)
+        (el as HTMLElement).click();
+      },
+      args: [ref]
+    });
+  } catch {
+    // 降级失败不影响流程
   }
 }
 
@@ -1442,6 +1684,17 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
 
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
+          // Native setter 绕过 React/Vue 受控组件的 value 劫持
+          const nativeInputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          const nativeTextareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          const setNativeValue = (el: HTMLInputElement | HTMLTextAreaElement, val: string) => {
+            const setter = el instanceof HTMLTextAreaElement ? nativeTextareaSetter : nativeInputSetter;
+            if (setter) setter.call(el, val);
+            else el.value = val;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+
           if (element instanceof HTMLSelectElement) {
             const prevValue = element.value;
             const options = Array.from(element.options);
@@ -1507,10 +1760,8 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
               'week' === element.type)
           ) {
             const prevValue = element.value;
-            element.value = String(value);
+            setNativeValue(element, String(value));
             element.focus();
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-            element.dispatchEvent(new Event('input', { bubbles: true }));
             return {
               output: `Set ${element.type} to "${element.value}" (previous: ${prevValue})`
             };
@@ -1520,10 +1771,8 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
             const prevValue = element.value;
             const numValue = Number(value);
             if (isNaN(numValue)) return { error: 'Range input requires a numeric value' };
-            element.value = String(numValue);
+            setNativeValue(element, String(numValue));
             element.focus();
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-            element.dispatchEvent(new Event('input', { bubbles: true }));
             return {
               success: true,
               action: 'form_input',
@@ -1540,10 +1789,8 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
             const numValue = Number(value);
             if (isNaN(numValue) && '' !== value)
               return { error: 'Number input requires a numeric value' };
-            element.value = String(value);
+            setNativeValue(element, String(value));
             element.focus();
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-            element.dispatchEvent(new Event('input', { bubbles: true }));
             return {
               output: `Set number input to ${element.value} (previous: ${prevValue})`
             };
@@ -1551,7 +1798,7 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
 
           if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
             const prevValue = element.value;
-            element.value = String(value);
+            setNativeValue(element, String(value));
             element.focus();
             if (
               element instanceof HTMLTextAreaElement ||
@@ -1560,10 +1807,34 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
             ) {
               element.setSelectionRange(element.value.length, element.value.length);
             }
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-            element.dispatchEvent(new Event('input', { bubbles: true }));
             return {
               output: `Set ${element instanceof HTMLTextAreaElement ? 'textarea' : (element as HTMLInputElement).type || 'text'} value to "${element.value}" (previous: "${prevValue}")`
+            };
+          }
+
+          // file input: 标记为需要 CDP 处理
+          if (element instanceof HTMLInputElement && 'file' === element.type) {
+            return {
+              success: true,
+              action: 'file_input_needs_cdp',
+              ref,
+              element_type: 'file'
+            };
+          }
+
+          // contentEditable: 清空后标记为需要 CDP Input.insertText
+          if (element instanceof HTMLElement && element.isContentEditable) {
+            const prevValue = element.textContent || '';
+            element.focus();
+            document.execCommand('selectAll', false, undefined);
+            document.execCommand('delete', false, undefined);
+            return {
+              success: true,
+              action: 'contenteditable_needs_cdp',
+              ref,
+              element_type: 'contenteditable',
+              previous_value: prevValue,
+              new_value: String(value)
             };
           }
 
@@ -1589,6 +1860,28 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
       );
 
       if (!formResult) throw new Error('Failed to execute form input');
+
+      // CDP 后处理: contentEditable 和 file input 需要 CDP 命令
+      if (formResult.action === 'contenteditable_needs_cdp') {
+        try {
+          await cdpDebugger.sendCommand(activeTabId, 'Input.insertText', { text: String(params.value) });
+          formResult.output = `Set contentEditable to "${String(params.value).substring(0, 50)}${String(params.value).length > 50 ? '...' : ''}" (previous: "${formResult.previous_value}")`;
+          formResult.action = 'form_input';
+        } catch (cdpErr) {
+          return { error: `Failed to insert text into contentEditable: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}` };
+        }
+      } else if (formResult.action === 'file_input_needs_cdp') {
+        try {
+          const backendNodeId = getRefBackendNodeId(activeTabId, params.ref);
+          if (backendNodeId === null) return { error: 'Cannot resolve element for file upload' };
+          const files = Array.isArray(params.value) ? params.value.map(String) : [String(params.value)];
+          await cdpDebugger.sendCommand(activeTabId, 'DOM.setFileInputFiles', { files, backendNodeId });
+          formResult.output = `Uploaded file(s): ${files.join(', ')}`;
+          formResult.action = 'form_input';
+        } catch (cdpErr) {
+          return { error: `Failed to upload file: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}` };
+        }
+      }
 
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
       return {

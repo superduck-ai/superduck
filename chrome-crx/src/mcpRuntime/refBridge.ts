@@ -200,6 +200,16 @@ export function getRefBackendNodeId(tabId: number, refId: string): number | null
   return meta?.backendNodeId ?? null;
 }
 
+export function getRefRole(tabId: number, refId: string): string | null {
+  const tabMeta = refMetaByTab.get(tabId);
+  const meta = tabMeta?.get(refId);
+  return meta?.role ?? null;
+}
+
+export function getRefMetaByTab(tabId: number): ReadonlyMap<string, RefMapping> | undefined {
+  return refMetaByTab.get(tabId);
+}
+
 /**
  * 尝试恢复一个 stale ref。
  *
