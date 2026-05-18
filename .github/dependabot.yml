@@ -29,8 +29,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
@@ -58,8 +57,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
@@ -88,8 +86,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/chrome-crx"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 10
@@ -140,8 +137,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/npm"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 3
@@ -169,8 +165,7 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/chrome-native-host"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
