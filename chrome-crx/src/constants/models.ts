@@ -14,7 +14,7 @@ export const BUILT_IN_MODELS: ModelOption[] = [
   },
   {
     value: 'claude-sonnet-4-6',
-    label: 'Auto'
+    label: 'Smart'
   },
   {
     value: 'claude-haiku-4-5-20251001',

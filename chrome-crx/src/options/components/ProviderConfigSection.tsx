@@ -309,17 +309,20 @@ const ProviderConfigSection: React.FC = () => {
     });
   };
 
-  const handleDiscard = useCallback(() => {
+  const handleDiscard = useCallback(async () => {
     try {
-      const parsed = JSON.parse(savedSnapshot) as ProviderConfig;
-      setConfig(parsed);
+      const loaded = await loadProviderConfig(true);
+      setConfig(loaded);
+      setSavedSnapshot(JSON.stringify(loaded));
     } catch {
-      setConfig(emptyConfigSnapshot());
+      const empty = emptyConfigSnapshot();
+      setConfig(empty);
+      setSavedSnapshot(JSON.stringify(empty));
     }
     setDirtyProviderIds(new Set());
     setSaveError(null);
     setSaveNotice(null);
-  }, [savedSnapshot]);
+  }, []);
 
   const handleSave = useCallback(async () => {
     setSaveError(null);
@@ -396,13 +399,17 @@ const ProviderConfigSection: React.FC = () => {
 
       const nextConfig: ProviderConfig = { ...config, providers: updatedProviders };
       await saveProviderConfig(nextConfig);
+
+      // Re-load to ensure we have the exact canonical state that was saved
+      const finalConfig = await loadProviderConfig(true);
+      setConfig(finalConfig);
+      setSavedSnapshot(JSON.stringify(finalConfig));
+
       try {
         await chrome.runtime.sendMessage({ type: PROVIDER_CONFIG_BROADCAST });
       } catch {
         // listeners also watch chrome.storage.onChanged directly
       }
-      setConfig(nextConfig);
-      setSavedSnapshot(JSON.stringify(nextConfig));
       setDirtyProviderIds(new Set());
 
       const failed = updatedProviders.filter((provider) => provider.status === 'error');
@@ -538,26 +545,28 @@ const ProviderConfigSection: React.FC = () => {
             <FormattedMessage id="infrastructure_management" defaultMessage="模型配置" />
           </h3>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={handleDiscard}
-            disabled={!isDirty || isSaving}
-            className="px-3 py-1.5 text-text-200 hover:text-text-100 font-base-sm rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <FormattedMessage id="discard" defaultMessage="丢弃" />
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={!isDirty || isSaving}
-            className="px-4 py-1.5 bg-accent-main-100 text-oncolor-100 rounded-lg font-base-sm hover:bg-accent-main-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <FormattedMessage id="saving" defaultMessage="保存中..." />
-            ) : (
-              <FormattedMessage id="save" defaultMessage="保存" />
-            )}
-          </button>
-        </div>
+        {(isDirty || isSaving) && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleDiscard}
+              disabled={isSaving}
+              className="px-3 py-1.5 text-text-200 hover:text-text-100 font-base-sm rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FormattedMessage id="discard" defaultMessage="丢弃" />
+            </button>
+            <button
+              onClick={() => void handleSave()}
+              disabled={isSaving}
+              className="px-4 py-1.5 bg-accent-main-100 text-oncolor-100 rounded-lg font-base-sm hover:bg-accent-main-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? (
+                <FormattedMessage id="saving" defaultMessage="保存中..." />
+              ) : (
+                <FormattedMessage id="save" defaultMessage="保存" />
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {saveError && (
