@@ -206,7 +206,10 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
             value={baseURL}
             onChange={(event) => setBaseURL(event.target.value)}
             onBlur={() => setBaseURL((current) => normalizeProviderBaseURL(kind, current))}
-            placeholder={`默认: ${placeholderBaseURL}`}
+            placeholder={intl.formatMessage(
+              { id: 'api_url_hint', defaultMessage: 'Leave blank to use the default ({url}).' },
+              { url: placeholderBaseURL }
+            )}
           />
         </div>
 

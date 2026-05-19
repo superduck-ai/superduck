@@ -953,6 +953,8 @@
   "saving": "保存中...",
   "discard_unsaved_changes_confirm": "你有未保存的修改。要放弃这些修改并切换标签页吗？",
   "save_validation_missing_tiers": "保存前请绑定以下档位：{tiers}",
+  "save_validation_invalid_tiers": "以下档位绑定无效（缺少模型 ID）：{tiers}",
+  "loading_models": "模型列表加载中…",
   "saved_with_warnings": "已保存。{count} 个供应商连接测试失败。",
   "saved_success": "已保存并立即生效。"
 }
