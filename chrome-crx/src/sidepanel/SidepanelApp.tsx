@@ -4319,6 +4319,7 @@ export function SidepanelApp() {
   const [isConvertingToTask, setIsConvertingToTask] = useState(false);
   const [attachmentCount, setAttachmentCount] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState<PromptAttachmentPayload[]>([]);
+  const [previewAttachmentImage, setPreviewAttachmentImage] = useState<string | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
   const [pairingPrompt, setPairingPrompt] = useState<PairingPromptState | null>(null);
   const [pairingName, setPairingName] = useState('');
@@ -7011,6 +7012,26 @@ export function SidepanelApp() {
     inputRef.current.focus();
   }, []);
 
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      const imageFiles: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+      if (imageFiles.length === 0) return;
+      event.preventDefault();
+      const dataTransfer = new DataTransfer();
+      imageFiles.forEach((f) => dataTransfer.items.add(f));
+      void handleFileSelection(dataTransfer.files);
+    },
+    [handleFileSelection]
+  );
+
   const captureCurrentTabScreenshot = useCallback(async () => {
     try {
       const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -8116,28 +8137,36 @@ export function SidepanelApp() {
                               data-chat-input-container="true"
                               className={chatInputSurfaceClass}
                               onClick={() => inputRef.current?.focus()}
+                              onPaste={handlePaste}
                             >
                               {pendingAttachments.length > 0 ? (
                                 <div className="px-4 pt-3 pb-1 flex flex-wrap gap-2">
                                   {pendingAttachments.map((attachment) => (
                                     <div
                                       key={attachment.id}
-                                      className="inline-flex items-center gap-1.5 max-w-full rounded-lg border border-border-300 bg-bg-100 px-2 py-1 text-xs text-text-200"
+                                      className="relative group w-16 h-16 rounded-lg overflow-hidden border border-border-300 bg-bg-100 cursor-pointer"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setPreviewAttachmentImage(
+                                          `data:${attachment.mediaType};base64,${attachment.base64}`
+                                        );
+                                      }}
                                     >
-                                      <Paperclip size={12} className="shrink-0 text-text-300" />
-                                      <span className="truncate max-w-[180px]">
-                                        {attachment.fileName}
-                                      </span>
+                                      <img
+                                        src={`data:${attachment.mediaType};base64,${attachment.base64}`}
+                                        alt={attachment.fileName}
+                                        className="w-full h-full object-cover"
+                                      />
                                       <button
                                         type="button"
                                         onClick={(event) => {
                                           event.stopPropagation();
                                           removeAttachment(attachment.id);
                                         }}
-                                        className="shrink-0 rounded hover:bg-bg-200 p-0.5 text-text-300"
+                                        className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
                                         aria-label="Remove attachment"
                                       >
-                                        <X size={12} />
+                                        <X size={10} />
                                       </button>
                                     </div>
                                   ))}
@@ -8810,6 +8839,11 @@ export function SidepanelApp() {
             onClose={() => setScreenshotPreviewUrl(null)}
           />
         )}
+
+        <ImagePreviewModal
+          imageUrl={previewAttachmentImage}
+          onClose={() => setPreviewAttachmentImage(null)}
+        />
       </div>
     </div>
   );
