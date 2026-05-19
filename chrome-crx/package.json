@@ -7,7 +7,7 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "lint": "eslint \"src/**/*.ts\"",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier --write \"src/**/*.{ts,js,json}\" \"eslint.config.js\" \"package.json\" \"tsconfig.json\" \".prettierrc.json\"",
     "format:check": "prettier --check \"src/**/*.{ts,js,json}\" \"eslint.config.js\" \"package.json\" \"tsconfig.json\" \".prettierrc.json\"",
