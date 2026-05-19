@@ -69,15 +69,15 @@ export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
 };
 
 export const TIER_LABEL: Record<Tier, string> = {
-  deep: 'Deep (深度推理)',
-  smart: 'Smart (智能处理)',
-  flash: 'Flash (极速响应)'
+  deep: 'Deep',
+  smart: 'Smart',
+  flash: 'Flash'
 };
 
 export const TIER_DESCRIPTION: Record<Tier, string> = {
-  deep: '适用于复杂推理与长上下文任务',
-  smart: '用于默认对话与常规任务',
-  flash: '适用于快速工具调用与内容摘要'
+  deep: '复杂推理',
+  smart: '默认对话',
+  flash: '快速任务'
 };
 
 const EMPTY_MAPPING: ModelMappingV2 = {
@@ -370,6 +370,61 @@ function joinUrl(baseURL: string, path: string): string {
   return `${baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
+function getModelListUrl(kind: ProviderKind, baseURL: string, apiKey: string): string {
+  if (kind === 'anthropic') {
+    const url = new URL(baseURL);
+    const path = url.pathname.replace(/\/+$/, '');
+    return path.endsWith('/v1') ? joinUrl(baseURL, '/models') : joinUrl(baseURL, '/v1/models');
+  }
+
+  if (kind === 'gemini') {
+    const url = new URL(joinUrl(baseURL, '/models'));
+    if (apiKey) url.searchParams.set('key', apiKey);
+    return url.toString();
+  }
+
+  return joinUrl(baseURL, '/models');
+}
+
+function getModelListHeaders(kind: ProviderKind, apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (kind === 'anthropic') {
+    headers['anthropic-version'] = '2023-06-01';
+    if (apiKey) headers['x-api-key'] = apiKey;
+    return headers;
+  }
+  if (kind !== 'gemini' && apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
+function extractModelIds(payload: unknown): string[] {
+  const source =
+    payload && typeof payload === 'object'
+      ? ((payload as { data?: unknown; models?: unknown }).data ??
+        (payload as { data?: unknown; models?: unknown }).models)
+      : payload;
+  if (!Array.isArray(source)) return [];
+
+  return Array.from(
+    new Set(
+      source
+        .map((entry) => {
+          if (typeof entry === 'string') return entry;
+          if (!entry || typeof entry !== 'object') return '';
+          const record = entry as { id?: unknown; name?: unknown };
+          const id = typeof record.id === 'string' ? record.id : record.name;
+          if (typeof id !== 'string') return '';
+          return id.startsWith('models/') ? id.slice('models/'.length) : id;
+        })
+        .filter((id) => id.trim().length > 0)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+}
+
 async function readProviderError(response: Response): Promise<string> {
   const text = await response.text().catch(() => '');
   if (!text) return '';
@@ -382,6 +437,41 @@ async function readProviderError(response: Response): Promise<string> {
     // Use the raw snippet below.
   }
   return text.slice(0, 160);
+}
+
+export async function fetchProviderModels(
+  provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
+  timeoutMs = 10_000
+): Promise<string[]> {
+  const baseURL = normalizeProviderBaseURL(
+    provider.kind,
+    provider.baseURL || DEFAULT_BASE_URL[provider.kind]
+  );
+  if (!baseURL) {
+    throw new Error('baseURL is empty');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(getModelListUrl(provider.kind, baseURL, provider.apiKey), {
+      method: 'GET',
+      headers: getModelListHeaders(provider.kind, provider.apiKey),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      const snippet = await readProviderError(response);
+      throw new Error(`HTTP ${response.status}${snippet ? ` - ${snippet}` : ''}`);
+    }
+    return extractModelIds(await response.json());
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`timeout after ${timeoutMs}ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function postProviderProbe(

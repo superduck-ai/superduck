@@ -128,7 +128,10 @@ function OptionsPage() {
                     isActive={activeTab === 'permissions'}
                     onClick={() => navigateTab('permissions')}
                   >
-                    <FormattedMessage defaultMessage="Permissions" id="permissions" />
+                    <FormattedMessage
+                      defaultMessage="Model Config & Permissions"
+                      id="model_config_permissions"
+                    />
                   </NavItem>
                 </li>
                 <li>

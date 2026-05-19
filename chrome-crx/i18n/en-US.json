@@ -912,6 +912,7 @@
   "search_downloads": "Search downloads: \"{query}\"",
   "query_downloads": "Query downloads",
   "model_mapping_nav": "Model Mapping",
+  "model_config_permissions": "Model Config & Permissions",
   "global_model_mapping": "Global model mapping",
   "global_model_mapping_description": "Bind each tier to a provider and a model id. The sidepanel routes requests through whichever provider you pick here.",
   "custom_models": "Custom models",

@@ -104,19 +104,16 @@ const TIER_ICON: Record<Tier, React.ComponentType<{ className?: string; size?: n
   flash: FlashIcon
 };
 
-const PROVIDER_KIND_BADGE: Record<ProviderKind, string> = {
-  anthropic: 'A',
-  openai: 'O',
-  gemini: 'G',
-  'openai-compatible': 'C'
-};
-
 const PROVIDER_KIND_COLOR: Record<ProviderKind, string> = {
   anthropic: 'bg-[#d97757] text-white',
   openai: 'bg-emerald-600 text-white',
   gemini: 'bg-blue-600 text-white',
-  'openai-compatible': 'bg-violet-600 text-white'
+  'openai-compatible': 'bg-emerald-600 text-white'
 };
+
+function getProviderBadgeText(provider: AiProvider): string {
+  return provider.name.trim().charAt(0).toUpperCase() || '?';
+}
 
 interface ProviderStatusInfo {
   status: AiProvider['status'];
@@ -418,11 +415,10 @@ const ProviderConfigSection: React.FC = () => {
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-200 text-text-200">
             <Icon size={20} />
           </span>
-          <div className="min-w-0">
-            <div className="font-large text-text-100 truncate">{TIER_LABEL[tier]}</div>
-            <div className="text-text-400 font-base-sm mt-0.5 truncate">
-              {TIER_DESCRIPTION[tier]}
-            </div>
+          <div className="min-w-0 flex items-baseline gap-2">
+            <span className="font-large text-text-100 truncate">{TIER_LABEL[tier]}</span>
+            <span className="text-text-400 font-base-sm">·</span>
+            <span className="text-text-400 font-base-sm truncate">{TIER_DESCRIPTION[tier]}</span>
           </div>
         </div>
         <div className="w-56 shrink-0">
@@ -460,7 +456,7 @@ const ProviderConfigSection: React.FC = () => {
             <span
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg font-base-bold text-sm ${PROVIDER_KIND_COLOR[provider.kind]}`}
             >
-              {PROVIDER_KIND_BADGE[provider.kind]}
+              {getProviderBadgeText(provider)}
             </span>
             <div className="min-w-0">
               <div className="font-large text-text-100 truncate flex items-center gap-2">
@@ -515,14 +511,8 @@ const ProviderConfigSection: React.FC = () => {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h3 className="text-text-100 font-xl-bold">
-            <FormattedMessage id="infrastructure_management" defaultMessage="模型基础设施" />
+            <FormattedMessage id="infrastructure_management" defaultMessage="模型配置" />
           </h3>
-          <p className="text-text-300 font-base mt-2 mb-2">
-            <FormattedMessage
-              id="infrastructure_management_description"
-              defaultMessage="配置自定义 AI 模型，并为各个使用档位（Deep / Smart / Flash）进行绑定。"
-            />
-          </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
@@ -530,7 +520,7 @@ const ProviderConfigSection: React.FC = () => {
             disabled={!isDirty || isSaving}
             className="px-3 py-1.5 text-text-200 hover:text-text-100 font-base-sm rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <FormattedMessage id="discard" defaultMessage="放弃修改" />
+            <FormattedMessage id="discard" defaultMessage="丢弃" />
           </button>
           <button
             onClick={() => void handleSave()}
@@ -540,7 +530,7 @@ const ProviderConfigSection: React.FC = () => {
             {isSaving ? (
               <FormattedMessage id="saving" defaultMessage="保存中..." />
             ) : (
-              <FormattedMessage id="save" defaultMessage="保存配置" />
+              <FormattedMessage id="save" defaultMessage="保存" />
             )}
           </button>
         </div>
@@ -555,15 +545,9 @@ const ProviderConfigSection: React.FC = () => {
 
       <div className="mt-8">
         <h4 className="text-text-100 font-large mb-1">
-          <FormattedMessage id="global_model_mapping" defaultMessage="模型绑定" />
+          <FormattedMessage id="global_model_mapping" defaultMessage="模型映射" />
         </h4>
-        <p className="text-text-400 font-base-sm mb-4">
-          <FormattedMessage
-            id="global_model_mapping_inline_description"
-            defaultMessage="为每个档位绑定一个特定的供应商与模型。"
-          />
-        </p>
-        <div className="bg-bg-000 rounded-xl border border-border-300 px-4">
+        <div className="mt-4 bg-bg-000 rounded-xl border border-border-300 px-4">
           {TIER_ORDER.map(renderTierRow)}
         </div>
       </div>
@@ -572,14 +556,8 @@ const ProviderConfigSection: React.FC = () => {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h4 className="text-text-100 font-large mb-1">
-              <FormattedMessage id="custom_models" defaultMessage="供应商列表" />
+              <FormattedMessage id="custom_models" defaultMessage="模型" />
             </h4>
-            <p className="text-text-400 font-base-sm">
-              <FormattedMessage
-                id="api_providers_description"
-                defaultMessage="添加您的自定义大模型端点（支持 OpenAI 格式或原生 Anthropic/Gemini）。"
-              />
-            </p>
           </div>
           <Button
             variant="ghost"
@@ -593,10 +571,7 @@ const ProviderConfigSection: React.FC = () => {
 
         {config.providers.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border-300 bg-bg-50 px-6 py-10 text-center text-text-400 font-base-sm">
-            <FormattedMessage
-              id="no_custom_models"
-              defaultMessage="暂无自定义模型，点击右上角添加"
-            />
+            <FormattedMessage id="no_custom_models" defaultMessage="暂无模型" />
           </div>
         ) : (
           <div className="space-y-3">{config.providers.map(renderProviderCard)}</div>
