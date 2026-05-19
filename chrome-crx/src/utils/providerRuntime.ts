@@ -573,6 +573,13 @@ export function createProviderRuntime(provider: AiProvider, baseURL: string): Pr
       protocol: 'responses'
     });
   }
+  if (provider.kind === 'gemini') {
+    return createOpenAIRuntime({
+      apiKey: provider.apiKey,
+      baseURL: normalizedBaseURL,
+      protocol: 'chat'
+    });
+  }
   const client = new MessagesClient({
     baseURL: normalizedBaseURL,
     apiKey: provider.apiKey,

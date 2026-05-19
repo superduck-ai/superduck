@@ -300,7 +300,7 @@ export function resolveTier(
   if (binding) {
     const provider = findProvider(config, binding.providerId);
     if (provider) {
-      return { tier, provider, modelId: provider.modelId || binding.modelId };
+      return { tier, provider, modelId: binding.modelId || provider.modelId };
     }
   }
   return null;
@@ -509,19 +509,29 @@ export async function testProviderConnection(
     provider.kind,
     provider.baseURL || DEFAULT_BASE_URL[provider.kind]
   );
-  const fallbackModel = provider.kind === 'anthropic' ? 'claude-3-haiku-20240307' : 'gpt-4o-mini';
+  const fallbackModel =
+    provider.kind === 'anthropic'
+      ? 'claude-3-haiku-20240307'
+      : provider.kind === 'gemini'
+        ? 'gemini-2.0-flash'
+        : 'gpt-4o-mini';
   const modelId = provider.modelId || fallbackModel;
   if (!baseURL) {
     return { ok: false, error: 'baseURL is empty' };
   }
-  if ((provider.kind === 'openai' || provider.kind === 'openai-compatible') && !provider.apiKey) {
-    return { ok: false, error: 'apiKey is required for OpenAI providers' };
+  if (
+    (provider.kind === 'openai' ||
+      provider.kind === 'openai-compatible' ||
+      provider.kind === 'gemini') &&
+    !provider.apiKey
+  ) {
+    return { ok: false, error: 'apiKey is required' };
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    if (provider.kind === 'openai') {
+    if (provider.kind === 'openai' || provider.kind === 'gemini') {
       const client = new OpenAI({
         apiKey: provider.apiKey,
         baseURL,

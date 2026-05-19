@@ -14,6 +14,7 @@ import {
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI Chat' },
+  { value: 'gemini', label: 'Gemini' },
   { value: 'openai-compatible', label: 'OpenAI Responses' }
 ];
 

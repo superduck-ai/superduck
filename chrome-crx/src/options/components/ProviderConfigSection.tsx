@@ -256,28 +256,30 @@ const ProviderConfigSection: React.FC = () => {
       setStatusOverlay((prev) => ({ ...prev, [provider.id]: { status: 'testing' } }));
       const result = await testProviderConnection(provider);
       const lastTestedAt = Date.now();
-      let nextConfig: ProviderConfig | null = null;
 
-      setConfig((previous) => {
-        nextConfig = {
-          ...previous,
-          providers: previous.providers.map((entry) =>
-            entry.id === provider.id
-              ? {
-                  ...entry,
-                  status: result.ok ? 'active' : 'error',
-                  lastTestedAt,
-                  errorMessage: result.ok ? undefined : result.error
-                }
-              : entry
-          )
-        };
-        return nextConfig;
+      const computeNextConfig = (previous: ProviderConfig): ProviderConfig => ({
+        ...previous,
+        providers: previous.providers.map((entry) =>
+          entry.id === provider.id
+            ? {
+                ...entry,
+                status: result.ok ? 'active' : 'error',
+                lastTestedAt,
+                errorMessage: result.ok ? undefined : result.error
+              }
+            : entry
+        )
       });
 
-      if (!isDirty && nextConfig) {
-        await saveProviderConfig(nextConfig);
-        setSavedSnapshot(JSON.stringify(nextConfig));
+      let resolvedConfig: ProviderConfig | null = null;
+      setConfig((previous) => {
+        resolvedConfig = computeNextConfig(previous);
+        return resolvedConfig;
+      });
+
+      if (!isDirty && resolvedConfig) {
+        await saveProviderConfig(resolvedConfig);
+        setSavedSnapshot(JSON.stringify(resolvedConfig));
       }
 
       setStatusOverlay((prev) => {
@@ -324,9 +326,18 @@ const ProviderConfigSection: React.FC = () => {
     setSaveNotice(null);
 
     const missingTiers: string[] = [];
-    if (!config.mapping.deep) missingTiers.push(TIER_LABEL.deep);
-    if (!config.mapping.smart) missingTiers.push(TIER_LABEL.smart);
-    if (!config.mapping.flash) missingTiers.push(TIER_LABEL.flash);
+    const invalidTiers: string[] = [];
+    for (const tier of TIER_ORDER) {
+      const binding = config.mapping[tier];
+      if (!binding) {
+        missingTiers.push(TIER_LABEL[tier]);
+        continue;
+      }
+      const provider = config.providers.find((p) => p.id === binding.providerId);
+      if (!provider || (!binding.modelId && !provider.modelId)) {
+        invalidTiers.push(TIER_LABEL[tier]);
+      }
+    }
 
     if (missingTiers.length > 0) {
       setSaveError(
@@ -336,6 +347,19 @@ const ProviderConfigSection: React.FC = () => {
             defaultMessage: '保存前请绑定以下档位: {tiers}'
           },
           { tiers: missingTiers.join(', ') }
+        )
+      );
+      return;
+    }
+
+    if (invalidTiers.length > 0) {
+      setSaveError(
+        intl.formatMessage(
+          {
+            id: 'save_validation_invalid_tiers',
+            defaultMessage: '以下档位绑定无效（缺少模型ID）: {tiers}'
+          },
+          { tiers: invalidTiers.join(', ') }
         )
       );
       return;
