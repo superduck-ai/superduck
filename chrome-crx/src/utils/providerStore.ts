@@ -57,7 +57,9 @@ export const PROVIDER_CONFIG_BROADCAST = 'superduck.providerConfigUpdated';
 export const DEFAULT_BASE_URL: Record<ProviderKind, string> = {
   anthropic: 'https://api.anthropic.com',
   openai: 'https://api.openai.com/v1',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  // Google exposes an OpenAI-compatible endpoint at /v1beta/openai which the
+  // runtime drives via the OpenAI chat protocol with Bearer auth.
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
   'openai-compatible': 'https://api.openai.com/v1'
 };
 
@@ -321,8 +323,12 @@ export function resolveModelForRequest(
 export function isProviderComplete(provider: AiProvider): boolean {
   if (!provider.name.trim()) return false;
   if (!provider.modelId.trim()) return false;
-  if (provider.kind === 'anthropic') return Boolean(provider.apiKey.trim());
-  return Boolean(provider.apiKey.trim()) || Boolean(provider.baseURL.trim());
+  // All supported providers (Anthropic / OpenAI / Gemini /
+  // OpenAI-compatible gateways) require an API key — the runtime dispatch
+  // and the connectivity probe both refuse to send a request without one,
+  // so treat missing key as incomplete to keep UI selectability in sync
+  // with what will actually succeed at runtime.
+  return Boolean(provider.apiKey.trim());
 }
 
 export function clearProviderCache(): void {
@@ -337,7 +343,7 @@ export function normalizeProviderBaseURL(kind: ProviderKind, rawBaseURL: string)
   const endpointSuffixes: Record<ProviderKind, string[]> = {
     anthropic: ['/v1/messages'],
     openai: ['/chat/completions', '/responses'],
-    gemini: [],
+    gemini: ['/chat/completions'],
     'openai-compatible': ['/chat/completions', '/responses']
   };
 
@@ -370,17 +376,11 @@ function joinUrl(baseURL: string, path: string): string {
   return `${baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
-function getModelListUrl(kind: ProviderKind, baseURL: string, apiKey: string): string {
+function getModelListUrl(kind: ProviderKind, baseURL: string, _apiKey: string): string {
   if (kind === 'anthropic') {
     const url = new URL(baseURL);
     const path = url.pathname.replace(/\/+$/, '');
     return path.endsWith('/v1') ? joinUrl(baseURL, '/models') : joinUrl(baseURL, '/v1/models');
-  }
-
-  if (kind === 'gemini') {
-    const url = new URL(joinUrl(baseURL, '/models'));
-    if (apiKey) url.searchParams.set('key', apiKey);
-    return url.toString();
   }
 
   return joinUrl(baseURL, '/models');
@@ -395,7 +395,7 @@ function getModelListHeaders(kind: ProviderKind, apiKey: string): Record<string,
     if (apiKey) headers['x-api-key'] = apiKey;
     return headers;
   }
-  if (kind !== 'gemini' && apiKey) {
+  if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
   return headers;
@@ -571,7 +571,7 @@ export async function testProviderConnection(
     };
     if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
     return await postProviderProbe(
-      joinUrl(baseURL, '/v1/messages'),
+      joinUrl(baseURL, baseURL.endsWith('/v1') ? '/messages' : '/v1/messages'),
       headers,
       {
         model: modelId,

@@ -432,24 +432,26 @@ export function createOpenAIRuntime(config: OpenAIRuntimeConfig): ProviderRuntim
   if (config.protocol === 'chat') {
     return {
       async create(params) {
+        const chatTools = toOpenAIChatTools(params.tools);
         const completion = await client.chat.completions.create({
           model: getString(params.model),
           messages: toOpenAIChatMessages(params) as never,
           max_completion_tokens: getNumber(params.max_tokens, 1024),
-          tools: toOpenAIChatTools(params.tools) as never,
-          ...(params.tools ? { tool_choice: 'auto' as const } : {})
+          tools: chatTools as never,
+          ...(chatTools ? { tool_choice: 'auto' as const } : {})
         });
         return chatCompletionToMessage(completion);
       },
       stream(params, options) {
         return new AsyncProviderStream(async (runtimeStream) => {
+          const chatTools = toOpenAIChatTools(params.tools);
           const stream = await client.chat.completions.create(
             {
               model: getString(params.model),
               messages: toOpenAIChatMessages(params) as never,
               max_completion_tokens: getNumber(params.max_tokens, 1024),
-              tools: toOpenAIChatTools(params.tools) as never,
-              ...(params.tools ? { tool_choice: 'auto' as const } : {}),
+              tools: chatTools as never,
+              ...(chatTools ? { tool_choice: 'auto' as const } : {}),
               stream: true
             },
             { signal: options?.signal }
