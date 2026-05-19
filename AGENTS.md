@@ -224,10 +224,9 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
 
 - 提交信息使用 conventional commits(`feat:`/`fix:`/`refactor:` 等)。
 - 常用 scope:`cli`、`crx`、`scroll`、`sidepanel` 等。
-- **AI 工具提交必须包含 Co-authored-by**:凡是由 AI 代理(Claude Code、Codex、Cursor、Copilot 等)参与生成的提交,commit message 末尾须附带对应的 `Co-authored-by` 行,示例:
+- **AI 工具提交必须包含 Co-authored-by**:凡是由 AI 代理(Claude Code、Codex、Cursor、Copilot、Gemini 等)参与生成的提交,commit message 末尾须附带对应的 `Co-authored-by` 行,示例:
   ```
   Co-authored-by: Claude <noreply@anthropic.com>
-  Co-authored-by: Gemini <noreply@google.com>
   ```
 - 通过 `gh pr create` 开 PR,不要在未经用户确认时直接 merge / force push。
 - PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md);Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)(bug / feature / chore / agent-task)。

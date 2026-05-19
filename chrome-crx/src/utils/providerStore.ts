@@ -1,0 +1,494 @@
+import OpenAI from 'openai';
+
+/**
+ * Multi-provider AI configuration store.
+ *
+ * Stores a flexible mapping of providers (Anthropic / OpenAI / Gemini /
+ * OpenAI-Compatible gateways) and binds three usage tiers (deep / smart /
+ * flash) to a `{ providerId, modelId }` pair.
+ *
+ * Runtime callers should use {@link resolveTier} / {@link resolveModelForRequest}
+ * to translate a generic Claude-style model id (or an explicit tier) into the
+ * concrete provider + model the user picked in Options.
+ */
+
+export type ProviderKind = 'anthropic' | 'openai' | 'gemini' | 'openai-compatible';
+
+export type ProviderStatus = 'unknown' | 'active' | 'error' | 'testing';
+
+export type Tier = 'deep' | 'smart' | 'flash';
+
+export interface AiProvider {
+  id: string;
+  kind: ProviderKind;
+  name: string;
+  modelId: string;
+  apiKey: string;
+  baseURL: string;
+  status: ProviderStatus;
+  lastTestedAt?: number;
+  errorMessage?: string;
+}
+
+export interface TierBinding {
+  providerId: string;
+  modelId: string;
+}
+
+export type ModelMappingV2 = Record<Tier, TierBinding | null>;
+
+export interface ProviderConfig {
+  providers: AiProvider[];
+  mapping: ModelMappingV2;
+}
+
+export const PROVIDER_STORAGE_KEYS = {
+  PROVIDERS: 'aiProviders',
+  MAPPING: 'aiModelMapping',
+  CONFIG_VERSION: 'aiProviderConfigVersion'
+} as const;
+
+export const PROVIDER_CONFIG_VERSION = 1;
+export const PROVIDER_CONFIG_BROADCAST = 'superduck.providerConfigUpdated';
+
+/**
+ * Default base URL hints rendered as placeholders / first-time defaults.
+ */
+export const DEFAULT_BASE_URL: Record<ProviderKind, string> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  'openai-compatible': 'https://api.openai.com/v1'
+};
+
+export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI Chat',
+  gemini: 'Gemini',
+  'openai-compatible': 'OpenAI Responses'
+};
+
+export const TIER_LABEL: Record<Tier, string> = {
+  deep: 'Deep (深度推理)',
+  smart: 'Smart (智能处理)',
+  flash: 'Flash (极速响应)'
+};
+
+export const TIER_DESCRIPTION: Record<Tier, string> = {
+  deep: '适用于复杂推理与长上下文任务',
+  smart: '用于默认对话与常规任务',
+  flash: '适用于快速工具调用与内容摘要'
+};
+
+const EMPTY_MAPPING: ModelMappingV2 = {
+  deep: null,
+  smart: null,
+  flash: null
+};
+
+function emptyConfig(): ProviderConfig {
+  return {
+    providers: [],
+    mapping: { ...EMPTY_MAPPING }
+  };
+}
+
+export function newProviderId(): string {
+  return `prov_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function isProviderKind(value: unknown): value is ProviderKind {
+  return (
+    value === 'anthropic' ||
+    value === 'openai' ||
+    value === 'gemini' ||
+    value === 'openai-compatible'
+  );
+}
+
+function parseProvider(value: unknown): AiProvider | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  if (!isString(v.id) || !isProviderKind(v.kind) || !isString(v.name)) return null;
+  return {
+    id: v.id,
+    kind: v.kind,
+    name: v.name,
+    modelId: isString(v.modelId) ? v.modelId : '',
+    apiKey: isString(v.apiKey) ? v.apiKey : '',
+    baseURL: isString(v.baseURL) ? normalizeProviderBaseURL(v.kind, v.baseURL) : '',
+    status: ((): ProviderStatus => {
+      const s = v.status;
+      return s === 'active' || s === 'error' || s === 'testing' ? s : 'unknown';
+    })(),
+    lastTestedAt: typeof v.lastTestedAt === 'number' ? v.lastTestedAt : undefined,
+    errorMessage: isString(v.errorMessage) ? v.errorMessage : undefined
+  };
+}
+
+function parseBinding(value: unknown): TierBinding | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  if (!isString(v.providerId) || !isString(v.modelId)) return null;
+  if (!v.providerId || !v.modelId) return null;
+  return { providerId: v.providerId, modelId: v.modelId };
+}
+
+function parseMapping(value: unknown): ModelMappingV2 {
+  if (!value || typeof value !== 'object') return { ...EMPTY_MAPPING };
+  const v = value as Record<string, unknown>;
+  return {
+    deep: parseBinding(v.deep),
+    smart: parseBinding(v.smart),
+    flash: parseBinding(v.flash)
+  };
+}
+
+let cachedConfig: ProviderConfig | null = null;
+let migrated = false;
+
+/**
+ * Legacy migration: lift the old {customApiUrl, customApiKey, defaultOpus/Sonnet/HaikuModel}
+ * fields into the new provider model on first read.
+ */
+async function migrateLegacyIfNeeded(): Promise<ProviderConfig | null> {
+  if (migrated) return null;
+  migrated = true;
+
+  const legacy = await chrome.storage.local.get([
+    PROVIDER_STORAGE_KEYS.CONFIG_VERSION,
+    PROVIDER_STORAGE_KEYS.PROVIDERS,
+    PROVIDER_STORAGE_KEYS.MAPPING,
+    'customApiUrl',
+    'customApiKey',
+    'defaultOpusModel',
+    'defaultSonnetModel',
+    'defaultHaikuModel'
+  ]);
+
+  if (legacy[PROVIDER_STORAGE_KEYS.CONFIG_VERSION] === PROVIDER_CONFIG_VERSION) return null;
+
+  const hasNewProviders = Array.isArray(legacy[PROVIDER_STORAGE_KEYS.PROVIDERS])
+    ? (legacy[PROVIDER_STORAGE_KEYS.PROVIDERS] as unknown[]).length > 0
+    : false;
+
+  const customApiUrl = isString(legacy.customApiUrl) ? legacy.customApiUrl.trim() : '';
+  const customApiKey = isString(legacy.customApiKey) ? legacy.customApiKey.trim() : '';
+  const opusModel = isString(legacy.defaultOpusModel) ? legacy.defaultOpusModel.trim() : '';
+  const sonnetModel = isString(legacy.defaultSonnetModel) ? legacy.defaultSonnetModel.trim() : '';
+  const haikuModel = isString(legacy.defaultHaikuModel) ? legacy.defaultHaikuModel.trim() : '';
+
+  if (
+    hasNewProviders ||
+    (!customApiUrl && !customApiKey && !opusModel && !sonnetModel && !haikuModel)
+  ) {
+    await chrome.storage.local.set({
+      [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION
+    });
+    return null;
+  }
+
+  const provider: AiProvider = {
+    id: newProviderId(),
+    kind: 'openai-compatible',
+    name: 'Imported Gateway',
+    modelId: opusModel || sonnetModel || haikuModel || '',
+    apiKey: customApiKey,
+    baseURL: normalizeProviderBaseURL('openai-compatible', customApiUrl),
+    status: 'unknown'
+  };
+
+  const mapping: ModelMappingV2 = {
+    deep: opusModel ? { providerId: provider.id, modelId: opusModel } : null,
+    smart: sonnetModel ? { providerId: provider.id, modelId: sonnetModel } : null,
+    flash: haikuModel ? { providerId: provider.id, modelId: haikuModel } : null
+  };
+
+  await chrome.storage.local.set({
+    [PROVIDER_STORAGE_KEYS.PROVIDERS]: [provider],
+    [PROVIDER_STORAGE_KEYS.MAPPING]: mapping,
+    [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION
+  });
+
+  return {
+    providers: [provider],
+    mapping
+  };
+}
+
+export async function loadProviderConfig(force = false): Promise<ProviderConfig> {
+  if (!force && cachedConfig) return cachedConfig;
+
+  const migratedConfig = await migrateLegacyIfNeeded();
+  if (migratedConfig) {
+    cachedConfig = migratedConfig;
+    return migratedConfig;
+  }
+
+  const raw = await chrome.storage.local.get([
+    PROVIDER_STORAGE_KEYS.PROVIDERS,
+    PROVIDER_STORAGE_KEYS.MAPPING
+  ]);
+
+  const providersRaw = raw[PROVIDER_STORAGE_KEYS.PROVIDERS];
+  const providers = Array.isArray(providersRaw)
+    ? (providersRaw.map(parseProvider).filter(Boolean) as AiProvider[])
+    : [];
+
+  const config: ProviderConfig = {
+    providers,
+    mapping: parseMapping(raw[PROVIDER_STORAGE_KEYS.MAPPING])
+  };
+
+  cachedConfig = config;
+  return config;
+}
+
+export async function saveProviderConfig(config: ProviderConfig): Promise<void> {
+  const normalizedConfig: ProviderConfig = {
+    ...config,
+    providers: config.providers.map((provider) => ({
+      ...provider,
+      baseURL: normalizeProviderBaseURL(provider.kind, provider.baseURL)
+    }))
+  };
+  cachedConfig = normalizedConfig;
+  await chrome.storage.local.set({
+    [PROVIDER_STORAGE_KEYS.PROVIDERS]: normalizedConfig.providers,
+    [PROVIDER_STORAGE_KEYS.MAPPING]: normalizedConfig.mapping,
+    [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION
+  });
+  try {
+    await chrome.runtime.sendMessage({ type: PROVIDER_CONFIG_BROADCAST });
+  } catch {
+    // Tolerate the broadcast failing (e.g. service worker idle); listeners
+    // also watch chrome.storage.onChanged directly as a safety net.
+  }
+}
+
+export function emptyConfigSnapshot(): ProviderConfig {
+  return emptyConfig();
+}
+
+export function classifyTier(modelId: string): Tier {
+  const lower = modelId.toLowerCase();
+  if (lower.includes('opus')) return 'deep';
+  if (lower.includes('haiku')) return 'flash';
+  return 'smart';
+}
+
+export function findProvider(
+  config: ProviderConfig,
+  providerId: string | undefined
+): AiProvider | undefined {
+  if (!providerId) return undefined;
+  return config.providers.find((p) => p.id === providerId);
+}
+
+/**
+ * Resolve a tier into the concrete provider + model id the user has bound.
+ */
+export function resolveTier(
+  config: ProviderConfig,
+  tier: Tier
+): { tier: Tier; provider: AiProvider; modelId: string } | null {
+  const binding = config.mapping[tier];
+  if (binding) {
+    const provider = findProvider(config, binding.providerId);
+    if (provider) {
+      return { tier, provider, modelId: provider.modelId || binding.modelId };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve a generic upstream model id (e.g. `claude-opus-4-6`) using the
+ * tier-based mapping. Returns null if the user has not configured any
+ * matching tier and no fallback exists.
+ */
+export function resolveModelForRequest(
+  config: ProviderConfig,
+  originalModelId: string
+): { tier: Tier; provider: AiProvider; modelId: string } | null {
+  return resolveTier(config, classifyTier(originalModelId));
+}
+
+export function isProviderComplete(provider: AiProvider): boolean {
+  if (!provider.name.trim()) return false;
+  if (!provider.modelId.trim()) return false;
+  if (provider.kind === 'anthropic') return Boolean(provider.apiKey.trim());
+  return Boolean(provider.apiKey.trim()) || Boolean(provider.baseURL.trim());
+}
+
+export function clearProviderCache(): void {
+  cachedConfig = null;
+  migrated = false;
+}
+
+export function normalizeProviderBaseURL(kind: ProviderKind, rawBaseURL: string): string {
+  const trimmed = rawBaseURL.trim();
+  if (!trimmed) return '';
+
+  const endpointSuffixes: Record<ProviderKind, string[]> = {
+    anthropic: ['/v1/messages'],
+    openai: ['/chat/completions', '/responses'],
+    gemini: [],
+    'openai-compatible': ['/chat/completions', '/responses']
+  };
+
+  try {
+    const parsed = new URL(trimmed);
+    let pathname = parsed.pathname.replace(/\/+$/, '');
+    for (const suffix of endpointSuffixes[kind]) {
+      if (pathname === suffix || pathname.endsWith(suffix)) {
+        pathname = pathname.slice(0, -suffix.length) || '/';
+        break;
+      }
+    }
+    parsed.pathname = pathname;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    let normalized = trimmed.split(/[?#]/, 1)[0]?.replace(/\/+$/, '') ?? '';
+    for (const suffix of endpointSuffixes[kind]) {
+      if (normalized.endsWith(suffix)) {
+        normalized = normalized.slice(0, -suffix.length).replace(/\/+$/, '');
+        break;
+      }
+    }
+    return normalized;
+  }
+}
+
+function joinUrl(baseURL: string, path: string): string {
+  return `${baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
+async function readProviderError(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: string } | string; message?: string };
+    if (typeof parsed.error === 'string') return parsed.error;
+    if (parsed.error?.message) return parsed.error.message;
+    if (parsed.message) return parsed.message;
+  } catch {
+    // Use the raw snippet below.
+  }
+  return text.slice(0, 160);
+}
+
+async function postProviderProbe(
+  url: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  signal: AbortSignal
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    signal,
+    body: JSON.stringify(body)
+  });
+  if (response.ok) return { ok: true };
+
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, error: `HTTP ${response.status} — check API key` };
+  }
+  if (response.status === 404) {
+    return { ok: false, error: `HTTP 404 — endpoint ${url} not found` };
+  }
+  const snippet = await readProviderError(response);
+  return { ok: false, error: `HTTP ${response.status}${snippet ? ` — ${snippet}` : ''}` };
+}
+
+/**
+ * Lightweight connectivity probe for the selected provider protocol.
+ */
+export async function testProviderConnection(
+  provider: AiProvider,
+  timeoutMs = 10_000
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const baseURL = normalizeProviderBaseURL(
+    provider.kind,
+    provider.baseURL || DEFAULT_BASE_URL[provider.kind]
+  );
+  const fallbackModel = provider.kind === 'anthropic' ? 'claude-3-haiku-20240307' : 'gpt-4o-mini';
+  const modelId = provider.modelId || fallbackModel;
+  if (!baseURL) {
+    return { ok: false, error: 'baseURL is empty' };
+  }
+  if ((provider.kind === 'openai' || provider.kind === 'openai-compatible') && !provider.apiKey) {
+    return { ok: false, error: 'apiKey is required for OpenAI providers' };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    if (provider.kind === 'openai') {
+      const client = new OpenAI({
+        apiKey: provider.apiKey,
+        baseURL,
+        dangerouslyAllowBrowser: true
+      });
+      await client.chat.completions.create(
+        {
+          model: modelId,
+          max_completion_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }]
+        },
+        { signal: controller.signal }
+      );
+      return { ok: true };
+    }
+
+    if (provider.kind === 'openai-compatible') {
+      const client = new OpenAI({
+        apiKey: provider.apiKey,
+        baseURL,
+        dangerouslyAllowBrowser: true
+      });
+      await client.responses.create(
+        {
+          model: modelId,
+          input: 'ping',
+          max_output_tokens: 1
+        },
+        { signal: controller.signal }
+      );
+      return { ok: true };
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01'
+    };
+    if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
+    return await postProviderProbe(
+      joinUrl(baseURL, '/v1/messages'),
+      headers,
+      {
+        model: modelId,
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }]
+      },
+      controller.signal
+    );
+  } catch (error) {
+    if (controller.signal.aborted) {
+      return { ok: false, error: `timeout after ${timeoutMs}ms` };
+    }
+    if (error instanceof OpenAI.APIError) {
+      return { ok: false, error: `HTTP ${error.status ?? 'error'} — ${error.message}` };
+    }
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}

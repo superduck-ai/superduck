@@ -109,11 +109,16 @@ import {
 import { ConversationCompactor } from './conversationCompaction';
 import { AnalyticsContext, getModelsConfig, useAnalytics } from '../components/providers/AppProviders';
 import {
-  mapModelName,
   loadModelMapping,
   MODEL_MAPPING_KEYS,
   getMappedModelName
 } from '../utils/modelMapping';
+import { dispatchMessagesClient } from '../utils/providerClient';
+import {
+  PROVIDER_CONFIG_BROADCAST,
+  PROVIDER_STORAGE_KEYS,
+  loadProviderConfig
+} from '../utils/providerStore';
 import { EmptyState } from './EmptyState';
 import { useQueryState, useTabEvent } from './hooks';
 import {
@@ -1065,16 +1070,16 @@ function useLightningMode({
       const betas = ['oauth-2025-04-20'];
       if (fast) betas.push('fast-mode-2026-02-01');
       const model = params.model || getEffectiveModel();
-      const mappedModel = await mapModelName(getBaseModel(model));
+      const dispatched = await dispatchMessagesClient(getBaseModel(model), clientRef.current);
       const requestBody = {
-        model: mappedModel,
+        model: dispatched.modelId,
         max_tokens: params.maxTokens,
         messages: params.messages,
         system: params.system,
         betas,
         ...(fast && { speed: 'fast' })
       };
-      return await clientRef.current.beta.messages.create(requestBody);
+      return await dispatched.runtime.create(requestBody);
     },
     [getEffectiveModel, isFastModel]
   );
@@ -1273,10 +1278,10 @@ function useLightningMode({
             const model = getEffectiveModel();
             const effort = resolveEffortLevel(effortRef.current, model, modelsConfigRef.current);
             const fast = isFastModel();
-            const mappedModel = await mapModelName(getBaseModel(model));
+            const dispatched = await dispatchMessagesClient(getBaseModel(model), client);
             const requestBody = {
               messages: apiMessages,
-              model: mappedModel,
+              model: dispatched.modelId,
               max_tokens: 10000,
               tools: [],
               system: systemPrompt,
@@ -1290,7 +1295,7 @@ function useLightningMode({
               stop_sequences: ['\n<<END>>']
             };
 
-            const stream = client.beta.messages.stream(requestBody, {
+            const stream = dispatched.runtime.stream(requestBody, {
               signal: abortControllerRef.current?.signal
             });
 
@@ -4260,16 +4265,36 @@ export function SidepanelApp() {
   useEffect(() => {
     loadModelMapping().then(setModelMapping);
 
-    // Listen for storage changes
+    // Listen for storage changes (legacy + new provider config).
     const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== 'local') return;
       const mappingKeys = Object.values(MODEL_MAPPING_KEYS);
-      if (mappingKeys.some((key) => key in changes)) {
+      const touched =
+        mappingKeys.some((key) => key in changes) ||
+        PROVIDER_STORAGE_KEYS.PROVIDERS in changes ||
+        PROVIDER_STORAGE_KEYS.MAPPING in changes;
+      if (touched) {
+        void loadProviderConfig(true);
         loadModelMapping().then(setModelMapping);
       }
     };
     chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
+    // Cross-context broadcast (sent by Options on Save).
+    const runtimeListener = (message: unknown) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        (message as { type?: string }).type === PROVIDER_CONFIG_BROADCAST
+      ) {
+        void loadProviderConfig(true);
+        loadModelMapping().then(setModelMapping);
+      }
+    };
+    chrome.runtime.onMessage.addListener(runtimeListener);
+    return () => {
+      chrome.storage.onChanged.removeListener(listener);
+      chrome.runtime.onMessage.removeListener(runtimeListener);
+    };
   }, []);
 
   // Lightning (Quick/Purl) mode toggle state — persisted to chrome.storage
@@ -5074,20 +5099,20 @@ export function SidepanelApp() {
         resolvedModel = modelConfig.small_fast_model || 'claude-haiku-4-5-20251001';
       }
 
-      // Apply model mapping if custom API is configured
-      const mappedModel = await mapModelName(resolvedModel);
+      // Dispatch to per-tier provider (falls back to messagesClient).
+      const dispatched = await dispatchMessagesClient(resolvedModel, messagesClient);
 
       // Resolve [[shortcut:id:name]] markers in messages (matching compiled mi)
       const messages = rawMessages
         ? await resolveShortcutMarkersInMessages(rawMessages)
         : rawMessages;
 
-      return messagesClient.beta.messages.create(
+      return dispatched.runtime.create(
         {
           ...rest,
           messages,
           max_tokens: effectiveMaxTokens,
-          model: mappedModel,
+          model: dispatched.modelId,
           ...(authToken ? { betas: ['oauth-2025-04-20'] } : {})
         },
         undefined
@@ -5603,12 +5628,15 @@ export function SidepanelApp() {
                 );
               }
 
-              // Apply model mapping if custom API is configured
-              const mappedModel = await mapModelName(selectedModel || DEFAULT_MODEL);
+              // Dispatch to per-tier provider (falls back to messagesClient).
+              const dispatched = await dispatchMessagesClient(
+                selectedModel || DEFAULT_MODEL,
+                messagesClient
+              );
 
-              const stream = messagesClient.beta.messages.stream(
+              const stream = dispatched.runtime.stream(
                 {
-                  model: mappedModel,
+                  model: dispatched.modelId,
                   max_tokens: MAX_TOKENS,
                   ...(authToken ? { betas: ['oauth-2025-04-20'] } : {}),
                   system: systemPrompt,

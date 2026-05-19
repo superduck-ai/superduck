@@ -4,10 +4,7 @@ import { useAnalytics } from '@/components/providers/AppProviders';
 import { useStorageState } from '@/hooks/useStorageState';
 import { PermissionManager } from '@/PermissionManager';
 import { StorageKeys } from '@/extensionServices';
-import { MODEL_MAPPING_KEYS } from '@/utils/modelMapping';
-
-const CUSTOM_API_URL_KEY = 'customApiUrl';
-const CUSTOM_API_KEY_KEY = 'customApiKey';
+import { ProviderConfigSection } from './ProviderConfigSection';
 
 type PermissionRecord = ReturnType<PermissionManager['getAllPermissions']>[number];
 type PermissionsByScope = ReturnType<PermissionManager['getPermissionsByScope']>;
@@ -273,19 +270,6 @@ const PermissionsTab: React.FC = () => {
     'enabled' | 'disabled' | undefined
   >(StorageKeys.NOTIFICATIONS_ENABLED, undefined);
   const [debugMode, setDebugMode] = useStorageState<boolean>(StorageKeys.DEBUG_MODE, false);
-  const [customApiUrl] = useStorageState<string>(CUSTOM_API_URL_KEY, '');
-  const [customApiKey] = useStorageState<string>(CUSTOM_API_KEY_KEY, '');
-  const [modelMappingHaiku] = useStorageState<string>(MODEL_MAPPING_KEYS.HAIKU, '');
-  const [modelMappingSonnet] = useStorageState<string>(MODEL_MAPPING_KEYS.SONNET, '');
-  const [modelMappingOpus] = useStorageState<string>(MODEL_MAPPING_KEYS.OPUS, '');
-  const [apiUrlInput, setApiUrlInput] = useState('');
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [haikuModelInput, setHaikuModelInput] = useState('');
-  const [sonnetModelInput, setSonnetModelInput] = useState('');
-  const [opusModelInput, setOpusModelInput] = useState('');
-  const [apiSaveStatus, setApiSaveStatus] = useState<string | null>(null);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const { analytics } = useAnalytics();
 
   const permissionManager = useMemo(() => new PermissionManager(() => false), []);
@@ -310,26 +294,6 @@ const PermissionsTab: React.FC = () => {
     void loadPermissions();
   }, [loadPermissions]);
 
-  useEffect(() => {
-    setApiUrlInput(customApiUrl || '');
-  }, [customApiUrl]);
-
-  useEffect(() => {
-    setApiKeyInput(customApiKey || '');
-  }, [customApiKey]);
-
-  useEffect(() => {
-    setHaikuModelInput(modelMappingHaiku || '');
-  }, [modelMappingHaiku]);
-
-  useEffect(() => {
-    setSonnetModelInput(modelMappingSonnet || '');
-  }, [modelMappingSonnet]);
-
-  useEffect(() => {
-    setOpusModelInput(modelMappingOpus || '');
-  }, [modelMappingOpus]);
-
   const handleRevoke = async (id: string) => {
     await permissionManager.revokePermission(id);
     await loadPermissions();
@@ -345,36 +309,6 @@ const PermissionsTab: React.FC = () => {
     );
   };
 
-  const handleSaveCustomApi = async () => {
-    const normalizedUrl = apiUrlInput.trim().replace(/\/+$/, '');
-    await chrome.storage.local.set({
-      [CUSTOM_API_URL_KEY]: normalizedUrl,
-      [CUSTOM_API_KEY_KEY]: apiKeyInput.trim(),
-      [MODEL_MAPPING_KEYS.HAIKU]: haikuModelInput.trim(),
-      [MODEL_MAPPING_KEYS.SONNET]: sonnetModelInput.trim(),
-      [MODEL_MAPPING_KEYS.OPUS]: opusModelInput.trim()
-    });
-    setApiSaveStatus(
-      intl.formatMessage({
-        id: 'saved_reopen_sidepanel',
-        defaultMessage: 'Saved. Reopen sidepanel to apply.'
-      })
-    );
-  };
-
-  const handleClearCustomApi = async () => {
-    await chrome.storage.local.set({
-      [CUSTOM_API_URL_KEY]: '',
-      [CUSTOM_API_KEY_KEY]: '',
-      [MODEL_MAPPING_KEYS.HAIKU]: '',
-      [MODEL_MAPPING_KEYS.SONNET]: '',
-      [MODEL_MAPPING_KEYS.OPUS]: ''
-    });
-    setApiSaveStatus(
-      intl.formatMessage({ id: 'cleared_status', defaultMessage: 'Cleared.' })
-    );
-  };
-
   if (isLoading) {
     return (
       <div className="p-6 text-text-200">
@@ -386,196 +320,7 @@ const PermissionsTab: React.FC = () => {
   return (
     <div className="permissions-tab">
       <div className="space-y-6">
-        <div className="bg-bg-100 border border-border-300 rounded-xl px-6 pt-6 pb-6 md:px-8 md:pt-8 md:pb-8">
-          <h3 className="text-text-100 font-xl-bold">
-            <FormattedMessage id="custom_api_endpoint" defaultMessage="Custom API Endpoint" />
-          </h3>
-          <p className="text-text-300 font-base mt-2 mb-6">
-            <FormattedMessage
-              id="configure_api_url_and_api_key"
-              defaultMessage="Configure api_url and api_key used by sidepanel so it can run without the Sign in page."
-            />
-          </p>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-text-200 font-base-sm mb-1">
-                <FormattedMessage id="api_url_label" defaultMessage="API URL" />
-              </label>
-              <input
-                type="text"
-                value={apiUrlInput}
-                onChange={(event) => setApiUrlInput(event.target.value)}
-                placeholder="https://your-api-host.com"
-                className="w-full rounded-lg border border-border-300 bg-bg-000 px-3 py-2 text-sm text-text-100"
-              />
-            </div>
-            <div>
-              <label className="block text-text-200 font-base-sm mb-1">
-                <FormattedMessage id="api_key_label" defaultMessage="API Key" />
-              </label>
-              <div className="relative">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={apiKeyInput}
-                  onChange={(event) => setApiKeyInput(event.target.value)}
-                  placeholder="your_api_key"
-                  className="w-full rounded-lg border border-border-300 bg-bg-000 px-3 py-2 pr-10 text-sm text-text-100"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey((value) => !value)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-300 hover:text-text-100 transition-colors"
-                  aria-label={intl.formatMessage({
-                    id: showApiKey ? 'hide_api_key' : 'show_api_key',
-                    defaultMessage: showApiKey ? 'Hide API key' : 'Show API key'
-                  })}
-                >
-                  {showApiKey ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                      />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="border-t border-border-300 pt-4">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((value) => !value)}
-                className="flex items-center gap-2 text-text-200 hover:text-text-100 font-base-sm transition-colors"
-              >
-                <svg
-                  className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                <FormattedMessage
-                  id="advanced_configuration"
-                  defaultMessage="Advanced Configuration"
-                />
-              </button>
-
-              {showAdvanced && (
-                <div className="mt-4 space-y-4 pl-6">
-                  <div className="text-text-300 font-base-sm mb-4">
-                    <p className="font-semibold text-text-200 mb-1">
-                      <FormattedMessage id="model_mapping" defaultMessage="Model Mapping" />
-                    </p>
-                    <p>
-                      <FormattedMessage
-                        id="model_mapping_description"
-                        defaultMessage="If the provider natively supports the default models, no configuration is usually needed. Only fill in when you need to map requests to different model names."
-                      />
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-text-200 font-base-sm mb-1">
-                        <FormattedMessage
-                          id="opus_default_model"
-                          defaultMessage="Deep Default Model"
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        value={opusModelInput}
-                        onChange={(event) => setOpusModelInput(event.target.value)}
-                        placeholder={intl.formatMessage({
-                          id: 'model_placeholder',
-                          defaultMessage: 'e.g.: kimi-k2.5'
-                        })}
-                        className="w-full rounded-lg border border-border-300 bg-bg-000 px-3 py-2 text-sm text-text-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-text-200 font-base-sm mb-1">
-                        <FormattedMessage
-                          id="sonnet_default_model"
-                          defaultMessage="Auto Default Model"
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        value={sonnetModelInput}
-                        onChange={(event) => setSonnetModelInput(event.target.value)}
-                        placeholder={intl.formatMessage({
-                          id: 'model_placeholder',
-                          defaultMessage: 'e.g.: kimi-k2.5'
-                        })}
-                        className="w-full rounded-lg border border-border-300 bg-bg-000 px-3 py-2 text-sm text-text-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-text-200 font-base-sm mb-1">
-                        <FormattedMessage
-                          id="haiku_default_model"
-                          defaultMessage="Flash Default Model"
-                        />
-                      </label>
-                      <input
-                        type="text"
-                        value={haikuModelInput}
-                        onChange={(event) => setHaikuModelInput(event.target.value)}
-                        placeholder={intl.formatMessage({
-                          id: 'model_placeholder',
-                          defaultMessage: 'e.g.: kimi-k2.5'
-                        })}
-                        className="w-full rounded-lg border border-border-300 bg-bg-000 px-3 py-2 text-sm text-text-100"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 mt-5">
-            <button
-              onClick={() => void handleSaveCustomApi()}
-              className="px-4 py-2 bg-accent-main-100 text-oncolor-100 rounded-lg font-base-sm hover:bg-accent-main-200 transition-colors"
-            >
-              <FormattedMessage id="save" defaultMessage="Save" />
-            </button>
-            <button
-              onClick={() => void handleClearCustomApi()}
-              className="px-4 py-2 border border-border-300 text-text-200 rounded-lg font-base-sm hover:bg-bg-200 transition-colors"
-            >
-              <FormattedMessage id="clear" defaultMessage="Clear" />
-            </button>
-          </div>
-
-          {apiSaveStatus ? (
-            <p className="text-text-300 font-base-sm mt-3">{apiSaveStatus}</p>
-          ) : null}
-        </div>
+        <ProviderConfigSection />
 
         <div className="bg-bg-100 border border-border-300 rounded-xl px-6 pt-6 pb-6 md:px-8 md:pt-8 md:pb-8">
           <h3 className="text-text-100 font-xl-bold">

@@ -19,7 +19,12 @@ import {
 } from '../messageTypes';
 import { MessagesClient } from '../mcpServersStore';
 import { withTracing, PermissionManager as PermissionManagerClass } from '../PermissionManager';
-import { mapModelName } from '../utils/modelMapping';
+import { dispatchMessagesClient, clearDispatchClientCache } from '../utils/providerClient';
+import {
+  PROVIDER_CONFIG_BROADCAST,
+  PROVIDER_STORAGE_KEYS,
+  loadProviderConfig
+} from '../utils/providerStore';
 import {
   MCP_NATIVE_SESSION_ID,
   PermissionType,
@@ -555,7 +560,21 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (PROVIDER_STORAGE_KEYS.PROVIDERS in changes || PROVIDER_STORAGE_KEYS.MAPPING in changes) {
+    clearDispatchClientCache();
+    void loadProviderConfig(true);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isRecord(message) && message.type === PROVIDER_CONFIG_BROADCAST) {
+    clearDispatchClientCache();
+    void loadProviderConfig(true);
+    sendResponse({ ok: true });
+    return false;
+  }
   if (isRecord(message) && 'pairing_confirmed' === message.type) {
     const requestId = typeof message.request_id === 'string' ? message.request_id : undefined;
     const name = typeof message.name === 'string' ? message.name : '';
@@ -707,16 +726,16 @@ class ToolExecutor {
               ? modelConfig.small_fast_model
               : FAST_MODEL;
         }
-        // Apply model mapping if custom API is configured
-        const mappedModel = await mapModelName(model);
+        // Dispatch to per-tier provider (falls back to context.messagesClient).
+        const dispatched = await dispatchMessagesClient(model, this.context.messagesClient);
         const requestedMaxTokens = maxTokens ?? legacyMaxTokens;
         if (typeof requestedMaxTokens !== 'number') {
           throw new Error('maxTokens is required');
         }
-        return await this.context.messagesClient.beta.messages.create({
+        return await dispatched.runtime.create({
           ...rest,
           max_tokens: requestedMaxTokens,
-          model: mappedModel,
+          model: dispatched.modelId,
           betas: ['oauth-2025-04-20']
         });
       };

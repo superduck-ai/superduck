@@ -1,12 +1,37 @@
 /**
- * Model mapping utility for custom API endpoints
- * Maps upstream model names to custom model names (e.g., kimi-k2.5)
+ * Compatibility shim around the new multi-provider store.
+ *
+ * Historically there was a single (customApiUrl, customApiKey,
+ * defaultOpus/Sonnet/HaikuModel) configuration that translated the canonical
+ * Claude model id sent to the SDK into whatever the upstream gateway
+ * understood. That has been replaced by {@link ./providerStore} which lets
+ * the user bind each tier (Deep / Smart / Flash) to a different provider.
+ *
+ * This file keeps the old surface (`mapModelName`, `getMappedModelName`,
+ * `loadModelMapping`, `MODEL_MAPPING_KEYS`) so the many call sites in
+ * sidepanel / mcpRuntime continue to work — they all just want "given a
+ * canonical model id, what should I actually put on the wire?".
+ *
+ * Old storage keys are still listed in MODEL_MAPPING_KEYS so that legacy
+ * `chrome.storage.onChanged` listeners keep firing during the migration
+ * window.
  */
+
+import {
+  PROVIDER_STORAGE_KEYS,
+  classifyTier,
+  loadProviderConfig,
+  resolveModelForRequest,
+  type ProviderConfig,
+  type Tier
+} from './providerStore';
 
 export const MODEL_MAPPING_KEYS = {
   HAIKU: 'defaultHaikuModel',
   SONNET: 'defaultSonnetModel',
-  OPUS: 'defaultOpusModel'
+  OPUS: 'defaultOpusModel',
+  PROVIDERS: PROVIDER_STORAGE_KEYS.PROVIDERS,
+  MAPPING: PROVIDER_STORAGE_KEYS.MAPPING
 } as const;
 
 export interface ModelMappingConfig {
@@ -15,115 +40,66 @@ export interface ModelMappingConfig {
   opus?: string;
 }
 
-let cachedModelMapping: ModelMappingConfig | null = null;
-
-function getStoredString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
+function configToMappingConfig(config: ProviderConfig): ModelMappingConfig {
+  const pick = (tier: Tier): string => config.mapping[tier]?.modelId ?? '';
+  return {
+    opus: pick('deep'),
+    sonnet: pick('smart'),
+    haiku: pick('flash')
+  };
 }
 
 /**
- * Load model mapping configuration from storage
+ * Returns a flat view of the tier → modelId binding, suitable for UI labels
+ * that just want to show e.g. "Deep (kimi-k2.5)".
  */
 export async function loadModelMapping(): Promise<ModelMappingConfig> {
-  const result = await chrome.storage.local.get([
-    MODEL_MAPPING_KEYS.HAIKU,
-    MODEL_MAPPING_KEYS.SONNET,
-    MODEL_MAPPING_KEYS.OPUS
-  ]);
-
-  cachedModelMapping = {
-    haiku: getStoredString(result[MODEL_MAPPING_KEYS.HAIKU]),
-    sonnet: getStoredString(result[MODEL_MAPPING_KEYS.SONNET]),
-    opus: getStoredString(result[MODEL_MAPPING_KEYS.OPUS])
-  };
-
-  return cachedModelMapping;
+  const config = await loadProviderConfig();
+  return configToMappingConfig(config);
 }
 
 /**
- * Map an upstream model name to custom model name if configured
- * Only applies mapping when custom API URL is configured
+ * Translate a canonical Claude model id into whichever model the user has
+ * mapped its tier to. If no mapping exists we return the original id so the
+ * underlying SDK call still reaches the default Anthropic backend.
  */
 export async function mapModelName(originalModel: string): Promise<string> {
-  // Check if custom API is configured
-  const result = await chrome.storage.local.get('customApiUrl');
-  const customApiUrl = typeof result.customApiUrl === 'string' ? result.customApiUrl : undefined;
-
-  // If no custom API URL, return original model (don't apply mapping)
-  if (!customApiUrl || !customApiUrl.trim()) {
-    return originalModel;
-  }
-
-  if (!cachedModelMapping) {
-    await loadModelMapping();
-  }
-
-  const mapping = cachedModelMapping;
-  if (!mapping) {
-    return originalModel;
-  }
-  const lowerModel = originalModel.toLowerCase();
-
-  // Check for Opus models (highest priority)
-  if (lowerModel.includes('opus') && mapping.opus) {
-    return mapping.opus;
-  }
-
-  // Check for Sonnet models
-  if (lowerModel.includes('sonnet') && mapping.sonnet) {
-    return mapping.sonnet;
-  }
-
-  // Check for Haiku models
-  if (lowerModel.includes('haiku') && mapping.haiku) {
-    return mapping.haiku;
-  }
-
-  // Return original model if no mapping found
-  return originalModel;
+  const config = await loadProviderConfig();
+  const resolved = resolveModelForRequest(config, originalModel);
+  return resolved ? resolved.modelId : originalModel;
 }
 
-/**
- * Clear cached model mapping (call when storage changes)
- */
 export function clearModelMappingCache(): void {
-  cachedModelMapping = null;
+  // Cache lives in providerStore now; loadProviderConfig(true) handles it.
 }
 
 /**
- * Get mapped model name for display purposes (synchronous)
- * Returns the mapped model name if configured, empty string otherwise
+ * Synchronous label helper used by the sidepanel model picker. Returns the
+ * mapped model name (without provider prefix) so the UI can show the user's
+ * actual destination next to the canonical Deep / Smart / Flash labels.
  */
 export function getMappedModelName(originalModel: string, mapping: ModelMappingConfig): string {
-  const lowerModel = originalModel.toLowerCase();
-
-  if (lowerModel.includes('opus') && mapping.opus) {
-    return mapping.opus;
-  }
-
-  if (lowerModel.includes('sonnet') && mapping.sonnet) {
-    return mapping.sonnet;
-  }
-
-  if (lowerModel.includes('haiku') && mapping.haiku) {
-    return mapping.haiku;
-  }
-
-  return '';
+  const tier = classifyTier(originalModel);
+  if (tier === 'deep') return mapping.opus ?? '';
+  if (tier === 'flash') return mapping.haiku ?? '';
+  return mapping.sonnet ?? '';
 }
 
 /**
- * Listen for storage changes and clear cache
+ * Keep external storage listeners aware of either the legacy keys or the new
+ * provider/mapping keys, so they refresh whenever Options writes either set.
  */
 export function initModelMappingListener(): void {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
-
-    const mappingKeys = Object.values(MODEL_MAPPING_KEYS);
-    const hasModelMappingChange = mappingKeys.some(key => key in changes);
-
-    if (hasModelMappingChange) {
-      clearModelMappingCache();
+    const touched =
+      MODEL_MAPPING_KEYS.HAIKU in changes ||
+      MODEL_MAPPING_KEYS.SONNET in changes ||
+      MODEL_MAPPING_KEYS.OPUS in changes ||
+      MODEL_MAPPING_KEYS.PROVIDERS in changes ||
+      MODEL_MAPPING_KEYS.MAPPING in changes;
+    if (touched) {
+      void loadProviderConfig(true);
     }
   });
 }
