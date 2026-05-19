@@ -5995,6 +5995,7 @@ export function SidepanelApp() {
         setCurrentStatus('');
         setAttachmentCount(0);
         setPendingAttachments([]);
+        setPreviewAttachmentImage(null);
         generationStartedAtRef.current = null;
         completionNotificationSentRef.current = false;
         // Hide agent indicators and add completion prefix to tab group
@@ -6731,6 +6732,7 @@ export function SidepanelApp() {
             });
             setPendingPrompt(null);
             setPendingAttachments([]);
+            setPreviewAttachmentImage(null);
             setAttachmentCount(0);
           } else {
             setPendingPrompt({
@@ -6910,6 +6912,7 @@ export function SidepanelApp() {
     });
     setInput('');
     setPendingAttachments([]);
+    setPreviewAttachmentImage(null);
     setAttachmentCount(0);
     setIsPermissionMenuOpen(false);
     setIsActionsMenuOpen(false);
@@ -6951,6 +6954,7 @@ export function SidepanelApp() {
     setPendingAttachments((prev) => {
       const next = prev.filter((item) => item.id !== id);
       setAttachmentCount(next.length);
+      if (next.length === 0) setPreviewAttachmentImage(null);
       return next;
     });
   }, []);
