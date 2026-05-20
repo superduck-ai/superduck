@@ -7,7 +7,7 @@
 ## Install
 
 ```bash
-npm install -g superduck
+npm install -g superduck-cli
 superduck setup
 ```
 
