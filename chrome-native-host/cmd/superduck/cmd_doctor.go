@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -19,6 +20,7 @@ func cmdDoctor(argv []string) error {
 	}
 
 	ok := true
+	var failedChecks []string
 	check := func(name string, pass bool, hint string) {
 		if pass {
 			fmt.Printf("✓ %s\n", name)
@@ -28,6 +30,7 @@ func cmdDoctor(argv []string) error {
 				fmt.Printf("    → %s\n", hint)
 			}
 			ok = false
+			failedChecks = append(failedChecks, name)
 		}
 	}
 
@@ -76,10 +79,20 @@ func cmdDoctor(argv []string) error {
 	check("audit dir present", statErr == nil, fmt.Sprintf("will be created on first command at %s", ad))
 
 	if !ok {
+		tracker.Capture("cli.doctor.completed", map[string]any{
+			"all_passed":    false,
+			"checks_failed": failedChecks,
+		})
+		flushCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		tracker.Flush(flushCtx)
+		cancel()
 		fmt.Println()
 		fmt.Println("doctor: some checks failed")
 		os.Exit(1)
 	}
+	tracker.Capture("cli.doctor.completed", map[string]any{
+		"all_passed": true,
+	})
 	fmt.Println()
 	fmt.Println("doctor: all checks passed")
 	return nil

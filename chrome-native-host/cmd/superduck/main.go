@@ -157,8 +157,12 @@ var gflags = globalFlags{
 
 var errNoArgs = errors.New("no command")
 
+// tracker is the PostHog analytics client, exposed at package level so
+// individual command handlers can emit fine-grained events.
+var tracker *analytics.Client
+
 func main() {
-	tracker := analytics.New(analytics.Options{})
+	tracker = analytics.New(analytics.Options{})
 	errortrack.SetRelease(version)
 	errs := errortrack.New(errortrack.Options{
 		ComponentTag: "cli",

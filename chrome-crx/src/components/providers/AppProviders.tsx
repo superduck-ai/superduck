@@ -1,12 +1,16 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import _ from 'lodash';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GrowthBook, GrowthBookProvider } from '@growthbook/growthbook-react';
-import {
-  getConfig,
-  getOrCreateAnonymousId,
-  type ModelsConfigFeatureValue,
-} from '@/extensionServices';
+import { type ModelsConfigFeatureValue } from '@/extensionServices';
 import { IntlMessageLoaderProvider } from '@/index-react-dom-intl';
 
 const EXPIRED_DATE = 'Thu, 01 Jan 1970 00:00:01 GMT';
@@ -151,7 +155,11 @@ function useLocalStorageInternal<T>({
             }, 0);
           }
         } catch (error) {
-          Logger.warn(LogTag.LOCAL_STORAGE, `Error writing localStorage key "${storageKey}"`, error);
+          Logger.warn(
+            LogTag.LOCAL_STORAGE,
+            `Error writing localStorage key "${storageKey}"`,
+            error
+          );
         }
         return resolvedValue;
       });
@@ -318,22 +326,12 @@ const Spinner: React.FC = () => {
   );
 };
 
-interface AnalyticsClient {
-  track?: (event: string, properties?: Record<string, unknown>) => void;
-  identify?: (userId: string, traits?: Record<string, unknown>) => void;
-  page?: (category: string, name?: string) => void;
-  reset?: () => void;
-  setAnonymousId?: (id: string) => void;
-}
-
 interface AnalyticsContextValue {
-  analytics: AnalyticsClient | null;
   resetAnalytics: () => Promise<void>;
 }
 
 const AnalyticsContext = createContext<AnalyticsContextValue | null>(null);
-const analyticsInstance: AnalyticsClient | null = null;
-let analyticsPromise: Promise<{ analytics: AnalyticsClient | null }> | null = null;
+let analyticsPromise: Promise<void> | null = null;
 
 const AnalyticsProviderInner: React.FC<{ children: React.ReactNode; pageName: string }> = ({
   children,
@@ -342,45 +340,33 @@ const AnalyticsProviderInner: React.FC<{ children: React.ReactNode; pageName: st
   if (!analyticsPromise) {
     analyticsPromise = (async () => {
       try {
-        const version = chrome.runtime.getManifest().version;
-        const anonymousId = await getOrCreateAnonymousId();
-        const config = getConfig();
-        if (!analyticsInstance && config.segmentWriteKey) {
-          void version;
-          void anonymousId;
-        }
-        return { analytics: null };
+        const { initializeAnalytics } = await import('@/mcpRuntime/analytics');
+        await initializeAnalytics();
       } catch {
-        return { analytics: null };
+        // best-effort
       }
     })();
   }
 
-  const { analytics } = React.use(analyticsPromise);
+  React.use(analyticsPromise);
 
   useEffect(() => {
-    analytics?.page?.('Extension', pageName);
-  }, [analytics, pageName]);
+    if (pageName) {
+      import('@/mcpRuntime/analytics')
+        .then(({ trackEvent }) => {
+          void trackEvent('superduck.page_view', { page: pageName });
+        })
+        .catch(() => {});
+    }
+  }, [pageName]);
 
   const resetAnalytics = useCallback(async () => {
-    try {
-      if (analytics) {
-        analytics.reset?.();
-        const id = await getOrCreateAnonymousId();
-        analytics.setAnonymousId?.(id);
-      }
-    } catch {
-      // ignore
-    }
-  }, [analytics]);
+    // PostHog is stateless — nothing to reset
+  }, []);
 
-  const contextValue = useMemo(() => ({ analytics, resetAnalytics }), [analytics, resetAnalytics]);
+  const contextValue = useMemo(() => ({ resetAnalytics }), [resetAnalytics]);
 
-  return (
-    <AnalyticsContext.Provider value={contextValue}>
-      {children}
-    </AnalyticsContext.Provider>
-  );
+  return <AnalyticsContext.Provider value={contextValue}>{children}</AnalyticsContext.Provider>;
 };
 
 const AnalyticsProvider: React.FC<{ children: React.ReactNode; pageName: string }> = ({
@@ -391,12 +377,6 @@ const AnalyticsProvider: React.FC<{ children: React.ReactNode; pageName: string 
     <AnalyticsProviderInner pageName={pageName}>{children}</AnalyticsProviderInner>
   </React.Suspense>
 );
-
-const useAnalytics = () => {
-  const context = useContext(AnalyticsContext);
-  if (!context) throw new Error('useAnalytics must be used within an AnalyticsProvider');
-  return context;
-};
 
 const growthbook = new GrowthBook();
 const queryClient = new QueryClient({
@@ -428,11 +408,4 @@ function getModelsConfig(): ModelsConfigFeatureValue {
   return {};
 }
 
-export {
-  AnalyticsContext,
-  AppProvider,
-  CookiesContext,
-  Spinner,
-  getModelsConfig,
-  useAnalytics
-};
+export { AnalyticsContext, AppProvider, CookiesContext, Spinner, getModelsConfig };

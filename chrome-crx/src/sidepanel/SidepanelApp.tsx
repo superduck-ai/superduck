@@ -1,6 +1,5 @@
 import React, {
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -61,7 +60,7 @@ import {
   type VersionInfoFeatureValue,
   getPermissionActionText,
   getStorageValue,
-  setStorageValue,
+  setStorageValue
 } from '../extensionServices';
 import { useStorageState } from '@/hooks/useStorageState';
 import { PermissionManager, withTracing, SpanStatusCode } from '../PermissionManager';
@@ -101,7 +100,7 @@ import {
   type ModelRequest
 } from './sessionPool';
 import { ConversationCompactor } from './conversationCompaction';
-import { AnalyticsContext, getModelsConfig } from '../components/providers/AppProviders';
+import { getModelsConfig } from '../components/providers/AppProviders';
 import { loadModelMapping, MODEL_MAPPING_KEYS, getMappedModelName } from '../utils/modelMapping';
 import { dispatchMessagesClient } from '../utils/providerClient';
 import {
@@ -891,11 +890,6 @@ function useLightningMode({
   } | null>(null);
   const [lnCurrentStatus, setLnCurrentStatus] = useState('');
 
-  const analyticsCtx = useContext(AnalyticsContext);
-  const analytics = analyticsCtx?.analytics ?? null;
-  const analyticsRef = useRef(analytics);
-  analyticsRef.current = analytics;
-
   const currentDomainRef = useRef(currentDomain);
   currentDomainRef.current = currentDomain;
   const currentUrlRef = useRef(currentUrl);
@@ -1080,7 +1074,7 @@ function useLightningMode({
         if (appName) props.app = appName;
       }
       if (extra) Object.assign(props, extra);
-      analyticsRef.current?.track?.('superduck.chat.tool_called', props);
+      void trackEvent('superduck.chat.tool_called', props);
     },
     [permissionMode]
   );
@@ -2382,7 +2376,6 @@ function PlanApprovalModal({
   return modalContent;
 }
 
-
 // ─── UpdatePlanCell — bundle's ov component (full version with portal and modal) ───
 const UpdatePlanCell = React.memo(function UpdatePlanCell({
   input,
@@ -3399,7 +3392,14 @@ function AssistantMessageRow({
                 side="bottom"
               >
                 <button
-                  onClick={() => setFeedback(feedback === 'positive' ? null : 'positive')}
+                  onClick={() => {
+                    const next = feedback === 'positive' ? null : 'positive';
+                    setFeedback(next);
+                    if (next)
+                      void trackEvent('superduck.sidebar.message_feedback', {
+                        sentiment: 'positive'
+                      });
+                  }}
                   className={`p-1.5 rounded-md transition-colors ${feedback === 'positive' ? 'text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'}`}
                   aria-label={intl.formatMessage({
                     id: 'good_response',
@@ -3417,7 +3417,14 @@ function AssistantMessageRow({
                 side="bottom"
               >
                 <button
-                  onClick={() => setFeedback(feedback === 'negative' ? null : 'negative')}
+                  onClick={() => {
+                    const next = feedback === 'negative' ? null : 'negative';
+                    setFeedback(next);
+                    if (next)
+                      void trackEvent('superduck.sidebar.message_feedback', {
+                        sentiment: 'negative'
+                      });
+                  }}
                   className={`p-1.5 rounded-md transition-colors ${feedback === 'negative' ? 'text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'}`}
                   aria-label={intl.formatMessage({
                     id: 'bad_response',
@@ -3821,9 +3828,13 @@ function InlinePermissionPrompt({
       <PlanApprovalModal
         planStructure={prompt.actionData.plan}
         onApprove={() => {
+          void trackEvent('superduck.sidebar.plan_approved', {});
           onAllow(PermissionDuration.ONCE, { type: 'netloc', netloc: '' });
         }}
-        onReject={onDeny}
+        onReject={() => {
+          void trackEvent('superduck.sidebar.plan_rejected', {});
+          onDeny();
+        }}
       />
     );
   }
@@ -4695,7 +4706,9 @@ export function SidepanelApp() {
     }));
   }, [versionInfo]);
 
-  const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(null);
+  const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(
+    null
+  );
   const [hasProviderConfig, setHasProviderConfig] = useState(false);
 
   const messagesClient = useMemo(() => {
@@ -4719,17 +4732,21 @@ export function SidepanelApp() {
       if (cancelled) return;
       if (resolved) {
         setHasProviderConfig(true);
-        setProviderClient(new MessagesClient({
-          baseURL: resolved.baseURL,
-          dangerouslyAllowBrowser: true,
-          apiKey: resolved.apiKey
-        }));
+        setProviderClient(
+          new MessagesClient({
+            baseURL: resolved.baseURL,
+            dangerouslyAllowBrowser: true,
+            apiKey: resolved.apiKey
+          })
+        );
       } else {
         setHasProviderConfig(false);
         setProviderClient(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [messagesClient, apiKey, apiBaseUrl]);
 
   const effectiveMessagesClient = messagesClient || providerClient;
@@ -4746,7 +4763,8 @@ export function SidepanelApp() {
     const ctrl = new AbortController();
     (async () => {
       try {
-        const modelsApi = 'models' in effectiveMessagesClient ? effectiveMessagesClient.models : null;
+        const modelsApi =
+          'models' in effectiveMessagesClient ? effectiveMessagesClient.models : null;
         if (!isRecord(modelsApi) || typeof modelsApi.list !== 'function') return;
         const page = await modelsApi.list({}, { signal: ctrl.signal });
         if (!isRecord(page) || !Array.isArray(page.data)) return;
@@ -4933,6 +4951,7 @@ export function SidepanelApp() {
           is_error: true
         };
       }
+      const toolStart = Date.now();
       try {
         // Pass the inline permission handler directly to executeTool.
         // processToolResults in mcpRuntime handles the permission flow
@@ -4959,6 +4978,11 @@ export function SidepanelApp() {
           content: result.content
         });
         const hasError = isRecord(result) && result.is_error === true;
+        void trackEvent('superduck.sidebar.tool_executed', {
+          tool_name: toolUse.name,
+          success: !hasError,
+          duration_ms: Date.now() - toolStart
+        });
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
@@ -4966,6 +4990,11 @@ export function SidepanelApp() {
           ...(hasError ? { is_error: true } : {})
         };
       } catch (error) {
+        void trackEvent('superduck.sidebar.tool_executed', {
+          tool_name: toolUse.name,
+          success: false,
+          duration_ms: Date.now() - toolStart
+        });
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
@@ -5015,6 +5044,10 @@ export function SidepanelApp() {
           serverContextLengthRef.current
         );
         const result = await compactor.compactConversation(messagesToCompact, MAX_TOKENS, !manual);
+        void trackEvent('superduck.sidebar.conversation_compacted', {
+          manual,
+          messages_before: messagesToCompact.length
+        });
         setMessageHistory(messagesToCompact);
         const visibleCommandMessage = visibleCommandText
           ? ({
@@ -5666,6 +5699,15 @@ export function SidepanelApp() {
                 retryCount++;
                 let delay = Math.pow(2, retryCount);
                 delay += Math.random() * delay;
+                void trackEvent('superduck.sidebar.api_retried', {
+                  attempt: retryCount,
+                  error_type: lowerMessage.startsWith('overloaded')
+                    ? 'overloaded'
+                    : lowerMessage.includes('rate limit')
+                      ? 'rate_limit'
+                      : 'network',
+                  delay_ms: Math.round(delay * 1000)
+                });
                 await new Promise((resolve) => setTimeout(resolve, delay * 1000));
                 shouldRetry = true;
                 // Clear streaming store and remove the empty streaming placeholder before retry
@@ -5693,6 +5735,23 @@ export function SidepanelApp() {
         if (rateLimitState) {
           setMessageLimit(rateLimitState);
         }
+        const errorType = lowerMessage.includes('abort')
+          ? 'abort'
+          : rateLimitState
+            ? 'rate_limit'
+            : lowerMessage.includes('connection error') ||
+                lowerMessage.includes('failed to fetch') ||
+                lowerMessage.includes('network error')
+              ? 'network'
+              : lowerMessage.startsWith('overloaded')
+                ? 'overloaded'
+                : 'other';
+        if (errorType !== 'abort') {
+          void trackEvent('superduck.sidebar.api_error', {
+            error_type: errorType,
+            model: selectedModelRef.current || ''
+          });
+        }
         if (lowerMessage.includes('abort') || lowerMessage === 'request was aborted.') {
           pushMessage('system', 'Generation stopped.');
         } else {
@@ -5712,6 +5771,15 @@ export function SidepanelApp() {
         // On the happy path flushStreamingText() was already called, but on error/abort
         // paths it was skipped — this ensures the store is always cleaned up.
         flushStreamingText();
+
+        void trackEvent('superduck.sidebar.agent_completed', {
+          iteration_count: iterationCountRef.current,
+          duration_ms: generationStartedAtRef.current
+            ? Date.now() - generationStartedAtRef.current
+            : 0,
+          model: selectedModelRef.current || '',
+          mode: 'normal'
+        });
 
         if (notificationBannerTimerRef.current) {
           window.clearTimeout(notificationBannerTimerRef.current);
@@ -5795,6 +5863,10 @@ export function SidepanelApp() {
   );
 
   const effectiveCancel = useCallback(() => {
+    void trackEvent('superduck.sidebar.agent_cancelled', {
+      mode: isPurlMode ? 'quick' : 'normal',
+      iteration_count: iterationCountRef.current
+    });
     if (isPurlMode && lightningResult) {
       lightningResult.cancel();
     } else {
@@ -5826,6 +5898,10 @@ export function SidepanelApp() {
     const fallbackModel = fallback?.fallbackModelName;
     const payload = lastSentPayloadRef.current;
     if (!fallbackModel || !payload) return;
+    void trackEvent('superduck.sidebar.model_fallback', {
+      from: selectedModel,
+      to: fallbackModel
+    });
     setSelectedModel(fallbackModel);
     await setStorageValue(StorageKeys.SELECTED_MODEL, fallbackModel);
     void effectiveSendPrompt(payload.text, {
@@ -6620,7 +6696,7 @@ export function SidepanelApp() {
       has_attachment: attachmentsToSend.length > 0,
       is_shortcut: value.startsWith('/'),
       model: selectedModelRef.current || '',
-      permission_mode: permissionMode
+      permission_mode: permissionModeRef.current
     });
     setInput('');
     setPendingAttachments([]);
@@ -6712,6 +6788,7 @@ export function SidepanelApp() {
       }
       if (imageFiles.length === 0) return;
       event.preventDefault();
+      void trackEvent('superduck.sidebar.image_pasted', {});
       const dataTransfer = new DataTransfer();
       imageFiles.forEach((f) => dataTransfer.items.add(f));
       void handleFileSelection(dataTransfer.files);
@@ -6748,6 +6825,7 @@ export function SidepanelApp() {
       });
       setIsActionsMenuOpen(false);
       inputRef.current?.focus();
+      void trackEvent('superduck.sidebar.screenshot_captured', {});
     } catch (error) {
       setRuntimeError(`Unable to capture screenshot: ${getErrorMessage(error)}`);
     }
@@ -6820,6 +6898,10 @@ export function SidepanelApp() {
         const modes = permissionModeMenuOptions.map((o) => o.value);
         if (modes.length === 0) return;
         const idx = (modes.indexOf(permissionMode) + 1) % modes.length;
+        void trackEvent('superduck.sidebar.permission_mode_changed', {
+          from: permissionMode,
+          to: modes[idx]
+        });
         setPermissionMode(modes[idx]);
       }
     };
@@ -6828,14 +6910,20 @@ export function SidepanelApp() {
   }, [effectiveIsAgentRunning, effectiveCancel, permissionMode, permissionModeMenuOptions]);
 
   const clearConversation = useCallback(() => {
+    let hadMessages = false;
+    setMessages((prev) => {
+      hadMessages = prev.length > 0;
+      return [];
+    });
+    if (hadMessages) {
+      void trackEvent('superduck.sidebar.conversation_cleared', { had_messages: true });
+    }
     abortControllerRef.current?.abort();
     setIsAgentRunning(false);
-    // Ensure indicators are hidden when conversation is cleared
     if (typeof query.tabId === 'number') {
       chrome.tabs.sendMessage(query.tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
       tabGroupManager.setTabIndicatorState(query.tabId, 'none').catch(() => {});
     }
-    setMessages([]);
     setApiMessages([]);
     setMessageHistory([]);
     setTokensSaved(null);
@@ -6983,6 +7071,10 @@ export function SidepanelApp() {
         setPendingLocale(nextLocale);
         return;
       }
+      void trackEvent('superduck.sidebar.language_changed', {
+        from: locale,
+        to: nextLocale
+      });
       void setLocale(nextLocale);
     },
     [locale, messages.length, setLocale]
@@ -6992,11 +7084,15 @@ export function SidepanelApp() {
     if (!pendingLocale) return;
     const nextLocale = pendingLocale;
     setPendingLocale(null);
+    void trackEvent('superduck.sidebar.language_changed', {
+      from: locale,
+      to: nextLocale
+    });
     void (async () => {
       await setLocale(nextLocale);
       clearConversation();
     })();
-  }, [clearConversation, pendingLocale, setLocale]);
+  }, [clearConversation, locale, pendingLocale, setLocale]);
 
   const handleConvertToScheduledTask = useCallback(() => {
     if (effectiveIsAgentRunning || isConvertingToTask) return;
@@ -7063,6 +7159,7 @@ export function SidepanelApp() {
   const acceptBrowserControlPermission = useCallback(async () => {
     await setStorageValue(StorageKeys.BROWSER_CONTROL_PERMISSION_ACCEPTED, true);
     setHasBrowserControlPermissionAccepted(true);
+    void trackEvent('superduck.sidebar.browser_permission_accepted', {});
     if (pendingPrompt) {
       void effectiveSendPrompt(pendingPrompt.prompt, {
         attachments: pendingPrompt.attachments,
@@ -7372,13 +7469,13 @@ export function SidepanelApp() {
                   type="button"
                   onClick={() => {
                     if (isPurlMode) {
-                      // Turn off immediately
                       setPurlModeToggle(false);
                       chrome.storage.local.set({ purlMode: false });
+                      void trackEvent('superduck.sidebar.quick_mode_toggled', { enabled: false });
                     } else {
-                      // Turn on (in the bundle there's a confirmation dialog, simplified here)
                       setPurlModeToggle(true);
                       chrome.storage.local.set({ purlMode: true });
+                      void trackEvent('superduck.sidebar.quick_mode_toggled', { enabled: true });
                     }
                   }}
                   disabled={effectiveIsAgentRunning}
@@ -7715,6 +7812,9 @@ export function SidepanelApp() {
                                 type="notification"
                                 onAction={async () => {
                                   setNotificationsEnabled('enabled');
+                                  void trackEvent('superduck.sidebar.notification_toggled', {
+                                    enabled: true
+                                  });
                                   await setStorageValue(
                                     StorageKeys.NOTIFICATIONS_ENABLED,
                                     'enabled'
@@ -7723,6 +7823,9 @@ export function SidepanelApp() {
                                 }}
                                 onDismiss={() => {
                                   setNotificationsEnabled('disabled');
+                                  void trackEvent('superduck.sidebar.notification_toggled', {
+                                    enabled: false
+                                  });
                                   void setStorageValue(
                                     StorageKeys.NOTIFICATIONS_ENABLED,
                                     'disabled'
@@ -8496,6 +8599,7 @@ export function SidepanelApp() {
                       type: 'pairing_dismissed',
                       request_id: pairingPrompt.requestId
                     });
+                    void trackEvent('superduck.sidebar.pairing_dismissed', {});
                     setPairingPrompt(null);
                     setPairingName('');
                   }}
@@ -8512,6 +8616,7 @@ export function SidepanelApp() {
                       request_id: pairingPrompt.requestId,
                       name: pairingName.trim()
                     });
+                    void trackEvent('superduck.sidebar.pairing_confirmed', {});
                     setPairingPrompt(null);
                     setPairingName('');
                   }}

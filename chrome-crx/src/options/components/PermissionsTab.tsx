@@ -1,14 +1,13 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { useAnalytics } from '@/components/providers/AppProviders';
 import { useStorageState } from '@/hooks/useStorageState';
 import { PermissionManager } from '@/PermissionManager';
 import { StorageKeys } from '@/extensionServices';
+import { trackEvent } from '@/mcpRuntime/analytics';
 import { ProviderConfigSection } from './ProviderConfigSection';
 
 type PermissionRecord = ReturnType<PermissionManager['getAllPermissions']>[number];
 type PermissionsByScope = ReturnType<PermissionManager['getPermissionsByScope']>;
-type AnalyticsClient = ReturnType<typeof useAnalytics>['analytics'];
 
 interface PermissionListProps {
   permissions: PermissionRecord[];
@@ -52,7 +51,7 @@ const DomainTransitionList: React.FC<PermissionListProps> = ({
   formatScope
 }) => <PermissionList permissions={permissions} onRevoke={onRevoke} formatScope={formatScope} />;
 
-const MicrophoneSettings: React.FC<{ analytics?: AnalyticsClient }> = ({ analytics }) => {
+const MicrophoneSettings: React.FC = () => {
   const intl = useIntl();
   const [permissionState, setPermissionState] = useState<string>('unknown');
   const [isRequesting, setIsRequesting] = useState(false);
@@ -105,7 +104,7 @@ const MicrophoneSettings: React.FC<{ analytics?: AnalyticsClient }> = ({ analyti
                   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                   stream.getTracks().forEach((track) => track.stop());
                   await checkPermission();
-                  analytics?.track?.('superduck.settings.microphone_enabled', {
+                  void trackEvent('superduck.settings.microphone_enabled', {
                     timestamp: Date.now()
                   });
                 } catch (err: unknown) {
@@ -270,8 +269,6 @@ const PermissionsTab: React.FC = () => {
     'enabled' | 'disabled' | undefined
   >(StorageKeys.NOTIFICATIONS_ENABLED, undefined);
   const [debugMode, setDebugMode] = useStorageState<boolean>(StorageKeys.DEBUG_MODE, false);
-  const { analytics } = useAnalytics();
-
   const permissionManager = useMemo(() => new PermissionManager(() => false), []);
 
   const loadPermissions = useCallback(async () => {
@@ -419,7 +416,7 @@ const PermissionsTab: React.FC = () => {
           </div>
         </div>
 
-        <MicrophoneSettings analytics={analytics} />
+        <MicrophoneSettings />
 
         <div className="bg-bg-100 border border-border-300 rounded-xl px-6 pt-6 pb-2 md:px-8 md:pt-8 md:pb-3">
           <h3 className="text-text-100 font-xl-bold">
@@ -450,10 +447,7 @@ const PermissionsTab: React.FC = () => {
         {permissions?.domain_transition && permissions.domain_transition.length > 0 && (
           <div className="bg-bg-100 border border-border-300 rounded-xl px-6 pt-6 pb-2 md:px-8 md:pt-8 md:pb-3">
             <h3 className="text-text-100 font-xl-bold">
-              <FormattedMessage
-                defaultMessage="Domain Transitions"
-                id="domain_transitions"
-              />
+              <FormattedMessage defaultMessage="Domain Transitions" id="domain_transitions" />
             </h3>
             <p className="text-text-300 font-base mt-2 mb-6">
               <FormattedMessage

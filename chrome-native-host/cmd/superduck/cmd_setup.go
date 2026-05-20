@@ -80,8 +80,16 @@ func cmdSetup(argv []string) error {
 	}
 
 	if written == 0 {
+		tracker.Capture("cli.setup.completed", map[string]any{
+			"browser": *browser, "success": false, "os": runtime.GOOS,
+		})
 		return fmt.Errorf("no manifest written. Check --browser and that the directories are writable")
 	}
+
+	tracker.Capture("cli.setup.completed", map[string]any{
+		"browser": *browser, "success": true, "os": runtime.GOOS,
+		"manifests_written": written,
+	})
 
 	if *extensionID == defaultExtensionID {
 		fmt.Fprintln(os.Stderr)

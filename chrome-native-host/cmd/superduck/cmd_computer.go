@@ -239,6 +239,11 @@ func callWithRetry(tool string, args map[string]any, attempts int, delay time.Du
 			if strings.Contains(msg, "chrome:// URL") ||
 				strings.Contains(msg, "chrome-extension:// URL") ||
 				strings.Contains(msg, "Detached while handling") {
+				tracker.Capture("cli.tool.retried", map[string]any{
+					"tool":    tool,
+					"attempt": i + 1,
+					"reason":  msg,
+				})
 				time.Sleep(delay)
 				continue
 			}

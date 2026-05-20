@@ -15,7 +15,11 @@ import {
 } from '../messageTypes';
 import { MessagesClient } from '../mcpServersStore';
 import { withTracing, PermissionManager as PermissionManagerClass } from '../PermissionManager';
-import { dispatchMessagesClient, clearDispatchClientCache, resolveClientForTier } from '../utils/providerClient';
+import {
+  dispatchMessagesClient,
+  clearDispatchClientCache,
+  resolveClientForTier
+} from '../utils/providerClient';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
@@ -564,7 +568,6 @@ interface ToolExecutorContext {
   messagesClient?: MessagesClient;
   permissionManager: PermissionManagerClass;
   onPermissionRequired?: PermissionPromptHandler;
-  analytics?: { track: (event: string, data: Record<string, unknown>) => unknown };
   refreshClient?: () => Promise<MessagesClient | undefined>;
 }
 
@@ -646,10 +649,10 @@ class ToolExecutor {
             await recordToolAction(toolName, coercedInput, executionContext.tabId);
           }
 
-          this.context.analytics?.track('superduck.chat.tool_called', trackData);
+          void trackEvent('superduck.chat.tool_called', trackData);
           return result;
         } catch (err) {
-          this.context.analytics?.track('superduck.chat.tool_called', {
+          void trackEvent('superduck.chat.tool_called', {
             ...trackData,
             success: false,
             failureReason: 'exception'
@@ -1003,7 +1006,11 @@ async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Pro
 }
 
 async function refreshMessagesClient(): Promise<MessagesClient | undefined> {
-  const storedValues = await chrome.storage.local.get([StorageKeys.API_KEY, 'customApiUrl', 'customApiKey']);
+  const storedValues = await chrome.storage.local.get([
+    StorageKeys.API_KEY,
+    'customApiUrl',
+    'customApiKey'
+  ]);
   const storedApiKey = storedValues[StorageKeys.API_KEY] as string | undefined;
   const customApiUrl = storedValues.customApiUrl as string | undefined;
   const customApiKey = storedValues.customApiKey as string | undefined;

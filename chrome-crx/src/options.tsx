@@ -14,7 +14,7 @@ const DevAppWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   return (
     <IntlMessageLoaderProvider>
-      <AnalyticsContext.Provider value={{ analytics: null, resetAnalytics: async () => {} }}>
+      <AnalyticsContext.Provider value={{ resetAnalytics: async () => {} }}>
         <TooltipPrimitive.Provider>{children}</TooltipPrimitive.Provider>
       </AnalyticsContext.Provider>
     </IntlMessageLoaderProvider>
