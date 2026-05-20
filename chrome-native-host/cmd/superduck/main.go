@@ -12,7 +12,9 @@ import (
 	"chrome-native-host/internal/errortrack"
 )
 
-const version = "0.2.3"
+// version is set at build time via -ldflags "-X main.version=..."
+// Falls back to the value below for local dev builds.
+var version = "0.2.5"
 
 const usage = `superduck %s — your browser's session, callable as a tool.
 
@@ -162,6 +164,7 @@ var errNoArgs = errors.New("no command")
 var tracker *analytics.Client
 
 func main() {
+	analytics.LibVersion = version
 	tracker = analytics.New(analytics.Options{})
 	errortrack.SetRelease(version)
 	errs := errortrack.New(errortrack.Options{

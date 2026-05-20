@@ -45,7 +45,7 @@ superduck log --tail 20        # ~/.superduck/audit.jsonl
 If the `superduck` command is not found, it can be installed with:
 
 ```bash
-npm install -g superduck
+npm install -g superduck-cli
 superduck setup    # registers the native messaging manifest
 ```
 

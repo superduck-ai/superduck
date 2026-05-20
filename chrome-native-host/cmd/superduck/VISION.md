@@ -105,7 +105,7 @@ superduck log                  # 查审计日志
 ## 安装
 
 ```bash
-npm install -g superduck       # 跨平台,任何装了 Node 的环境
+npm install -g superduck-cli   # 跨平台,任何装了 Node 的环境
 superduck setup                # 注册 native messaging manifest + 拉起扩展商店
 superduck doctor               # 全绿即可开始用
 ```

@@ -44,12 +44,19 @@ jobs:
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
         run: |
+          # Extract version from git tag (v0.2.5 → 0.2.5) or fall back to package.json
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION=$(node -p "require('../npm/package.json').version")
+          fi
+          echo "Building version: $VERSION"
           if [ -z "$POSTHOG_KEY" ]; then
             echo "::warning::POSTHOG_KEY repo secret is not set — release binaries will ship without product analytics."
           else
             echo "POSTHOG_KEY is set (${#POSTHOG_KEY} chars); compiling into binaries."
           fi
-          make release-binaries
+          make release-binaries VERSION="$VERSION"
 
       - name: Verify key is embedded (or absent) as expected
         env:

@@ -14,8 +14,15 @@ BUILD_DIR := build
 # Never check the key into git. Keep it in your shell rc, a gitignored
 # `.env.local`, or a CI secret (e.g. GitHub Actions secret POSTHOG_KEY).
 POSTHOG_KEY ?=
+
+# VERSION is injected into the binary via -ldflags. For release builds it comes
+# from the git tag (e.g. make release-binaries VERSION=0.2.5). For local builds
+# it reads the default value compiled into main.go.
+VERSION ?=
+
 ANALYTICS_LDFLAGS := $(if $(POSTHOG_KEY),-X chrome-native-host/internal/analytics.PostHogWriteKey=$(POSTHOG_KEY),)
-GO_LDFLAGS := $(ANALYTICS_LDFLAGS)
+VERSION_LDFLAGS := $(if $(VERSION),-X main.version=$(VERSION) -X chrome-native-host/internal/analytics.LibVersion=$(VERSION),)
+GO_LDFLAGS := $(strip $(ANALYTICS_LDFLAGS) $(VERSION_LDFLAGS))
 GO_BUILD_FLAGS := $(if $(strip $(GO_LDFLAGS)),-ldflags "$(GO_LDFLAGS)",)
 
 all: native-host mcp-server superduck

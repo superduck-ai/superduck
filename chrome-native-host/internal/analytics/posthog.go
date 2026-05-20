@@ -35,6 +35,10 @@ var PostHogWriteKey = ""
 // PostHogHost can be overridden for self-hosted PostHog instances.
 var PostHogHost = "https://us.i.posthog.com"
 
+// LibVersion is the CLI version string embedded in analytics events.
+// Set at build time via -ldflags "-X chrome-native-host/internal/analytics.LibVersion=0.2.5"
+var LibVersion = "dev"
+
 const (
 	envDisabled = "SUPERDUCK_ANALYTICS_DISABLED"
 	envWriteKey = "SUPERDUCK_POSTHOG_KEY"
@@ -50,9 +54,9 @@ type Client struct {
 	httpClient *http.Client
 	enabled    bool
 
-	idOnce       sync.Once
-	distinctID   string
-	idOverride   string
+	idOnce     sync.Once
+	distinctID string
+	idOverride string
 
 	pending sync.WaitGroup
 }
@@ -176,7 +180,7 @@ func (c *Client) send(body []byte) {
 func buildCaptureBody(apiKey, distinctID, event string, properties map[string]any, ts time.Time) []byte {
 	props := map[string]any{
 		"$lib":         "superduck-cli",
-		"$lib_version": "0.2.3",
+		"$lib_version": LibVersion,
 	}
 	for k, v := range properties {
 		// Don't allow the caller to clobber library-identifying keys.

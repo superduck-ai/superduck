@@ -19,8 +19,7 @@ try {
 if (!binPath) {
   console.error(`superduck: no prebuilt binary found for ${platform}-${arch}.`);
   console.error(`expected optional dependency '${pkg}'.`);
-  console.error(`if you are on a supported platform, try: npm install -g --force superduck`);
-  process.exit(127);
+  console.error(`if you are on a supported platform, try: npm install -g --force superduck-cli`);  process.exit(127);
 }
 
 if (process.argv[2] === "--postinstall") {
