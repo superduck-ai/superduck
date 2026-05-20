@@ -6910,11 +6910,8 @@ export function SidepanelApp() {
   }, [effectiveIsAgentRunning, effectiveCancel, permissionMode, permissionModeMenuOptions]);
 
   const clearConversation = useCallback(() => {
-    let hadMessages = false;
-    setMessages((prev) => {
-      hadMessages = prev.length > 0;
-      return [];
-    });
+    const hadMessages = messages.length > 0;
+    setMessages([]);
     if (hadMessages) {
       void trackEvent('superduck.sidebar.conversation_cleared', { had_messages: true });
     }
@@ -6942,7 +6939,7 @@ export function SidepanelApp() {
       sessionCreatedAtRef.current = Date.now();
       setActiveSessionId(nextSessionId);
     }
-  }, [query.sessionId]);
+  }, [messages, query.sessionId]);
 
   const normalizedModelOptions = useMemo(() => {
     const rawOptions = modelConfig.options;

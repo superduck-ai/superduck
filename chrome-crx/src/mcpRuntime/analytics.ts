@@ -19,12 +19,21 @@ const POSTHOG_HOST = 'https://us.i.posthog.com';
 const POSTHOG_API_KEY = 'phc_usrQSJ4QknZBB8iZT9jmJZE5XixypAwvFn49dB8wFSss';
 
 let analyticsUserId: string | null = null;
+let identifyPromise: Promise<void> | null = null;
+
+function ensureIdentified(): Promise<void> {
+  if (!identifyPromise) {
+    identifyPromise = identifyUser();
+  }
+  return identifyPromise;
+}
 
 async function posthogCapture(
   event: string,
   properties: Record<string, unknown> = {}
 ): Promise<void> {
   try {
+    await ensureIdentified();
     const anonymousId = await getOrCreateAnonymousId();
     const extensionVersion = chrome.runtime.getManifest().version;
     const payload: Record<string, unknown> = {
@@ -51,12 +60,13 @@ async function posthogCapture(
 
 // --- initializeAnalytics ---
 const initializeAnalytics = async (): Promise<void> => {
-  await identifyUser();
+  await ensureIdentified();
 };
 
 // --- identifyUser ---
 const identifyUser = async (): Promise<void> => {
   try {
+    analyticsUserId = null;
     const token = await getStorageValue<string>(StorageKeys.ACCESS_TOKEN);
     if (!token) return;
     const profileUrl = `${getConfig().apiBaseUrl}/api/oauth/profile`;
@@ -66,6 +76,10 @@ const identifyUser = async (): Promise<void> => {
         'Content-Type': 'application/json'
       }
     });
+    if (401 === response.status) {
+      await removeStorageValues([StorageKeys.ACCESS_TOKEN, StorageKeys.TOKEN_EXPIRY]);
+      return;
+    }
     if (!response.ok) return;
     const profile = await response.json();
     const userId = profile?.account?.uuid;
