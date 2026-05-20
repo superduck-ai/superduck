@@ -47,7 +47,6 @@ superduck:
 # and `superduck init` reads chrome-native-host from the same bin dir.
 release-binaries:
 	@echo "Cross-building superduck + chrome-native-host for all platforms..."
-	@if [ -z "$(POSTHOG_KEY)" ]; then echo "WARN: POSTHOG_KEY not set — release binaries will ship without product analytics."; fi
 	GOOS=darwin  GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o ../npm/packages/superduck-darwin-arm64/bin/superduck ./cmd/superduck
 	GOOS=darwin  GOARCH=arm64 go build                  -o ../npm/packages/superduck-darwin-arm64/bin/chrome-native-host ./cmd/native-host
 	GOOS=darwin  GOARCH=amd64 go build $(GO_BUILD_FLAGS) -o ../npm/packages/superduck-darwin-x64/bin/superduck ./cmd/superduck

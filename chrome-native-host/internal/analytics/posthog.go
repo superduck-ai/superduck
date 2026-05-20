@@ -27,10 +27,9 @@ import (
 	"time"
 )
 
-// PostHogWriteKey may be overridden at build time via -ldflags.
-//
-//	go build -ldflags "-X chrome-native-host/internal/analytics.PostHogWriteKey=phc_xxx"
-var PostHogWriteKey = ""
+// PostHogWriteKey is the write-only project token for PostHog product analytics.
+// This is a public, write-only key (cannot read data) — safe to commit.
+var PostHogWriteKey = "phc_usrQSJ4QknZBB8iZT9jmJZE5XixypAwvFn49dB8wFSss"
 
 // PostHogHost can be overridden for self-hosted PostHog instances.
 var PostHogHost = "https://us.i.posthog.com"
