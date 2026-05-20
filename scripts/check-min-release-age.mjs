@@ -84,7 +84,10 @@ console.log(
 const violations = [];
 const checked = [];
 
+const OWN_PACKAGES_RE = /^superduck(-|$)/;
+
 async function checkNpm(name, version) {
+  if (OWN_PACKAGES_RE.test(name)) return;
   // Strip semver range prefixes (^, ~, >=, etc.) — registry needs exact
   // versions, but Dependabot bumps usually pin to one.
   const v = version.replace(/^[\^~>=<v ]+/, '').split(/\s/)[0];
