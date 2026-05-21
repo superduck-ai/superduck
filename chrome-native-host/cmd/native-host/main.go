@@ -23,6 +23,8 @@ type Server struct {
 	udsListener    net.Listener
 	udsConnections map[net.Conn]bool
 	connMu         sync.Mutex
+	closed         chan struct{}
+	closeOnce      sync.Once
 
 	// Chrome stdio is single-threaded: one goroutine reads stdin,
 	// responses are routed back via chromeCh.
@@ -45,6 +47,7 @@ func NewServer() (*Server, error) {
 		udsListener:    listener,
 		udsConnections: make(map[net.Conn]bool),
 		chromeCh:       make(chan []byte, 1),
+		closed:         make(chan struct{}),
 	}, nil
 }
 
@@ -55,6 +58,11 @@ func (s *Server) Run() error {
 	for {
 		conn, err := s.udsListener.Accept()
 		if err != nil {
+			select {
+			case <-s.closed:
+				return nil
+			default:
+			}
 			slog.Error("accept error", "error", err)
 			continue
 		}
@@ -81,6 +89,7 @@ func (s *Server) readChromeStdio() {
 				slog.Error("Chrome read error", "error", err)
 			}
 			close(s.chromeCh)
+			s.Close()
 			return
 		}
 
@@ -178,10 +187,18 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 }
 
 func (s *Server) Close() error {
-	if s.udsListener != nil {
-		s.udsListener.Close()
-		os.Remove(socketPath)
-	}
+	s.closeOnce.Do(func() {
+		close(s.closed)
+		if s.udsListener != nil {
+			s.udsListener.Close()
+		}
+		s.connMu.Lock()
+		for conn := range s.udsConnections {
+			_ = conn.Close()
+		}
+		s.connMu.Unlock()
+		_ = os.Remove(socketPath)
+	})
 	return nil
 }
 
