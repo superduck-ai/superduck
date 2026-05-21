@@ -13,8 +13,11 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await editor.waitFor({ state: "visible", timeout: 10_000 });
   await editor.click();
   await editor.fill(text);
-  // Small delay to let the editor register content
-  await page.waitForTimeout(100);
+  await page.waitForFunction(
+    (expected) => document.querySelector(".ProseMirror")?.textContent?.includes(String(expected)),
+    text,
+    { timeout: 5_000 }
+  );
   const sendBtn = page.locator('[data-test-id="send-button"]');
   await sendBtn.waitFor({ state: "visible", timeout: 5000 });
   await sendBtn.click();

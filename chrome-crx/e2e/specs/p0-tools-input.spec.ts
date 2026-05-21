@@ -36,6 +36,10 @@ test.describe("5.1 click", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "Click the login button");
     await waitForReplyDone(page, 15_000);
+
+    await expect(targetPage.locator("#result")).toBeVisible();
+    await expect(targetPage.locator("#overlay")).toBeVisible();
+
     await page.close();
     await targetPage.close();
   });

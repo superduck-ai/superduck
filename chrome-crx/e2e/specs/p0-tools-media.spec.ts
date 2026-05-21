@@ -167,10 +167,10 @@ test.describe("6. 工具调用 - 媒体 mediaTools", () => {
 
     const images = page.locator(".superduck-response img");
     const imgCount = await images.count();
-    if (imgCount > 0) {
-      const img = images.first();
-      await expect(img).toBeVisible();
-    }
+    expect(imgCount).toBeGreaterThan(0);
+
+    const img = images.first();
+    await expect(img).toBeVisible();
     await page.close();
   });
 });

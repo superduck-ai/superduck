@@ -33,6 +33,9 @@ test.describe("4. 工具调用 - 页面读取 pageTools", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "What URL am I on?");
     await waitForReplyDone(page, 15_000);
+    await page.waitForSelector(".superduck-response", { timeout: 15_000 });
+    const response = await page.locator(".superduck-response").last().textContent();
+    expect(response).toContain(targetUrl);
     await page.close();
     await targetPage.close();
   });
