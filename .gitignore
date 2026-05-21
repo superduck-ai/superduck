@@ -72,3 +72,7 @@ test-results.junit.xml
 chrome-native-host/test-results.json
 chrome-crx/test-results.junit.xml
 coverage/
+
+# E2E test artifacts
+chrome-crx/e2e/test-results/
+chrome-crx/e2e/playwright-report/

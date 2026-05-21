@@ -17,6 +17,8 @@
     "test:coverage": "vitest run --coverage",
     "test:perf": "vitest run --reporter=verbose --reporter=junit --outputFile.junit=test-results.junit.xml",
     "test:perf:report": "node scripts/test-perf-report.mjs test-results.junit.xml",
+    "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "npx playwright test --config e2e/playwright.config.ts --ui",
     "docs": "typedoc --options typedoc.json",
     "docs:check": "typedoc --options typedoc.json --emit none"
   },
@@ -88,7 +90,9 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.3.1",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.0.0"
   },
   "description": "",
   "main": "eslint.config.js",

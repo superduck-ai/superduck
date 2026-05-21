@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Login Page - Test Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 40px; }
+    .container { max-width: 400px; margin: 0 auto; }
+    h1 { color: #333; }
+    .btn-login {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin-top: 20px;
+    }
+    .btn-login:hover { background: #45a049; }
+    .btn-disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .hidden-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .hidden-overlay.show { display: flex; }
+    .modal { background: white; padding: 20px; border-radius: 8px; }
+    #result { margin-top: 10px; color: green; display: none; }
+    a.nav-link { display: block; margin-top: 10px; color: blue; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Welcome</h1>
+    <p>Please click the login button to continue.</p>
+    <button class="btn-login" id="login-btn" onclick="handleLogin()">Login</button>
+    <button class="btn-login btn-disabled" id="disabled-btn" disabled>Disabled Button</button>
+    <a href="about:blank" class="nav-link" id="nav-link">Go to another page</a>
+    <div id="result">Login successful!</div>
+  </div>
+  <div class="hidden-overlay" id="overlay">
+    <div class="modal">
+      <p>Login dialog opened</p>
+      <button id="close-modal" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+  <script>
+    function handleLogin() {
+      document.getElementById('result').style.display = 'block';
+      document.getElementById('overlay').classList.add('show');
+    }
+    function closeModal() {
+      document.getElementById('overlay').classList.remove('show');
+    }
+  </script>
+</body>
+</html>

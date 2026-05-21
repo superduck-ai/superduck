@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Long Article - Test Fixture</title>
+  <style>
+    body { font-family: Georgia, serif; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.8; }
+    h1 { font-size: 2em; margin-bottom: 0.5em; }
+    h2 { font-size: 1.5em; margin-top: 1.5em; }
+    p { margin-bottom: 1em; }
+    .highlight { background: yellow; padding: 2px 4px; }
+    #target-element { border: 2px solid red; padding: 10px; margin: 20px 0; }
+    .scroll-marker { margin-top: 200vh; padding: 20px; background: #e0f0ff; }
+  </style>
+</head>
+<body>
+  <article>
+    <h1>The Future of Artificial Intelligence</h1>
+    <p>Artificial intelligence (AI) has rapidly evolved from a theoretical concept to a transformative technology that is reshaping every aspect of human life. From healthcare to transportation, education to entertainment, AI systems are becoming increasingly integrated into our daily routines.</p>
+
+    <h2>Machine Learning Breakthroughs</h2>
+    <p>Recent advances in deep learning have led to remarkable improvements in natural language processing, computer vision, and reinforcement learning. Large language models can now generate human-quality text, translate between languages, and even write code.</p>
+    <p>The development of transformer architectures has been particularly significant, enabling models to process and generate long sequences of text with unprecedented coherence and contextual understanding.</p>
+
+    <h2>Ethical Considerations</h2>
+    <p>As AI becomes more powerful, society must grapple with important ethical questions. Issues of bias, privacy, and accountability are at the forefront of AI governance discussions worldwide.</p>
+    <p class="highlight">This is a highlighted paragraph that should be easy to identify in accessibility tree.</p>
+
+    <div id="target-element">
+      <p>This is a specially marked target element for screenshot tests.</p>
+    </div>
+
+    <h2>The Road Ahead</h2>
+    <p>Looking forward, AI research continues to push boundaries. Advances in multimodal AI, which can process text, images, audio, and video simultaneously, promise to create even more capable and versatile systems.</p>
+    <p>The integration of AI with robotics, quantum computing, and biotechnology may lead to breakthroughs that we can barely imagine today.</p>
+
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+    <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.</p>
+    <p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.</p>
+
+    <div class="scroll-marker" id="bottom-marker">
+      <p>You have reached the bottom of the article.</p>
+    </div>
+  </article>
+</body>
+</html>
