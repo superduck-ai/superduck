@@ -48,6 +48,9 @@ test.describe("8. 端到端集成场景", () => {
       const response = await sidepanel.locator(".superduck-response").last().textContent();
       expect(response).toContain("登录");
 
+      await expect(targetPage.locator("#result")).toBeVisible();
+      await expect(targetPage.locator("#overlay")).toHaveClass(/show/);
+
       await sidepanel.close();
       await targetPage.close();
     });

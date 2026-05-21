@@ -51,7 +51,7 @@ test.describe("1.2 入口触发", () => {
     await sidepanel.close();
   });
 
-  test("TC-1.2.2 快捷键 Cmd+E 切换 side panel 开关", async ({ context, extensionId }) => {
+  test("TC-1.2.2 side panel 可在有活跃 tab 时正常打开", async ({ context, extensionId }) => {
     const page = await context.newPage();
     await page.goto("https://example.com");
     // Simulate keyboard shortcut — note: Chrome extension shortcuts may not be
@@ -74,7 +74,7 @@ test.describe("1.2 入口触发", () => {
 });
 
 test.describe("1.3 SW 生命周期", () => {
-  test("TC-1.3.1 Service Worker idle 后用户操作能重新唤醒", async ({
+  test("TC-1.3.1 Service Worker 运行中时 side panel 可正常加载", async ({
     context,
     serviceWorker,
     extensionId,
