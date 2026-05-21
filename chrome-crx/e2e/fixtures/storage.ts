@@ -20,7 +20,7 @@ export function getDefaultProviderConfig() {
         kind: "anthropic",
         name: "Mock Provider",
         modelId: "claude-sonnet-4-6",
-        apiKey: "sk-ant-test-mock-key-for-e2e",
+        apiKey: "test-fake-key-not-real",
         baseURL: "https://api.anthropic.com",
         status: "active",
       },
@@ -31,7 +31,7 @@ export function getDefaultProviderConfig() {
       flash: { providerId: "prov_mock", modelId: "claude-sonnet-4-6" },
     },
     aiProviderConfigVersion: 1,
-    anthropicApiKey: "sk-ant-test-mock-key-for-e2e",
+    anthropicApiKey: "test-fake-key-not-real",
     browserControlPermissionAccepted: true,
   };
 }

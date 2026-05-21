@@ -99,7 +99,7 @@ test.describe("7. 工具调用 UX", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [100, 100] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [100, 100] } },
           ],
           stop_reason: "tool_use",
         },
@@ -221,7 +221,7 @@ test.describe("7. 工具调用 UX", () => {
         },
         {
           content: [
-            { type: "tool_use", id: "tu_2", name: "computer", input: { action: "click", coordinate: [100, 180] } },
+            { type: "tool_use", id: "tu_2", name: "computer", input: { action: "left_click", coordinate: [100, 180] } },
           ],
           stop_reason: "tool_use",
         },

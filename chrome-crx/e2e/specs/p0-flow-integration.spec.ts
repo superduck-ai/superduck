@@ -28,7 +28,7 @@ test.describe("8. 端到端集成场景", () => {
           },
           {
             content: [
-              { type: "tool_use", id: "tu_2", name: "computer", input: { action: "click", coordinate: [100, 180] } },
+              { type: "tool_use", id: "tu_2", name: "computer", input: { action: "left_click", coordinate: [100, 180] } },
             ],
             stop_reason: "tool_use",
           },

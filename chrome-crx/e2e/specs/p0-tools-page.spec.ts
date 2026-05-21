@@ -187,7 +187,7 @@ test.describe("4. 工具调用 - 页面读取 pageTools", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "scroll", coordinate: [640, 360], direction: "down", amount: 500 } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "scroll", coordinate: [640, 360], scroll_direction: "down", scroll_amount: 5 } },
           ],
           stop_reason: "tool_use",
         },
@@ -215,12 +215,12 @@ test.describe("4. 工具调用 - 页面读取 pageTools", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "wait", duration: 500 } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "wait", duration: 0.5 } },
           ],
           stop_reason: "tool_use",
         },
         {
-          content: [{ type: "text", text: "Waited 500ms successfully." }],
+          content: [{ type: "text", text: "Waited 0.5s successfully." }],
           stop_reason: "end_turn",
         },
       ],

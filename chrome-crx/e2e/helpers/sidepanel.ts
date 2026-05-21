@@ -21,9 +21,17 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
 }
 
 export async function waitForReplyDone(page: Page, timeout = 60_000): Promise<void> {
-  // Wait for the stop button to disappear (meaning generation is complete)
   const stopBtn = page.locator('[data-test-id="stop-button"]');
-  await stopBtn.waitFor({ state: "hidden", timeout });
+  const sendBtn = page.locator('[data-test-id="send-button"]');
+
+  try {
+    await stopBtn.waitFor({ state: "visible", timeout: 5_000 });
+  } catch {
+    // Stop button never appeared — response may have been too fast.
+    // Fall through to wait for send button as the idle signal.
+  }
+
+  await sendBtn.waitFor({ state: "visible", timeout });
 }
 
 export async function waitForAssistantMessage(page: Page, timeout = 60_000): Promise<string> {

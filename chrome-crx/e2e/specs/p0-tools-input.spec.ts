@@ -21,7 +21,7 @@ test.describe("5.1 click", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [100, 200] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [100, 200] } },
           ],
           stop_reason: "tool_use",
         },
@@ -52,7 +52,7 @@ test.describe("5.1 click", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [100, 300] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [100, 300] } },
           ],
           stop_reason: "tool_use",
         },
@@ -86,7 +86,7 @@ test.describe("5.1 click", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [9999, 9999] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [9999, 9999] } },
           ],
           stop_reason: "tool_use",
         },
@@ -123,7 +123,7 @@ test.describe("5.1 click", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [200, 200] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [200, 200] } },
           ],
           stop_reason: "tool_use",
         },
@@ -159,7 +159,7 @@ test.describe("5.2 type", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [250, 100] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [250, 100] } },
           ],
           stop_reason: "tool_use",
         },
@@ -199,7 +199,7 @@ test.describe("5.2 type", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [250, 100] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [250, 100] } },
           ],
           stop_reason: "tool_use",
         },
@@ -265,7 +265,7 @@ test.describe("5.2 type", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "click", coordinate: [250, 100] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [250, 100] } },
           ],
           stop_reason: "tool_use",
         },
@@ -288,6 +288,8 @@ test.describe("5.2 type", () => {
     await waitForReplyDone(page, 20_000);
 
     const events = await targetPage.evaluate(() => (window as any).getEvents?.() || []);
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.some((e: any) => e.type === "input" && e.target === "name")).toBe(true);
     await page.close();
     await targetPage.close();
   });
@@ -306,7 +308,7 @@ test.describe("5.3 press_key", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "key", key: "Return" } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "key", text: "Return" } },
           ],
           stop_reason: "tool_use",
         },
@@ -336,7 +338,7 @@ test.describe("5.3 press_key", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "key", key: "ctrl+a" } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "key", text: "ctrl+a" } },
           ],
           stop_reason: "tool_use",
         },
@@ -370,7 +372,7 @@ test.describe("5.3 press_key", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "key", key: "Tab" } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "key", text: "Tab" } },
           ],
           stop_reason: "tool_use",
         },
