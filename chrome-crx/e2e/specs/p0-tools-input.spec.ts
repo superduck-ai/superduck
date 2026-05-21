@@ -157,7 +157,7 @@ test.describe("5.2 type", () => {
       browserControlPermissionAccepted: true,
     });
 
-    await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, "simple-form.html");
 
     const script: MockLLMScript = {
       responses: [
@@ -184,7 +184,12 @@ test.describe("5.2 type", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "Type John Doe in the name field");
     await waitForReplyDone(page, 20_000);
+
+    const nameValue = await targetPage.locator("#name").inputValue();
+    expect(nameValue).toBe("John Doe");
+
     await page.close();
+    await targetPage.close();
   });
 
   test("TC-5.2.2 type 中文 / emoji / 特殊符号正确", async ({
@@ -197,7 +202,7 @@ test.describe("5.2 type", () => {
       browserControlPermissionAccepted: true,
     });
 
-    await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, "simple-form.html");
 
     const script: MockLLMScript = {
       responses: [
@@ -224,7 +229,12 @@ test.describe("5.2 type", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "Type Chinese text");
     await waitForReplyDone(page, 20_000);
+
+    const nameValue = await targetPage.locator("#name").inputValue();
+    expect(nameValue).toContain("你好世界");
+
     await page.close();
+    await targetPage.close();
   });
 
   test("TC-5.2.3 对非可编辑元素 type 返回错误", async ({ context, extensionId, serviceWorker }) => {
@@ -306,7 +316,9 @@ test.describe("5.3 press_key", () => {
       browserControlPermissionAccepted: true,
     });
 
-    await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, "simple-form.html");
+    await targetPage.bringToFront();
+    await targetPage.locator("#name").click();
 
     const script: MockLLMScript = {
       responses: [
@@ -327,7 +339,12 @@ test.describe("5.3 press_key", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "Press Enter");
     await waitForReplyDone(page, 15_000);
+
+    const submitted = await targetPage.evaluate(() => (window as any).__formSubmitted === true);
+    expect(submitted).toBe(true);
+
     await page.close();
+    await targetPage.close();
   });
 
   test("TC-5.3.2 组合键触发预期行为", async ({ context, extensionId, serviceWorker }) => {
@@ -336,7 +353,10 @@ test.describe("5.3 press_key", () => {
       browserControlPermissionAccepted: true,
     });
 
-    await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, "simple-form.html");
+    await targetPage.bringToFront();
+    await targetPage.locator("#name").click();
+    await targetPage.locator("#name").fill("test text");
 
     const script: MockLLMScript = {
       responses: [
@@ -358,6 +378,7 @@ test.describe("5.3 press_key", () => {
     await sendMessage(page, "Select all text");
     await waitForReplyDone(page, 15_000);
     await page.close();
+    await targetPage.close();
   });
 
   test("TC-5.3.3 Tab 键切换焦点到下一个可聚焦元素", async ({
@@ -370,7 +391,9 @@ test.describe("5.3 press_key", () => {
       browserControlPermissionAccepted: true,
     });
 
-    await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, "simple-form.html");
+    await targetPage.bringToFront();
+    await targetPage.locator("#name").click();
 
     const script: MockLLMScript = {
       responses: [
@@ -391,6 +414,11 @@ test.describe("5.3 press_key", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "Press Tab");
     await waitForReplyDone(page, 15_000);
+
+    const focusedId = await targetPage.evaluate(() => document.activeElement?.id || "");
+    expect(focusedId).toBe("email");
+
     await page.close();
+    await targetPage.close();
   });
 });

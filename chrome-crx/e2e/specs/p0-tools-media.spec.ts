@@ -33,8 +33,7 @@ test.describe("6. 工具调用 - 媒体 mediaTools", () => {
     await sendMessage(page, "Take a screenshot");
     await waitForReplyDone(page, 15_000);
 
-    const response = await page.locator(".superduck-response").last().textContent();
-    expect(response).toContain("screenshot");
+    await expect(page.locator(".superduck-response img").first()).toBeVisible();
     await page.close();
   });
 

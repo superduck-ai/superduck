@@ -54,7 +54,7 @@ test.describe("2.1 打开 / 关闭 / 切换", () => {
     await sp1.close();
 
     const sp2 = await openSidepanel(context, extensionId);
-    await sp2.waitForTimeout(1000);
+    await expect(sp2.locator(".superduck-response").last()).toContainText("Test reply for session recovery.", { timeout: 10_000 });
     await sp2.close();
   });
 

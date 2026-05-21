@@ -72,6 +72,9 @@ test.describe("4. 工具调用 - 页面读取 pageTools", () => {
     await mockLLMStreaming(page, script);
     await sendMessage(page, "What is the page title?");
     await waitForReplyDone(page, 15_000);
+
+    await expect(page.locator(".superduck-response").last()).toContainText(expectedTitle);
+
     await page.close();
     await targetPage.close();
   });

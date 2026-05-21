@@ -65,12 +65,29 @@ export async function mockLLMStreaming(page: Page, script: MockLLMScript): Promi
 
       const sseBody = events.join("");
       const encoder = new TextEncoder();
+      const signal = init?.signal;
+      if (signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
       const stream = new ReadableStream({
         start(controller) {
           const bytes = encoder.encode(sseBody);
           let offset = 0;
           const chunkSize = 256;
+          let aborted = false;
+
+          signal?.addEventListener?.(
+            "abort",
+            () => {
+              aborted = true;
+              controller.error(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true }
+          );
+
           function push() {
+            if (aborted) return;
             if (offset >= bytes.length) {
               controller.close();
               return;

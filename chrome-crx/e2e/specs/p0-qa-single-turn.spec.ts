@@ -68,18 +68,33 @@ test.describe("3.1 Happy Path", () => {
 
     const script: MockLLMScript = {
       responses: [
-        { content: [{ type: "text", text: "Session reply" }], stop_reason: "end_turn" },
+        { content: [{ type: "text", text: "First session reply" }], stop_reason: "end_turn" },
+        { content: [{ type: "text", text: "New session reply" }], stop_reason: "end_turn" },
       ],
     };
     await mockLLMStreaming(page, script);
     await sendMessage(page, "Hello");
     await waitForReplyDone(page);
 
+    const responsesBeforeClear = await page.locator(".superduck-response").count();
+    expect(responsesBeforeClear).toBeGreaterThanOrEqual(1);
+
     // Clear chat to start new session
     const clearBtn = page.locator('button[aria-label="Clear chat"]');
     if (await clearBtn.isVisible()) {
       await clearBtn.click();
-      await page.waitForTimeout(500);
+      await page.waitForFunction(
+        () => document.querySelectorAll(".superduck-response").length === 0,
+        { timeout: 5_000 }
+      );
+      const responsesAfterClear = await page.locator(".superduck-response").count();
+      expect(responsesAfterClear).toBe(0);
+
+      // Send in the new session and verify independent reply
+      await sendMessage(page, "Hello again");
+      await waitForReplyDone(page);
+      const newResponse = await page.locator(".superduck-response").last().textContent();
+      expect(newResponse).toContain("New session reply");
     }
     await page.close();
   });

@@ -99,7 +99,7 @@ test.describe("7. 工具调用 UX", () => {
       responses: [
         {
           content: [
-            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "left_click", coordinate: [100, 100] } },
+            { type: "tool_use", id: "tu_1", name: "computer", input: { action: "wait", duration: 0 } },
           ],
           stop_reason: "tool_use",
         },
@@ -112,11 +112,20 @@ test.describe("7. 工具调用 UX", () => {
 
     const page = await openSidepanel(context, extensionId);
     await mockLLMStreaming(page, script);
-    await sendMessage(page, "Click something");
+    await sendMessage(page, "Wait for 0 seconds");
     await waitForReplyDone(page, 15_000);
 
     const sendBtn = page.locator('[data-test-id="send-button"]');
     await expect(sendBtn).toBeVisible();
+
+    const pageText = await page.locator("#root").innerText();
+    const hasErrorIndicator =
+      pageText.includes("error") ||
+      pageText.includes("Error") ||
+      pageText.includes("失败") ||
+      pageText.includes("错误");
+    expect(hasErrorIndicator).toBe(true);
+
     await page.close();
   });
 
