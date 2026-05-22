@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const (
@@ -35,7 +36,9 @@ type Server struct {
 }
 
 func NewServer() (*Server, error) {
-	os.Remove(socketPath)
+	if err := prepareSocketPath(socketPath); err != nil {
+		return nil, err
+	}
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -50,6 +53,26 @@ func NewServer() (*Server, error) {
 		chromeCh:       make(chan []byte, 1),
 		closed:         make(chan struct{}),
 	}, nil
+}
+
+func prepareSocketPath(path string) error {
+	if _, err := os.Lstat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to stat UDS socket: %w", err)
+	}
+
+	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return fmt.Errorf("chrome-native-host already listening at %s", path)
+	}
+
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("failed to remove stale UDS socket: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) Run() error {
