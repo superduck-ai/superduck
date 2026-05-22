@@ -53,20 +53,22 @@ type Client struct {
 	httpClient *http.Client
 	enabled    bool
 
-	idOnce     sync.Once
-	distinctID string
-	idOverride string
+	idOnce             sync.Once
+	distinctID         string
+	idOverride         string
+	requireConfirmedID bool
 
 	pending sync.WaitGroup
 }
 
 // Options configures a Client. All fields are optional.
 type Options struct {
-	APIKey     string        // overrides env / build-time default
-	Host       string        // overrides PostHogHost / env
-	DistinctID string        // overrides the on-disk anonymous id
-	HTTPClient *http.Client  // overrides http.DefaultClient (testing)
-	Timeout    time.Duration // request timeout (default 2s)
+	APIKey             string        // overrides env / build-time default
+	Host               string        // overrides PostHogHost / env
+	DistinctID         string        // overrides the on-disk anonymous id
+	RequireConfirmedID bool          // when true, suppress capture until extension/native-host id sync
+	HTTPClient         *http.Client  // overrides http.DefaultClient (testing)
+	Timeout            time.Duration // request timeout (default 2s)
 }
 
 // New constructs a Client. If analytics is disabled (env opt-out, no key, or
@@ -75,10 +77,11 @@ type Options struct {
 // Capture so help-screen invocations don't pay for disk I/O.
 func New(opts Options) *Client {
 	c := &Client{
-		host:       firstNonEmpty(opts.Host, os.Getenv(envHost), PostHogHost),
-		apiKey:     firstNonEmpty(opts.APIKey, os.Getenv(envWriteKey), PostHogWriteKey),
-		httpClient: opts.HTTPClient,
-		idOverride: strings.TrimSpace(opts.DistinctID),
+		host:               firstNonEmpty(opts.Host, os.Getenv(envHost), PostHogHost),
+		apiKey:             firstNonEmpty(opts.APIKey, os.Getenv(envWriteKey), PostHogWriteKey),
+		httpClient:         opts.HTTPClient,
+		idOverride:         strings.TrimSpace(opts.DistinctID),
+		requireConfirmedID: opts.RequireConfirmedID,
 	}
 	if c.httpClient == nil {
 		timeout := opts.Timeout
@@ -120,6 +123,9 @@ func (c *Client) computeEnabled() bool {
 		return false
 	}
 	if isTrueEnv(envCI) {
+		return false
+	}
+	if c.requireConfirmedID && !IsInstallIDConfirmed() {
 		return false
 	}
 	return c.apiKey != ""
@@ -199,6 +205,48 @@ func buildCaptureBody(apiKey, distinctID, event string, properties map[string]an
 	return out
 }
 
+// EnsureInstallID eagerly creates the stable install id used by all analytics
+// clients. It is safe to call from setup/install/startup paths before any
+// capture occurs.
+func EnsureInstallID() string {
+	return loadOrCreateDistinctID()
+}
+
+// ConfirmInstallID marks the install id as safe for PostHog capture. CLI
+// analytics stay silent until the Chrome extension and native-host have synced
+// identity at least once, preventing early split distinct_id events.
+func ConfirmInstallID() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	_ = persistMarker(filepath.Join(home, ".superduck", "analytics-id.confirmed"))
+}
+
+func IsInstallIDConfirmed() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, ".superduck", "analytics-id.confirmed"))
+	return err == nil
+}
+
+// AdoptInstallID persists an existing install id from another SuperDuck
+// component, such as a Chrome-extension-only install that later connects to the
+// native host. Invalid or legacy ids are ignored and the local install id wins.
+func AdoptInstallID(id string) string {
+	id = strings.TrimSpace(id)
+	if !isCurrentDistinctID(id) {
+		return loadOrCreateDistinctID()
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return id
+	}
+	return persistDistinctID(filepath.Join(home, ".superduck", "analytics-id"), id)
+}
+
 // loadOrCreateDistinctID stores a stable random id under ~/.superduck so
 // repeated CLI invocations from the same machine appear as one user. If the
 // home directory is unavailable, returns a fresh ephemeral id rather than
@@ -212,15 +260,29 @@ func loadOrCreateDistinctID() string {
 	idFile := filepath.Join(dir, "analytics-id")
 	if data, err := os.ReadFile(idFile); err == nil {
 		if id := strings.TrimSpace(string(data)); id != "" {
-			return id
+			if isCurrentDistinctID(id) {
+				return id
+			}
+			return persistDistinctID(idFile, randomID())
 		}
 	}
-	id := randomID()
+	return persistDistinctID(idFile, randomID())
+}
+
+func persistDistinctID(path, id string) string {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err == nil {
-		// 0600 — anonymous id is not a secret, but no reason to share it.
-		_ = os.WriteFile(idFile, []byte(id+"\n"), 0o600)
+		// 0600 — install id is not a secret, but no reason to share it.
+		_ = os.WriteFile(path, []byte(id+"\n"), 0o600)
 	}
 	return id
+}
+
+func persistMarker(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0o600)
 }
 
 // GetOrCreateDistinctID returns the persistent anonymous distinct_id used by
@@ -237,10 +299,13 @@ func GetOrCreateDistinctID() string {
 func randomID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// Fall back to time-based id; collisions are acceptable for analytics.
-		return "anon-" + time.Now().UTC().Format("20060102150405.000000000")
+		return "sdid-" + time.Now().UTC().Format("20060102150405.000000000")
 	}
-	return "anon-" + hex.EncodeToString(b[:])
+	return "sdid-" + hex.EncodeToString(b[:])
+}
+
+func isCurrentDistinctID(id string) bool {
+	return strings.HasPrefix(id, "sdid-")
 }
 
 func firstNonEmpty(values ...string) string {

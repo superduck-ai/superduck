@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,6 +44,48 @@ func TestNewDisabledInCI(t *testing.T) {
 	c := New(Options{})
 	if c.Enabled() {
 		t.Fatalf("expected client disabled in CI")
+	}
+}
+
+func TestNewDisabledWhenConfirmedIDRequiredButMissing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv(envWriteKey, "phc_test_key")
+	t.Setenv(envDisabled, "")
+	t.Setenv(envCI, "")
+
+	EnsureInstallID()
+	c := New(Options{RequireConfirmedID: true})
+	if c.Enabled() {
+		t.Fatalf("expected client disabled before install id confirmation")
+	}
+}
+
+func TestNewEnabledWhenConfirmedIDRequiredAndPresent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv(envWriteKey, "phc_test_key")
+	t.Setenv(envDisabled, "")
+	t.Setenv(envCI, "")
+
+	EnsureInstallID()
+	ConfirmInstallID()
+	c := New(Options{RequireConfirmedID: true})
+	if !c.Enabled() {
+		t.Fatalf("expected client enabled after install id confirmation")
+	}
+}
+
+func TestConfirmInstallIDCreatesMarker(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if IsInstallIDConfirmed() {
+		t.Fatal("expected fresh install id to start unconfirmed")
+	}
+	ConfirmInstallID()
+	if !IsInstallIDConfirmed() {
+		t.Fatal("expected install id confirmation marker")
 	}
 }
 
@@ -181,11 +224,93 @@ func TestLoadOrCreateDistinctIDPersistsAcrossCalls(t *testing.T) {
 	if first == "" {
 		t.Fatalf("expected non-empty id")
 	}
+	if !strings.HasPrefix(first, "sdid-") {
+		t.Fatalf("expected sdid-* install id, got %q", first)
+	}
 	if _, err := os.Stat(filepath.Join(tmp, ".superduck", "analytics-id")); err != nil {
 		t.Fatalf("expected id file to be persisted: %v", err)
 	}
 	second := loadOrCreateDistinctID()
 	if first != second {
 		t.Errorf("expected stable id across calls, got %q vs %q", first, second)
+	}
+}
+
+func TestEnsureInstallIDCreatesAnalyticsIDFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	id := EnsureInstallID()
+	if !strings.HasPrefix(id, "sdid-") {
+		t.Fatalf("expected sdid-* install id, got %q", id)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".superduck", "analytics-id"))
+	if err != nil {
+		t.Fatalf("expected analytics id file to be created: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != id {
+		t.Fatalf("persisted id mismatch: got %q want %q", strings.TrimSpace(string(data)), id)
+	}
+}
+
+func TestLoadOrCreateDistinctIDMigratesLegacyAnonID(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	dir := filepath.Join(tmp, ".superduck")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idFile := filepath.Join(dir, "analytics-id")
+	if err := os.WriteFile(idFile, []byte("anon-legacy\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	id := loadOrCreateDistinctID()
+	if id == "anon-legacy" {
+		t.Fatal("expected legacy anon id to be migrated")
+	}
+	if !strings.HasPrefix(id, "sdid-") {
+		t.Fatalf("expected migrated sdid-* install id, got %q", id)
+	}
+
+	data, err := os.ReadFile(idFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != id+"\n" {
+		t.Fatalf("expected migrated id to be persisted, got %q want %q", string(data), id+"\n")
+	}
+}
+
+func TestAdoptInstallIDPersistsExtensionID(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	id := AdoptInstallID("sdid-extensionfirst")
+	if id != "sdid-extensionfirst" {
+		t.Fatalf("AdoptInstallID() = %q, want extension id", id)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".superduck", "analytics-id"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "sdid-extensionfirst" {
+		t.Fatalf("persisted id = %q", strings.TrimSpace(string(data)))
+	}
+}
+
+func TestAdoptInstallIDIgnoresInvalidID(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	id := AdoptInstallID("sdext-old")
+	if !strings.HasPrefix(id, "sdid-") {
+		t.Fatalf("expected generated sdid for invalid adoption, got %q", id)
+	}
+	if id == "sdext-old" {
+		t.Fatal("invalid extension id was adopted")
 	}
 }

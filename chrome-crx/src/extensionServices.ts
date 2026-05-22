@@ -1,4 +1,11 @@
-export { modulePreload, getConfig, StorageKeys, getStorageValue, setStorageValue, removeStorageValues } from './extensionServices/core';
+export {
+  modulePreload,
+  getConfig,
+  StorageKeys,
+  getStorageValue,
+  setStorageValue,
+  removeStorageValues
+} from './extensionServices/core';
 export type {
   ModelFallbackConfig,
   ModelOptionConfig,
@@ -8,7 +15,9 @@ export type {
   VersionInfoFeatureValue
 } from './extensionServices/featureFlagTypes';
 export {
-  getOrCreateAnonymousId
+  getOrCreateAnonymousId,
+  getStoredSharedAnalyticsId,
+  setSharedAnalyticsId
 } from './extensionServices/analytics';
 export {
   PermissionActionType,

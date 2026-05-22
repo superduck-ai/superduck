@@ -19,6 +19,8 @@ const (
 	socketPath = "/tmp/chrome-native-host.sock"
 )
 
+const identitySyncWait = 2 * time.Second
+
 // --- Server with dual channels ---
 
 type Server struct {
@@ -157,6 +159,12 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 }
 
 func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
+	if !waitForInstallIDConfirmed(identitySyncWait) {
+		slog.Warn("rejecting tool request before analytics identity sync")
+		sendToolError(responseWriter, "superduck identity is not synced yet; reload the extension or run superduck doctor after native-host connects")
+		return
+	}
+
 	// Serialize: only one request-response pair in flight at a time
 	s.chromeMu.Lock()
 	defer s.chromeMu.Unlock()
@@ -202,9 +210,20 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 		protocol.SendMessage(os.Stdout, map[string]string{"type": "mcp_connected"})
 		protocol.SendMessage(os.Stdout, map[string]string{"type": "status_response"})
 	case "get_analytics_id":
+		analytics.ConfirmInstallID()
 		protocol.SendMessage(os.Stdout, map[string]string{
 			"type":        "analytics_id_response",
 			"distinct_id": analytics.GetOrCreateDistinctID(),
+		})
+	case "sync_analytics_id":
+		var syncMsg struct {
+			DistinctID string `json:"distinct_id"`
+		}
+		_ = json.Unmarshal(raw, &syncMsg)
+		analytics.ConfirmInstallID()
+		protocol.SendMessage(os.Stdout, map[string]string{
+			"type":        "analytics_id_response",
+			"distinct_id": analytics.AdoptInstallID(syncMsg.DistinctID),
 		})
 	case "notification":
 		slog.Debug("notification", "method", msg.Method, "params", msg.Params)
@@ -232,6 +251,8 @@ func (s *Server) Close() error {
 }
 
 func main() {
+	analytics.EnsureInstallID()
+
 	logFile, err := os.OpenFile("/tmp/chrome-native-host.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
@@ -287,4 +308,18 @@ func sendToolError(writer io.Writer, msg string) {
 		Type:  "tool_response",
 		Error: &protocol.ContentWrap{Content: msg},
 	})
+}
+
+func waitForInstallIDConfirmed(timeout time.Duration) bool {
+	if analytics.IsInstallIDConfirmed() {
+		return true
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		if analytics.IsInstallIDConfirmed() {
+			return true
+		}
+	}
+	return false
 }

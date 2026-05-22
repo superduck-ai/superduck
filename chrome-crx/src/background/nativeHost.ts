@@ -1,4 +1,9 @@
-import { setStorageValue, StorageKeys } from '../extensionServices';
+import {
+  getStoredSharedAnalyticsId,
+  setSharedAnalyticsId,
+  setStorageValue,
+  StorageKeys
+} from '../extensionServices';
 import { reconnectMcp, tabGroupManager, createErrorResponse, executeTool } from '../mcpRuntime';
 
 const NATIVE_HOST_NAMES = [
@@ -164,6 +169,12 @@ export function createNativeHostManager(): NativeHostManager {
         }
         break;
 
+      case 'analytics_id_response':
+        if (typeof message.distinct_id === 'string') {
+          await setSharedAnalyticsId(message.distinct_id);
+        }
+        break;
+
       case 'mcp_connected':
         mcpConnected = true;
         void setStorageValue(StorageKeys.MCP_CONNECTED, true);
@@ -305,6 +316,12 @@ export function createNativeHostManager(): NativeHostManager {
             });
 
             nativePort.postMessage({ type: 'get_status' });
+            const storedAnalyticsId = await getStoredSharedAnalyticsId();
+            nativePort.postMessage(
+              storedAnalyticsId
+                ? { type: 'sync_analytics_id', distinct_id: storedAnalyticsId }
+                : { type: 'get_analytics_id' }
+            );
             startHeartbeat();
             return true;
           } catch {

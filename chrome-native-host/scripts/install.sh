@@ -39,7 +39,7 @@ cat > "$MANIFEST_PATH" <<EOF
   "description": "SuperDuck Browser Extension Native Host",
   "path": "$HOST_BINARY",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/"]
+  "allowed_origins": ["chrome-extension://komnjkkihimgafgblijcchlgeiogpjgi/"]
 }
 EOF
 

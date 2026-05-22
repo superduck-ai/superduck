@@ -80,6 +80,7 @@ export enum StorageKeys {
   DISMISSED_TAB_GROUPS = 'dismissedTabGroups',
   MCP_TAB_GROUP_ID = 'mcpTabGroupId',
   MCP_CONNECTED = 'mcpConnected',
+  ANALYTICS_ID = 'analyticsId',
   QUICK_MODE_TIP_DISMISSED = 'quickModeTipDismissed',
   WIDGET_ORDER = 'widgetOrder'
 }
@@ -101,7 +102,7 @@ export async function removeStorageValues(keys: string | string[]): Promise<void
   await chrome.storage.local.remove(values);
 }
 
-const PRESERVED_KEYS = new Set(['anonymousId', 'updateAvailable']);
+const PRESERVED_KEYS = new Set(['anonymousId', 'analyticsId', 'updateAvailable']);
 
 export async function setMultipleStorageValues(values: Record<string, unknown>): Promise<void> {
   await chrome.storage.local.set(values);

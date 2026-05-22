@@ -6,12 +6,15 @@ import (
 	"log/slog"
 	"os"
 
+	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/bridge"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func main() {
+	analytics.EnsureInstallID()
+
 	// Setup logging
 	logFile, err := os.OpenFile("/tmp/chrome-mcp-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

@@ -165,7 +165,8 @@ var tracker *analytics.Client
 
 func main() {
 	analytics.LibVersion = version
-	tracker = analytics.New(analytics.Options{})
+	analytics.EnsureInstallID()
+	tracker = analytics.New(analytics.Options{RequireConfirmedID: true})
 	errortrack.SetRelease(version)
 	errs := errortrack.New(errortrack.Options{
 		ComponentTag: "cli",
