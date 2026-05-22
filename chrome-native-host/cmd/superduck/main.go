@@ -10,6 +10,7 @@ import (
 	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/cliclient"
 	"chrome-native-host/internal/errortrack"
+	"chrome-native-host/internal/selfupdate"
 )
 
 // version is set at build time via -ldflags "-X main.version=..."
@@ -31,6 +32,7 @@ SETUP / DIAGNOSTICS:
   init                       Install native messaging manifest and start the native-host
                              (run once after 'npm install -g superduck-cli')
   doctor                     Health-check binary, manifest, native-host UDS, extension
+  update [--check]           Check for and install CLI updates
   log [--tail N] [--json]    Tail the audit log (~/.superduck/audit.jsonl)
   version                    Print CLI version
 
@@ -190,6 +192,13 @@ func main() {
 	cmd, rest := args[0], args[1:]
 	sub := extractSubcommand(cmd, rest)
 
+	var updateCh <-chan selfupdate.CheckResult
+	switch cmd {
+	case "update", "version", "--version", "-v", "help", "--help", "-h":
+	default:
+		updateCh = selfupdate.BackgroundCheck()
+	}
+
 	var err error
 	switch cmd {
 	case "context":
@@ -248,6 +257,8 @@ func main() {
 		err = cmdGif(rest)
 	case "init", "setup":
 		err = cmdSetup(rest)
+	case "update":
+		err = cmdUpdate(rest)
 	case "doctor":
 		err = cmdDoctor(rest)
 	case "log":
@@ -264,6 +275,18 @@ func main() {
 	}
 
 	emitAndFlush(tracker, cmd, sub, "", commandStart, err)
+
+	if updateCh != nil {
+		select {
+		case result := <-updateCh:
+			if hint := selfupdate.UpdateHint(version, result.Latest); hint != "" {
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, hint)
+			}
+		default:
+		}
+	}
+
 	if err != nil {
 		errs.AddBreadcrumb(errortrack.Breadcrumb{
 			Category: "cli",
