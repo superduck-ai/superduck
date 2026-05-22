@@ -73,14 +73,15 @@ async function getNativeHostAnalyticsId(): Promise<string | null> {
 
 export async function getOrCreateAnonymousId(): Promise<string> {
   let id = await getStorageValue<string>(StorageKeys.ANONYMOUS_ID);
-  if (id && !id.startsWith('anon-')) {
-    const nativeId = await getNativeHostAnalyticsId();
-    if (nativeId) {
-      id = nativeId;
-      await setStorageValue(StorageKeys.ANONYMOUS_ID, id);
+  if (id) {
+    if (!nativeIdCache) {
+      const nativeId = await getNativeHostAnalyticsId();
+      if (nativeId && nativeId !== id) {
+        id = nativeId;
+        await setStorageValue(StorageKeys.ANONYMOUS_ID, id);
+      }
     }
-  }
-  if (!id) {
+  } else {
     id = (await getNativeHostAnalyticsId()) ?? `anon-${crypto.randomUUID()}`;
     await setStorageValue(StorageKeys.ANONYMOUS_ID, id);
   }

@@ -114,6 +114,8 @@ class FeatureFlagManager {
       });
       if (401 === response.status) {
         await removeStorageValues([StorageKeys.ACCESS_TOKEN, StorageKeys.TOKEN_EXPIRY]);
+        this.initPromise = null;
+        this.features = null;
         return;
       }
       if (!response.ok) return;
