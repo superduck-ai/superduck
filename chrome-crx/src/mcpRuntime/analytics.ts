@@ -49,7 +49,7 @@ async function posthogCapture(
 
 // --- initializeAnalytics ---
 const initializeAnalytics = async (): Promise<void> => {
-  await getOrCreateAnonymousId();
+  void getOrCreateAnonymousId();
 };
 
 // --- trackEvent --- EXPORT
@@ -102,7 +102,10 @@ class FeatureFlagManager {
     try {
       const config = getConfig();
       const token = await getStorageValue<string>(StorageKeys.ACCESS_TOKEN);
-      if (!token) return;
+      if (!token) {
+        this.initPromise = null;
+        return;
+      }
       const response = await fetch(`${config.apiBaseUrl}/api/bootstrap/features/claude_in_chrome`, {
         headers: {
           Authorization: `Bearer ${token}`,

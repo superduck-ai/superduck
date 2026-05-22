@@ -229,7 +229,16 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
   Co-authored-by: Claude <noreply@anthropic.com>
   ```
 - 通过 `gh pr create` 开 PR,不要在未经用户确认时直接 merge / force push。
-- PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md);Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/),涵盖 bug / feature / chore / docs / performance / agent-task,空白 issue 已禁用,问题走 Discussions,安全漏洞走 [GitHub Security Advisories](https://github.com/superduck-ai/superduck/security/advisories/new)。
+- **PR 必须关联 Issue**:在 PR body 中用关闭关键字引用对应 issue,合并到 `main` 时 GitHub 自动关闭。约定用法:
+  - `Fixes #N` — 修复 bug（对应 `type: bug` issue）
+  - `Closes #N` — 完成 feature / chore / docs / perf（非 bug 类 issue）
+  - `Resolves #N` — 解决讨论性质的 issue / question
+  - 一个 PR 可关联多个 issue,每行一个。大小写不敏感。提交 PR 前必须检查是否已关联。
+- PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md); Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/),涵盖 bug / feature / chore / docs / performance / agent-task,空白 issue 已禁用,问题走 Discussions,安全漏洞走 [GitHub Security Advisories](https://github.com/superduck-ai/superduck/security/advisories/new)。
+- **AI 协助填写 issue**:唯一信息源是 [`.github/AGENT_SKILLS/issue-fill.md`](.github/AGENT_SKILLS/issue-fill.md) —— 规则只写一次,所有 agent 都按它执行。共同行为:匹配最合适的 `.github/ISSUE_TEMPLATE/*.yml`,补全 `required` 字段,加对应 `type:` / `status:` label,原始正文以 blockquote 保留在顶部,缺失字段以 `_Not provided — please add._` 占位,**不编造数据**,安全漏洞改走 GitHub Security Advisories。两条触发路径:
+  - **Factory Droid**(GitHub 上):在 issue 标题/正文/评论里写 `@droid fill` 即触发 [`.github/workflows/droid.yml`](.github/workflows/droid.yml);Droid 自动加载入库的薄壳 [`.factory/skills/issue-fill/SKILL.md`](.factory/skills/issue-fill/SKILL.md),壳里只一句话:去读 canonical。
+  - **本地 agent**(Claude Code / Codex / Cursor / Amp / Aider 等):对它说"填一下 issue #N" / "整理 issue #N" / "open an issue for: ..."。它们都原生读 AGENTS.md(Claude Code 通过 [`CLAUDE.md`](CLAUDE.md) → AGENTS.md 间接读),看到本节后再读 canonical,按同样流程跑 `gh issue view/edit/create/comment`。**仓库不放 `.claude/` / `.cursor/` 这类 per-agent 私人配置**;需要 fuzzy 触发短语的本地用户自行在 `~/.<agent>/...` 里安装即可。
+- **AI 协助填写 PR 描述**:在 PR 上 `@droid fill` 按 [`pull_request_template.md`](.github/pull_request_template.md) 重写;其他 `@droid` 命令(review / security 等)见 [`droid.yml`](.github/workflows/droid.yml) 头部注释。
 
 ## Issue / PR 标签体系 (Labeling System)
 

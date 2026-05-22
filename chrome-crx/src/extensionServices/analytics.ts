@@ -5,7 +5,7 @@ const NATIVE_HOST_NAMES = [
   'com.me.superduck_code_browser_extension'
 ] as const;
 
-let nativeIdCache: string | null | undefined = undefined;
+let nativeIdCache: string | undefined = undefined;
 
 type NativeAnalyticsResponse = {
   type?: string;
@@ -15,15 +15,9 @@ type NativeAnalyticsResponse = {
 async function getNativeHostAnalyticsId(): Promise<string | null> {
   if (nativeIdCache !== undefined) return nativeIdCache;
 
-  if (typeof chrome.runtime.connectNative !== 'function') {
-    nativeIdCache = null;
-    return null;
-  }
+  if (typeof chrome.runtime.connectNative !== 'function') return null;
   const hasPermission = await chrome.permissions.contains({ permissions: ['nativeMessaging'] });
-  if (!hasPermission) {
-    nativeIdCache = null;
-    return null;
-  }
+  if (!hasPermission) return null;
 
   for (const hostName of NATIVE_HOST_NAMES) {
     try {
@@ -74,7 +68,6 @@ async function getNativeHostAnalyticsId(): Promise<string | null> {
     }
   }
 
-  nativeIdCache = null;
   return null;
 }
 
@@ -88,7 +81,7 @@ export async function getOrCreateAnonymousId(): Promise<string> {
     }
   }
   if (!id) {
-    id = (await getNativeHostAnalyticsId()) ?? crypto.randomUUID();
+    id = (await getNativeHostAnalyticsId()) ?? `anon-${crypto.randomUUID()}`;
     await setStorageValue(StorageKeys.ANONYMOUS_ID, id);
   }
   return id;
