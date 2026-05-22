@@ -49,7 +49,7 @@ async function posthogCapture(
 
 // --- initializeAnalytics ---
 const initializeAnalytics = async (): Promise<void> => {
-  void getOrCreateAnonymousId();
+  void getOrCreateAnonymousId().catch(() => {});
 };
 
 // --- trackEvent --- EXPORT
@@ -118,7 +118,10 @@ class FeatureFlagManager {
         this.features = null;
         return;
       }
-      if (!response.ok) return;
+      if (!response.ok) {
+        this.initPromise = null;
+        return;
+      }
       const responseBody: unknown = await response.json();
       if (isFeatureResponse(responseBody)) {
         this.features = responseBody.features as Record<string, unknown>;
