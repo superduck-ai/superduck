@@ -839,7 +839,7 @@
         </svg>
       </span>
       SuperDuck
-      <span class="brand-tag" data-zh="开源 · v0.2">Open · v0.2</span>
+      <span class="brand-tag" data-zh="开源 · v0.2.5">Open · v0.2.5</span>
     </a>
     <nav class="nav-links">
       <a href="#capabilities" class="hide-sm" data-zh="能力">Capabilities</a>
@@ -969,15 +969,15 @@
       </div>
       <div class="cap-row reveal">
         <div class="cap-num">05</div>
-        <div class="cap-title" data-zh="精致界面">Refined interface</div>
-        <div class="cap-desc" data-zh="Markdown 语法高亮、LaTeX 数学公式、图片附件、亮/暗主题切换 — 阅读如纸本。">Markdown with syntax highlighting, LaTeX math, image attachments, light / dark themes. Reads like print.</div>
-        <div class="cap-tag">/ ui</div>
+        <div class="cap-title" data-zh="CLI + MCP 服务器">CLI + MCP server</div>
+        <div class="cap-desc" data-zh="<code style=&quot;font-family:var(--f-mono);color:var(--paper)&quot;>superduck</code> CLI 让 AI 编程助手直接驱动你的 Chrome — 同一份 Cookie、同一份登录态，无需 headless 浏览器。"><code style="font-family:var(--f-mono);color:var(--paper)">superduck</code> CLI lets AI coding agents drive your live Chrome — same cookies, same login, no headless browser needed.</div>
+        <div class="cap-tag">/ cli</div>
       </div>
       <div class="cap-row reveal">
         <div class="cap-num">06</div>
-        <div class="cap-title" data-zh="多语言就绪">Bilingual by default</div>
-        <div class="cap-desc" data-zh="开箱即用的英文与简体中文国际化，可扩展更多语言。">Out-of-the-box English and Simplified Chinese internationalization. Extensible to more languages.</div>
-        <div class="cap-tag">/ i18n</div>
+        <div class="cap-title" data-zh="精致界面">Refined interface</div>
+        <div class="cap-desc" data-zh="Markdown 语法高亮、LaTeX 数学公式、图片附件、亮/暗主题切换 — 阅读如纸本。">Markdown with syntax highlighting, LaTeX math, image attachments, light / dark themes. Reads like print.</div>
+        <div class="cap-tag">/ ui</div>
       </div>
     </div>
   </div>
@@ -1051,10 +1051,11 @@
           <div><span class="ok">  ✓ native host installed</span></div>
           <div><span class="ok">  ✓ socket /tmp/chrome-native-host.sock</span></div>
           <div class="sep"></div>
-          <div><span class="c" data-zh="# 调用你正在运行的 Chrome"># talk to your running Chrome</span></div>
-          <div><span class="p">$</span>superduck context</div>
-          <div><span class="p">$</span>superduck fetch <span class="s">https://api.example.com</span></div>
+          <div><span class="c" data-zh="# 驱动你正在运行的 Chrome"># drive your running Chrome</span></div>
+          <div><span class="p">$</span>superduck context <span class="f">--full</span></div>
           <div><span class="p">$</span>superduck screenshot <span class="f">--output</span> page.png</div>
+          <div><span class="p">$</span>superduck <span class="f">--tab</span> $TAB navigate <span class="s">https://example.com</span></div>
+          <div><span class="p">$</span>superduck <span class="f">--tab</span> $TAB read_page <span class="f">--filter</span> interactive</div>
         </div>
       </div>
 
@@ -1077,12 +1078,84 @@
     </div>
 
     <!-- Architecture diagram -->
-    <div class="arch-block reveal" style="margin-top:4rem">
-<pre><span class="m">┌────────────────────────────────────────────────────────────────────────────┐</span>
-<span class="m">│</span>  <span class="h">Agent CLI</span>  ───▶  <span class="h">superduck</span>  ───▶  <span class="h">native host</span>  ───▶  <span class="h">SuperDuck CRX</span>  ───▶  <span class="a">tab</span>  <span class="m">│</span>
-<span class="m">│</span>  <span class="m">claude code      this binary    Go process          chrome ext        live   │</span>
-<span class="m">│</span>                          <span class="m">└── UDS ─┘    └── chrome.runtime ─┘                  │</span>
-<span class="m">└────────────────────────────────────────────────────────────────────────────┘</span></pre>
+    <div class="reveal" style="margin-top:4rem">
+      <svg viewBox="0 0 900 220" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block" aria-label="Architecture diagram">
+        <!-- nodes -->
+        <g>
+          <!-- Agent CLI -->
+          <rect x="20" y="50" width="140" height="70" rx="10" fill="rgba(255,154,50,.08)" stroke="rgba(255,154,50,.4)" stroke-width="1"/>
+          <text x="90" y="80" text-anchor="middle" font-family="'Geist','system-ui',sans-serif" font-size="13" font-weight="500" fill="#f5f1ea">Agent CLI</text>
+          <text x="90" y="102" text-anchor="middle" font-family="'Geist Mono',monospace" font-size="10" fill="#6b665d">claude code</text>
+          <text x="90" y="115" text-anchor="middle" font-family="'Geist Mono',monospace" font-size="10" fill="#6b665d">codex / cursor</text>
+
+          <!-- superduck CLI -->
+          <rect x="230" y="50" width="140" height="70" rx="10" fill="rgba(245,241,234,.04)" stroke="rgba(245,241,234,.16)" stroke-width="1"/>
+          <text x="300" y="80" text-anchor="middle" font-family="'Geist','system-ui',sans-serif" font-size="13" font-weight="500" fill="#f5f1ea">superduck</text>
+          <text x="300" y="102" text-anchor="middle" font-family="'Geist Mono',monospace" font-size="10" fill="#6b665d">CLI binary (Go)</text>
+
+          <!-- native host -->
+          <rect x="440" y="50" width="140" height="70" rx="10" fill="rgba(245,241,234,.04)" stroke="rgba(245,241,234,.16)" stroke-width="1"/>
+          <text x="510" y="80" text-anchor="middle" font-family="'Geist','system-ui',sans-serif" font-size="13" font-weight="500" fill="#f5f1ea">Native Host</text>
+          <text x="510" y="102" text-anchor="middle" font-family="'Geist Mono',monospace" font-size="10" fill="#6b665d">Go daemon</text>
+
+          <!-- SuperDuck CRX -->
+          <rect x="650" y="50" width="140" height="70" rx="10" fill="rgba(245,241,234,.04)" stroke="rgba(245,241,234,.16)" stroke-width="1"/>
+          <text x="720" y="80" text-anchor="middle" font-family="'Geist','system-ui',sans-serif" font-size="13" font-weight="500" fill="#f5f1ea">SuperDuck CRX</text>
+          <text x="720" y="102" text-anchor="middle" font-family="'Geist Mono',monospace" font-size="10" fill="#6b665d">Chrome extension</text>
+
+          <!-- Live Tab -->
+          <rect x="830" y="60" width="50" height="50" rx="25" fill="linear-gradient(135deg,#ffb547,#ff7a18)" stroke="none"/>
+          <rect x="830" y="60" width="50" height="50" rx="25" fill="url(#arch-ember-grad)" stroke="rgba(255,154,50,.5)" stroke-width="1"/>
+          <text x="855" y="90" text-anchor="middle" font-family="'Geist','system-ui',sans-serif" font-size="12" font-weight="600" fill="#1a0e02">Tab</text>
+        </g>
+
+        <!-- arrows -->
+        <g stroke-width="1.5" fill="none">
+          <line x1="160" y1="85" x2="228" y2="85" stroke="rgba(245,241,234,.35)"/>
+          <polygon points="226,80 234,85 226,90" fill="rgba(245,241,234,.35)"/>
+
+          <line x1="370" y1="85" x2="438" y2="85" stroke="rgba(245,241,234,.35)"/>
+          <polygon points="436,80 444,85 436,90" fill="rgba(245,241,234,.35)"/>
+
+          <line x1="580" y1="85" x2="648" y2="85" stroke="rgba(245,241,234,.35)"/>
+          <polygon points="646,80 654,85 646,90" fill="rgba(245,241,234,.35)"/>
+
+          <line x1="790" y1="85" x2="828" y2="85" stroke="rgba(255,154,50,.5)"/>
+          <polygon points="826,80 834,85 826,90" fill="rgba(255,154,50,.5)"/>
+        </g>
+
+        <!-- protocol labels -->
+        <g font-family="'Geist Mono',monospace" font-size="9.5" fill="#a8a39a" text-anchor="middle">
+          <text x="195" y="75">stdio</text>
+          <text x="405" y="75">UDS</text>
+          <text x="615" y="75">chrome.runtime</text>
+          <text x="810" y="75">CDP</text>
+        </g>
+
+        <!-- bottom description row -->
+        <g font-family="'Geist Mono',monospace" font-size="9.5" text-anchor="middle">
+          <text x="195" y="160" fill="#3d3a35">MCP / JSON-RPC</text>
+          <text x="405" y="160" fill="#3d3a35">Unix Domain Socket</text>
+          <text x="615" y="160" fill="#3d3a35">Native Messaging</text>
+          <text x="810" y="160" fill="#3d3a35">Scripting</text>
+        </g>
+
+        <!-- connecting dotted lines from arrows to labels -->
+        <g stroke="#3d3a35" stroke-width="0.5" stroke-dasharray="2,3">
+          <line x1="195" y1="92" x2="195" y2="148"/>
+          <line x1="405" y1="92" x2="405" y2="148"/>
+          <line x1="615" y1="92" x2="615" y2="148"/>
+          <line x1="810" y1="92" x2="810" y2="148"/>
+        </g>
+
+        <!-- gradient def -->
+        <defs>
+          <linearGradient id="arch-ember-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffb547"/>
+            <stop offset="1" stop-color="#ff7a18"/>
+          </linearGradient>
+        </defs>
+      </svg>
     </div>
   </div>
 </section>
