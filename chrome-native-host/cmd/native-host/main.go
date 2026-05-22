@@ -33,8 +33,9 @@ type Server struct {
 	// Chrome stdio is single-threaded: one goroutine reads stdin,
 	// responses are routed back via chromeCh.
 	// chromeMu serializes request-response pairs to Chrome.
-	chromeMu sync.Mutex
-	chromeCh chan []byte
+	chromeMu         sync.Mutex
+	chromeCh         chan []byte
+	identitySyncOnce sync.Once
 }
 
 func NewServer() (*Server, error) {
@@ -159,9 +160,11 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 }
 
 func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
-	if !waitForInstallIDConfirmed(identitySyncWait) {
-		slog.Warn("analytics identity not yet synced, forwarding anyway")
-	}
+	s.identitySyncOnce.Do(func() {
+		if !waitForInstallIDConfirmed(identitySyncWait) {
+			slog.Warn("analytics identity not yet synced, forwarding anyway")
+		}
+	})
 
 	// Serialize: only one request-response pair in flight at a time
 	s.chromeMu.Lock()

@@ -49,7 +49,11 @@ func cmdUpdate(argv []string) error {
 		if err != nil {
 			return fmt.Errorf("npm update failed: %w", err)
 		}
-		installedVersion = newVer
+		if newVer != "" {
+			installedVersion = newVer
+		} else {
+			installedVersion = latest
+		}
 		fmt.Fprintf(os.Stderr, "\n✓ Updated to superduck %s\n", installedVersion)
 
 	case selfupdate.InstallBinary:

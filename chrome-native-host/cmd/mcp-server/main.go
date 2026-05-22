@@ -16,7 +16,7 @@ func main() {
 	analytics.EnsureInstallID()
 
 	// Setup logging
-	logFile, err := os.OpenFile("/tmp/chrome-mcp-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile("/tmp/chrome-mcp-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
 		os.Exit(1)

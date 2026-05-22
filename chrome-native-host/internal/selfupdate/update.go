@@ -73,7 +73,7 @@ func UpdateViaNPM(output io.Writer) (string, error) {
 	}
 	latest, err := LatestVersion()
 	if err != nil {
-		return "latest", nil
+		return "", nil
 	}
 	return latest, nil
 }
