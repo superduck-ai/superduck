@@ -96,25 +96,32 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   let i18nMessages: Record<string, string> = DEFAULT_I18N_MESSAGES;
   let i18nLoaded = false;
   let i18nLocale = DEFAULT_LOCALE;
+  let i18nLoadVersion = 0;
 
   async function loadI18n(): Promise<void> {
     if (i18nLoaded) return;
+    const requestVersion = ++i18nLoadVersion;
     try {
       const stored = await chrome.storage.local.get(PREFERRED_LOCALE_STORAGE_KEY);
       const rawLocale: string =
         (stored[PREFERRED_LOCALE_STORAGE_KEY] as string) || navigator.language || DEFAULT_LOCALE;
       const locale = normalizeLocale(rawLocale);
+      if (requestVersion !== i18nLoadVersion) return;
       i18nMessages = DEFAULT_I18N_MESSAGES;
       i18nLocale = locale;
       const response = await fetch(chrome.runtime.getURL(`i18n/${locale}.json`));
+      if (requestVersion !== i18nLoadVersion) return;
       if (response.ok) {
         i18nMessages = { ...DEFAULT_I18N_MESSAGES, ...(await response.json()) };
       }
     } catch (e) {
+      if (requestVersion !== i18nLoadVersion) return;
       i18nMessages = DEFAULT_I18N_MESSAGES;
       i18nLocale = DEFAULT_LOCALE;
     }
-    i18nLoaded = true;
+    if (requestVersion === i18nLoadVersion) {
+      i18nLoaded = true;
+    }
   }
 
   function t(key: string, fallback: string = ''): string {
