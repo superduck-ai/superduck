@@ -1,4 +1,10 @@
-import { getOrCreateAnonymousId } from '../extensionServices';
+import {
+  getOrCreateAnonymousId,
+  getConfig,
+  getStorageValue,
+  removeStorageValues,
+  StorageKeys
+} from '../extensionServices';
 
 // ---------------------------------------------------------------------------
 // PostHog lightweight HTTP client
