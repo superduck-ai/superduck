@@ -61,13 +61,7 @@ import {
   filterAndApproveDomains,
   filterDomainsByCategory
 } from './browserAutomation';
-import {
-  getFeatureValue,
-  refreshFeatures,
-  trackEvent,
-  initializeAnalytics,
-  identifyUser
-} from './analytics';
+import { getFeatureValue, refreshFeatures, trackEvent, initializeAnalytics } from './analytics';
 import { allTools, mcpToolNames } from './core/tools';
 import type {
   ToolContext,
@@ -1814,7 +1808,6 @@ export {
   categoryChecker,
   tabsExecuteJsTool,
   initializeAnalytics,
-  identifyUser,
   formatTabsForDisplay,
   refreshFeatures,
   tabsUrlTool,

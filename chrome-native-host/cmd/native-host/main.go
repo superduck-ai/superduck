@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/protocol"
 	"encoding/json"
 	"fmt"
@@ -177,6 +178,11 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 	case "get_status":
 		protocol.SendMessage(os.Stdout, map[string]string{"type": "mcp_connected"})
 		protocol.SendMessage(os.Stdout, map[string]string{"type": "status_response"})
+	case "get_analytics_id":
+		protocol.SendMessage(os.Stdout, map[string]string{
+			"type":        "analytics_id_response",
+			"distinct_id": analytics.GetOrCreateDistinctID(),
+		})
 	case "notification":
 		slog.Debug("notification", "method", msg.Method, "params", msg.Params)
 	case "tool_request":

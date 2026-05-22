@@ -223,6 +223,13 @@ func loadOrCreateDistinctID() string {
 	return id
 }
 
+// GetOrCreateDistinctID returns the persistent anonymous distinct_id used by
+// CLI/native-host analytics so external callers (e.g. browser extension via
+// native messaging) can share the same identifier.
+func GetOrCreateDistinctID() string {
+	return loadOrCreateDistinctID()
+}
+
 func randomID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
