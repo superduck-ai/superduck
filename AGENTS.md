@@ -229,7 +229,7 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
   Co-authored-by: Claude <noreply@anthropic.com>
   ```
 - 通过 `gh pr create` 开 PR,不要在未经用户确认时直接 merge / force push。
-- PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md);Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)(bug / feature / chore / agent-task)。
+- PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md);Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/),涵盖 bug / feature / chore / docs / performance / agent-task,空白 issue 已禁用,问题走 Discussions,安全漏洞走 [GitHub Security Advisories](https://github.com/superduck-ai/superduck/security/advisories/new)。
 
 ## Issue / PR 标签体系 (Labeling System)
 

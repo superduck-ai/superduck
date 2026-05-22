@@ -1,0 +1,109 @@
+name: Performance Issue
+description: Report a measurable performance regression or bottleneck (latency, memory, CPU, bundle size, test runtime).
+title: "[perf]: "
+labels:
+  - "type: perf"
+  - "status: triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for **measurable** performance problems. Include numbers — without
+        a baseline vs. current measurement the issue cannot be triaged.
+
+        For functional bugs use the Bug Report template; for ideas about future performance
+        work without numbers, use the Feature Request template.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - chrome-crx (sidepanel / service worker / MCP runtime / content script)
+        - chrome-native-host (superduck CLI / native messaging host / MCP server)
+        - coworkd
+        - npm / release artifact size
+        - tests / CI runtime
+        - other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dimension
+    attributes:
+      label: Performance dimension
+      options:
+        - Latency / response time
+        - Throughput
+        - Memory usage
+        - CPU usage
+        - Bundle / binary size
+        - Startup / cold-start time
+        - Test suite runtime
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Exactly what workload exhibits the problem? Include input size, concurrency, env.
+      placeholder: |
+        - Run `cd chrome-crx && bun run test:perf` on a clean checkout.
+        - Suite `mcpRuntime/cdp.test.ts` takes ~12s; was ~3s on commit abcdef.
+    validations:
+      required: true
+
+  - type: textarea
+    id: measurement
+    attributes:
+      label: Measurement (baseline vs. current)
+      description: |
+        Provide concrete numbers and how you measured them. Reference helper scripts where applicable:
+        - `bun run test:perf` / `bun run test:perf:report`
+        - `make test-perf` (Go)
+        - DevTools Performance panel / `chrome://tracing`
+      placeholder: |
+        Baseline (v0.1.0, commit abc123): p50 120ms, p95 200ms
+        Current (main, commit def456): p50 480ms, p95 900ms
+        Method: 100 iterations of `superduck --tab N screenshot`, macOS M2.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: profile
+    attributes:
+      label: Profile / trace (optional)
+      description: Flamegraph, `go tool pprof` output, DevTools profile, JUnit timing, etc. Attach files or paste links.
+
+  - type: input
+    id: regression-range
+    attributes:
+      label: Suspected regression range
+      description: Last known good commit / version → first known bad commit / version, if identified.
+      placeholder: "Good: v0.1.0 (abc123)  →  Bad: main (def456)"
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, hardware, Chrome version, Go / Node / Bun versions as relevant.
+      placeholder: |
+        macOS 14.5, Apple M2, 16GB RAM
+        Chrome 128.0.6613.85, Bun 1.1.x, Go 1.25
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I included concrete numbers for both baseline and current behavior.
+          required: true
+        - label: I measured on a recent `main` build (or specified the commit).
+          required: true
+        - label: I scrubbed secrets / personal data from any attached profiles.
+          required: true

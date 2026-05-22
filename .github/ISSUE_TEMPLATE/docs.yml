@@ -1,0 +1,78 @@
+name: Documentation
+description: Report missing, outdated, confusing, or incorrect documentation (README, AGENTS.md, runbooks, inline docs, TypeDoc / godoc).
+title: "[docs]: "
+labels:
+  - "type: docs"
+  - "area: docs"
+  - "status: triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for documentation-only issues. For code bugs use the Bug Report template;
+        for proposing entirely new docs sections, the Feature Request template may fit better.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Documentation surface
+      description: Where does the issue live?
+      options:
+        - README (root / sub-project)
+        - AGENTS.md
+        - runbooks/
+        - chrome-crx TypeDoc (chrome-crx/docs/api/)
+        - chrome-native-host godoc snapshots
+        - inline code comments / JSDoc / Go doc
+        - GitHub Pages site (site/)
+        - Issue / PR template
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Affected file(s) / URL
+      description: Repo-relative paths or a docs site URL. Multiple allowed.
+      placeholder: "AGENTS.md#environment-variables, chrome-crx/README.md"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - Missing — content does not exist but should
+        - Outdated — content is stale relative to current code
+        - Incorrect — content is wrong / misleading
+        - Confusing — content is unclear or hard to follow
+        - Broken link / image
+        - Typo / formatting
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's wrong
+      description: Quote the current text (if any) and explain the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: A concrete rewrite, missing section outline, or pointer to the right answer. PRs welcome.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues for duplicates.
+          required: true
+        - label: I checked the latest `main` to confirm the docs are still wrong.
+          required: true
