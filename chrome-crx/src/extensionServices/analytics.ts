@@ -39,9 +39,6 @@ export async function setSharedAnalyticsId(id: string): Promise<void> {
 }
 
 async function waitForSharedAnalyticsId(): Promise<string | undefined> {
-  const stored = await readAndCleanStoredAnalyticsId();
-  if (stored) return stored;
-
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value?: string) => {
@@ -68,6 +65,10 @@ async function waitForSharedAnalyticsId(): Promise<string | undefined> {
     };
     chrome.storage.onChanged.addListener(listener);
     const timeoutId = setTimeout(() => finish(), ANALYTICS_ID_WAIT_MS);
+
+    readAndCleanStoredAnalyticsId().then((stored) => {
+      if (stored) finish(stored);
+    });
   });
 }
 

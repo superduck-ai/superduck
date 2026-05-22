@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -151,9 +150,34 @@ func TestDetectInstallMethodNPM(t *testing.T) {
 	if err := os.MkdirAll(npmDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Just verify the path detection logic recognizes node_modules
-	if !strings.Contains(npmDir, "node_modules") {
-		t.Fatal("sanity check failed")
+	fakeBin := filepath.Join(npmDir, "superduck")
+
+	method := detectInstallMethodFromPath(fakeBin)
+	if method != InstallNPM {
+		t.Errorf("expected InstallNPM for path with node_modules, got %v", method)
+	}
+
+	// Also test package.json fallback
+	nonNpmDir := filepath.Join(tmp, "lib", "bin")
+	if err := os.MkdirAll(nonNpmDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "lib", "package.json"), []byte(`{"name":"superduck-darwin-arm64"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	method = detectInstallMethodFromPath(filepath.Join(nonNpmDir, "superduck"))
+	if method != InstallNPM {
+		t.Errorf("expected InstallNPM for package.json fallback, got %v", method)
+	}
+
+	// Plain path should be binary
+	plainDir := filepath.Join(tmp, "usr", "local", "bin")
+	if err := os.MkdirAll(plainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	method = detectInstallMethodFromPath(filepath.Join(plainDir, "superduck"))
+	if method != InstallBinary {
+		t.Errorf("expected InstallBinary for plain path, got %v", method)
 	}
 }
 

@@ -41,6 +41,7 @@ func cmdUpdate(argv []string) error {
 		return fmt.Errorf("could not determine install method: %w", err)
 	}
 
+	var installedVersion string
 	switch method {
 	case selfupdate.InstallNPM:
 		fmt.Fprintf(os.Stderr, "Detected npm install. Running npm install -g superduck-cli@latest...\n")
@@ -48,21 +49,23 @@ func cmdUpdate(argv []string) error {
 		if err != nil {
 			return fmt.Errorf("npm update failed: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "\n✓ Updated to superduck %s\n", newVer)
+		installedVersion = newVer
+		fmt.Fprintf(os.Stderr, "\n✓ Updated to superduck %s\n", installedVersion)
 
 	case selfupdate.InstallBinary:
 		fmt.Fprintf(os.Stderr, "Detected direct binary install. Downloading v%s from GitHub...\n", latest)
 		if err := selfupdate.UpdateViaBinary(latest, os.Stderr); err != nil {
 			return fmt.Errorf("binary update failed: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "\n✓ Updated to superduck %s\n", latest)
+		installedVersion = latest
+		fmt.Fprintf(os.Stderr, "\n✓ Updated to superduck %s\n", installedVersion)
 	}
 
-	selfupdate.WriteCacheNow(latest)
+	selfupdate.WriteCacheNow(installedVersion)
 
 	tracker.Capture("cli.update.completed", map[string]any{
 		"from_version":   version,
-		"to_version":     latest,
+		"to_version":     installedVersion,
 		"install_method": method.String(),
 	})
 	flushCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

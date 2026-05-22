@@ -43,17 +43,21 @@ func DetectInstallMethod() (InstallMethod, error) {
 	if err != nil {
 		resolved = exe
 	}
+	return detectInstallMethodFromPath(resolved), nil
+}
+
+func detectInstallMethodFromPath(resolved string) InstallMethod {
 	if strings.Contains(resolved, "node_modules") {
-		return InstallNPM, nil
+		return InstallNPM
 	}
 	dir := filepath.Dir(resolved)
 	pkgJSON := filepath.Join(dir, "..", "package.json")
 	if data, err := os.ReadFile(pkgJSON); err == nil {
 		if strings.Contains(string(data), "superduck-") {
-			return InstallNPM, nil
+			return InstallNPM
 		}
 	}
-	return InstallBinary, nil
+	return InstallBinary
 }
 
 func UpdateViaNPM(output io.Writer) (string, error) {
@@ -144,6 +148,9 @@ func UpdateViaBinary(targetVersion string, output io.Writer) error {
 
 		base := filepath.Base(hdr.Name)
 		if base != "superduck" && base != "chrome-native-host" {
+			continue
+		}
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 

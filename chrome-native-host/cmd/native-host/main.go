@@ -160,9 +160,7 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 
 func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 	if !waitForInstallIDConfirmed(identitySyncWait) {
-		slog.Warn("rejecting tool request before analytics identity sync")
-		sendToolError(responseWriter, "superduck identity is not synced yet; reload the extension or run superduck doctor after native-host connects")
-		return
+		slog.Warn("analytics identity not yet synced, forwarding anyway")
 	}
 
 	// Serialize: only one request-response pair in flight at a time
