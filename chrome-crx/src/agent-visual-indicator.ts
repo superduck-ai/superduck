@@ -20,6 +20,11 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     }
     (window as any).__superduck_agent_indicator_loaded__ = false;
     try {
+      chrome.storage.onChanged.removeListener(handlePreferredLocaleChanged);
+    } catch {
+      /* noop */
+    }
+    try {
       hideAgentIndicators();
     } catch {
       /* noop */
@@ -47,7 +52,37 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   // I18n support
   const SUPPORTED_LOCALES = ['en-US', 'zh-CN'] as const;
   const DEFAULT_LOCALE = 'en-US';
+  const PREFERRED_LOCALE_STORAGE_KEY = 'preferred_locale';
   const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
+  const AGENT_STATUS_KEYS = [
+    'agent_status_working',
+    'agent_status_helping',
+    'agent_status_rushing',
+    'agent_status_busy',
+    'agent_status_outputting',
+    'agent_status_takeover',
+    'agent_status_full_power',
+    'agent_status_showing_off',
+    'agent_status_dont_move',
+    'agent_status_working_duck',
+    'agent_status_managed',
+    'agent_status_online'
+  ] as const;
+  const DEFAULT_I18N_MESSAGES: Record<string, string> = {
+    agent_status_working: 'Duck is working hard',
+    agent_status_helping: 'Quack quack~ Duck is helping you',
+    agent_status_rushing: 'SuperDuck is rushing',
+    agent_status_busy: 'Duck is busy doing things',
+    agent_status_outputting: 'Duck is outputting like crazy',
+    agent_status_takeover: 'Quack! Duck took over the browser',
+    agent_status_full_power: 'Duck power at full capacity',
+    agent_status_showing_off: 'SuperDuck is showing off',
+    agent_status_dont_move: "Don't move! Duck is busy",
+    agent_status_working_duck: 'Duck turned into working duck',
+    agent_status_managed: 'This page is managed by Duck',
+    agent_status_online: 'Quack agent is online',
+    agent_take_over_button: 'Take over'
+  };
 
   function normalizeLocale(locale: string): string {
     if (SUPPORTED_LOCALE_SET.has(locale)) {
@@ -58,29 +93,77 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     return matched || DEFAULT_LOCALE;
   }
 
-  let i18nMessages: Record<string, string> = {};
+  let i18nMessages: Record<string, string> = DEFAULT_I18N_MESSAGES;
   let i18nLoaded = false;
+  let i18nLocale = DEFAULT_LOCALE;
 
   async function loadI18n(): Promise<void> {
     if (i18nLoaded) return;
     try {
-      const stored = await chrome.storage.local.get('preferred_locale');
+      const stored = await chrome.storage.local.get(PREFERRED_LOCALE_STORAGE_KEY);
       const rawLocale: string =
-        (stored.preferred_locale as string) || navigator.language || DEFAULT_LOCALE;
+        (stored[PREFERRED_LOCALE_STORAGE_KEY] as string) || navigator.language || DEFAULT_LOCALE;
       const locale = normalizeLocale(rawLocale);
+      i18nMessages = DEFAULT_I18N_MESSAGES;
+      i18nLocale = locale;
       const response = await fetch(chrome.runtime.getURL(`i18n/${locale}.json`));
       if (response.ok) {
-        i18nMessages = await response.json();
+        i18nMessages = { ...DEFAULT_I18N_MESSAGES, ...(await response.json()) };
       }
     } catch (e) {
-      // Fallback to empty messages
+      i18nMessages = DEFAULT_I18N_MESSAGES;
+      i18nLocale = DEFAULT_LOCALE;
     }
     i18nLoaded = true;
   }
 
   function t(key: string, fallback: string = ''): string {
-    return i18nMessages[key] || fallback;
+    return i18nMessages[key] || DEFAULT_I18N_MESSAGES[key] || fallback;
   }
+
+  function getRandomAgentStatus(): string {
+    const messages = AGENT_STATUS_KEYS.map((key) => t(key));
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+
+  function updateStopContainerI18n(): void {
+    if (!stopContainerEl) return;
+
+    const statusText = stopContainerEl.querySelector<HTMLElement>('[data-superduck-i18n="status"]');
+    if (statusText) {
+      statusText.textContent = getRandomAgentStatus();
+    }
+
+    const takeOverBtn = stopContainerEl.querySelector<HTMLButtonElement>(
+      '[data-superduck-i18n="take-over"]'
+    );
+    if (takeOverBtn) {
+      takeOverBtn.textContent = t('agent_take_over_button');
+    }
+  }
+
+  function handlePreferredLocaleChanged(
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string
+  ): void {
+    if (areaName !== 'local' || !changes[PREFERRED_LOCALE_STORAGE_KEY]) {
+      return;
+    }
+
+    const nextLocale = normalizeLocale(
+      (changes[PREFERRED_LOCALE_STORAGE_KEY].newValue as string) ||
+        navigator.language ||
+        DEFAULT_LOCALE
+    );
+    if (nextLocale === i18nLocale && i18nLoaded) {
+      return;
+    }
+
+    i18nLoaded = false;
+    void loadI18n().then(updateStopContainerI18n);
+  }
+
+  chrome.storage.onChanged.addListener(handlePreferredLocaleChanged);
 
   // State variables
   let glowBorderEl: HTMLElement | null = null;
@@ -672,27 +755,13 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
       white-space: nowrap !important;
     `;
 
-    const duckMessages = [
-      t('agent_status_working', '鸭鸭正在努力操作中'),
-      t('agent_status_helping', '嘎嘎嘎～鸭鸭正在帮你干活'),
-      t('agent_status_rushing', '超级鸭鸭冲冲冲'),
-      t('agent_status_busy', '鸭鸭正在认真搞事情'),
-      t('agent_status_outputting', '鸭鸭正在疯狂输出'),
-      t('agent_status_takeover', '嘎！鸭鸭接管了浏览器'),
-      t('agent_status_full_power', '鸭力全开中'),
-      t('agent_status_showing_off', '超级鸭正在大展身手'),
-      t('agent_status_dont_move', '别动！鸭鸭在忙'),
-      t('agent_status_working_duck', '鸭鸭化身打工鸭'),
-      t('agent_status_managed', '当前页面由鸭鸭托管中'),
-      t('agent_status_online', '嘎嘎特工已上线')
-    ];
-
     const emojiEl = document.createElement('span');
     emojiEl.textContent = '🦆';
     emojiEl.style.cssText = `font-size: 16px; line-height: 1; flex-shrink: 0;`;
 
     const statusText = document.createElement('span');
-    statusText.textContent = duckMessages[Math.floor(Math.random() * duckMessages.length)];
+    statusText.dataset.superduckI18n = 'status';
+    statusText.textContent = getRandomAgentStatus();
     statusText.style.cssText = `
       color: #1a1a1a;
       font-size: 13px;
@@ -726,7 +795,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     // ========== Child B (right group): button ==========
     const takeOverBtn = document.createElement('button');
     takeOverBtn.id = 'superduck-agent-stop-button';
-    takeOverBtn.textContent = t('agent_take_over_button', '我来接手');
+    takeOverBtn.dataset.superduckI18n = 'take-over';
+    takeOverBtn.textContent = t('agent_take_over_button');
     takeOverBtn.style.cssText = `
       padding: 6px 16px;
       background: #2c2c2c;
