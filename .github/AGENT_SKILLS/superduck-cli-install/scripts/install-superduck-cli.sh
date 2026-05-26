@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PACKAGE_NAME="superduck-cli"
-MIN_NODE_MAJOR="18"
+MIN_NODE_MAJOR="16"
 NPM_REGISTRY_URL="https://registry.npmjs.org/"
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -65,16 +65,24 @@ print_npm_context() {
 }
 
 check_network() {
-  log "检查 npm registry 连通性..."
+  local npm_registry
+  npm_registry="$(npm config get registry 2>/dev/null || true)"
+  npm_registry="${npm_registry:-$NPM_REGISTRY_URL}"
+  npm_registry="${npm_registry%/}"
+
+  log "检查 npm registry 连通性... (${npm_registry})"
   if npm ping >/dev/null 2>&1; then
     log "npm registry 连接正常"
   else
-    warn "npm ping 失败，尝试 HTTP 探测 registry.npmjs.org"
+    warn "npm ping 失败，尝试 HTTP 探测 ${npm_registry}"
     if has_cmd curl; then
-      curl -fsS --max-time 8 "${NPM_REGISTRY_URL}" >/dev/null || fail "网络异常：无法访问 npm registry。"
-      log "HTTP 探测成功"
+      if curl -fsS --max-time 8 "${npm_registry}/-/ping" >/dev/null; then
+        log "HTTP 探测成功"
+      else
+        warn "HTTP 探测失败：${npm_registry}，继续尝试安装（由 npm 安装结果决定最终状态）。"
+      fi
     else
-      fail "npm ping 失败且缺少 curl，无法继续诊断网络。"
+      warn "npm ping 失败且缺少 curl，跳过 HTTP 探测并继续尝试安装。"
     fi
   fi
 }
@@ -90,7 +98,7 @@ install_cli() {
   if npm install -g "${PACKAGE_NAME}"; then
     log "${PACKAGE_NAME} 安装成功"
   else
-    fail "npm 全局安装失败。可尝试: sudo npm install -g ${PACKAGE_NAME} 或配置 npm 全局目录权限。"
+    fail "npm 全局安装失败。建议：配置 npm 全局目录为用户可写（避免 sudo），或使用 nvm/volta 并确认 PATH 包含 npm global bin。"
   fi
 }
 
