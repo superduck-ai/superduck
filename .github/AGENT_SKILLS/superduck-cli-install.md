@@ -40,7 +40,7 @@ bash scripts/install-superduck-cli-skill.sh
 7. 失败修复建议
    - Node 版本过低
    - npm 全局安装权限不足
-   - PATH 未包含 npm global bin（脚本会提示 `npm bin -g`）
+   - PATH 未包含 npm global bin（脚本会提示 `npm config get prefix` 派生的 bin 路径）
    - Chrome 扩展或 native host 未连接
 
 ## 常见修复命令

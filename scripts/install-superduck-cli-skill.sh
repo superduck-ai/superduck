@@ -55,12 +55,12 @@ check_prereq() {
 }
 
 print_npm_context() {
-  local npm_prefix npm_bin npm_registry
+  local npm_prefix npm_global_bin npm_registry
   npm_prefix="$(npm config get prefix 2>/dev/null || true)"
-  npm_bin="$(npm bin -g 2>/dev/null || true)"
+  npm_global_bin="${npm_prefix%/}/bin"
   npm_registry="$(npm config get registry 2>/dev/null || true)"
   log "npm prefix: ${npm_prefix:-unknown}"
-  log "npm global bin: ${npm_bin:-unknown}"
+  log "npm global bin(derived): ${npm_global_bin:-unknown}"
   log "npm registry: ${npm_registry:-unknown}"
 }
 
@@ -97,7 +97,7 @@ install_cli() {
 validate_install() {
   if ! has_cmd superduck; then
     warn "安装后仍找不到 superduck 命令。"
-    warn '请确认 PATH 包含 npm global bin（例如执行: export PATH="$(npm bin -g):$PATH"）。'
+    warn '请确认 PATH 包含 npm global bin（例如执行: export PATH="$(npm config get prefix)/bin:$PATH"）。'
     fail "superduck 命令不存在。"
   fi
 
