@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PACKAGE_NAME="superduck-cli"
-MIN_NODE_MAJOR="16"
+MIN_NODE_MAJOR="18"
 NPM_REGISTRY_URL="https://registry.npmjs.org/"
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }

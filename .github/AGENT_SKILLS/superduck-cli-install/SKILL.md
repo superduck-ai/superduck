@@ -28,7 +28,7 @@ bash .github/AGENT_SKILLS/superduck-cli-install/scripts/install-superduck-cli.sh
 ## 执行流程（高层）
 
 1. 环境识别（OS / Shell / Node / npm / pnpm / bun）
-2. 依赖校验（Node>=16 且存在 npm）
+2. 依赖校验（Node>=18 且存在 npm）
 3. npm 上下文输出（`npm config get prefix`、派生 bin、`npm config get registry`）
 4. 网络检查（`npm ping`，失败时对配置的 registry 做 HTTP 探测）
 5. 安装或升级（`npm install -g superduck-cli`）
