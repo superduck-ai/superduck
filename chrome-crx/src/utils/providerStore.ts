@@ -347,8 +347,12 @@ export function normalizeProviderBaseURL(kind: ProviderKind, rawBaseURL: string)
     'openai-compatible': ['/chat/completions', '/responses']
   };
 
+  const normalizedInput = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(normalizedInput);
     let pathname = parsed.pathname.replace(/\/+$/, '');
     for (const suffix of endpointSuffixes[kind]) {
       if (pathname === suffix || pathname.endsWith(suffix)) {
@@ -369,6 +373,20 @@ export function normalizeProviderBaseURL(kind: ProviderKind, rawBaseURL: string)
       }
     }
     return normalized;
+  }
+}
+
+export function isValidProviderBaseURL(rawBaseURL: string): boolean {
+  const trimmed = rawBaseURL.trim();
+  if (!trimmed) return true;
+  const normalizedInput = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const parsed = new URL(normalizedInput);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
   }
 }
 
