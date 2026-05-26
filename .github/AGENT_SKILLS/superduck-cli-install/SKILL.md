@@ -13,7 +13,7 @@
 在仓库根目录运行:
 
 ```bash
-bash scripts/install-superduck-cli-skill.sh
+bash .github/AGENT_SKILLS/superduck-cli-install/install-superduck-cli.sh
 ```
 
 ## Skill 流程
