@@ -7,8 +7,6 @@
 ```text
 superduck-cli-install/
 ├── SKILL.md
-├── FORMS.md
-├── REFERENCE.md
 └── scripts/
     └── install-superduck-cli.sh
 ```
@@ -37,7 +35,19 @@ bash .github/AGENT_SKILLS/superduck-cli-install/scripts/install-superduck-cli.sh
 6. 安装后验证（`superduck --version` + `superduck doctor`）
 7. 失败给出修复建议（权限、PATH、Node 版本、扩展连接）
 
-## 参考文档
+## 常见修复命令
 
-- 表单式执行与排障记录：`FORMS.md`
-- 详细行为与错误码说明：`REFERENCE.md`
+```bash
+# 版本检查
+node -v
+npm -v
+
+# npm 全局权限/路径问题（避免 sudo）
+npm config set prefix "$HOME/.npm-global"
+export PATH="$HOME/.npm-global/bin:$PATH"
+npm install -g superduck-cli
+
+# 安装后注册与自检
+superduck setup
+superduck doctor
+```
