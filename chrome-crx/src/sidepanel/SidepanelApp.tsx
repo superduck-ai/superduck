@@ -26,13 +26,11 @@ import {
   Bell,
   Bookmark,
   Camera,
-  ChevronsRight,
   Check,
   ChevronDown,
   ChevronRight,
   CircleStop,
   Copy,
-  Hand,
   Languages,
   ListChecks,
   Loader2,
@@ -124,6 +122,7 @@ import { CreateShortcutModal } from './CreateShortcutModal';
 import { ShortcutsMenu } from './ShortcutsMenu';
 import { RotatingTips } from './RotatingTips';
 import { RichTextInput, type RichTextInputHandle } from './RichTextInput';
+import { PERMISSION_MODE_OPTIONS, PermissionModeMenu } from './PermissionModeMenu';
 import { useWorkflowRecording } from './useWorkflowRecording';
 import { Tooltip } from './Tooltip';
 import { useUIStore } from './stores';
@@ -634,34 +633,6 @@ function usePrefersReducedMotion() {
 
   return prefersReducedMotion;
 }
-
-type PermissionModeOption = {
-  value: PermissionMode;
-  labelId: string;
-  labelDefault: string;
-  descriptionId: string;
-  descriptionDefault: string;
-  Icon: React.ComponentType<{ size?: number; className?: string }>;
-};
-
-const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
-  {
-    value: 'follow_a_plan',
-    labelId: 'ask_before_acting',
-    labelDefault: 'Ask before acting',
-    descriptionId: 'superduck_aligns_on_its_approach_before_taking_actions',
-    descriptionDefault: 'SuperDuck aligns on its approach before taking actions',
-    Icon: Hand
-  },
-  {
-    value: 'skip_all_permission_checks',
-    labelId: 'act_without_asking',
-    labelDefault: 'Act without asking',
-    descriptionId: 'superduck_takes_actions_without_asking_for_permission',
-    descriptionDefault: 'SuperDuck takes actions without asking for permission',
-    Icon: ChevronsRight
-  }
-];
 
 async function upsertSessionIndex(entry: SessionIndexEntry) {
   const raw = await getStorageValue(SESSION_INDEX_KEY, []);
@@ -6060,14 +6031,6 @@ export function SidepanelApp() {
       ),
     [shouldDisableSkipPermissions]
   );
-  const selectedPermissionModeOption =
-    PERMISSION_MODE_OPTIONS.find((option) => option.value === permissionMode) ??
-    PERMISSION_MODE_OPTIONS[0];
-  const selectedPermissionModeLabel = intl.formatMessage({
-    id: selectedPermissionModeOption.labelId,
-    defaultMessage: selectedPermissionModeOption.labelDefault
-  });
-
   useEffect(() => {
     let active = true;
     (async () => {
@@ -8066,83 +8029,18 @@ export function SidepanelApp() {
                                 }`}
                               >
                                 <div className="flex items-center gap-2">
-                                  <div ref={permissionMenuRef} className="relative">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setIsActionsMenuOpen(false);
-                                        setIsPermissionMenuOpen((value) => !value);
-                                      }}
-                                      className="inline-flex items-center gap-1.5 h-7 rounded-lg border border-border-300 bg-bg-000 px-2 text-[11px] text-text-200 hover:bg-bg-200 transition-colors"
-                                      aria-haspopup="menu"
-                                      aria-expanded={isPermissionMenuOpen}
-                                      aria-label="Permission mode"
-                                      title="Permission mode"
-                                    >
-                                      {permissionMode === 'follow_a_plan' ? (
-                                        <Hand size={12} className="text-text-300" />
-                                      ) : (
-                                        <ChevronsRight size={12} className="text-text-300" />
-                                      )}
-                                      <span>{selectedPermissionModeLabel}</span>
-                                      <ChevronDown size={12} className="text-text-300" />
-                                    </button>
-                                    {isPermissionMenuOpen ? (
-                                      <div className="absolute left-0 bottom-full mb-2 z-50 w-max min-w-[200px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
-                                        {permissionModeMenuOptions.map((option) => {
-                                          const isSelected = permissionMode === option.value;
-                                          const Icon = option.Icon;
-
-                                          return (
-                                            <button
-                                              key={option.value}
-                                              type="button"
-                                              onClick={() => {
-                                                setPermissionMode(option.value);
-                                                setIsPermissionMenuOpen(false);
-                                              }}
-                                              className={`w-full min-h-8 px-2 py-1.5 rounded-lg text-left flex items-start gap-2 transition-colors ${isSelected ? 'bg-bg-200' : 'hover:bg-bg-200'}`}
-                                            >
-                                              <div className="shrink-0 mt-px">
-                                                <Icon size={12} className="text-text-300" />
-                                              </div>
-                                              <div className="flex-1 min-w-0 whitespace-nowrap">
-                                                <div className="text-[11px] font-medium leading-snug text-text-200">
-                                                  {intl.formatMessage({
-                                                    id: option.labelId,
-                                                    defaultMessage: option.labelDefault
-                                                  })}
-                                                </div>
-                                                <div className="mt-0.5 text-[10px] leading-snug text-text-400">
-                                                  {intl.formatMessage({
-                                                    id: option.descriptionId,
-                                                    defaultMessage: option.descriptionDefault
-                                                  })}
-                                                </div>
-                                              </div>
-                                              <div className="shrink-0 self-center">
-                                                {isSelected ? (
-                                                  <Check
-                                                    size={12}
-                                                    className="text-accent-secondary-200"
-                                                  />
-                                                ) : null}
-                                              </div>
-                                            </button>
-                                          );
-                                        })}
-                                        {shouldDisableSkipPermissions ? (
-                                          <p className="px-3 pt-2 text-[11px] text-text-300">
-                                            {intl.formatMessage({
-                                              id: 'LStwu4n1yT_blocked',
-                                              defaultMessage:
-                                                'Act without asking is unavailable on blocked pages.'
-                                            })}
-                                          </p>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                  </div>
+                                  <PermissionModeMenu
+                                    menuRef={permissionMenuRef}
+                                    permissionMode={permissionMode}
+                                    options={permissionModeMenuOptions}
+                                    isOpen={isPermissionMenuOpen}
+                                    onOpenChange={(open) => {
+                                      if (open) setIsActionsMenuOpen(false);
+                                      setIsPermissionMenuOpen(open);
+                                    }}
+                                    onSelect={setPermissionMode}
+                                    showBlockedSkipHint={shouldDisableSkipPermissions}
+                                  />
                                   {attachmentCount > 0 ? (
                                     <span className="text-[11px] text-text-300">
                                       {attachmentCount} image(s)
