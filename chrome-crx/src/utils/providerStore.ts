@@ -354,6 +354,7 @@ function parseProviderBaseURLInput(trimmed: string): URL | null {
   try {
     const parsed = new URL(withDefaultProviderScheme(trimmed));
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.username || parsed.password) return null;
     if (!isAllowedProviderHostname(parsed.hostname)) return null;
     return parsed;
   } catch {

@@ -150,7 +150,17 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     return filtered.length > 0 ? filtered : modelOptions;
   }, [modelId, modelOptions]);
 
+  const handleBaseURLBlur = () => {
+    setBaseURL((current) => {
+      const trimmed = current.trim();
+      if (!trimmed) return '';
+      if (!isValidProviderBaseURL(trimmed)) return trimmed;
+      return normalizeProviderBaseURL(kind, trimmed);
+    });
+  };
+
   const handleSubmit = () => {
+    if (!isValidProviderBaseURL(baseURL)) return;
     onSave({
       id: provider?.id ?? newProviderId(),
       kind,
@@ -183,7 +193,12 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
             onChange={(value) => {
               const next = value as ProviderKind;
               setKind(next);
-              setBaseURL((current) => normalizeProviderBaseURL(next, current));
+              setBaseURL((current) => {
+                const trimmed = current.trim();
+                if (!trimmed) return '';
+                if (!isValidProviderBaseURL(trimmed)) return trimmed;
+                return normalizeProviderBaseURL(next, trimmed);
+              });
               setModelOptions([]);
               setModelDropdownOpen(false);
               setIsLoadingModels(false);
@@ -213,7 +228,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
           <TextInput
             value={baseURL}
             onChange={(event) => setBaseURL(event.target.value)}
-            onBlur={() => setBaseURL((current) => normalizeProviderBaseURL(kind, current))}
+            onBlur={handleBaseURLBlur}
             placeholder={intl.formatMessage(
               { id: 'api_url_hint', defaultMessage: 'Leave blank to use the default ({url}).' },
               { url: placeholderBaseURL }

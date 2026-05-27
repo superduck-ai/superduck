@@ -90,5 +90,6 @@ describe('isValidProviderBaseURL', () => {
     expect(isValidProviderBaseURL('https://')).toBe(false);
     expect(isValidProviderBaseURL('not a url')).toBe(false);
     expect(isValidProviderBaseURL('javascript:alert(1)')).toBe(false);
+    expect(isValidProviderBaseURL('https://user:pass@api.example.com')).toBe(false);
   });
 });
