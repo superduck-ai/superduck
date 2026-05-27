@@ -109,6 +109,10 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     return normalizeLocale(rawLocale);
   }
 
+      (stored[PREFERRED_LOCALE_STORAGE_KEY] as string) || navigator.language || DEFAULT_LOCALE;
+    return normalizeLocale(rawLocale);
+  }
+
   async function loadI18n(targetLocale?: string): Promise<void> {
     let requestVersion = 0;
     try {
