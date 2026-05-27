@@ -8070,20 +8070,8 @@ export function SidepanelApp() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        console.log(
-                                          '[DEBUG] Permission menu button clicked, current state:',
-                                          isPermissionMenuOpen
-                                        );
                                         setIsActionsMenuOpen(false);
-                                        setIsPermissionMenuOpen((value) => {
-                                          console.log(
-                                            '[DEBUG] Toggling permission menu from',
-                                            value,
-                                            'to',
-                                            !value
-                                          );
-                                          return !value;
-                                        });
+                                        setIsPermissionMenuOpen((value) => !value);
                                       }}
                                       className="inline-flex items-center gap-1.5 h-7 rounded-lg border border-border-300 bg-bg-000 px-2 text-[11px] text-text-200 hover:bg-bg-200 transition-colors"
                                       aria-haspopup="menu"
@@ -8100,7 +8088,7 @@ export function SidepanelApp() {
                                       <ChevronDown size={12} className="text-text-300" />
                                     </button>
                                     {isPermissionMenuOpen ? (
-                                      <div className="absolute left-0 bottom-full mb-2 z-50 w-80 bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
+                                      <div className="absolute left-0 bottom-full mb-2 z-50 w-max min-w-[200px] max-w-[240px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
                                         {permissionModeMenuOptions.map((option) => {
                                           const isSelected = permissionMode === option.value;
                                           const Icon = option.Icon;
@@ -8113,19 +8101,19 @@ export function SidepanelApp() {
                                                 setPermissionMode(option.value);
                                                 setIsPermissionMenuOpen(false);
                                               }}
-                                              className={`w-full px-3 py-2 rounded-lg text-left flex items-start gap-3 transition-colors ${isSelected ? 'bg-bg-200' : 'hover:bg-bg-200'}`}
+                                              className={`w-full min-h-8 px-2 py-1.5 rounded-lg text-left flex items-start gap-2 transition-colors ${isSelected ? 'bg-bg-200' : 'hover:bg-bg-200'}`}
                                             >
-                                              <div className="shrink-0 mt-0.5">
-                                                <Icon size={16} className="text-text-200" />
+                                              <div className="shrink-0 mt-px">
+                                                <Icon size={12} className="text-text-300" />
                                               </div>
                                               <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-medium text-text-100">
+                                                <div className="text-[11px] font-medium leading-snug text-text-200">
                                                   {intl.formatMessage({
                                                     id: option.labelId,
                                                     defaultMessage: option.labelDefault
                                                   })}
                                                 </div>
-                                                <div className="mt-1 text-xs text-text-400">
+                                                <div className="mt-0.5 text-[10px] leading-snug text-text-400">
                                                   {intl.formatMessage({
                                                     id: option.descriptionId,
                                                     defaultMessage: option.descriptionDefault
@@ -8135,7 +8123,7 @@ export function SidepanelApp() {
                                               <div className="shrink-0 self-center">
                                                 {isSelected ? (
                                                   <Check
-                                                    size={16}
+                                                    size={12}
                                                     className="text-accent-secondary-200"
                                                   />
                                                 ) : null}
