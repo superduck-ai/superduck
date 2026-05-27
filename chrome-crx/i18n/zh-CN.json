@@ -949,6 +949,7 @@
   "import_config": "导入配置",
   "import_failed": "导入失败：{error}",
   "api_url_hint": "留空使用默认值（{url}）。",
+  "api_url_invalid": "请输入有效域名或以 http:// / https:// 开头的 URL。",
   "discard": "丢弃",
   "saving": "保存中...",
   "discard_unsaved_changes_confirm": "你有未保存的修改。要放弃这些修改并切换标签页吗？",

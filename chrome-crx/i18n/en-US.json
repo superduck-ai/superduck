@@ -949,6 +949,7 @@
   "import_config": "Import config",
   "import_failed": "Import failed: {error}",
   "api_url_hint": "Leave blank to use the default ({url}).",
+  "api_url_invalid": "Enter a valid domain or a URL starting with http:// or https://.",
   "discard": "Discard",
   "saving": "Saving...",
   "discard_unsaved_changes_confirm": "You have unsaved changes. Discard them and switch tabs?",
