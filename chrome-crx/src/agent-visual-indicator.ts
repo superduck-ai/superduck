@@ -98,21 +98,25 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   let i18nLocale = DEFAULT_LOCALE;
   let i18nLoadVersion = 0;
 
+  async function resolvePreferredLocale(localeHint?: string): Promise<string> {
+    if (localeHint) {
+      return normalizeLocale(localeHint);
+    }
+
+    const stored = await chrome.storage.local.get(PREFERRED_LOCALE_STORAGE_KEY);
+    const rawLocale = (stored[PREFERRED_LOCALE_STORAGE_KEY] as string) || navigator.language;
+    return normalizeLocale(rawLocale || DEFAULT_LOCALE);
+  }
+
   async function loadI18n(localeHint?: string): Promise<void> {
-    const requestVersion = ++i18nLoadVersion;
+    let requestVersion = 0;
     try {
-      const resolvedLocale = localeHint
-        ? normalizeLocale(localeHint)
-        : normalizeLocale(
-            ((await chrome.storage.local.get(PREFERRED_LOCALE_STORAGE_KEY))[
-              PREFERRED_LOCALE_STORAGE_KEY
-            ] as string) ||
-              navigator.language ||
-              DEFAULT_LOCALE
-          );
+      const resolvedLocale = await resolvePreferredLocale(localeHint);
       if (i18nLoaded && resolvedLocale === i18nLocale) {
         return;
       }
+
+      requestVersion = ++i18nLoadVersion;
       if (requestVersion !== i18nLoadVersion) return;
       i18nMessages = DEFAULT_I18N_MESSAGES;
       i18nLocale = resolvedLocale;
