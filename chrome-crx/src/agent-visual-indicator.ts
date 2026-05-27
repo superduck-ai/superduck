@@ -98,29 +98,30 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   let i18nLocale = DEFAULT_LOCALE;
   let i18nLoadVersion = 0;
 
-  async function resolvePreferredLocale(localeHint?: string): Promise<string> {
-    if (localeHint) {
-      return normalizeLocale(localeHint);
+  async function resolveLocale(targetLocale?: string): Promise<string> {
+    if (targetLocale) {
+      return normalizeLocale(targetLocale);
     }
 
     const stored = await chrome.storage.local.get(PREFERRED_LOCALE_STORAGE_KEY);
-    const rawLocale = (stored[PREFERRED_LOCALE_STORAGE_KEY] as string) || navigator.language;
-    return normalizeLocale(rawLocale || DEFAULT_LOCALE);
+    const rawLocale: string =
+      (stored[PREFERRED_LOCALE_STORAGE_KEY] as string) || navigator.language || DEFAULT_LOCALE;
+    return normalizeLocale(rawLocale);
   }
 
-  async function loadI18n(localeHint?: string): Promise<void> {
+  async function loadI18n(targetLocale?: string): Promise<void> {
     let requestVersion = 0;
     try {
-      const resolvedLocale = await resolvePreferredLocale(localeHint);
-      if (i18nLoaded && resolvedLocale === i18nLocale) {
+      const locale = await resolveLocale(targetLocale);
+      if (i18nLoaded && locale === i18nLocale) {
         return;
       }
 
       requestVersion = ++i18nLoadVersion;
       if (requestVersion !== i18nLoadVersion) return;
       i18nMessages = DEFAULT_I18N_MESSAGES;
-      i18nLocale = resolvedLocale;
-      const response = await fetch(chrome.runtime.getURL(`i18n/${resolvedLocale}.json`));
+      i18nLocale = locale;
+      const response = await fetch(chrome.runtime.getURL(`i18n/${locale}.json`));
       if (requestVersion !== i18nLoadVersion) return;
       if (response.ok) {
         i18nMessages = { ...DEFAULT_I18N_MESSAGES, ...(await response.json()) };
