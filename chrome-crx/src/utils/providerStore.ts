@@ -342,20 +342,22 @@ function withDefaultProviderScheme(trimmed: string): string {
   return HAS_URL_SCHEME_RE.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-function isAllowedProviderHostname(hostname: string): boolean {
+function isAllowedProviderHostname(hostname: string, hadExplicitScheme: boolean): boolean {
   if (!hostname) return false;
   if (hostname === 'localhost') return true;
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
-  return hostname.includes('.');
+  if (hostname.includes('.')) return true;
+  return hadExplicitScheme;
 }
 
 function parseProviderBaseURLInput(trimmed: string): URL | null {
   if (!trimmed) return null;
+  const hadExplicitScheme = HAS_URL_SCHEME_RE.test(trimmed);
   try {
     const parsed = new URL(withDefaultProviderScheme(trimmed));
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     if (parsed.username || parsed.password) return null;
-    if (!isAllowedProviderHostname(parsed.hostname)) return null;
+    if (!isAllowedProviderHostname(parsed.hostname, hadExplicitScheme)) return null;
     return parsed;
   } catch {
     return null;
