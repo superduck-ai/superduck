@@ -24,5 +24,8 @@
       "gofmt -w",
       "bash scripts/lint-staged-govet.sh"
     ]
-  }
+  },
+  "trustedDependencies": [
+    "protobufjs"
+  ]
 }
