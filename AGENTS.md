@@ -256,3 +256,33 @@ label 命名规则统一为 `<group>: <slug>`(全小写、kebab-case),分为以�
 | 其他 | 可发现性 / 元信息 | `good first issue`、`help wanted`、`agent: ready`、`breaking-change`、`dependencies` |
 
 **给代理 (agent) 的提示**:挑取任务时优先看 `agent: ready` + `status: ready`;按 `priority:` 和 `area:` 过滤。新建 issue 时至少打上 `type:` + 一个 `area:`,用 `priority:` 表达紧急程度。
+
+## Cursor Cloud specific instructions
+
+### 环境概要
+
+VM 启动后 update script 已安装好 Bun 1.1.42（在 `~/.npm-global/bin`）和所有 JS/Go 依赖。使用工具前确保 PATH 包含 `~/.npm-global/bin` 和 `~/go/bin`：
+
+```bash
+export PATH=~/.npm-global/bin:$HOME/go/bin:$PATH
+```
+
+### 两个主要服务
+
+| 服务 | 目录 | 构建 | 测试 | Lint |
+|---|---|---|---|---|
+| Chrome 扩展 | `chrome-crx/` | `bun run build` | `bun run test` (vitest, 63 tests) | `bun run lint` (ESLint) |
+| Go CLI / Native Host | `chrome-native-host/` | `make all` | `make test` | `make lint` (需先 `make lint-install`) |
+
+详细命令见 AGENTS.md 上方「构建命令」章节，此处不重复。
+
+### 注意事项
+
+- **Bun 安装路径**：因 `/usr/lib/node_modules` 无写权限，Bun 安装在 `~/.npm-global/bin`，需确保 PATH 已导出。
+- **nvm 警告可忽略**：因为设置了 npm prefix，nvm 会输出 `.npmrc incompatible` 警告，不影响功能。
+- **golangci-lint**：首次使用需 `make lint-install`（安装到 `~/go/bin`），update script 不包含此步。
+- **TypeScript typecheck**：`bun run typecheck` 存在 Anthropic SDK 类型兼容性的预期错误，不影响构建和运行。
+- **ESLint**：`bun run lint` 存在 ~185 条预期 warnings/errors（大部分在 `vite-env.d.ts` 和未使用变量），不影响功能。
+- **Chrome 扩展测试**：此环境无 Chrome 浏览器，`bun run test:e2e`（Playwright E2E）无法运行，单元/集成测试正常。
+- **dev 模式**：`bun run dev` 是 `vite build --watch`，会持续监听文件变更并重建到 `dist/`，适合开发时使用。
+- **提交前**：husky + lint-staged 会自动对暂存文件运行格式化和 lint，使用 `--no-verify` 可跳过。
