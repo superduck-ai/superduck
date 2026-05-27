@@ -256,3 +256,28 @@ label 命名规则统一为 `<group>: <slug>`(全小写、kebab-case),分为以�
 | 其他 | 可发现性 / 元信息 | `good first issue`、`help wanted`、`agent: ready`、`breaking-change`、`dependencies` |
 
 **给代理 (agent) 的提示**:挑取任务时优先看 `agent: ready` + `status: ready`;按 `priority:` 和 `area:` 过滤。新建 issue 时至少打上 `type:` + 一个 `area:`,用 `priority:` 表达紧急程度。
+
+## Cursor Cloud specific instructions
+
+### Environment overview
+
+The VM update script installs Bun 1.1.42 globally, runs `bun install` at the repo root (which covers all JS/TS workspaces including `chrome-crx`), and pre-fetches Go modules. After the update script finishes, both sub-projects are ready to build and test.
+
+### Services and how to run them
+
+| Service | Start command | Notes |
+|---|---|---|
+| **chrome-crx** (build / watch) | `cd chrome-crx && bun run dev` | Runs `vite build --watch`, outputs to `dist/`. No dev server with HMR — this is a Chrome extension, not a web app. |
+| **chrome-native-host** (build) | `cd chrome-native-host && make` | Produces 3 binaries in `build/`: `chrome-native-host`, `chrome-mcp-server`, `superduck`. |
+| **Go test HTTP server** | `cd chrome-native-host && go run ./testdata/server -addr :8765` | Serves a test HTML page for CLI smoke tests. Only needed for `run_cli_test.sh` / `visual_test.sh`. |
+
+### Key gotchas for Cloud VMs
+
+- **No Chrome browser**: The VM has no Chrome/Chromium. Playwright E2E tests (`bun run test:e2e`), CLI smoke tests (`testdata/run_cli_test.sh`), and visual regression tests (`testdata/visual_test.sh`) cannot run. Unit tests (`bun run test` and `make test`) cover the buildable code.
+- **`bun run typecheck`**: The main branch has pre-existing TS type errors in `src/sidepanel/SidepanelApp.tsx` related to Anthropic SDK beta types. `bun run build` (Vite) still succeeds because Vite does not type-check.
+- **`bun run lint`**: ESLint runs but reports pre-existing warnings (mostly `@typescript-eslint/naming-convention`). These are warnings, not errors — the exit code is non-zero due to warning count but does not block builds.
+- **golangci-lint**: Install once with `cd chrome-native-host && make lint-install`, then `make lint`. The binary goes to `$HOME/go/bin/`.
+- **Bun install requires `sudo`**: On the Cloud VM, global npm installs need `sudo env PATH="$PATH" npm install -g ...` because `/usr/lib/node_modules` is root-owned while `npm` comes from nvm.
+- **No lockfile**: The repo does not commit a `bun.lockb` / `bun.lock`. `bun install` resolves fresh each time; a `bun.lockb` is generated locally but gitignored.
+- **Pre-commit hooks**: `husky` + `lint-staged` are set up by the root `bun install`. Hooks run `prettier --write`, `eslint --fix` on staged TS files and `gofmt -w`, `go vet` on staged Go files. Use `--no-verify` to bypass if needed.
+- **Standard commands**: See `## 构建命令` section above for full build/test/lint commands for both sub-projects.
