@@ -19,6 +19,7 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import Calendar from 'react-calendar';
 import _ from 'lodash';
 import { cn } from '@/lib/utils';
+import { formatLocalDateString, parseLocalDateString } from '@/utils/date';
 import { isChineseLocale } from '@/utils/locale';
 
 type RefCleanup = void | (() => void);
@@ -1082,7 +1083,7 @@ function DatePicker({
   const [position, setPosition] = useState<'bottom' | 'top'>('bottom');
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const dateValue = value ? new Date(value) : null;
+  const dateValue = value ? parseLocalDateString(value) : null;
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -1100,7 +1101,7 @@ function DatePicker({
 
   const formatDisplayDate = (dateString: string) => {
     if (!dateString) return '';
-    const date = new Date(dateString);
+    const date = parseLocalDateString(dateString);
     return date.toLocaleDateString(intl.locale, {
       year: 'numeric',
       month: 'long',
@@ -1153,7 +1154,7 @@ function DatePicker({
               value={dateValue}
               onChange={(date: CalendarOnChangeValue) => {
                 if (date instanceof Date) {
-                  onChange(date.toISOString().split('T')[0]);
+                  onChange(formatLocalDateString(date));
                   setIsOpen(false);
                 }
               }}

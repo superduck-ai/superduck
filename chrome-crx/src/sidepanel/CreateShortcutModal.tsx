@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { X, MoreHorizontal, Trash2 } from 'lucide-react';
 import { Button, ErrorMessage, Label, TextArea, TextInput } from '../components/ui';
 import { SchedulingFields } from '../components/scheduling/SchedulingFields';
+import { getTodayLocalDateString } from '../utils/date';
 import type {
   NewSavedPrompt,
   PromptType,
@@ -92,7 +93,7 @@ export function CreateShortcutModal({
   const [specificDate, setSpecificDate] = useState(() => {
     const date = existingPrompt?.specificDate;
     if (!date) return '';
-    return date >= new Date().toISOString().split('T')[0] ? date : '';
+    return date >= getTodayLocalDateString() ? date : '';
   });
   const [url, setUrl] = useState(existingPrompt?.url || '');
   const model = existingPrompt?.model || currentModel || 'claude-sonnet-4-6';
@@ -416,8 +417,7 @@ export function CreateShortcutModal({
                           if (isEditing && existingPrompt) {
                             setIsDeleting(true);
                             try {
-                              const { PromptService } =
-                                await import('../extensionServices');
+                              const { PromptService } = await import('../extensionServices');
                               await PromptService.deletePrompt(existingPrompt.id);
                               window.dispatchEvent(new Event('prompts-changed'));
                               onDelete?.();
@@ -535,7 +535,9 @@ export function CreateShortcutModal({
               label={intl.formatMessage({ defaultMessage: 'Prompt', id: 'prompt' })}
               required
               value={promptText}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPromptText(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setPromptText(e.target.value)
+              }
               className="min-h-32 max-h-64 overflow-y-auto font-large text-sm"
               placeholder={intl.formatMessage({
                 defaultMessage: 'Enter your prompt text...',

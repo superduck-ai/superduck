@@ -22,6 +22,7 @@ import {
 } from './ui';
 import { getModelsConfig } from './providers/AppProviders';
 import { SchedulingFields } from './scheduling/SchedulingFields';
+import { getTodayLocalDateString } from '../utils/date';
 import {
   PromptService,
   getStorageValue,
@@ -727,7 +728,7 @@ function TasksTab({
     (async () => {
       const pending = await getStorageValue<SavedPrompt>(StorageKeys.PENDING_SCHEDULED_TASK);
       if (pending) {
-        const today = new Date().toISOString().split("T")[0];
+        const today = getTodayLocalDateString();
         const date = pending.specificDate;
         setEditingPrompt({
           ...pending,
