@@ -50,6 +50,7 @@ export const PROVIDER_STORAGE_KEYS = {
 
 export const PROVIDER_CONFIG_VERSION = 1;
 export const PROVIDER_CONFIG_BROADCAST = 'superduck.providerConfigUpdated';
+export const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
 
 /**
  * Default base URL hints rendered as placeholders / first-time defaults.
@@ -583,7 +584,7 @@ export async function testProviderConnection(
         {
           model: modelId,
           input: 'ping',
-          max_output_tokens: 16
+          max_output_tokens: OPENAI_RESPONSES_MIN_OUTPUT_TOKENS
         },
         { signal: controller.signal }
       );

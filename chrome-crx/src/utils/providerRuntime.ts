@@ -158,7 +158,7 @@ function normalizeToolSchemas(tools: unknown): ToolSchemaLike[] {
 
 function toOpenAIResponsesFunctionCallId(toolUseId: string): string {
   const id = toolUseId.trim();
-  if (id.startsWith('fc')) return id;
+  if (id.startsWith('fc_')) return id;
   if (id.startsWith('call_')) return `fc_${id.slice('call_'.length)}`;
   return `fc_${id || crypto.randomUUID()}`;
 }

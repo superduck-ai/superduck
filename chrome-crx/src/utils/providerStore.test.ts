@@ -3,6 +3,7 @@ import {
   fetchProviderModels,
   isValidProviderBaseURL,
   normalizeProviderBaseURL,
+  OPENAI_RESPONSES_MIN_OUTPUT_TOKENS,
   testProviderConnection,
   type AiProvider
 } from './providerStore';
@@ -100,7 +101,7 @@ describe('testProviderConnection', () => {
       {
         model: 'gpt-5.4',
         input: 'ping',
-        max_output_tokens: 16
+        max_output_tokens: OPENAI_RESPONSES_MIN_OUTPUT_TOKENS
       },
       { signal: expect.any(AbortSignal) }
     );

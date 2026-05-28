@@ -19,7 +19,9 @@ describe('createOpenAIRuntime', () => {
     openAIMocks.responsesCreate.mockReset();
   });
 
-  it('replays Responses function calls with fc item ids and original call ids', async () => {
+  async function createResponsesInputForToolUseId(
+    toolUseId: string
+  ): Promise<Array<Record<string, unknown>>> {
     openAIMocks.responsesCreate.mockResolvedValue({
       id: 'resp_1',
       type: 'response',
@@ -48,7 +50,7 @@ describe('createOpenAIRuntime', () => {
           content: [
             {
               type: 'tool_use',
-              id: 'call_P2hNiH5l7C1qRdQOOOGEXvYq',
+              id: toolUseId,
               name: 'browser_snapshot',
               input: { verbose: false }
             }
@@ -59,7 +61,7 @@ describe('createOpenAIRuntime', () => {
           content: [
             {
               type: 'tool_result',
-              tool_use_id: 'call_P2hNiH5l7C1qRdQOOOGEXvYq',
+              tool_use_id: toolUseId,
               content: 'snapshot result'
             }
           ]
@@ -67,25 +69,55 @@ describe('createOpenAIRuntime', () => {
       ]
     });
 
+    const request = openAIMocks.responsesCreate.mock.calls[0]?.[0] as
+      | { input?: Array<Record<string, unknown>> }
+      | undefined;
+    return request?.input ?? [];
+  }
+
+  it('replays Responses function calls with fc item ids and original call ids', async () => {
+    const input = await createResponsesInputForToolUseId('call_P2hNiH5l7C1qRdQOOOGEXvYq');
+
     expect(openAIMocks.responsesCreate).toHaveBeenCalledWith({
       model: 'gpt-5.4',
       instructions: '',
-      input: [
-        {
-          type: 'function_call',
-          id: 'fc_P2hNiH5l7C1qRdQOOOGEXvYq',
-          call_id: 'call_P2hNiH5l7C1qRdQOOOGEXvYq',
-          name: 'browser_snapshot',
-          arguments: JSON.stringify({ verbose: false })
-        },
-        {
-          type: 'function_call_output',
-          call_id: 'call_P2hNiH5l7C1qRdQOOOGEXvYq',
-          output: 'snapshot result'
-        }
-      ],
+      input,
       max_output_tokens: 128,
       tools: undefined
+    });
+    expect(input).toEqual([
+      {
+        type: 'function_call',
+        id: 'fc_P2hNiH5l7C1qRdQOOOGEXvYq',
+        call_id: 'call_P2hNiH5l7C1qRdQOOOGEXvYq',
+        name: 'browser_snapshot',
+        arguments: JSON.stringify({ verbose: false })
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_P2hNiH5l7C1qRdQOOOGEXvYq',
+        output: 'snapshot result'
+      }
+    ]);
+  });
+
+  it('does not double-convert existing Responses fc item ids', async () => {
+    const input = await createResponsesInputForToolUseId('fc_existingCall');
+
+    expect(input[0]).toMatchObject({
+      type: 'function_call',
+      id: 'fc_existingCall',
+      call_id: 'fc_existingCall'
+    });
+  });
+
+  it('prefixes non-call tool ids for Responses function call item ids', async () => {
+    const input = await createResponsesInputForToolUseId('toolu_existingCall');
+
+    expect(input[0]).toMatchObject({
+      type: 'function_call',
+      id: 'fc_toolu_existingCall',
+      call_id: 'toolu_existingCall'
     });
   });
 });
