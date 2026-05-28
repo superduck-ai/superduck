@@ -583,7 +583,7 @@ export async function testProviderConnection(
         {
           model: modelId,
           input: 'ping',
-          max_output_tokens: 1
+          max_output_tokens: 16
         },
         { signal: controller.signal }
       );

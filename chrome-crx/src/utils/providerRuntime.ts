@@ -156,6 +156,13 @@ function normalizeToolSchemas(tools: unknown): ToolSchemaLike[] {
   return Array.isArray(tools) ? (tools.filter(isRecord) as ToolSchemaLike[]) : [];
 }
 
+function toOpenAIResponsesFunctionCallId(toolUseId: string): string {
+  const id = toolUseId.trim();
+  if (id.startsWith('fc')) return id;
+  if (id.startsWith('call_')) return `fc_${id.slice('call_'.length)}`;
+  return `fc_${id || crypto.randomUUID()}`;
+}
+
 function toOpenAIChatTools(tools: unknown): unknown[] | undefined {
   const converted = normalizeToolSchemas(tools)
     .filter((tool) => typeof tool.name === 'string' && tool.name.length > 0)
@@ -287,7 +294,7 @@ function toOpenAIResponsesInput(params: Record<string, unknown>): unknown[] {
       for (const toolUse of toolUses) {
         input.push({
           type: 'function_call',
-          id: toolUse.id,
+          id: toOpenAIResponsesFunctionCallId(toolUse.id),
           call_id: toolUse.id,
           name: toolUse.name,
           arguments: JSON.stringify(toolUse.input ?? {})
