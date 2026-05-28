@@ -228,7 +228,7 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
   ```
   Co-authored-by: Claude <noreply@anthropic.com>
   ```
-- 通过 `gh pr create` 开 PR,不要在未经用户确认时直接 merge / force push。
+- 通过 `gh pr create` 开 PR,不要在未经用户确认时直接 merge / force push。PR 默认直接打开为 ready-for-review 供审阅,不要默认创建 draft;只有用户明确要求草稿、维护者要求先草稿或变更尚未完成时,才使用 draft PR。
 - **PR 默认应关联 Issue**:在 PR body 中用关闭关键字引用对应 issue,合并到 `main` 时 GitHub 自动关闭。约定用法:
   - `Fixes #N` — 修复 bug（对应 `type: bug` issue）
   - `Closes #N` — 完成 feature / chore / docs / perf（非 bug 类 issue）
