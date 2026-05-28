@@ -1,14 +1,14 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { createOpenAIRuntime } from './providerRuntime';
 
-const openAIMocks = vi.hoisted(() => ({
+const OPENAI_MOCKS = vi.hoisted(() => ({
   responsesCreate: vi.fn()
 }));
 
 vi.mock('openai', () => {
   const OpenAI = vi.fn().mockImplementation(function () {
     return {
-      responses: { create: openAIMocks.responsesCreate }
+      responses: { create: OPENAI_MOCKS.responsesCreate }
     };
   });
   return { default: OpenAI };
@@ -16,13 +16,13 @@ vi.mock('openai', () => {
 
 describe('createOpenAIRuntime', () => {
   afterEach(() => {
-    openAIMocks.responsesCreate.mockReset();
+    OPENAI_MOCKS.responsesCreate.mockReset();
   });
 
   async function createResponsesInputForToolUseId(
     toolUseId: string
   ): Promise<Array<Record<string, unknown>>> {
-    openAIMocks.responsesCreate.mockResolvedValue({
+    OPENAI_MOCKS.responsesCreate.mockResolvedValue({
       id: 'resp_1',
       type: 'response',
       model: 'gpt-5.4',
@@ -69,7 +69,7 @@ describe('createOpenAIRuntime', () => {
       ]
     });
 
-    const request = openAIMocks.responsesCreate.mock.calls[0]?.[0] as
+    const request = OPENAI_MOCKS.responsesCreate.mock.calls[0]?.[0] as
       | { input?: Array<Record<string, unknown>> }
       | undefined;
     return request?.input ?? [];
@@ -78,7 +78,7 @@ describe('createOpenAIRuntime', () => {
   it('replays Responses function calls with fc item ids and original call ids', async () => {
     const input = await createResponsesInputForToolUseId('call_P2hNiH5l7C1qRdQOOOGEXvYq');
 
-    expect(openAIMocks.responsesCreate).toHaveBeenCalledWith({
+    expect(OPENAI_MOCKS.responsesCreate).toHaveBeenCalledWith({
       model: 'gpt-5.4',
       instructions: '',
       input,

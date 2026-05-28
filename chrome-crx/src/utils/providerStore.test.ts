@@ -8,7 +8,7 @@ import {
   type AiProvider
 } from './providerStore';
 
-const openAIMocks = vi.hoisted(() => ({
+const OPENAI_MOCKS = vi.hoisted(() => ({
   chatCompletionsCreate: vi.fn(),
   responsesCreate: vi.fn()
 }));
@@ -19,8 +19,8 @@ vi.mock('openai', () => {
   }
   const OpenAI = vi.fn().mockImplementation(function () {
     return {
-      chat: { completions: { create: openAIMocks.chatCompletionsCreate } },
-      responses: { create: openAIMocks.responsesCreate }
+      chat: { completions: { create: OPENAI_MOCKS.chatCompletionsCreate } },
+      responses: { create: OPENAI_MOCKS.responsesCreate }
     };
   });
   Object.assign(OpenAI, { APIError });
@@ -83,12 +83,12 @@ describe('fetchProviderModels', () => {
 
 describe('testProviderConnection', () => {
   afterEach(() => {
-    openAIMocks.chatCompletionsCreate.mockReset();
-    openAIMocks.responsesCreate.mockReset();
+    OPENAI_MOCKS.chatCompletionsCreate.mockReset();
+    OPENAI_MOCKS.responsesCreate.mockReset();
   });
 
   it('uses the minimum Responses output token budget accepted by GPT gateways', async () => {
-    openAIMocks.responsesCreate.mockResolvedValue({});
+    OPENAI_MOCKS.responsesCreate.mockResolvedValue({});
 
     await expect(
       testProviderConnection({
@@ -97,7 +97,7 @@ describe('testProviderConnection', () => {
       })
     ).resolves.toEqual({ ok: true });
 
-    expect(openAIMocks.responsesCreate).toHaveBeenCalledWith(
+    expect(OPENAI_MOCKS.responsesCreate).toHaveBeenCalledWith(
       {
         model: 'gpt-5.4',
         input: 'ping',
