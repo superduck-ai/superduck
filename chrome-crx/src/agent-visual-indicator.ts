@@ -1034,6 +1034,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     } else {
       console.log('[Agent Indicator] NOT creating stop button because isMcpEnabled is false');
     }
+
+    if (isHiddenForToolUse) hideInterruptiveIndicatorsForToolUse();
   }
 
   /**
@@ -1080,8 +1082,10 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
           waterRippleContainerEl.parentNode.removeChild(waterRippleContainerEl);
           waterRippleContainerEl = null;
         }
-        if (blockingOverlayEl && blockingOverlayEl.parentNode) {
-          blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
+        if (blockingOverlayEl) {
+          if (blockingOverlayEl.parentNode) {
+            blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
+          }
           blockingOverlayEl = null;
         }
         if (stopContainerEl && stopContainerEl.parentNode) {
@@ -1167,8 +1171,7 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     if (glowBorderEl) glowBorderEl.style.display = 'none';
     if (waterRippleContainerEl) waterRippleContainerEl.style.display = 'none';
     if (stopContainerEl) stopContainerEl.style.display = 'none';
-
-    if (blockingOverlayEl?.parentNode) blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
+    if (blockingOverlayEl) blockingOverlayEl.style.display = 'none';
     if (staticIndicatorEl?.parentNode && isStaticIndicatorActive)
       staticIndicatorEl.parentNode.removeChild(staticIndicatorEl);
   }
@@ -1188,8 +1191,11 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
       stopContainerEl.style.transform = 'translateX(-50%) translateY(0)';
     }
 
-    if (blockingOverlayEl && !blockingOverlayEl.parentNode)
-      getDocumentMountRoot().appendChild(blockingOverlayEl);
+    if (blockingOverlayEl) {
+      blockingOverlayEl.style.display = '';
+      blockingOverlayEl.style.opacity = '1';
+      if (!blockingOverlayEl.parentNode) getDocumentMountRoot().appendChild(blockingOverlayEl);
+    }
 
     if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
       waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
