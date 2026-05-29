@@ -1145,6 +1145,70 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     }, 5000);
   }
 
+  function pauseToolUseDecorAnimations(): void {
+    if (waterRippleAnimationId) {
+      cancelAnimationFrame(waterRippleAnimationId);
+      waterRippleAnimationId = null;
+    }
+    if (stopContainerAnimFrame) {
+      cancelAnimationFrame(stopContainerAnimFrame);
+      stopContainerAnimFrame = null;
+    }
+    if (ellipsisInterval) {
+      clearInterval(ellipsisInterval);
+      ellipsisInterval = null;
+    }
+  }
+
+  /** Hide glow/ripple/stop/blocking/static for screenshots; keep proxy cursor in DOM. */
+  function hideInterruptiveIndicatorsForToolUse(): void {
+    pauseToolUseDecorAnimations();
+
+    if (glowBorderEl) glowBorderEl.style.display = 'none';
+    if (waterRippleContainerEl) waterRippleContainerEl.style.display = 'none';
+    if (stopContainerEl) stopContainerEl.style.display = 'none';
+
+    if (blockingOverlayEl?.parentNode) blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
+    if (staticIndicatorEl?.parentNode && isStaticIndicatorActive)
+      staticIndicatorEl.parentNode.removeChild(staticIndicatorEl);
+  }
+
+  function restoreInterruptiveIndicatorsAfterToolUse(): void {
+    if (glowBorderEl) {
+      glowBorderEl.style.display = '';
+      glowBorderEl.style.opacity = '1';
+    }
+    if (waterRippleContainerEl) {
+      waterRippleContainerEl.style.display = '';
+      waterRippleContainerEl.style.opacity = '1';
+    }
+    if (isMcpEnabled && stopContainerEl) {
+      stopContainerEl.style.setProperty('display', 'flex', 'important');
+      stopContainerEl.style.opacity = '1';
+      stopContainerEl.style.transform = 'translateX(-50%) translateY(0)';
+    }
+
+    if (blockingOverlayEl && !blockingOverlayEl.parentNode)
+      getDocumentMountRoot().appendChild(blockingOverlayEl);
+
+    if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
+      waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
+    }
+    if (stopContainerEl && !stopContainerAnimFrame && stopContainerAnimateFunc) {
+      stopContainerAnimFrame = requestAnimationFrame(stopContainerAnimateFunc);
+    }
+    if (stopContainerEl && !ellipsisInterval) {
+      const dotsEl = stopContainerEl.querySelector('span:last-of-type');
+      if (dotsEl) {
+        let dotCount = 1;
+        ellipsisInterval = setInterval(() => {
+          dotCount = (dotCount % 3) + 1;
+          dotsEl.textContent = '.'.repeat(dotCount);
+        }, 500);
+      }
+    }
+  }
+
   /**
    * Hide static indicator
    */
@@ -1216,25 +1280,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
             isHiddenForToolUse = isAgentActive;
             wasStaticActiveBeforeToolUse = isStaticIndicatorActive;
 
-            if (waterRippleAnimationId) {
-              cancelAnimationFrame(waterRippleAnimationId);
-              waterRippleAnimationId = null;
-            }
-            if (stopContainerAnimFrame) {
-              cancelAnimationFrame(stopContainerAnimFrame);
-              stopContainerAnimFrame = null;
-            }
-            if (ellipsisInterval) {
-              clearInterval(ellipsisInterval);
-              ellipsisInterval = null;
-            }
-
-            // Detach shadowHost (contains glow/ripple/stop/cursor) from DOM
-            if (shadowHostEl?.parentNode) shadowHostEl.parentNode.removeChild(shadowHostEl);
-            // Blocking overlay lives in host DOM
-            if (blockingOverlayEl?.parentNode)
-              blockingOverlayEl.parentNode.removeChild(blockingOverlayEl);
-            if (staticIndicatorEl?.parentNode && isStaticIndicatorActive)
+            if (isAgentActive) hideInterruptiveIndicatorsForToolUse();
+            else if (isStaticIndicatorActive && staticIndicatorEl?.parentNode)
               staticIndicatorEl.parentNode.removeChild(staticIndicatorEl);
 
             const respondOnce = (() => {
@@ -1266,30 +1313,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
           }
 
           case 'SHOW_AFTER_TOOL_USE':
-            if (isHiddenForToolUse) {
-              // Re-attach shadowHost (all shadow DOM children come back with it)
-              if (shadowHostEl && !shadowHostEl.parentNode)
-                getDocumentMountRoot().appendChild(shadowHostEl);
-              // Blocking overlay lives in host DOM
-              if (blockingOverlayEl && !blockingOverlayEl.parentNode)
-                getDocumentMountRoot().appendChild(blockingOverlayEl);
-
-              if (waterRippleContainerEl && !waterRippleAnimationId && waterRippleAnimateFunc) {
-                waterRippleAnimationId = requestAnimationFrame(waterRippleAnimateFunc);
-              }
-              if (stopContainerEl && !stopContainerAnimFrame && stopContainerAnimateFunc) {
-                stopContainerAnimFrame = requestAnimationFrame(stopContainerAnimateFunc);
-              }
-              if (stopContainerEl && !ellipsisInterval) {
-                const dotsEl = stopContainerEl.querySelector('span:last-of-type');
-                if (dotsEl) {
-                  let dotCount = 1;
-                  ellipsisInterval = setInterval(() => {
-                    dotCount = (dotCount % 3) + 1;
-                    dotsEl.textContent = '.'.repeat(dotCount);
-                  }, 500);
-                }
-              }
+            if (isHiddenForToolUse && isAgentActive) {
+              restoreInterruptiveIndicatorsAfterToolUse();
             }
             if (
               wasStaticActiveBeforeToolUse &&
