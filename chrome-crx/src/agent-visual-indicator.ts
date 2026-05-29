@@ -977,36 +977,46 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     // Wire cursor renderer to overlay container inside shadow DOM
     safeCursor((r) => r.setAttachRoot(overlay));
 
+    const showInterruptive = !isHiddenForToolUse;
+    const interruptiveDisplay = showInterruptive ? '' : 'none';
+
     // Create/show glow border (inside shadow DOM)
     if (glowBorderEl) {
-      glowBorderEl.style.display = '';
+      glowBorderEl.style.display = interruptiveDisplay;
     } else {
       glowBorderEl = createGlowBorder();
+      glowBorderEl.style.display = interruptiveDisplay;
       overlay.appendChild(glowBorderEl);
     }
 
     // Create/show water ripple (inside shadow DOM)
     if (waterRippleContainerEl) {
-      waterRippleContainerEl.style.display = '';
+      waterRippleContainerEl.style.display = interruptiveDisplay;
     } else {
       waterRippleContainerEl = createWaterRipple();
+      waterRippleContainerEl.style.display = interruptiveDisplay;
       overlay.appendChild(waterRippleContainerEl);
     }
 
     // Create/show blocking overlay (stays in host DOM for event interception)
     if (blockingOverlayEl) {
-      blockingOverlayEl.style.display = '';
+      blockingOverlayEl.style.display = interruptiveDisplay;
     } else {
       blockingOverlayEl = createBlockingOverlay();
+      blockingOverlayEl.style.display = interruptiveDisplay;
       getDocumentMountRoot().appendChild(blockingOverlayEl);
     }
 
+    if (!showInterruptive) pauseToolUseDecorAnimations();
+
     // Animate the always-visible elements in immediately, before i18n.
-    requestAnimationFrame(() => {
-      if (glowBorderEl) glowBorderEl.style.opacity = '1';
-      if (waterRippleContainerEl) waterRippleContainerEl.style.opacity = '1';
-      if (blockingOverlayEl) blockingOverlayEl.style.opacity = '1';
-    });
+    if (showInterruptive) {
+      requestAnimationFrame(() => {
+        if (glowBorderEl) glowBorderEl.style.opacity = '1';
+        if (waterRippleContainerEl) waterRippleContainerEl.style.opacity = '1';
+        if (blockingOverlayEl) blockingOverlayEl.style.opacity = '1';
+      });
+    }
 
     safeCursor((r) => r.showIdle());
 
@@ -1016,21 +1026,23 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
 
     if (isMcpEnabled) {
       console.log('[Agent Indicator] Creating/showing stop button');
-      if (stopContainerEl) {
-        stopContainerEl.style.setProperty('display', 'flex', 'important');
-      } else {
+      if (!stopContainerEl) {
         stopContainerEl = createStopContainer();
         overlay.appendChild(stopContainerEl);
-      }
-      if (stopContainerEl && !stopContainerEl.parentNode) {
+      } else if (!stopContainerEl.parentNode) {
         overlay.appendChild(stopContainerEl);
       }
-      requestAnimationFrame(() => {
-        if (stopContainerEl) {
-          stopContainerEl.style.opacity = '1';
-          stopContainerEl.style.transform = 'translateX(-50%) translateY(0)';
-        }
-      });
+      if (!isHiddenForToolUse) {
+        stopContainerEl!.style.setProperty('display', 'flex', 'important');
+        requestAnimationFrame(() => {
+          if (stopContainerEl) {
+            stopContainerEl.style.opacity = '1';
+            stopContainerEl.style.transform = 'translateX(-50%) translateY(0)';
+          }
+        });
+      } else {
+        stopContainerEl!.style.display = 'none';
+      }
     } else {
       console.log('[Agent Indicator] NOT creating stop button because isMcpEnabled is false');
     }

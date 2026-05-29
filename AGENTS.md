@@ -245,6 +245,7 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
   - **Factory Droid**(GitHub 上):在 issue 标题/正文/评论里写 `@droid fill` 即触发 [`.github/workflows/droid.yml`](.github/workflows/droid.yml);Droid 自动加载入库的薄壳 [`.factory/skills/issue-fill/SKILL.md`](.factory/skills/issue-fill/SKILL.md),壳里只一句话:去读 canonical。
   - **本地 agent**(Claude Code / Codex / Cursor / Amp / Aider 等):对它说"填一下 issue #N" / "整理 issue #N" / "open an issue for: ..."。它们都原生读 AGENTS.md(Claude Code 通过 [`CLAUDE.md`](CLAUDE.md) → AGENTS.md 间接读),看到本节后再读 canonical,按同样流程跑 `gh issue view/edit/create/comment`。**仓库不放 `.claude/` / `.cursor/` 这类 per-agent 私人配置**;需要 fuzzy 触发短语的本地用户自行在 `~/.<agent>/...` 里安装即可。
 - **AI 协助填写 PR 描述**:在 PR 上 `@droid fill` 按 [`pull_request_template.md`](.github/pull_request_template.md) 重写;其他 `@droid` 命令(review / security 等)见 [`droid.yml`](.github/workflows/droid.yml) 头部注释。
+- **PR 审阅意见闭环**:收到 CodeRabbit / Codex / Factory Droid 等 inline review 后,先对照当前代码核实是否仍成立;**已修复**的须在对应 thread 回复说明(引用 commit SHA)并用 GitHub **Resolve conversation** 关闭 thread;**不采纳**的须简短说明理由再 resolve,避免悬而未决。推送修复提交后复查是否还有新 comment 或 CI 失败;全部处理完再给人类审阅者总结。
 
 ## Issue / PR 标签体系 (Labeling System)
 
