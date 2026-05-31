@@ -58,7 +58,7 @@ jobs:
 
       - name: Create Sentry release & associate commits
         if: ${{ env.SENTRY_SKIP != '1' }}
-        uses: getsentry/action-release@v3
+        uses: getsentry/action-release@v3.6.0
         with:
           environment: ${{ inputs.environment || vars.SENTRY_ENVIRONMENT || 'production' }}
           version: ${{ github.sha }}
