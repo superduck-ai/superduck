@@ -1,5 +1,10 @@
 import { PermissionActionType } from '../extensionServices';
-import { PermissionTools, checkUrlSecurity, screenshotContextManager, waitForTabLoading } from './shared';
+import {
+  PermissionTools,
+  checkUrlSecurity,
+  screenshotContextManager,
+  waitForTabLoading
+} from './shared';
 import { tabGroupManager } from './tabState';
 import {
   cdpDebugger,
@@ -17,6 +22,12 @@ import type {
   CdpPageGetFrameTreeResult
 } from './cdpTypes';
 import { resolveStaleRef, getRefBackendNodeId, getRefRole, getRefMetaByTab } from './refBridge';
+import {
+  buildMousePath,
+  formatHitTestMismatchError,
+  hoverSettleMs,
+  HOVER_PATH_STEP_DELAY_MS
+} from './hoverMenu';
 import { captureAnnotatedScreenshot } from './annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 
@@ -31,6 +42,8 @@ interface ComputerToolParams {
   region?: [number, number, number, number];
   repeat?: number;
   ref?: string;
+  /** Menu trigger ref for `hover_click` — hover here before clicking `ref`. */
+  hover_ref?: string;
   modifiers?: string;
   tabId?: number;
   annotate?: boolean;
@@ -117,10 +130,11 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         'triple_click',
         'zoom',
         'scroll_to',
-        'hover'
+        'hover',
+        'hover_click'
       ],
       description:
-        'The action to perform:\n* `left_click`: Click an element. Use `ref` from read_page (preferred) or `coordinate` as fallback.\n* `right_click`: Right-click an element. Use `ref` (preferred) or `coordinate`.\n* `double_click`: Double-click an element. Use `ref` (preferred) or `coordinate`.\n* `triple_click`: Triple-click an element. Use `ref` (preferred) or `coordinate`.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region and scale it to fill the viewport.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse cursor to the specified coordinates or element without clicking. Useful for revealing tooltips, dropdown menus, or triggering hover states.'
+        'The action to perform:\n* `left_click`: Click an element. Use `ref` from read_page (preferred) or `coordinate` as fallback.\n* `right_click`: Right-click an element. Use `ref` (preferred) or `coordinate`.\n* `double_click`: Double-click an element. Use `ref` (preferred) or `coordinate`.\n* `triple_click`: Triple-click an element. Use `ref` (preferred) or `coordinate`.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region and scale it to fill the viewport.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse to an element or coordinate to reveal hover UI. Optional `duration` (seconds) waits for menus to open; then call read_page for fresh refs.\n* `hover_click`: Hover `hover_ref` (menu trigger), move along a path to `ref` (menu item), and click in one gesture. Use for hover-only dropdowns (e.g. filter panels). Requires both `hover_ref` and `ref`. Optional `duration` controls hover settle time before moving to the target.'
     },
     coordinate: {
       type: 'array',
@@ -139,7 +153,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
       type: 'number',
       minimum: 0,
       maximum: 30,
-      description: 'The number of seconds to wait. Required for `wait`. Maximum 30 seconds.'
+      description:
+        'Seconds to wait: required for `wait`; optional for `hover` / `hover_click` to let hover menus open (default ~0.25s, max 2s when used here). Maximum 30 for `wait`.'
     },
     scroll_direction: {
       type: 'string',
@@ -177,7 +192,12 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
     ref: {
       type: 'string',
       description:
-        'PREFERRED: Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Always prefer ref over coordinate for clicks — it is more accurate and model-independent. Required for `scroll_to` action. For click actions (left_click, right_click, double_click, triple_click), use ref instead of coordinate whenever possible.'
+        'PREFERRED: Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Always prefer ref over coordinate for clicks — it is more accurate and model-independent. Required for `scroll_to` and `hover_click` (click target). For click actions (left_click, right_click, double_click, triple_click), use ref instead of coordinate whenever possible.'
+    },
+    hover_ref: {
+      type: 'string',
+      description:
+        'Required for `hover_click`: element ref of the hover trigger (e.g. a "筛选" button) that opens the menu. The tool hovers this ref first, then moves to `ref` and clicks.'
     },
     modifiers: {
       type: 'string',
@@ -219,6 +239,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             scroll_to: PermissionActionType.READ_PAGE_CONTENT,
             zoom: PermissionActionType.READ_PAGE_CONTENT,
             hover: PermissionActionType.READ_PAGE_CONTENT,
+            hover_click: PermissionActionType.CLICK,
             left_click: PermissionActionType.CLICK,
             right_click: PermissionActionType.CLICK,
             double_click: PermissionActionType.CLICK,
@@ -249,7 +270,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
               toolParams.action === 'left_click' ||
               toolParams.action === 'right_click' ||
               toolParams.action === 'double_click' ||
-              toolParams.action === 'triple_click'
+              toolParams.action === 'triple_click' ||
+              toolParams.action === 'hover_click'
             ) {
               try {
                 const screenshot = await cdpDebugger.screenshot(effectiveTabId);
@@ -388,6 +410,16 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           );
           break;
 
+        case 'hover_click':
+          result = await executeHoverClick(
+            effectiveTabId,
+            toolParams,
+            requireCurrentUrl(),
+            clickOptions,
+            context.permissionManager
+          );
+          break;
+
         default:
           throw new Error(`Unsupported action: ${toolParams.action}`);
       }
@@ -430,10 +462,11 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             'triple_click',
             'zoom',
             'scroll_to',
-            'hover'
+            'hover',
+            'hover_click'
           ],
           description:
-            'The action to perform:\n* `left_click`: Click an element. Use `ref` from read_page (preferred) or `coordinate` as fallback.\n* `right_click`: Right-click an element. Use `ref` (preferred) or `coordinate`.\n* `double_click`: Double-click an element. Use `ref` (preferred) or `coordinate`.\n* `triple_click`: Triple-click an element. Use `ref` (preferred) or `coordinate`.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region for closer inspection.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse cursor to the specified coordinates or element without clicking. Useful for revealing tooltips, dropdown menus, or triggering hover states.'
+            'The action to perform:\n* `left_click`: Click an element. Use `ref` from read_page (preferred) or `coordinate` as fallback.\n* `right_click`: Right-click an element. Use `ref` (preferred) or `coordinate`.\n* `double_click`: Double-click an element. Use `ref` (preferred) or `coordinate`.\n* `triple_click`: Triple-click an element. Use `ref` (preferred) or `coordinate`.\n* `type`: Type a string of text.\n* `screenshot`: Take a screenshot of the screen.\n* `wait`: Wait for a specified number of seconds.\n* `scroll`: Scroll up, down, left, or right at the specified coordinates.\n* `key`: Press a specific keyboard key.\n* `left_click_drag`: Drag from start_coordinate to coordinate.\n* `zoom`: Take a screenshot of a specific region for closer inspection.\n* `scroll_to`: Scroll an element into view using its element reference ID from read_page or find tools.\n* `hover`: Move the mouse to reveal hover UI; optional `duration` waits for menus. Call read_page afterward for menu item refs.\n* `hover_click`: Hover `hover_ref`, move to `ref`, and click — for hover-only menus. Requires `hover_ref` and `ref`.'
         },
         coordinate: {
           type: 'array',
@@ -452,7 +485,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           type: 'number',
           minimum: 0,
           maximum: 30,
-          description: 'The number of seconds to wait. Required for `wait`. Maximum 30 seconds.'
+          description:
+            'Seconds to wait: required for `wait`; optional for `hover` / `hover_click` to let hover menus open (default ~0.25s, max 2s when used here). Maximum 30 for `wait`.'
         },
         scroll_direction: {
           type: 'string',
@@ -490,7 +524,12 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         ref: {
           type: 'string',
           description:
-            'PREFERRED: Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Always prefer ref over coordinate for clicks — it is more accurate and model-independent. Required for `scroll_to` action. For click actions, use ref instead of coordinate whenever possible.'
+            'PREFERRED: Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Always prefer ref over coordinate for clicks — it is more accurate and model-independent. Required for `scroll_to` and `hover_click` (click target). For click actions, use ref instead of coordinate whenever possible.'
+        },
+        hover_ref: {
+          type: 'string',
+          description:
+            'Required for `hover_click`: ref of the hover trigger that opens the menu before clicking `ref`.'
         },
         modifiers: {
           type: 'string',
@@ -638,8 +677,15 @@ async function getFrameOffsetForNode(
   }
 }
 
-async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?: { block: string; inline: string }): Promise<ScrollToRefResult> {
-  const scrollScript = (elementRef: string, alignment: { block: string; inline: string } | null) => {
+async function scrollToElementByRef(
+  tabId: number,
+  ref: string,
+  scrollAlignment?: { block: string; inline: string }
+): Promise<ScrollToRefResult> {
+  const scrollScript = (
+    elementRef: string,
+    alignment: { block: string; inline: string } | null
+  ) => {
     try {
       let element: Element | null = null;
       if (window.__superduckElementMap?.[elementRef]) {
@@ -681,13 +727,10 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
   };
 
   try {
-    const result = await execWithStaleRecovery<ScrollToRefResult, [string, { block: string; inline: string } | null]>(
-      tabId,
-      ref,
-      scrollScript,
-      [ref, scrollAlignment ?? null],
-      isScrollToRefResult
-    );
+    const result = await execWithStaleRecovery<
+      ScrollToRefResult,
+      [string, { block: string; inline: string } | null]
+    >(tabId, ref, scrollScript, [ref, scrollAlignment ?? null], isScrollToRefResult);
 
     if (!result) {
       return { success: false, error: 'Failed to execute script to get element coordinates' };
@@ -697,7 +740,9 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
 
     // content script 找不到元素但有 backendNodeId 时，跳过 content script 错误，走 CDP 路径
     if (!result.success && backendNodeId !== null) {
-      console.info(`[scrollToRef] content script failed (${result.error}), but have backendNodeId=${backendNodeId}, trying CDP path`);
+      console.info(
+        `[scrollToRef] content script failed (${result.error}), but have backendNodeId=${backendNodeId}, trying CDP path`
+      );
       // 先用 CDP 滚动元素到可见区域
       try {
         await cdpDebugger.sendCommand(tabId, 'DOM.scrollIntoViewIfNeeded', { backendNodeId });
@@ -709,7 +754,9 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
     }
 
     let localCoords: [number, number] | null = result.success ? (result.coordinates ?? null) : null;
-    console.info(`[scrollToRef] ref=${ref}, backendNodeId=${backendNodeId}, contentScript coords=${localCoords}`);
+    console.info(
+      `[scrollToRef] ref=${ref}, backendNodeId=${backendNodeId}, contentScript coords=${localCoords}`
+    );
 
     if (backendNodeId !== null) {
       try {
@@ -725,7 +772,11 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
           );
           const quad = quads?.quads?.[0];
           if (!quad) break;
-          if (prevQuad && quad.length === prevQuad.length && quad.every((v, i) => v === prevQuad![i])) {
+          if (
+            prevQuad &&
+            quad.length === prevQuad.length &&
+            quad.every((v, i) => v === prevQuad![i])
+          ) {
             consecutiveStable++;
             if (consecutiveStable >= 2) {
               stableCoords = [
@@ -742,7 +793,9 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
         }
 
         if (stableCoords) {
-          console.info(`[scrollToRef] stable after CDP quads: (${stableCoords[0].toFixed(1)}, ${stableCoords[1].toFixed(1)})`);
+          console.info(
+            `[scrollToRef] stable after CDP quads: (${stableCoords[0].toFixed(1)}, ${stableCoords[1].toFixed(1)})`
+          );
           localCoords = stableCoords;
         } else {
           // 超时未稳定，取最后一次 quads 的中心
@@ -758,10 +811,17 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
       }
 
       const offset = await getFrameOffsetForNode(tabId, backendNodeId);
-      console.info(`[scrollToRef] frameOffset=${JSON.stringify(offset)}, localCoords=${localCoords}`);
+      console.info(
+        `[scrollToRef] frameOffset=${JSON.stringify(offset)}, localCoords=${localCoords}`
+      );
       if (offset && localCoords) {
-        const finalCoords: [number, number] = [localCoords[0] + offset.x, localCoords[1] + offset.y];
-        console.info(`[scrollToRef] final=(${finalCoords[0].toFixed(1)}, ${finalCoords[1].toFixed(1)})`);
+        const finalCoords: [number, number] = [
+          localCoords[0] + offset.x,
+          localCoords[1] + offset.y
+        ];
+        console.info(
+          `[scrollToRef] final=(${finalCoords[0].toFixed(1)}, ${finalCoords[1].toFixed(1)})`
+        );
         return {
           success: true,
           coordinates: finalCoords
@@ -850,13 +910,17 @@ async function executeClick(
     console.info(`[Click] ref=${params.ref}`);
     const backendNodeId = getRefBackendNodeId(tabId, params.ref);
     console.info(`[Click] backendNodeId=${backendNodeId}`);
-    const SCROLL_ALIGNMENTS: Array<{ block: ScrollLogicalPosition; inline: ScrollLogicalPosition }> = [
+    const SCROLL_ALIGNMENTS: Array<{
+      block: ScrollLogicalPosition;
+      inline: ScrollLogicalPosition;
+    }> = [
       { block: 'center', inline: 'center' },
       { block: 'end', inline: 'end' },
       { block: 'start', inline: 'start' }
     ];
 
     let resolved = false;
+    let lastHitBackendNodeId: number | undefined;
     for (const alignment of SCROLL_ALIGNMENTS) {
       const refResult = await scrollToElementByRef(tabId, params.ref, alignment);
       if (!refResult.success) {
@@ -864,22 +928,35 @@ async function executeClick(
         return { error: refResult.error };
       }
       [x, y] = refResult.coordinates!;
-      console.info(`[Click] alignment=${alignment.block} → coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
+      console.info(
+        `[Click] alignment=${alignment.block} → coords=(${x.toFixed(1)}, ${y.toFixed(1)})`
+      );
 
       if (backendNodeId !== null) {
         try {
-          const hitResult = await cdpDebugger.sendCommand<{ backendNodeId: number; nodeId: number }>(
-            tabId, 'DOM.getNodeForLocation',
-            { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }
+          const hitResult = await cdpDebugger.sendCommand<{
+            backendNodeId: number;
+            nodeId: number;
+          }>(tabId, 'DOM.getNodeForLocation', {
+            x: Math.round(x),
+            y: Math.round(y),
+            includeUserAgentShadowDOM: true
+          });
+          lastHitBackendNodeId = hitResult?.backendNodeId;
+          console.info(
+            `[Click] hitTest: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, match=${hitResult?.backendNodeId === backendNodeId}`
           );
-          console.info(`[Click] hitTest: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, match=${hitResult?.backendNodeId === backendNodeId}`);
           if (hitResult?.backendNodeId === backendNodeId) {
             resolved = true;
             break;
           }
-          console.info(`[Click] hit-target mismatch: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, retrying with ${alignment.block}`);
+          console.info(
+            `[Click] hit-target mismatch: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, retrying with ${alignment.block}`
+          );
         } catch (e) {
-          console.info(`[Click] hitTest error: ${e instanceof Error ? e.message : 'unknown'}, proceeding`);
+          console.info(
+            `[Click] hitTest error: ${e instanceof Error ? e.message : 'unknown'}, proceeding`
+          );
           resolved = true;
           break;
         }
@@ -889,14 +966,24 @@ async function executeClick(
         break;
       }
     }
-    if (!resolved) {
-      console.info(`[Click] all 3 alignments failed hitTest, using last coords`);
-      console.warn(`[Click] hit-target verification failed for ref=${params.ref}, proceeding with last coords`);
+    if (!resolved && backendNodeId !== null) {
+      console.warn(`[Click] hit-target verification failed for ref=${params.ref}`);
+      return {
+        error: formatHitTestMismatchError({
+          ref: params.ref,
+          expectedBackendNodeId: backendNodeId,
+          actualBackendNodeId: lastHitBackendNodeId,
+          x,
+          y
+        })
+      };
     }
     console.info(`[Click] final coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
     console.info(`[Click] ref=${params.ref} → resolved coords=(${x}, ${y})`);
   } else if (params.coordinate) {
-    console.info(`[Click] AI passed coordinate=(${params.coordinate[0]}, ${params.coordinate[1]}), attempting auto-ref-match`);
+    console.info(
+      `[Click] AI passed coordinate=(${params.coordinate[0]}, ${params.coordinate[1]}), attempting auto-ref-match`
+    );
     [x, y] = params.coordinate;
     const context = screenshotContextManager.getContext(tabId);
     if (context) {
@@ -911,7 +998,8 @@ async function executeClick(
     if (refMeta && refMeta.size > 0) {
       try {
         const hitNode = await cdpDebugger.sendCommand<{ backendNodeId: number }>(
-          tabId, 'DOM.getNodeForLocation',
+          tabId,
+          'DOM.getNodeForLocation',
           { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }
         );
         if (hitNode?.backendNodeId) {
@@ -924,8 +1012,12 @@ async function executeClick(
             }
           }
           if (matchedRef) {
-            console.info(`[Click] auto-matched coordinate to ${matchedRef} (backendNodeId=${hitNode.backendNodeId}), switching to ref path`);
-            console.info(`[Click] auto-matched coordinate (${Math.round(x)}, ${Math.round(y)}) to ref=${matchedRef}`);
+            console.info(
+              `[Click] auto-matched coordinate to ${matchedRef} (backendNodeId=${hitNode.backendNodeId}), switching to ref path`
+            );
+            console.info(
+              `[Click] auto-matched coordinate (${Math.round(x)}, ${Math.round(y)}) to ref=${matchedRef}`
+            );
             // 切换到 ref 路径：用 scrollToElementByRef 获取精确坐标
             const refResult = await scrollToElementByRef(tabId, matchedRef);
             if (refResult.success && refResult.coordinates) {
@@ -933,11 +1025,15 @@ async function executeClick(
               console.info(`[Click] ref-resolved coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
             }
           } else {
-            console.info(`[Click] backendNodeId=${hitNode.backendNodeId} not in refMeta, using raw coords`);
+            console.info(
+              `[Click] backendNodeId=${hitNode.backendNodeId} not in refMeta, using raw coords`
+            );
           }
         }
       } catch (e) {
-        console.info(`[Click] auto-ref-match failed: ${e instanceof Error ? e.message : 'unknown'}`);
+        console.info(
+          `[Click] auto-ref-match failed: ${e instanceof Error ? e.message : 'unknown'}`
+        );
       }
     }
 
@@ -964,7 +1060,9 @@ async function executeClick(
     // Checkbox/radio: 记录点击前状态
     let checkedBefore: boolean | null = null;
     const refRole = params.ref ? getRefRole(tabId, params.ref) : null;
-    const isCheckableRole = refRole && ['checkbox', 'radio', 'switch', 'menuitemcheckbox', 'menuitemradio'].includes(refRole);
+    const isCheckableRole =
+      refRole &&
+      ['checkbox', 'radio', 'switch', 'menuitemcheckbox', 'menuitemradio'].includes(refRole);
     if (isCheckableRole && clickCount === 1) {
       checkedBefore = await getElementCheckedState(tabId, params.ref!);
     }
@@ -976,7 +1074,9 @@ async function executeClick(
       try {
         const checkedAfter = await getElementCheckedState(tabId, params.ref!);
         if (checkedAfter !== null && checkedAfter === checkedBefore) {
-          console.info(`[Click] checkbox/radio state unchanged after CDP click, trying JS click fallback`);
+          console.info(
+            `[Click] checkbox/radio state unchanged after CDP click, trying JS click fallback`
+          );
           await jsClickFallback(tabId, params.ref!);
         }
       } catch {
@@ -992,7 +1092,11 @@ async function executeClick(
 
     if (permissionManager && !options?.skipIndicator) {
       await waitForTabLoading(tabId, 3000);
-      const postClickScreenshot = await tryTakePostScrollScreenshot(tabId, permissionManager, options);
+      const postClickScreenshot = await tryTakePostScrollScreenshot(
+        tabId,
+        permissionManager,
+        options
+      );
       if (postClickScreenshot) {
         return {
           output: outputText,
@@ -1196,15 +1300,19 @@ async function getElementCheckedState(tabId: number, ref: string): Promise<boole
         const el = window.__superduckElementMap?.[elementRef]?.deref();
         if (!el) return null;
         // 1. Native input checked
-        if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) return el.checked;
+        if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio'))
+          return el.checked;
         // 2. ARIA checked
         const ariaChecked = el.getAttribute('aria-checked');
         if (ariaChecked !== null) return ariaChecked === 'true';
         // 3. Label association
         const label = el.closest('label') as HTMLLabelElement | null;
-        if (label?.control && label.control instanceof HTMLInputElement) return label.control.checked;
+        if (label?.control && label.control instanceof HTMLInputElement)
+          return label.control.checked;
         // 4. Nested input
-        const nested = el.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLInputElement | null;
+        const nested = el.querySelector(
+          'input[type="checkbox"], input[type="radio"]'
+        ) as HTMLInputElement | null;
         if (nested) return nested.checked;
         return null;
       },
@@ -1239,7 +1347,9 @@ async function jsClickFallback(tabId: number, ref: string): Promise<void> {
           return;
         }
         // Tier 3: nested input
-        const nested = el.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLElement | null;
+        const nested = el.querySelector(
+          'input[type="checkbox"], input[type="radio"]'
+        ) as HTMLElement | null;
         if (nested) {
           nested.click();
           return;
@@ -1580,6 +1690,7 @@ async function executeHover(
     if (securityCheck) return securityCheck;
 
     await animateCursorOnTab(tabId, x, y, 'hover', options?.skipIndicator);
+    const settleMs = hoverSettleMs(params.duration);
     await tabGroupManager.hideIndicatorForToolUse(tabId);
     try {
       await cdpDebugger.dispatchMouseEvent(tabId, {
@@ -1590,20 +1701,145 @@ async function executeHover(
         buttons: 0,
         modifiers: 0
       });
+      await new Promise<void>((resolve) => setTimeout(resolve, settleMs));
     } finally {
       await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
     }
 
+    const settleHint = ` Waited ${settleMs}ms for hover UI. If a menu opened, call read_page for fresh refs or use hover_click with hover_ref + ref.`;
+
     if (params.ref) {
-      return { output: `Hovered over element ${params.ref}` };
+      return {
+        output: `Hovered over element ${params.ref} at (${Math.round(x)}, ${Math.round(y)}).${settleHint}`
+      };
     }
     return {
-      output: `Hovered at (${Math.round(params.coordinate![0])}, ${Math.round(params.coordinate![1])})`
+      output: `Hovered at (${Math.round(params.coordinate![0])}, ${Math.round(params.coordinate![1])}).${settleHint}`
     };
   } catch (error) {
     return { error: `Error hovering: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
-} // =============================================================================
+}
+
+// --- executeHoverClick helper ---
+async function executeHoverClick(
+  tabId: number,
+  params: ComputerToolParams,
+  currentUrl: string,
+  options?: ClickOptions,
+  permissionManager?: PermissionManagerLike
+): Promise<ToolResult> {
+  if (!params.ref) throw new Error('ref parameter is required for hover_click action');
+  if (!params.hover_ref) throw new Error('hover_ref parameter is required for hover_click action');
+
+  const hoverResult = await scrollToElementByRef(tabId, params.hover_ref);
+  if (!hoverResult.success) return { error: hoverResult.error };
+  const [hoverX, hoverY] = hoverResult.coordinates!;
+
+  const clickBackendNodeId = getRefBackendNodeId(tabId, params.ref);
+  const clickResult = await scrollToElementByRef(tabId, params.ref);
+  if (!clickResult.success) return { error: clickResult.error };
+  let [clickX, clickY] = clickResult.coordinates!;
+
+  if (clickBackendNodeId !== null) {
+    try {
+      const hitResult = await cdpDebugger.sendCommand<{ backendNodeId: number }>(
+        tabId,
+        'DOM.getNodeForLocation',
+        { x: Math.round(clickX), y: Math.round(clickY), includeUserAgentShadowDOM: true }
+      );
+      if (hitResult?.backendNodeId !== clickBackendNodeId) {
+        return {
+          error: formatHitTestMismatchError({
+            ref: params.ref,
+            expectedBackendNodeId: clickBackendNodeId,
+            actualBackendNodeId: hitResult?.backendNodeId,
+            x: clickX,
+            y: clickY
+          })
+        };
+      }
+    } catch {
+      // hit-test unavailable — proceed with resolved coordinates
+    }
+  }
+
+  const button = 'left';
+  let modifiers = 0;
+  if (params.modifiers) {
+    modifiers = computeModifiersBitmask(parseModifierKeys(params.modifiers));
+  }
+
+  try {
+    const securityCheck = await checkDomainSecurity(tabId, currentUrl, 'hover_click action');
+    if (securityCheck) return securityCheck;
+
+    await animateCursorOnTab(tabId, hoverX, hoverY, 'hover', options?.skipIndicator);
+    const settleMs = hoverSettleMs(params.duration);
+
+    await tabGroupManager.hideIndicatorForToolUse(tabId);
+    try {
+      await cdpDebugger.dispatchMouseEvent(tabId, {
+        type: 'mouseMoved',
+        x: hoverX,
+        y: hoverY,
+        button: 'none',
+        buttons: 0,
+        modifiers: 0
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, settleMs));
+
+      const path = buildMousePath(hoverX, hoverY, clickX, clickY);
+      for (const [px, py] of path) {
+        await cdpDebugger.dispatchMouseEvent(tabId, {
+          type: 'mouseMoved',
+          x: px,
+          y: py,
+          button: 'none',
+          buttons: 0,
+          modifiers: 0
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, HOVER_PATH_STEP_DELAY_MS));
+      }
+      clickX = path[path.length - 1]?.[0] ?? clickX;
+      clickY = path[path.length - 1]?.[1] ?? clickY;
+    } finally {
+      await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
+    }
+
+    await animateCursorOnTab(tabId, clickX, clickY, 'click', options?.skipIndicator);
+    await cdpDebugger.click(tabId, clickX, clickY, button, 1, modifiers, {
+      ...options,
+      skipMouseMove: true
+    });
+
+    const outputText = `Hovered ${params.hover_ref} at (${Math.round(hoverX)}, ${Math.round(hoverY)}), then clicked ${params.ref} at (${Math.round(clickX)}, ${Math.round(clickY)})`;
+
+    if (permissionManager && !options?.skipIndicator) {
+      await waitForTabLoading(tabId, 3000);
+      const postClickScreenshot = await tryTakePostScrollScreenshot(
+        tabId,
+        permissionManager,
+        options
+      );
+      if (postClickScreenshot) {
+        return {
+          output: outputText,
+          base64Image: postClickScreenshot.base64Image,
+          imageFormat: postClickScreenshot.imageFormat
+        };
+      }
+    }
+
+    return { output: outputText };
+  } catch (error) {
+    return {
+      error: `Error in hover_click: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
+// =============================================================================
 // MCP Section: Tool Definitions and Helper Functions
 // Converted from the legacy compiled MCP runtime bundle (lines ~3500-6300)
 
@@ -1685,10 +1921,17 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
           // Native setter 绕过 React/Vue 受控组件的 value 劫持
-          const nativeInputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-          const nativeTextareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          const nativeInputSetter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            'value'
+          )?.set;
+          const nativeTextareaSetter = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            'value'
+          )?.set;
           const setNativeValue = (el: HTMLInputElement | HTMLTextAreaElement, val: string) => {
-            const setter = el instanceof HTMLTextAreaElement ? nativeTextareaSetter : nativeInputSetter;
+            const setter =
+              el instanceof HTMLTextAreaElement ? nativeTextareaSetter : nativeInputSetter;
             if (setter) setter.call(el, val);
             else el.value = val;
             el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1864,22 +2107,33 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
       // CDP 后处理: contentEditable 和 file input 需要 CDP 命令
       if (formResult.action === 'contenteditable_needs_cdp') {
         try {
-          await cdpDebugger.sendCommand(activeTabId, 'Input.insertText', { text: String(params.value) });
+          await cdpDebugger.sendCommand(activeTabId, 'Input.insertText', {
+            text: String(params.value)
+          });
           formResult.output = `Set contentEditable to "${String(params.value).substring(0, 50)}${String(params.value).length > 50 ? '...' : ''}" (previous: "${formResult.previous_value}")`;
           formResult.action = 'form_input';
         } catch (cdpErr) {
-          return { error: `Failed to insert text into contentEditable: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}` };
+          return {
+            error: `Failed to insert text into contentEditable: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}`
+          };
         }
       } else if (formResult.action === 'file_input_needs_cdp') {
         try {
           const backendNodeId = getRefBackendNodeId(activeTabId, params.ref);
           if (backendNodeId === null) return { error: 'Cannot resolve element for file upload' };
-          const files = Array.isArray(params.value) ? params.value.map(String) : [String(params.value)];
-          await cdpDebugger.sendCommand(activeTabId, 'DOM.setFileInputFiles', { files, backendNodeId });
+          const files = Array.isArray(params.value)
+            ? params.value.map(String)
+            : [String(params.value)];
+          await cdpDebugger.sendCommand(activeTabId, 'DOM.setFileInputFiles', {
+            files,
+            backendNodeId
+          });
           formResult.output = `Uploaded file(s): ${files.join(', ')}`;
           formResult.action = 'form_input';
         } catch (cdpErr) {
-          return { error: `Failed to upload file: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}` };
+          return {
+            error: `Failed to upload file: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}`
+          };
         }
       }
 

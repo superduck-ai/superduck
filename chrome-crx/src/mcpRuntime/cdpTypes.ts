@@ -83,6 +83,8 @@ export interface ScreenshotOptions {
 
 export interface ClickOptions {
   skipIndicator?: boolean;
+  /** When true, skip the initial mouseMoved — cursor is already at the click position. */
+  skipMouseMove?: boolean;
 }
 
 export interface CdpRemoteObject {

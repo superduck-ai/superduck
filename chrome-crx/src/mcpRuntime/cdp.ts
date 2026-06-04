@@ -477,17 +477,19 @@ class ChromeDebuggerProtocol {
         buttonsBitmask = 4;
       }
 
-      await this.dispatchMouseEvent(tabId, {
-        type: 'mouseMoved',
-        x,
-        y,
-        button: 'none',
-        buttons: 0,
-        modifiers
-      });
+      if (!options?.skipMouseMove) {
+        await this.dispatchMouseEvent(tabId, {
+          type: 'mouseMoved',
+          x,
+          y,
+          button: 'none',
+          buttons: 0,
+          modifiers
+        });
 
-      if (!options?.skipIndicator) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        if (!options?.skipIndicator) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        }
       }
 
       for (let i = 1; i <= clickCount; i++) {
