@@ -65,12 +65,17 @@ func NewServer() (*Server, error) {
 // removal rather than removing in place.
 func prepareSocketPath(path string) error {
 	// Check if socket exists
-	_, err := os.Lstat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // No existing socket, safe to proceed
 		}
 		return fmt.Errorf("failed to stat UDS socket: %w", err)
+	}
+
+	// Verify it's actually a socket, not a regular file or directory
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("path %s exists but is not a socket (mode: %v)", path, info.Mode())
 	}
 
 	// Socket exists, try to connect to see if it's active
