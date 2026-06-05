@@ -58,22 +58,39 @@ func NewServer() (*Server, error) {
 	}, nil
 }
 
+// prepareSocketPath checks if a socket file exists at the given path and handles
+// stale socket cleanup. It uses atomic operations to minimize TOCTOU race conditions.
 func prepareSocketPath(path string) error {
-	if _, err := os.Lstat(path); err != nil {
+	// Check if socket exists
+	_, err := os.Lstat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil // No existing socket, safe to proceed
 		}
 		return fmt.Errorf("failed to stat UDS socket: %w", err)
 	}
 
+	// Socket exists, try to connect to see if it's active
 	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
 	if err == nil {
 		_ = conn.Close()
 		return fmt.Errorf("chrome-native-host already listening at %s", path)
 	}
 
-	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("failed to remove stale UDS socket: %w", err)
+	// Socket exists but not listening - it's stale, remove it
+	// Use atomic rename to minimize race window
+	stalePath := path + ".stale"
+	if err := os.Rename(path, stalePath); err != nil {
+		// If rename fails, try direct remove as fallback
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("failed to remove stale UDS socket: %w", err)
+		}
+		return nil
+	}
+	// Successfully renamed, now remove the renamed file
+	if err := os.Remove(stalePath); err != nil {
+		// Log but don't fail - the important thing is the original path is clear
+		slog.Warn("failed to remove renamed stale socket", "path", stalePath, "error", err)
 	}
 	return nil
 }
