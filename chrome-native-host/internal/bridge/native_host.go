@@ -86,9 +86,12 @@ func (b *NativeHostBridge) connect() error {
 		conn.Close()
 		return fmt.Errorf("auth response parse failed: %w", err)
 	}
-	if authResp.Error != "" {
+	if authResp.Type != "auth_response" || authResp.OK != "true" {
 		conn.Close()
-		return fmt.Errorf("UDS authentication failed: %s", authResp.Error)
+		if authResp.Error != "" {
+			return fmt.Errorf("UDS authentication failed: %s", authResp.Error)
+		}
+		return fmt.Errorf("UDS authentication failed: unexpected response type=%q ok=%q", authResp.Type, authResp.OK)
 	}
 
 	b.mu.Lock()
