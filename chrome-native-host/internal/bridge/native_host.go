@@ -67,13 +67,19 @@ func NewWithOptions(opts Options) (*NativeHostBridge, error) {
 	}
 
 	authReq := map[string]string{"type": "auth", "token": token}
+	// Bound the auth handshake so a misconfigured or unresponsive listener
+	// can't block startup indefinitely.
+	_ = conn.SetWriteDeadline(time.Now().Add(ConnectTimeout))
 	if err := protocol.SendMessage(conn, authReq); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to send auth: %w", err)
 	}
+	_ = conn.SetWriteDeadline(time.Time{})
 
 	// Wait for auth response
+	_ = conn.SetReadDeadline(time.Now().Add(ConnectTimeout))
 	raw, err := protocol.ReadMessage(conn)
+	_ = conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("auth response read failed: %w", err)
