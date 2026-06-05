@@ -4,12 +4,14 @@ import (
 	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/protocol"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -59,7 +61,8 @@ func NewServer() (*Server, error) {
 }
 
 // prepareSocketPath checks if a socket file exists at the given path and handles
-// stale socket cleanup. It uses atomic operations to minimize TOCTOU race conditions.
+// stale socket cleanup. It reduces the TOCTOU race window by renaming before
+// removal rather than removing in place.
 func prepareSocketPath(path string) error {
 	// Check if socket exists
 	_, err := os.Lstat(path)
@@ -77,9 +80,17 @@ func prepareSocketPath(path string) error {
 		return fmt.Errorf("chrome-native-host already listening at %s", path)
 	}
 
-	// Socket exists but not listening - it's stale, remove it
-	// Use atomic rename to minimize race window
-	stalePath := path + ".stale"
+	// Only treat connection-refused errors as stale sockets.
+	// Other dial failures (permission denied, path is a directory, etc.)
+	// indicate a real problem and should not be silently removed.
+	if !isConnRefused(err) {
+		return fmt.Errorf("socket at %s exists and dial failed with unexpected error: %w", path, err)
+	}
+
+	// Socket is stale. Rename first to free the path immediately, then
+	// remove the renamed file. A unique suffix avoids colliding with a
+	// leftover .stale file from a previous crashed cleanup.
+	stalePath := fmt.Sprintf("%s.stale.%d", path, os.Getpid())
 	if err := os.Rename(path, stalePath); err != nil {
 		// If rename fails, try direct remove as fallback
 		if err := os.Remove(path); err != nil {
@@ -93,6 +104,27 @@ func prepareSocketPath(path string) error {
 		slog.Warn("failed to remove renamed stale socket", "path", stalePath, "error", err)
 	}
 	return nil
+}
+
+// isConnRefused reports whether the error indicates the peer is not listening
+// (connection refused or socket file does not exist), as opposed to a
+// permission error or other dial failure.
+func isConnRefused(err error) bool {
+	if err == nil {
+		return false
+	}
+	// net.OpError wraps the underlying syscall error
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		var sysErr *os.SyscallError
+		if errors.As(opErr.Err, &sysErr) {
+			return sysErr.Err == syscall.ECONNREFUSED || sysErr.Err == syscall.ENOENT
+		}
+	}
+	// Fallback: check the error string for common refused patterns
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "no such file or directory")
 }
 
 func (s *Server) Run() error {
