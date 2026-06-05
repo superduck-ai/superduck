@@ -56,7 +56,9 @@ func NewServer() (*Server, error) {
 	}
 
 	// Restrict socket to owner-only so other local users cannot connect.
-	_ = os.Chmod(socketPath, 0700)
+	if err := os.Chmod(socketPath, 0700); err != nil {
+		slog.Warn("failed to restrict socket permissions", "path", socketPath, "error", err)
+	}
 
 	slog.Info("UDS server listening", "path", socketPath)
 

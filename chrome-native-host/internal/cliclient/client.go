@@ -79,8 +79,11 @@ func Call(tool string, args map[string]any, opts Options) (any, error) {
 	if err := json.Unmarshal(authRaw, &authResp); err != nil {
 		return nil, fmt.Errorf("parse auth response: %w", err)
 	}
-	if authResp.Error != "" {
-		return nil, fmt.Errorf("%w: %s", ErrAuthFailed, authResp.Error)
+	if authResp.Type != "auth_response" || authResp.OK != "true" {
+		if authResp.Error != "" {
+			return nil, fmt.Errorf("%w: %s", ErrAuthFailed, authResp.Error)
+		}
+		return nil, fmt.Errorf("%w: unexpected response type=%q ok=%q", ErrAuthFailed, authResp.Type, authResp.OK)
 	}
 
 	req := map[string]any{

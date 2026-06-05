@@ -56,7 +56,7 @@ func NewWithOptions(opts Options) (*NativeHostBridge, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to chrome-native-host at %s: %w\nMake sure chrome-native-host is running with --uds flag", udsPath, err)
+		return nil, fmt.Errorf("failed to connect to chrome-native-host at %s: %w\nMake sure chrome-native-host is running", udsPath, err)
 	}
 
 	// Authenticate with the native host using the shared token.
@@ -93,9 +93,12 @@ func NewWithOptions(opts Options) (*NativeHostBridge, error) {
 		conn.Close()
 		return nil, fmt.Errorf("auth response parse failed: %w", err)
 	}
-	if authResp.Error != "" {
+	if authResp.Type != "auth_response" || authResp.OK != "true" {
 		conn.Close()
-		return nil, fmt.Errorf("UDS authentication failed: %s", authResp.Error)
+		if authResp.Error != "" {
+			return nil, fmt.Errorf("UDS authentication failed: %s", authResp.Error)
+		}
+		return nil, fmt.Errorf("UDS authentication failed: unexpected response type=%q ok=%q", authResp.Type, authResp.OK)
 	}
 
 	slog.Info("connected to chrome-native-host", "path", udsPath)

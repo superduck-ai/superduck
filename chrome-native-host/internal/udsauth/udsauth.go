@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -48,7 +49,20 @@ func WriteToken(token string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	return os.WriteFile(path, []byte(token), 0o600)
+	// Tighten permissions on existing directory
+	if err := os.Chmod(dir, 0o700); err != nil {
+		slog.Warn("failed to tighten token directory permissions", "path", dir, "error", err)
+	}
+	// Write to temp file first, then atomically rename
+	tempPath := path + ".tmp"
+	if err := os.WriteFile(tempPath, []byte(token), 0o600); err != nil {
+		return fmt.Errorf("write temp token: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("rename token: %w", err)
+	}
+	return nil
 }
 
 // ReadToken returns the token previously written by WriteToken. The
