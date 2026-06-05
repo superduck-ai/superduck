@@ -30,8 +30,14 @@ func main() {
 
 	slog.Info("MCP Server starting")
 
-	// Connect to native host
-	nativeHost, err := bridge.New()
+	// Allow UDS path override via environment variable
+	udsPath := os.Getenv("SUPERDUCK_UDS_PATH")
+	if udsPath == "" {
+		udsPath = bridge.DefaultUDSPath
+	}
+
+	slog.Info("connecting to native host", "uds_path", udsPath)
+	nativeHost, err := bridge.NewWithOptions(bridge.Options{UDSPath: udsPath})
 	if err != nil {
 		slog.Error("failed to create bridge", "error", err)
 		os.Exit(1)

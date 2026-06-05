@@ -12,11 +12,6 @@ import (
 	"chrome-native-host/internal/protocol"
 )
 
-// helper: client goroutine that sends auth and drains responses to avoid deadlock on net.Pipe
-func clientAuth(clientConn net.Conn, msg map[string]string) {
-	_ = protocol.SendMessage(clientConn, msg)
-}
-
 // helper: client goroutine that sends auth and reads response
 func clientAuthWithResponse(clientConn net.Conn, msg map[string]string, respCh chan<- map[string]string) {
 	_ = protocol.SendMessage(clientConn, msg)

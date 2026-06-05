@@ -12,24 +12,40 @@ import (
 )
 
 const (
-	UDSPath        = "/tmp/chrome-native-host.sock"
+	DefaultUDSPath = "/tmp/chrome-native-host.sock"
 	ConnectTimeout = 5 * time.Second
 	ConnectRetries = 3
 )
 
-// NativeHostBridge handles communication with the Chrome Native Host
-type NativeHostBridge struct {
-	conn net.Conn
+// Options configures the NativeHostBridge.
+type Options struct {
+	UDSPath string
 }
 
-// New creates a new bridge to the Chrome Native Host
+// NativeHostBridge handles communication with the Chrome Native Host
+type NativeHostBridge struct {
+	conn    net.Conn
+	udsPath string
+}
+
+// New creates a new bridge to the Chrome Native Host with default options.
 func New() (*NativeHostBridge, error) {
+	return NewWithOptions(Options{UDSPath: DefaultUDSPath})
+}
+
+// NewWithOptions creates a new bridge with custom options.
+func NewWithOptions(opts Options) (*NativeHostBridge, error) {
+	udsPath := opts.UDSPath
+	if udsPath == "" {
+		udsPath = DefaultUDSPath
+	}
+
 	var conn net.Conn
 	var err error
 
 	// Retry connection with timeout
 	for i := 0; i < ConnectRetries; i++ {
-		conn, err = net.DialTimeout("unix", UDSPath, ConnectTimeout)
+		conn, err = net.DialTimeout("unix", udsPath, ConnectTimeout)
 		if err == nil {
 			break
 		}
@@ -40,7 +56,7 @@ func New() (*NativeHostBridge, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to chrome-native-host at %s: %w\nMake sure chrome-native-host is running with --uds flag", UDSPath, err)
+		return nil, fmt.Errorf("failed to connect to chrome-native-host at %s: %w\nMake sure chrome-native-host is running with --uds flag", udsPath, err)
 	}
 
 	// Authenticate with the native host using the shared token.
@@ -76,10 +92,11 @@ func New() (*NativeHostBridge, error) {
 		return nil, fmt.Errorf("UDS authentication failed: %s", authResp.Error)
 	}
 
-	slog.Info("connected to chrome-native-host", "path", UDSPath)
+	slog.Info("connected to chrome-native-host", "path", udsPath)
 
 	return &NativeHostBridge{
-		conn: conn,
+		conn:    conn,
+		udsPath: udsPath,
 	}, nil
 }
 
