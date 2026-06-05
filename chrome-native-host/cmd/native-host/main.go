@@ -198,7 +198,7 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 
 	for {
 		// Set read deadline for idle timeout
-		conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
 		raw, err := protocol.ReadMessage(conn)
 		if err != nil {
 			if err != io.EOF {
@@ -213,7 +213,7 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 		}
 
 		// Clear read deadline for processing
-		conn.SetReadDeadline(time.Time{})
+		_ = conn.SetReadDeadline(time.Time{})
 
 		// Forward to Chrome and send response back
 		s.forwardToChrome(raw, conn)
