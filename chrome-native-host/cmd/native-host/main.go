@@ -192,14 +192,28 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 	}
 	slog.Debug("UDS client authenticated")
 
+	// Set idle timeout: if no message received within 5 minutes, close connection
+	// This prevents resource leaks from abandoned connections
+	idleTimeout := 5 * time.Minute
+
 	for {
+		// Set read deadline for idle timeout
+		conn.SetReadDeadline(time.Now().Add(idleTimeout))
 		raw, err := protocol.ReadMessage(conn)
 		if err != nil {
 			if err != io.EOF {
+				// Check if it's a timeout error
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					slog.Debug("UDS connection idle timeout, closing", "timeout", idleTimeout)
+					return
+				}
 				slog.Error("UDS read error", "error", err)
 			}
 			return
 		}
+
+		// Clear read deadline for processing
+		conn.SetReadDeadline(time.Time{})
 
 		// Forward to Chrome and send response back
 		s.forwardToChrome(raw, conn)
