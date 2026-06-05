@@ -81,7 +81,9 @@ func reorderFlagsFirst(in []string) []string {
 		case a == "--":
 			// Preserve "--" to stop flag.Parse from interpreting
 			// subsequent args (e.g. "--help") as flags.
-			result := append(flags, "--")
+			// Include any positional args accumulated before "--".
+			result := append(flags, pos...)
+			result = append(result, "--")
 			result = append(result, in[i+1:]...)
 			return result
 		case len(a) > 1 && a[0] == '-':
