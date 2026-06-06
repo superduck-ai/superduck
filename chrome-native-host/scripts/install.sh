@@ -7,19 +7,29 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOST_BINARY="$PROJECT_DIR/build/chrome-native-host"
 MCP_BINARY="$PROJECT_DIR/build/chrome-mcp-server"
 
+# Extension IDs for different browsers
+# Chrome Store ID: komnjkkihimgafgblijcchlgeiogpjgi
+# Edge Add-ons ID: (to be determined after publishing)
+CHROME_EXTENSION_ID="${CHROME_EXTENSION_ID:-komnjkkihimgafgblijcchlgeiogpjgi}"
+EDGE_EXTENSION_ID="${EDGE_EXTENSION_ID:-}"  # Leave empty until published
+
 # Detect OS and set manifest directories for all supported browsers
 MANIFEST_DIRS=()
 case "$(uname -s)" in
   Darwin)
-    MANIFEST_DIRS+=("$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts")
-    MANIFEST_DIRS+=("$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts")
-    MANIFEST_DIRS+=("$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts")
+    MANIFEST_DIRS+=("chrome:$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts")
+    if [ -n "$EDGE_EXTENSION_ID" ]; then
+      MANIFEST_DIRS+=("edge:$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts")
+    fi
+    MANIFEST_DIRS+=("brave:$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts")
     CLAUDE_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
     ;;
   Linux)
-    MANIFEST_DIRS+=("$HOME/.config/google-chrome/NativeMessagingHosts")
-    MANIFEST_DIRS+=("$HOME/.config/microsoft-edge/NativeMessagingHosts")
-    MANIFEST_DIRS+=("$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts")
+    MANIFEST_DIRS+=("chrome:$HOME/.config/google-chrome/NativeMessagingHosts")
+    if [ -n "$EDGE_EXTENSION_ID" ]; then
+      MANIFEST_DIRS+=("edge:$HOME/.config/microsoft-edge/NativeMessagingHosts")
+    fi
+    MANIFEST_DIRS+=("brave:$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts")
     CLAUDE_CONFIG="$HOME/.config/Claude/claude_desktop_config.json"
     ;;
   *)
@@ -33,9 +43,31 @@ cd "$SCRIPT_DIR/.."
 make all
 
 echo ""
-echo "=== Installing Native Host (Chrome, Edge, Brave) ==="
+echo "=== Installing Native Host ==="
 
-for MANIFEST_DIR in "${MANIFEST_DIRS[@]}"; do
+for ENTRY in "${MANIFEST_DIRS[@]}"; do
+  BROWSER="${ENTRY%%:*}"
+  MANIFEST_DIR="${ENTRY#*:}"
+
+  # Determine extension ID based on browser
+  case "$BROWSER" in
+    chrome|brave)
+      EXTENSION_ID="$CHROME_EXTENSION_ID"
+      ;;
+    edge)
+      EXTENSION_ID="$EDGE_EXTENSION_ID"
+      ;;
+    *)
+      echo "  ⚠️  Unknown browser: $BROWSER, skipping..."
+      continue
+      ;;
+  esac
+
+  if [ -z "$EXTENSION_ID" ]; then
+    echo "  ⏭️  Skipping $BROWSER (no extension ID configured)"
+    continue
+  fi
+
   mkdir -p "$MANIFEST_DIR"
   MANIFEST_PATH="$MANIFEST_DIR/$HOST_NAME.json"
   cat > "$MANIFEST_PATH" <<EOF
@@ -44,16 +76,17 @@ for MANIFEST_DIR in "${MANIFEST_DIRS[@]}"; do
   "description": "SuperDuck Browser Extension Native Host",
   "path": "$HOST_BINARY",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://komnjkkihimgafgblijcchlgeiogpjgi/"]
+  "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
 }
 EOF
-  echo "  ✓ $MANIFEST_PATH"
+  echo "  ✓ $BROWSER: $MANIFEST_PATH"
+  echo "    Extension ID: $EXTENSION_ID"
 done
 
 echo ""
 echo "=== MCP Server Configuration ==="
 echo "1. Start the Native Host:"
-echo "   ./chrome-native-host"
+echo "   ./build/chrome-native-host"
 echo ""
 echo "   (Dual channel mode: stdio + UDS will start automatically)"
 echo ""
@@ -69,9 +102,10 @@ echo '    }'
 echo '  }'
 echo '}'
 echo ""
-echo "IMPORTANT:"
-echo "1. Edit the manifest and replace the extension ID with your actual extension ID."
-echo "   You can find it at chrome://extensions/, edge://extensions/, or brave://extensions/"
-echo "2. Start the native host before using MCP server"
+echo "=== Environment Variables ==="
+echo "To customize extension IDs, set these before running install.sh:"
+echo ""
+echo "  export CHROME_EXTENSION_ID=\"your-chrome-extension-id\""
+echo "  export EDGE_EXTENSION_ID=\"your-edge-extension-id\""
 echo ""
 echo "Installation complete!"

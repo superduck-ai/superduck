@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build",
+    "build": "node scripts/build.mjs chrome",
+    "build:chrome": "node scripts/build.mjs chrome",
+    "build:edge": "node scripts/build.mjs edge",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "npm run lint -- --fix",
