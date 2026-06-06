@@ -4,7 +4,8 @@ import { isRecord, type ApiConversationMessage } from '../../messageTypes';
 import {
   extractTextFromContent,
   getConversationStorageKey,
-  getHistoryStorageKey
+  getHistoryStorageKey,
+  pickEventMessage
 } from '../sessionHistory';
 import { createId, isPermissionMode, type PermissionMode } from '../sidepanelUtils';
 import { isSessionSnapshot, isStringRecord } from '../sidepanelGuards';
@@ -399,17 +400,4 @@ export function useSessionPersistence({
     upsertSessionIndex,
     historyStorageKey
   };
-}
-
-// ─── Helper: pick message from event payload ──────────────────────────────────
-
-function pickEventMessage(event: unknown): ApiConversationMessage | null {
-  if (!isRecord(event)) return null;
-  const message = event.message || event;
-  if (!isRecord(message)) return null;
-  const role = message.role;
-  if (role !== 'user' && role !== 'assistant') return null;
-  const content = message.content;
-  if (typeof content !== 'string' && !Array.isArray(content)) return null;
-  return { role, content } as ApiConversationMessage;
 }
