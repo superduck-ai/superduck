@@ -4,7 +4,7 @@
  * Build script for multi-browser extension support.
  * Sets BUILD_TARGET env var and delegates to Vite.
  *
- * Usage: node scripts/build.mjs [chrome|edge]
+ * Usage: bun scripts/build.mjs [chrome|edge]
  */
 
 import { spawn } from 'child_process';
