@@ -45,6 +45,17 @@ make all
 echo ""
 echo "=== Installing Native Host ==="
 
+# Validate Chromium extension ID format (32 lowercase letters a-p)
+validate_extension_id() {
+  local id="$1"
+  if ! [[ "$id" =~ ^[a-p]{32}$ ]]; then
+    echo "  ❌ Invalid extension ID format: $id"
+    echo "     Expected: 32 lowercase letters (a-p), e.g., komnjkkihimgafgblijcchlgeiogpjgi"
+    return 1
+  fi
+  return 0
+}
+
 for ENTRY in "${MANIFEST_DIRS[@]}"; do
   BROWSER="${ENTRY%%:*}"
   MANIFEST_DIR="${ENTRY#*:}"
@@ -65,6 +76,11 @@ for ENTRY in "${MANIFEST_DIRS[@]}"; do
 
   if [ -z "$EXTENSION_ID" ]; then
     echo "  ⏭️  Skipping $BROWSER (no extension ID configured)"
+    continue
+  fi
+
+  if ! validate_extension_id "$EXTENSION_ID"; then
+    echo "  ⏭️  Skipping $BROWSER"
     continue
   fi
 
