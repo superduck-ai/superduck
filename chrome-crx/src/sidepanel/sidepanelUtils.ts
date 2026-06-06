@@ -1,4 +1,6 @@
 import type { ModelOptionConfig, ModelsConfigFeatureValue } from '../extensionServices';
+import { isImageContentBlock, isRecord, isTextContentBlock } from '../messageTypes';
+import type { Base64ImageBlock, Base64ImageSource } from './types';
 
 export type PermissionMode = 'skip_all_permission_checks' | 'follow_a_plan';
 
@@ -119,4 +121,38 @@ export function readFileAsBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
+}
+
+// ─── Image / block utility functions ──────────────────────────────────────────
+
+export function isBase64ImageSource(source: unknown): source is Base64ImageSource {
+  return (
+    isRecord(source) &&
+    source.type === 'base64' &&
+    typeof source.media_type === 'string' &&
+    typeof source.data === 'string'
+  );
+}
+
+export function isBase64ImageBlock(block: unknown): block is Base64ImageBlock {
+  return isImageContentBlock(block) && isBase64ImageSource(block.source);
+}
+
+export function getTextFromBlockContent(
+  content: string | readonly unknown[] | null | undefined,
+  separator: string = '\n'
+): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(isTextContentBlock)
+    .map((block) => block.text)
+    .join(separator);
+}
+
+export function getBase64ImageBlocks(
+  content: readonly unknown[] | null | undefined
+): Base64ImageBlock[] {
+  if (!Array.isArray(content)) return [];
+  return content.filter(isBase64ImageBlock);
 }

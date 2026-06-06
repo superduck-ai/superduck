@@ -1,11 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BorderBeam } from 'border-beam';
 import { BUILT_IN_MODELS, DEFAULT_MODEL } from '../constants/models';
 import ReactMarkdown from 'react-markdown';
@@ -24,7 +17,6 @@ import { SuperDuckAvatar } from './SuperDuckAvatar';
 import {
   ArrowUp,
   Bell,
-  Bookmark,
   Camera,
   Check,
   ChevronDown,
@@ -109,6 +101,7 @@ import {
 import { EmptyState } from './EmptyState';
 import { useQueryState, useTabEvent } from './hooks';
 import { ConversationSummary, ImagePreviewModal, ScreenshotLightbox } from './MessageViews';
+import { StreamingTextBlock, UserMessageRow } from './MessageComponents';
 import { ScrollContainer, type ScrollContainerHandle } from './ScrollContainer';
 import {
   getStatusSummaryLanguageInstruction,
@@ -174,12 +167,7 @@ import {
   getErrorMessage,
   prepareMessagesForApi
 } from './messageProcessing';
-import {
-  hasShortcutMarkers,
-  renderTextWithShortcutChips,
-  resolveShortcutMarkersForCopy,
-  resolveShortcutMarkersInMessages
-} from './shortcutMarkers';
+import { resolveShortcutMarkersInMessages } from './shortcutMarkers';
 import {
   extractTextFromContent,
   getConversationStorageKey,
@@ -189,7 +177,9 @@ import {
 import {
   createId,
   decodeBase64ToFile,
+  getBase64ImageBlocks,
   getModelDisplayName,
+  getTextFromBlockContent,
   isPermissionMode,
   normalizeApiBaseUrl,
   openOptionsTo,
@@ -275,8 +265,6 @@ import type {
   ToolUseBlock,
   ToolInputRecord,
   SupportedImageMediaType,
-  Base64ImageSource,
-  Base64ImageBlock,
   ToolResultDisplayContent,
   LightningContentArray,
   LightningSystemPromptBlock,
@@ -291,36 +279,6 @@ import { PERMISSION_ACTION_TYPES } from './types';
 
 function getLightningScreenshotReminder(width: number, height: number): string {
   return `<system-reminder>The attached screenshot is ${width}x${height}. For C/RC/DC/TC/H/S/D/Z, use pixel coordinates from this screenshot with origin (0,0) at the image's top-left. Recompute coordinates after every new screenshot. Do not use DOM, CSS, or viewport coordinates.</system-reminder>`;
-}
-
-function isBase64ImageSource(source: unknown): source is Base64ImageSource {
-  return (
-    isRecord(source) &&
-    source.type === 'base64' &&
-    typeof source.media_type === 'string' &&
-    typeof source.data === 'string'
-  );
-}
-
-function isBase64ImageBlock(block: unknown): block is Base64ImageBlock {
-  return isImageContentBlock(block) && isBase64ImageSource(block.source);
-}
-
-function getTextFromBlockContent(
-  content: string | readonly unknown[] | null | undefined,
-  separator: string = '\n'
-): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter(isTextContentBlock)
-    .map((block) => block.text)
-    .join(separator);
-}
-
-function getBase64ImageBlocks(content: readonly unknown[] | null | undefined): Base64ImageBlock[] {
-  if (!Array.isArray(content)) return [];
-  return content.filter(isBase64ImageBlock);
 }
 
 function normalizeToolResultContent(
@@ -493,167 +451,6 @@ async function upsertSessionIndex(entry: SessionIndexEntry) {
     : [entry, ...current];
   next.sort((a, b) => b.updatedAt - a.updatedAt);
   await setStorageValue(SESSION_INDEX_KEY, next.slice(0, 200));
-}
-
-// --- NEW STRUCTURED MESSAGE COMPONENTS ---
-
-function UserMessageRow({
-  content,
-  toolResults,
-  onSavePrompt,
-  onEditShortcut
-}: {
-  content: ApiConversationMessage['content'];
-  toolResults?: ApiToolResultBlock[];
-  onSavePrompt?: (text: string) => void;
-  onEditShortcut?: (id: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  // Memoize remarkPlugins array to avoid recreating on every render
-  const remarkPlugins = useMemo(() => [remarkGfm], []);
-
-  let text = '';
-  let images: Base64ImageBlock[] = [];
-  const hasToolResults = (toolResults?.length ?? 0) > 0;
-
-  if (typeof content === 'string') {
-    text = content;
-  } else if (Array.isArray(content)) {
-    text = getTextFromBlockContent(content);
-    images = getBase64ImageBlocks(content).filter((image) => {
-      // Filter out _autoScreenshot and workflow-step images like the bundle does
-      const metadata = isRecord(image.source.metadata) ? image.source.metadata : undefined;
-      if (metadata?.fileName === '_autoScreenshot') return false;
-      return true;
-    });
-  }
-
-  const displayText = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
-  // Recalculate isToolResultOnly after computing displayText
-  const effectiveIsToolResultOnly = hasToolResults && !displayText;
-
-  if (!displayText && images.length === 0 && !hasToolResults) return null;
-
-  const handleCopy = async () => {
-    if (!displayText) return;
-    const textToCopy = await resolveShortcutMarkersForCopy(displayText);
-    await navigator.clipboard.writeText(textToCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className={(effectiveIsToolResultOnly ? 'w-full py-3' : 'flex justify-end') + ' group'}>
-      <div
-        className={
-          effectiveIsToolResultOnly ? 'w-full' : 'flex flex-col items-end max-w-[85%] min-w-0'
-        }
-      >
-        {images.length > 0 && (
-          <div className={'flex flex-wrap gap-2 justify-end ' + (displayText ? 'mb-2' : 'py-5')}>
-            {images.map((img, idx) => {
-              const src = `data:${img.source.media_type};base64,${img.source.data}`;
-              return (
-                <div
-                  key={idx}
-                  className="w-[120px] h-[120px] rounded-lg overflow-hidden border border-border-300/50 hover:border-border-200 shadow-sm shadow-always-black/5 cursor-pointer transition-all"
-                  onClick={() => setPreviewImage(src)}
-                >
-                  <img
-                    src={src}
-                    alt={`Attached image ${idx + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {displayText && (
-          <div
-            className={
-              'relative inline-flex flex-col break-words max-w-full ' +
-              (displayText && !hasToolResults ? 'px-4 py-3 bg-bg-300 rounded-[14px]' : 'w-full')
-            }
-          >
-            {displayText && (
-              <div
-                className={
-                  'relative transition-all duration-300 ease-in-out' +
-                  (hasToolResults ? ' ml-auto px-4 py-3 bg-bg-300 rounded-[14px]' : '') +
-                  (!expanded && displayText.length > 500 ? ' max-h-[300px] overflow-hidden' : '') +
-                  (expanded && displayText.length > 500 ? ' max-h-[50000px] overflow-hidden' : '')
-                }
-              >
-                <div className="font-base">
-                  {hasShortcutMarkers(displayText) ? (
-                    renderTextWithShortcutChips(displayText, onEditShortcut)
-                  ) : (
-                    <ReactMarkdown remarkPlugins={remarkPlugins}>{displayText}</ReactMarkdown>
-                  )}
-                </div>
-                {!expanded && displayText.length > 500 && (
-                  <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-bg-300 to-transparent pointer-events-none transition-opacity duration-300" />
-                )}
-                {displayText.length > 500 && (
-                  <button
-                    onClick={() => setExpanded(!expanded)}
-                    className="absolute bottom-0.5 right-0 p-1.5 bg-bg-500 hover:bg-bg-200 rounded-full transition-colors border-[0.5px] border-border-400/50 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
-                    aria-label={expanded ? 'Collapse message' : 'Expand message'}
-                  >
-                    <div
-                      className={
-                        'transition-transform duration-300 ' + (expanded ? 'rotate-180' : '')
-                      }
-                    >
-                      <ChevronDown size={12} className="text-text-300" />
-                    </div>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {displayText && (
-          <div className="h-7 flex justify-end items-center">
-            <div className="flex items-center gap-0.5 pr-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
-              {onSavePrompt && (
-                <Tooltip tooltipContent="Save as shortcut" side="bottom">
-                  <button
-                    onClick={() => onSavePrompt(displayText)}
-                    className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
-                    aria-label="Save as shortcut"
-                  >
-                    <Bookmark size={12} />
-                  </button>
-                </Tooltip>
-              )}
-              <Tooltip
-                tooltipContent={copied ? 'Copied' : 'Copy'}
-                side="bottom"
-                open={copied || undefined}
-                delayDuration={copied ? 0 : 200}
-              >
-                <button
-                  onClick={handleCopy}
-                  className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
-                  aria-label="Copy message"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              </Tooltip>
-            </div>
-          </div>
-        )}
-      </div>
-      <ImagePreviewModal imageUrl={previewImage} onClose={() => setPreviewImage(null)} />
-    </div>
-  );
 }
 
 // ─── Plan Mode types and utilities ───
@@ -3249,47 +3046,6 @@ function AssistantMessageRow({
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-/** Lightweight component that subscribes to the streaming text store.
- * Only THIS component re-renders on each rAF during streaming — not the entire MessageList. */
-function StreamingTextBlock({ store }: { store: StreamingTextStore }) {
-  const streamingText = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { remarkMath, rehypeKatex } = useMathPlugins();
-
-  const remarkPlugins = useMemo(() => [remarkGfm, ...buildRemarkPlugins(remarkMath)], [remarkMath]);
-  const rehypePlugins = useMemo(() => buildRehypePlugins(rehypeKatex), [rehypeKatex]);
-  const mdComponents = useMemo(() => createStandardMarkdownComponents(), []);
-
-  // Memoize processed text to avoid reprocessing on every render
-  const processedText = useMemo(() => {
-    if (!streamingText) return '';
-    return preprocessMarkdownText(streamingText);
-  }, [streamingText]);
-
-  // The global footer already renders the active tool/status line.
-  // Avoid duplicating that placeholder inside the message list.
-  if (!streamingText) {
-    return null;
-  }
-
-  return (
-    <div className="flex items-start group">
-      <div className="max-w-4xl superduck-response w-full break-words">
-        <div className="font-superduck-response text-sm leading-[1.65rem] text-text-100 break-words">
-          <div className={`standard-markdown streaming-markdown ${STANDARD_MARKDOWN_GRID_CLASS}`}>
-            <ReactMarkdown
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={mdComponents}
-            >
-              {processedText}
-            </ReactMarkdown>
-          </div>
-        </div>
       </div>
     </div>
   );
