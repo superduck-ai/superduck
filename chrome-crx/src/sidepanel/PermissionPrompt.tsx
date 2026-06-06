@@ -157,7 +157,11 @@ export function InlinePermissionPrompt({
                   <MemoizedFormattedMessage id="always_continue" defaultMessage="Always continue" />
                 </span>
                 <span className="text-xs opacity-60">
-                  {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter
+                  {navigator.platform.toUpperCase().indexOf('MAC') >= 0 ||
+                  navigator.userAgent.toUpperCase().indexOf('MAC') >= 0
+                    ? '⌘'
+                    : 'Ctrl'}
+                  +Enter
                 </span>
               </PermissionActionButton>
             </>
@@ -237,7 +241,11 @@ export function InlinePermissionPrompt({
                   />
                 </span>
                 <span className="text-xs opacity-60">
-                  {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter
+                  {navigator.platform.toUpperCase().indexOf('MAC') >= 0 ||
+                  navigator.userAgent.toUpperCase().indexOf('MAC') >= 0
+                    ? '⌘'
+                    : 'Ctrl'}
+                  +Enter
                 </span>
               </PermissionActionButton>
             </>

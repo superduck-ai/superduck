@@ -957,5 +957,7 @@
   "save_validation_invalid_tiers": "These tiers have invalid bindings (missing model ID): {tiers}",
   "loading_models": "Loading models...",
   "saved_with_warnings": "Saved. {count} provider(s) failed the connection test.",
-  "saved_success": "Saved and applied."
+  "saved_success": "Saved and applied.",
+  "agent.noHistoryToCompact": "No conversation history to clear",
+  "agent.shareNotImplemented": "Share feature is not yet implemented."
 }

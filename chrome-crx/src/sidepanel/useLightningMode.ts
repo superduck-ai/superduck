@@ -399,7 +399,11 @@ export function useLightningMode({
           ...lnMessagesRef.current,
           { role: 'user', content: userContent }
         ];
-        let activeTabId = tabId!;
+        if (tabId == null) {
+          setLnError('No active tab. Cannot execute commands.');
+          return;
+        }
+        let activeTabId = tabId;
         let continueLoop = true;
         let iterationCount = 0;
 

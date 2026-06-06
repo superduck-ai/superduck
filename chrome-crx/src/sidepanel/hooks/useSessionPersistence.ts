@@ -286,15 +286,9 @@ export function useSessionPersistence({
         setApiMessages(snapshot.apiMessages);
       }
       if (snapshot?.selectedModel) {
-        console.log('[Snapshot Restore] Snapshot has model:', snapshot.selectedModel);
-        console.log('[Snapshot Restore] Current selectedModel:', selectedModel);
-
-        // 只在用户还没有手动选择模型时才恢复
-        if (!selectedModel) {
-          console.log('[Snapshot Restore] Restoring model from snapshot');
+        // Only restore model from snapshot if user hasn't manually selected one
+        if (!selectedModelRef.current) {
           setSelectedModel(snapshot.selectedModel);
-        } else {
-          console.log('[Snapshot Restore] Keeping user-selected model');
         }
       }
       if (snapshot?.permissionMode && isPermissionMode(snapshot.permissionMode)) {

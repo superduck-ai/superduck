@@ -211,7 +211,13 @@ export function useAgentLoop({
         if (visibleCommandText) {
           appendVisibleLocalMessages([
             { role: 'user', text: visibleCommandText },
-            { role: 'assistant', text: '没有可清理的对话历史' }
+            {
+              role: 'assistant',
+              text: intl.formatMessage({
+                id: 'agent.noHistoryToCompact',
+                defaultMessage: 'No conversation history to clear'
+              })
+            }
           ]);
         }
         return apiMessages;
@@ -268,7 +274,14 @@ export function useAgentLoop({
         setIsCompacting(false);
       }
     },
-    [apiMessages, appendVisibleLocalMessages, createApiMessage, isCompacting, pushMessage]
+    [
+      apiMessages,
+      appendVisibleLocalMessages,
+      createApiMessage,
+      intl.locale,
+      isCompacting,
+      pushMessage
+    ]
   );
 
   // ─── Send completion notification ─────────────────────────────────────────
@@ -383,6 +396,13 @@ export function useAgentLoop({
       }
 
       if (systemCommand === 'share') {
+        pushMessage(
+          'assistant',
+          intl.formatMessage({
+            id: 'agent.shareNotImplemented',
+            defaultMessage: 'Share feature is not yet implemented.'
+          })
+        );
         return;
       }
 
@@ -989,6 +1009,7 @@ export function useAgentLoop({
       executeToolUse,
       notificationsEnabled,
       pushMessage,
+      queryTabId,
       selectedModel,
       sendCompletionNotification,
       systemPrompt,

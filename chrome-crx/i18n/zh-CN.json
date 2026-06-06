@@ -957,5 +957,7 @@
   "save_validation_invalid_tiers": "以下档位绑定无效（缺少模型 ID）：{tiers}",
   "loading_models": "模型列表加载中…",
   "saved_with_warnings": "已保存。{count} 个供应商连接测试失败。",
-  "saved_success": "已保存并立即生效。"
+  "saved_success": "已保存并立即生效。",
+  "agent.noHistoryToCompact": "没有可清理的对话历史",
+  "agent.shareNotImplemented": "分享功能尚未实现。"
 }
