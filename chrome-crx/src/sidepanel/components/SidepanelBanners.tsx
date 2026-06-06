@@ -1,10 +1,15 @@
 import React from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Bell } from 'lucide-react';
-import { StorageKeys, setStorageValue } from '../../extensionServices';
+import {
+  ModelFallbackConfig,
+  ModelsConfigFeatureValue,
+  StorageKeys,
+  setStorageValue
+} from '../../extensionServices';
 import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
 import { getModelDisplayName } from '../sidepanelUtils';
-import type { NotificationPreference } from '../types';
+import type { AnnouncementConfig, NotificationPreference } from '../types';
 import {
   AnnouncementIcon,
   CompactBanner,
@@ -14,7 +19,14 @@ import {
 
 export interface SidepanelBannersProps {
   // Banner state
-  activeBanner: string | null;
+  activeBanner:
+    | 'error'
+    | 'refusal'
+    | 'messageLimit'
+    | 'highRisk'
+    | 'notification'
+    | 'announcement'
+    | null;
   effectiveRuntimeError: string | null;
   effectiveClearError: () => void;
   setRuntimeError: React.Dispatch<React.SetStateAction<string | null>>;
@@ -37,14 +49,14 @@ export interface SidepanelBannersProps {
   setShowNotificationBanner: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Announcement
-  announcementConfig: any;
+  announcementConfig: AnnouncementConfig;
   dismissAnnouncement: () => void;
 
   // Model fallback
   lastStopReason: { reason: string; messageId?: string } | null;
-  fallbackConfig: any;
+  fallbackConfig: ModelFallbackConfig | undefined;
   selectedModel: string;
-  modelConfig: any;
+  modelConfig: ModelsConfigFeatureValue;
   retryWithFallback: () => Promise<void>;
   sendRefusalFeedback: () => void;
 

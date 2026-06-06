@@ -46,13 +46,13 @@ export interface SidepanelHeaderProps {
   openOptionsPage: () => void;
 
   // Language
-  SUPPORTED_LOCALES: readonly string[];
-  LOCALE_DISPLAY_NAMES: Record<string, string>;
-  locale: string;
+  SUPPORTED_LOCALES: readonly SupportedLocale[];
+  LOCALE_DISPLAY_NAMES: Record<SupportedLocale, string>;
+  locale: SupportedLocale;
   handleLanguageSelection: (locale: SupportedLocale) => void;
 
   // Utils
-  intl: any;
+  intl: { formatMessage: (descriptor: { id: string; defaultMessage?: string }) => string };
   trackEvent: (event: string, properties?: any) => void;
 }
 
