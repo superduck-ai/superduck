@@ -4,7 +4,37 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
-import manifest from './manifest.json';
+import rawManifest from './manifest.json';
+
+// ─── Manifest transformation for multi-browser builds ─────────────────────────
+// BUILD_TARGET env var: 'chrome' (default) or 'edge'
+// Transforms manifest.json BEFORE @crxjs/vite-plugin sees it, so the plugin
+// always works with the correct manifest for the target platform.
+
+function transformManifest(target: 'chrome' | 'edge'): typeof rawManifest {
+  // Deep clone to avoid mutating the original import
+  const manifest = JSON.parse(JSON.stringify(rawManifest));
+
+  if (target === 'edge') {
+    // Edge Add-ons generates its own extension ID — remove Chrome Store key
+    delete (manifest as Record<string, unknown>).key;
+    // Edge has its own auto-update mechanism
+    delete (manifest as Record<string, unknown>).update_url;
+    // Use minimum_edge_version instead of minimum_chrome_version
+    if ((manifest as Record<string, unknown>).minimum_chrome_version) {
+      (manifest as Record<string, unknown>).minimum_edge_version =
+        (manifest as Record<string, unknown>).minimum_chrome_version;
+      delete (manifest as Record<string, unknown>).minimum_chrome_version;
+    }
+    // Update description to be browser-generic
+    manifest.description = manifest.description.replace('in Chrome', 'in Edge');
+  }
+
+  return manifest;
+}
+
+const buildTarget = (process.env.BUILD_TARGET || 'chrome') as 'chrome' | 'edge';
+const manifest = transformManifest(buildTarget);
 
 /**
  * Copies runtime-fetched i18n catalogs to dist/.
