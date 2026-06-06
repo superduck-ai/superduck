@@ -74,6 +74,7 @@ import { useAuth } from './hooks/useAuth';
 import { useModelConfig } from './hooks/useModelConfig';
 import { useSessionPersistence } from './hooks/useSessionPersistence';
 import { useAgentLoop } from './hooks/useAgentLoop';
+import { useRuntimeMessages } from './hooks/useRuntimeMessages';
 import { Tooltip } from './Tooltip';
 import { useUIStore } from './stores';
 import { AutoScrollSpacer, LastMessageSentinel } from './AutoScrollSpacer';
@@ -85,10 +86,8 @@ import {
 } from './messageLimits';
 import { compareVersions, formatToolResult, getErrorMessage } from './messageProcessing';
 import { resolveShortcutMarkersInMessages } from './shortcutMarkers';
-import { getConversationStorageKey, getHistoryStorageKey } from './sessionHistory';
 import {
   createId,
-  decodeBase64ToFile,
   getModelDisplayName,
   getTextFromBlockContent,
   isPermissionMode,
@@ -98,11 +97,7 @@ import {
   type PromptAttachmentPayload
 } from './sidepanelUtils';
 import {
-  SESSION_CONVERSATION_MAP_KEY,
-  SESSION_REMOTE_MAP_KEY,
   createStreamingTextStore,
-  isSessionSnapshot,
-  isStringRecord,
   normalizeToolResultContent,
   usePrefersReducedMotion
 } from './sidepanelGuards';
@@ -136,7 +131,6 @@ import type {
   ChatMessage,
   PermissionPromptData,
   PermissionGrantScope,
-  RuntimeMessage,
   PairingPromptState,
   PendingPromptPayload,
   BlockedTabInfo,
@@ -1223,6 +1217,35 @@ export function SidepanelApp() {
     shouldDisableSkipPermissions
   });
 
+  useRuntimeMessages({
+    queryTabId: query.tabId,
+    queryMode: query.mode,
+    querySessionId: query.sessionId,
+    querySkipPermissions: query.skipPermissions,
+    secondaryState,
+    setActiveConversationUuid,
+    setActiveRemoteSessionId,
+    setActiveSessionId,
+    setPairingPrompt,
+    setPairingName,
+    setInput,
+    setPermissionMode,
+    setSelectedModel,
+    setAttachmentCount,
+    setPendingAttachments,
+    setPreviewAttachmentImage,
+    setPendingPrompt,
+    setIsAgentRunning,
+    loadSnapshotForSession,
+    sessionCreatedAtRef,
+    sendPromptRef,
+    isAgentRunningRef,
+    hasBrowserControlPermissionAcceptedRef,
+    pushMessageRef,
+    abortControllerRef,
+    shouldDisableSkipPermissions
+  });
+
   useEffect(() => {
     if (messageLimit.type === 'within_limit') return;
     setMessageLimitDismissed(false);
@@ -1301,49 +1324,6 @@ export function SidepanelApp() {
     };
   }, [query.tabId, secondaryState.isSecondaryTab, secondaryState.mainTabId]);
 
-  useEffect(() => {
-    if (typeof query.tabId !== 'number') return;
-    void chrome.runtime.sendMessage({
-      type: 'PANEL_OPENED',
-      tabId: query.tabId,
-      mainTabId: secondaryState.mainTabId ?? query.tabId
-    });
-  }, [query.tabId, secondaryState.mainTabId]);
-
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== 'hidden' || typeof query.tabId !== 'number') return;
-      void chrome.runtime.sendMessage({
-        type: 'PANEL_CLOSED',
-        tabId: query.tabId,
-        mainTabId: secondaryState.mainTabId ?? query.tabId
-      });
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [query.tabId, secondaryState.mainTabId]);
-
-  const shouldHandleTaskForCurrentContext = useCallback(
-    (message: RuntimeMessage) => {
-      const isWindowMode = query.mode === 'window';
-      if (isWindowMode && query.sessionId) {
-        return message.windowSessionId === query.sessionId;
-      }
-      if (isWindowMode || message.windowSessionId) return false;
-      if (
-        typeof message.targetTabId === 'number' &&
-        typeof query.tabId === 'number' &&
-        message.targetTabId !== query.tabId
-      ) {
-        return false;
-      }
-      return true;
-    },
-    [query.mode, query.sessionId, query.tabId]
-  );
-
   // Top gradient on scroll
   useEffect(() => {
     const container = autoScrollRef.current?.getScrollContainer();
@@ -1354,241 +1334,6 @@ export function SidepanelApp() {
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
   }, [apiMessages.length]);
-
-  useEffect(() => {
-    const listener = (
-      message: RuntimeMessage,
-      _sender: chrome.runtime.MessageSender,
-      sendResponse: (response?: unknown) => void
-    ) => {
-      if (!message || typeof message.type !== 'string') return;
-
-      if (message.type === 'PING_SIDEPANEL') {
-        sendResponse({ success: true, tabId: query.tabId });
-        return;
-      }
-
-      if (message.type === 'show_pairing_prompt') {
-        const requestId = typeof message.request_id === 'string' ? message.request_id : '';
-        if (!requestId) {
-          sendResponse({ handled: false });
-          return;
-        }
-        setPairingPrompt({
-          requestId,
-          clientType: typeof message.client_type === 'string' ? message.client_type : 'desktop',
-          currentName: typeof message.current_name === 'string' ? message.current_name : undefined
-        });
-        setPairingName(typeof message.current_name === 'string' ? message.current_name : '');
-        sendResponse({ handled: true });
-        return;
-      }
-
-      if (message.type === 'MAIN_TAB_ACK_REQUEST') {
-        if (
-          typeof query.tabId === 'number' &&
-          typeof message.mainTabId === 'number' &&
-          query.tabId === message.mainTabId
-        ) {
-          void chrome.runtime.sendMessage({
-            type: 'MAIN_TAB_ACK_RESPONSE',
-            secondaryTabId: message.secondaryTabId,
-            mainTabId: query.tabId,
-            success: true
-          });
-          sendResponse({ success: true });
-        } else {
-          sendResponse({ success: false });
-        }
-        return;
-      }
-
-      if (message.type === 'POPULATE_INPUT_TEXT') {
-        const prompt = typeof message.prompt === 'string' ? message.prompt : '';
-        setInput(prompt);
-        if (isPermissionMode(message.permissionMode)) {
-          if (
-            shouldDisableSkipPermissions &&
-            message.permissionMode === 'skip_all_permission_checks'
-          ) {
-            setPermissionMode('follow_a_plan');
-          } else {
-            setPermissionMode(message.permissionMode);
-          }
-        }
-        if (typeof message.selectedModel === 'string') {
-          setSelectedModel(message.selectedModel);
-          void setStorageValue(StorageKeys.SELECTED_MODEL, message.selectedModel);
-        }
-
-        const validAttachments: PromptAttachmentPayload[] = [];
-        let hasAnnotatedAttachment = false;
-        if (Array.isArray(message.attachments)) {
-          for (const attachment of message.attachments) {
-            if (!decodeBase64ToFile(attachment)) continue;
-            validAttachments.push(attachment);
-            if (attachment.isAnnotated) hasAnnotatedAttachment = true;
-          }
-        }
-        setAttachmentCount(validAttachments.length);
-        setPendingAttachments(validAttachments);
-        setPendingPrompt({
-          prompt,
-          attachments: validAttachments,
-          isAnnotated: hasAnnotatedAttachment
-        });
-        sendResponse({ success: true });
-
-        setTimeout(() => {
-          if (!prompt.trim()) return;
-          if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
-            setInput('');
-            void sendPromptRef.current?.(prompt, {
-              attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment
-            });
-            setPendingPrompt(null);
-            setPendingAttachments([]);
-            setPreviewAttachmentImage(null);
-            setAttachmentCount(0);
-          } else {
-            setPendingPrompt({
-              prompt,
-              attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment
-            });
-          }
-        }, 500);
-        return;
-      }
-
-      if (message.type === 'LOAD_CONVERSATION') {
-        if (message.conversationUuid) {
-          const targetConversationUuid = message.conversationUuid;
-          void (async () => {
-            const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-            const conversationMap = isStringRecord(rawMap) ? rawMap : {};
-            const rawRemoteMap = await getStorageValue(SESSION_REMOTE_MAP_KEY, {});
-            const remoteMap = isStringRecord(rawRemoteMap) ? rawRemoteMap : {};
-
-            let targetSessionId = conversationMap[targetConversationUuid];
-            let targetRemoteSessionId =
-              typeof message.sessionId === 'string' && message.sessionId
-                ? message.sessionId
-                : remoteMap[targetConversationUuid];
-            let targetCreatedAt = Date.now();
-
-            if (!targetSessionId) {
-              const aliasSnapshot = await getStorageValue(
-                getConversationStorageKey(targetConversationUuid)
-              );
-              if (isSessionSnapshot(aliasSnapshot) && typeof aliasSnapshot.createdAt === 'number') {
-                targetSessionId = crypto.randomUUID();
-                await setStorageValue(getHistoryStorageKey(targetSessionId), aliasSnapshot);
-                targetCreatedAt = aliasSnapshot.createdAt;
-                if (!targetRemoteSessionId && aliasSnapshot.remoteSessionId) {
-                  targetRemoteSessionId = aliasSnapshot.remoteSessionId;
-                }
-              } else {
-                targetSessionId = crypto.randomUUID();
-              }
-              await setStorageValue(SESSION_CONVERSATION_MAP_KEY, {
-                ...conversationMap,
-                [targetConversationUuid]: targetSessionId
-              });
-            } else {
-              const existingSnapshot = await loadSnapshotForSession(
-                targetSessionId,
-                targetConversationUuid
-              );
-              if (existingSnapshot?.createdAt && typeof existingSnapshot.createdAt === 'number') {
-                targetCreatedAt = existingSnapshot.createdAt;
-              }
-              if (!targetRemoteSessionId && existingSnapshot?.remoteSessionId) {
-                targetRemoteSessionId = existingSnapshot.remoteSessionId;
-              }
-            }
-
-            if (
-              targetRemoteSessionId &&
-              remoteMap[targetConversationUuid] !== targetRemoteSessionId
-            ) {
-              await setStorageValue(SESSION_REMOTE_MAP_KEY, {
-                ...remoteMap,
-                [targetConversationUuid]: targetRemoteSessionId
-              });
-            }
-
-            sessionCreatedAtRef.current = targetCreatedAt;
-            setActiveConversationUuid(targetConversationUuid);
-            setActiveRemoteSessionId(targetRemoteSessionId || null);
-            setActiveSessionId(targetSessionId);
-          })();
-        }
-        sendResponse({ success: true });
-        return;
-      }
-
-      if (message.type === 'EXECUTE_TASK') {
-        if (!shouldHandleTaskForCurrentContext(message)) {
-          sendResponse({ success: false, skipped: true });
-          return;
-        }
-        if (query.skipPermissions) {
-          setPermissionMode('skip_all_permission_checks');
-        }
-        const prompt = typeof message.prompt === 'string' ? message.prompt : '';
-        if (prompt) {
-          const taskPrompt =
-            message.isScheduledTask && message.taskName
-              ? `[Scheduled Task: ${message.taskName}]\n${prompt}`
-              : prompt;
-          setInput('');
-          void sendPromptRef.current?.(taskPrompt);
-        }
-        sendResponse({ success: true });
-        return;
-      }
-
-      if (message.type === 'STOP_AGENT') {
-        if (
-          typeof message.targetTabId === 'number' &&
-          typeof query.tabId === 'number' &&
-          message.targetTabId !== query.tabId
-        ) {
-          sendResponse({ success: false, skipped: true });
-          return;
-        }
-
-        // Abort the current request
-        abortControllerRef.current?.abort();
-
-        // Show "Generation stopped" message
-        pushMessageRef.current?.('system', 'Generation stopped.');
-
-        // Update state
-        setIsAgentRunning(false);
-
-        // Hide agent indicators
-        if (typeof query.tabId === 'number') {
-          tabGroupManager.setTabIndicatorState(query.tabId, 'none').catch(() => {});
-          tabGroupManager.addCompletionPrefix(query.tabId).catch(() => {});
-        }
-
-        sendResponse({ success: true });
-        return;
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(listener);
-    return () => chrome.runtime.onMessage.removeListener(listener);
-    // sendPrompt, isAgentRunning, hasBrowserControlPermissionAccepted accessed via refs
-  }, [
-    loadSnapshotForSession,
-    query.skipPermissions,
-    query.tabId,
-    shouldHandleTaskForCurrentContext
-  ]);
 
   const submit = useCallback(async () => {
     const hasAttachments = pendingAttachments.length > 0;
