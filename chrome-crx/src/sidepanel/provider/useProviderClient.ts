@@ -12,7 +12,7 @@
  * The returned `effectiveMessagesClient` can be passed to `dispatchMessagesClient`
  * as a fallback when no tier-specific provider is configured.
  */
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, type MutableRefObject } from 'react';
 import { MessagesClient } from '../../mcpServersStore';
 import { CONTEXT_WINDOW } from '../messageLimits';
 
@@ -40,6 +40,7 @@ export interface UseProviderClientResult {
 
   /**
    * Whether a provider configuration exists (either direct or tier-resolved).
+   * Derived from effectiveMessagesClient — true whenever a client is available.
    * Used by SetupGate to show onboarding UI when no provider is configured.
    */
   hasProviderConfig: boolean;
@@ -54,7 +55,7 @@ export interface UseProviderClientResult {
    * Ref tracking the server's context length (defaults to CONTEXT_WINDOW constant).
    * Updated when /v1/models returns a context_length value.
    */
-  serverContextLengthRef: React.MutableRefObject<number>;
+  serverContextLengthRef: MutableRefObject<number>;
 }
 
 /**
@@ -72,7 +73,6 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(
     null
   );
-  const [hasProviderConfig, setHasProviderConfig] = useState(false);
 
   // Memoized client that updates when apiKey or apiBaseUrl changes
   const messagesClient = useMemo(() => {
@@ -97,7 +97,6 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       const resolved = await resolveClientForTier('smart');
       if (cancelled) return;
       if (resolved) {
-        setHasProviderConfig(true);
         setProviderClient(
           new MessagesClient({
             baseURL: resolved.baseURL,
@@ -106,7 +105,6 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
           })
         );
       } else {
-        setHasProviderConfig(false);
         setProviderClient(null);
       }
     })();
@@ -116,6 +114,9 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   }, [messagesClient, apiKey, apiBaseUrl]);
 
   const effectiveMessagesClient = messagesClient || providerClient;
+
+  // Derived: true whenever any provider client is available (direct or tier-resolved).
+  const hasProviderConfig = effectiveMessagesClient !== null;
 
   // Fetch /v1/models once per (baseURL, credential) so we can use the gateway's
   // real context_length instead of the hard-coded 200k constant.
