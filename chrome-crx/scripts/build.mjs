@@ -27,10 +27,15 @@ const viteProcess = spawn('bun', ['run', 'vite', 'build'], {
   }
 });
 
-viteProcess.on('close', (code) => {
-  if (code !== 0) {
+viteProcess.on('close', (code, signal) => {
+  if (code !== null && code !== 0) {
     console.error(`\n❌ Build failed with code ${code}\n`);
     process.exit(code);
+  }
+
+  if (signal) {
+    console.error(`\n❌ Build terminated by signal: ${signal}\n`);
+    process.exit(1);
   }
 
   console.log(`\n✅ Build complete for target: ${TARGET}\n`);

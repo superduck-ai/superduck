@@ -28,7 +28,11 @@ function transformManifest(target: 'chrome' | 'edge'): typeof rawManifest {
   return manifest;
 }
 
-const buildTarget = (process.env.BUILD_TARGET || 'chrome') as 'chrome' | 'edge';
+const rawBuildTarget = process.env.BUILD_TARGET || 'chrome';
+if (!['chrome', 'edge'].includes(rawBuildTarget)) {
+  throw new Error(`Invalid BUILD_TARGET: "${rawBuildTarget}". Must be "chrome" or "edge".`);
+}
+const buildTarget = rawBuildTarget as 'chrome' | 'edge';
 const manifest = transformManifest(buildTarget);
 
 /**
