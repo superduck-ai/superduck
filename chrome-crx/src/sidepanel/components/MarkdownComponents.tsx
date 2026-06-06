@@ -416,7 +416,7 @@ function ImageShowButton({ src, ...props }: React.ImgHTMLAttributes<HTMLImageEle
     return <img {...props} src={src} />;
   }
 
-  const openImage = () => window.open(src, '_blank');
+  const openImage = () => window.open(src, '_blank', 'noopener,noreferrer');
 
   return (
     <>
@@ -519,7 +519,7 @@ function ConfirmableLink({
     return <span className={`underline ${className || ''}`}>{children}</span>;
   }
 
-  const openLink = () => window.open(href, '_blank');
+  const openLink = () => window.open(href, '_blank', 'noopener,noreferrer');
 
   return (
     <>
@@ -736,10 +736,12 @@ export const STANDARD_MARKDOWN_GRID_CLASS = 'grid-cols-1 grid [&_>_*]:min-w-0 ga
 // Math plugin support (bundle's ua — lazy-loads remark-math + rehype-katex)
 // =============================================================================
 
-let mathPluginsCache: { remarkMath: RemarkMathPlugin; rehypeKatex: RehypeKatexPlugin } | null = null;
-let mathPluginsPromise:
-  | Promise<{ remarkMath: RemarkMathPlugin; rehypeKatex: RehypeKatexPlugin } | null>
-  | null = null;
+let mathPluginsCache: { remarkMath: RemarkMathPlugin; rehypeKatex: RehypeKatexPlugin } | null =
+  null;
+let mathPluginsPromise: Promise<{
+  remarkMath: RemarkMathPlugin;
+  rehypeKatex: RehypeKatexPlugin;
+} | null> | null = null;
 
 /**
  * Hook to lazy-load remark-math and rehype-katex plugins.
@@ -753,9 +755,7 @@ export function useMathPlugins(): {
   const [plugins, setPlugins] = useState<{
     remarkMath?: RemarkMathPlugin;
     rehypeKatex?: RehypeKatexPlugin;
-  }>(
-    () => mathPluginsCache ?? {}
-  );
+  }>(() => mathPluginsCache ?? {});
 
   React.useEffect(() => {
     if (mathPluginsCache) return;

@@ -320,7 +320,10 @@ export function PlanApprovalModal({
         className="fixed inset-0 z-[60] flex items-center justify-center p-4"
         onClick={handleBackdropClick}
       >
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in" />
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in cursor-pointer"
+          onClick={handleBackdropClick}
+        />
         <div
           className="relative max-w-lg w-full animate-modal-enter"
           onClick={(e) => e.stopPropagation()}
