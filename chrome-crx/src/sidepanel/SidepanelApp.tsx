@@ -60,14 +60,9 @@ import {
   type ModelRequest
 } from './sessionPool';
 import { ConversationCompactor } from './conversationCompaction';
-import { loadModelMapping, MODEL_MAPPING_KEYS, getMappedModelName } from '../utils/modelMapping';
+import { getMappedModelName } from '../utils/modelMapping';
 import { dispatchMessagesClient } from '../utils/providerClient';
 import { useProviderClient } from './provider';
-import {
-  PROVIDER_CONFIG_BROADCAST,
-  PROVIDER_STORAGE_KEYS,
-  loadProviderConfig
-} from '../utils/providerStore';
 import { EmptyState } from './EmptyState';
 import { useQueryState, useTabEvent } from './hooks';
 import { ImagePreviewModal, ScreenshotLightbox } from './MessageViews';
@@ -88,6 +83,8 @@ import { RichTextInput, type RichTextInputHandle } from './RichTextInput';
 import { PERMISSION_MODE_OPTIONS, PermissionModeMenu } from './PermissionModeMenu';
 import { useWorkflowRecording } from './useWorkflowRecording';
 import { useLightningMode } from './useLightningMode';
+import { useAuth } from './hooks/useAuth';
+import { useModelConfig } from './hooks/useModelConfig';
 import { Tooltip } from './Tooltip';
 import { useUIStore } from './stores';
 import { AutoScrollSpacer, LastMessageSentinel } from './AutoScrollSpacer';
@@ -123,15 +120,12 @@ import {
   getModelDisplayName,
   getTextFromBlockContent,
   isPermissionMode,
-  normalizeApiBaseUrl,
   openOptionsTo,
   readFileAsBase64,
   type PermissionMode,
   type PromptAttachmentPayload
 } from './sidepanelUtils';
 import {
-  CUSTOM_API_KEY_KEY,
-  CUSTOM_API_URL_KEY,
   SESSION_CONVERSATION_MAP_KEY,
   SESSION_INDEX_KEY,
   SESSION_REMOTE_MAP_KEY,
@@ -251,53 +245,13 @@ export function SidepanelApp() {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     'skip_all_permission_checks'
   );
-  const [selectedModel, setSelectedModel] = useState<string>('');
-  const selectedModelRef = useRef(selectedModel);
-  const [modelMapping, setModelMapping] = useState<{
-    haiku?: string;
-    sonnet?: string;
-    opus?: string;
-  }>({});
-
-  useEffect(() => {
-    selectedModelRef.current = selectedModel;
-  }, [selectedModel]);
-
-  // Load model mapping on mount
-  useEffect(() => {
-    loadModelMapping().then(setModelMapping);
-
-    // Listen for storage changes (legacy + new provider config).
-    const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
-      if (areaName !== 'local') return;
-      const mappingKeys = Object.values(MODEL_MAPPING_KEYS);
-      const touched =
-        mappingKeys.some((key) => key in changes) ||
-        PROVIDER_STORAGE_KEYS.PROVIDERS in changes ||
-        PROVIDER_STORAGE_KEYS.MAPPING in changes;
-      if (touched) {
-        void loadProviderConfig(true);
-        loadModelMapping().then(setModelMapping);
-      }
-    };
-    chrome.storage.onChanged.addListener(listener);
-    // Cross-context broadcast (sent by Options on Save).
-    const runtimeListener = (message: unknown) => {
-      if (
-        message &&
-        typeof message === 'object' &&
-        (message as { type?: string }).type === PROVIDER_CONFIG_BROADCAST
-      ) {
-        void loadProviderConfig(true);
-        loadModelMapping().then(setModelMapping);
-      }
-    };
-    chrome.runtime.onMessage.addListener(runtimeListener);
-    return () => {
-      chrome.storage.onChanged.removeListener(listener);
-      chrome.runtime.onMessage.removeListener(runtimeListener);
-    };
-  }, []);
+  const {
+    selectedModel,
+    selectedModelRef,
+    setSelectedModel,
+    modelMapping,
+    handleModelChange: _rawHandleModelChange
+  } = useModelConfig();
 
   // Lightning (Quick/Purl) mode toggle state — persisted to chrome.storage
   const [purlModeToggle, setPurlModeToggle] = useState(false);
@@ -310,10 +264,6 @@ export function SidepanelApp() {
     }
   }, [purlModeFeatureEnabled]);
 
-  // 监控 selectedModel 的变化
-  useEffect(() => {
-    console.log('[Model State] selectedModel changed to:', selectedModel);
-  }, [selectedModel]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [hasInteractiveTools, setHasInteractiveTools] = useState(false);
   const [currentStatus, setCurrentStatus] = useState('');
@@ -331,10 +281,10 @@ export function SidepanelApp() {
   const [pendingPrompt, setPendingPrompt] = useState<PendingPromptPayload | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [toolSchemas, setToolSchemas] = useState<ToolProviderSchema[]>([]);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-  const [apiBaseUrl, setApiBaseUrl] = useState('');
-  const [authError, setAuthError] = useState<string | null>(null);
+  const { apiKey, apiBaseUrl, authLoading, authError, refreshAuth } = useAuth({
+    queryApiKey: query.apiKey,
+    queryApiUrl: query.apiUrl
+  });
   const [notificationsEnabled, setNotificationsEnabled] =
     useState<NotificationPreference>(undefined);
   const [showNotificationBanner, setShowNotificationBanner] = useState(false);
@@ -692,81 +642,6 @@ export function SidepanelApp() {
       });
     }
     streamingTextStoreRef.current.set('');
-  }, []);
-
-  const refreshAuth = useCallback(async () => {
-    setAuthLoading(true);
-    try {
-      const [keyResult, storedCustomApiUrlResult, storedCustomApiKeyResult] =
-        await Promise.allSettled([
-          getStorageValue(StorageKeys.API_KEY, ''),
-          getStorageValue(CUSTOM_API_URL_KEY, ''),
-          getStorageValue(CUSTOM_API_KEY_KEY, '')
-        ]);
-      const key = keyResult.status === 'fulfilled' ? keyResult.value : '';
-      const storedCustomApiUrl =
-        storedCustomApiUrlResult.status === 'fulfilled' ? storedCustomApiUrlResult.value : '';
-      const storedCustomApiKey =
-        storedCustomApiKeyResult.status === 'fulfilled' ? storedCustomApiKeyResult.value : '';
-      const normalizedStoredApiUrl =
-        normalizeApiBaseUrl(
-          typeof storedCustomApiUrl === 'string'
-            ? storedCustomApiUrl
-            : String(storedCustomApiUrl || '')
-        ) || '';
-      const resolvedApiBaseUrl = query.apiUrl || normalizedStoredApiUrl || '';
-      const resolvedApiKey =
-        query.apiKey ||
-        (typeof storedCustomApiKey === 'string' ? storedCustomApiKey.trim() : '') ||
-        (typeof key === 'string' ? key.trim() : '');
-
-      setApiBaseUrl(resolvedApiBaseUrl);
-      setApiKey(resolvedApiKey);
-      setAuthError(null);
-    } catch (error) {
-      setAuthError(getErrorMessage(error));
-      setApiKey('');
-      setApiBaseUrl('');
-    } finally {
-      setAuthLoading(false);
-    }
-  }, [query.apiKey, query.apiUrl]);
-
-  useEffect(() => {
-    void refreshAuth();
-    const listener = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      areaName: string
-    ) => {
-      if (areaName !== 'local') return;
-      if (
-        StorageKeys.API_KEY in changes ||
-        CUSTOM_API_URL_KEY in changes ||
-        CUSTOM_API_KEY_KEY in changes
-      ) {
-        void refreshAuth();
-      }
-    };
-    chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
-  }, [refreshAuth]);
-
-  useEffect(() => {
-    if (query.apiUrl) {
-      void setStorageValue(CUSTOM_API_URL_KEY, query.apiUrl);
-    }
-    if (query.apiKey) {
-      void setStorageValue(CUSTOM_API_KEY_KEY, query.apiKey);
-    }
-  }, [query.apiKey, query.apiUrl]);
-
-  useEffect(() => {
-    (async () => {
-      const model = await getStorageValue(StorageKeys.SELECTED_MODEL, '');
-      if (typeof model === 'string' && model) {
-        setSelectedModel(model);
-      }
-    })();
   }, []);
 
   useEffect(() => {
