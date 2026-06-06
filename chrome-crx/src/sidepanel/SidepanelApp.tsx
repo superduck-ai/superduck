@@ -101,6 +101,7 @@ import { ConversationCompactor } from './conversationCompaction';
 import { getModelsConfig } from '../components/providers/AppProviders';
 import { loadModelMapping, MODEL_MAPPING_KEYS, getMappedModelName } from '../utils/modelMapping';
 import { dispatchMessagesClient } from '../utils/providerClient';
+import { useProviderClient } from './provider';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
@@ -4677,83 +4678,8 @@ export function SidepanelApp() {
     }));
   }, [versionInfo]);
 
-  const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(
-    null
-  );
-  const [hasProviderConfig, setHasProviderConfig] = useState(false);
-
-  const messagesClient = useMemo(() => {
-    if (!apiKey || !apiBaseUrl) return null;
-    return new MessagesClient({
-      baseURL: apiBaseUrl,
-      dangerouslyAllowBrowser: true,
-      apiKey
-    });
-  }, [apiBaseUrl, apiKey]);
-
-  useEffect(() => {
-    if (messagesClient) {
-      setProviderClient(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const { resolveClientForTier } = await import('../utils/providerClient');
-      const resolved = await resolveClientForTier('smart');
-      if (cancelled) return;
-      if (resolved) {
-        setHasProviderConfig(true);
-        setProviderClient(
-          new MessagesClient({
-            baseURL: resolved.baseURL,
-            dangerouslyAllowBrowser: true,
-            apiKey: resolved.apiKey
-          })
-        );
-      } else {
-        setHasProviderConfig(false);
-        setProviderClient(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [messagesClient, apiKey, apiBaseUrl]);
-
-  const effectiveMessagesClient = messagesClient || providerClient;
-
-  // Fetch /v1/models once per (baseURL, credential) so we can use the gateway's
-  // real context_length instead of the hard-coded 200k constant.
-  const [serverModelInfo, setServerModelInfo] = useState<{
-    id: string;
-    contextLength: number;
-  } | null>(null);
-  const serverContextLengthRef = useRef<number>(CONTEXT_WINDOW);
-  useEffect(() => {
-    if (!effectiveMessagesClient) return;
-    const ctrl = new AbortController();
-    (async () => {
-      try {
-        const modelsApi =
-          'models' in effectiveMessagesClient ? effectiveMessagesClient.models : null;
-        if (!isRecord(modelsApi) || typeof modelsApi.list !== 'function') return;
-        const page = await modelsApi.list({}, { signal: ctrl.signal });
-        if (!isRecord(page) || !Array.isArray(page.data)) return;
-        const first = page.data[0];
-        if (
-          isRecord(first) &&
-          typeof first.id === 'string' &&
-          typeof first.context_length === 'number'
-        ) {
-          serverContextLengthRef.current = first.context_length;
-          setServerModelInfo({ id: first.id, contextLength: first.context_length });
-        }
-      } catch {
-        /* ignore — will fall back to default budget */
-      }
-    })();
-    return () => ctrl.abort();
-  }, [effectiveMessagesClient]);
+  const { effectiveMessagesClient, hasProviderConfig, serverModelInfo, serverContextLengthRef } =
+    useProviderClient({ apiKey, apiBaseUrl });
 
   const systemPrompt = useMemo(() => {
     const isMac = navigator.platform.toUpperCase().includes('MAC');
