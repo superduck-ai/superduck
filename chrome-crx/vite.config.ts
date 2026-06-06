@@ -20,12 +20,7 @@ function transformManifest(target: 'chrome' | 'edge'): typeof rawManifest {
     delete (manifest as Record<string, unknown>).key;
     // Edge has its own auto-update mechanism
     delete (manifest as Record<string, unknown>).update_url;
-    // Use minimum_edge_version instead of minimum_chrome_version
-    if ((manifest as Record<string, unknown>).minimum_chrome_version) {
-      (manifest as Record<string, unknown>).minimum_edge_version =
-        (manifest as Record<string, unknown>).minimum_chrome_version;
-      delete (manifest as Record<string, unknown>).minimum_chrome_version;
-    }
+    // minimum_chrome_version is valid for Edge (Chromium-based) — no rename needed
     // Update description to be browser-generic
     manifest.description = manifest.description.replace('in Chrome', 'in Edge');
   }
