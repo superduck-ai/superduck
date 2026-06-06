@@ -48,7 +48,6 @@ import {
 import ReactDOM from 'react-dom';
 import {
   StorageKeys,
-  type AnnouncementFeatureValue,
   type ModelsConfigFeatureValue,
   PermissionActionType,
   PermissionDuration,
@@ -201,7 +200,6 @@ import {
 import type {
   ApiConversationMessage,
   ApiInputContentBlock,
-  ApiImageContentBlock,
   ApiMessageBlock,
   ApiResponseMessage,
   ApiTextContentBlock,
@@ -261,197 +259,39 @@ import {
   PlatformModifierKey,
   ReturnKeyIcon
 } from './icons';
-
-type ChatRole = 'system' | 'user' | 'assistant';
-type VisibleChatRole = Exclude<ChatRole, 'system'>;
-type NotificationPreference = 'enabled' | 'disabled' | undefined;
-
-interface ChatMessage {
-  id: string;
-  role: ChatRole;
-  text: string;
-}
-
-interface PermissionPromptData {
-  type: 'permission_required';
-  tool: PermissionActionType;
-  url: string;
-  toolUseId?: string;
-  actionData?: {
-    screenshot?: string;
-    coordinate?: [number, number];
-    text?: string;
-    fromDomain?: string;
-    toDomain?: string;
-    plan?: PlanStructure;
-    imageId?: string;
-    start_coordinate?: [number, number];
-    remoteMcp?: {
-      serverName: string;
-      serverIconUrl: string;
-      toolDisplayName: string;
-      toolDescription: string;
-      alwaysApprovedKey: string;
-    };
-  };
-}
-
-interface RuntimeMessage {
-  type?: string;
-  prompt?: string;
-  permissionMode?: PermissionMode;
-  selectedModel?: string;
-  sessionId?: string;
-  attachments?: PromptAttachmentPayload[];
-  conversationUuid?: string;
-  targetTabId?: number;
-  windowSessionId?: string;
-  isScheduledTask?: boolean;
-  taskName?: string;
-  mainTabId?: number;
-  secondaryTabId?: number;
-  request_id?: string;
-  client_type?: string;
-  current_name?: string;
-}
-
-interface PairingPromptState {
-  requestId: string;
-  clientType: string;
-  currentName?: string;
-}
-
-interface PendingPromptPayload {
-  prompt: string;
-  attachments: PromptAttachmentPayload[];
-  isAnnotated: boolean;
-}
-
-interface ToolUseBlock {
-  id: string;
-  name: string;
-  input: unknown;
-  type: 'tool_use';
-}
-
-interface BlockedTabInfo {
-  tabId: number;
-  title: string;
-  url: string;
-  category: string;
-}
-
-interface SessionSnapshot {
-  uiMessages: ChatMessage[];
-  apiMessages: ApiConversationMessage[];
-  selectedModel: string;
-  permissionMode: PermissionMode;
-  createdAt?: number;
-  conversationUuid?: string;
-  remoteSessionId?: string;
-}
-
-type AnnouncementConfig = AnnouncementFeatureValue;
-
-interface SessionIndexEntry {
-  sessionId: string;
-  conversationUuid?: string;
-  remoteSessionId?: string;
-  createdAt: number;
-  updatedAt: number;
-  model?: string;
-  preview?: string;
-}
-
-type ToolInputRecord = Record<string, unknown>;
-type PermissionGrantScope = {
-  type: 'netloc' | 'domain_transition';
-  netloc?: string;
-  fromDomain?: string;
-  toDomain?: string;
-};
-type SupportedImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
-
-type Base64ImageSource = {
-  type: 'base64';
-  media_type: string;
-  data: string;
-  metadata?: Record<string, unknown>;
-};
-
-type Base64ImageBlock = ApiImageContentBlock & {
-  source: Base64ImageSource;
-};
-
-type ToolResultDisplayContent =
-  | string
-  | {
-      text: string;
-      images: Base64ImageBlock[];
-    };
-
-type LightningContentArray = Exclude<LightningMessage['content'], string>;
-type LightningSystemPromptBlock = Extract<LightningContentArray[number], { type: 'text' }>;
-type LightningCreateApiMessageParams = {
-  model?: string;
-  maxTokens: number;
-  messages: LightningMessage[];
-  system: LightningSystemPromptBlock[] | string;
-};
-type ResponseWithMessageLimit = ApiResponseMessage & {
-  message_limit?: unknown;
-};
-type CommandExecutionResult = {
-  action: string;
-  input: ParsedCommand['args'] | PlanStructure | Record<string, unknown>;
-  output: string;
-  durationMs: number;
-};
+import type {
+  ChatRole,
+  VisibleChatRole,
+  NotificationPreference,
+  ChatMessage,
+  PermissionPromptData,
+  PermissionGrantScope,
+  RuntimeMessage,
+  PairingPromptState,
+  PendingPromptPayload,
+  BlockedTabInfo,
+  SessionSnapshot,
+  SessionIndexEntry,
+  ToolUseBlock,
+  ToolInputRecord,
+  SupportedImageMediaType,
+  Base64ImageSource,
+  Base64ImageBlock,
+  ToolResultDisplayContent,
+  LightningContentArray,
+  LightningSystemPromptBlock,
+  LightningCreateApiMessageParams,
+  CommandExecutionResult,
+  ResponseWithMessageLimit,
+  MessageGroup,
+  StreamingTextStore,
+  AnnouncementConfig
+} from './types';
+import { PERMISSION_ACTION_TYPES } from './types';
 
 function getLightningScreenshotReminder(width: number, height: number): string {
   return `<system-reminder>The attached screenshot is ${width}x${height}. For C/RC/DC/TC/H/S/D/Z, use pixel coordinates from this screenshot with origin (0,0) at the image's top-left. Recompute coordinates after every new screenshot. Do not use DOM, CSS, or viewport coordinates.</system-reminder>`;
 }
-
-interface ConversationGroup {
-  type: 'conversation';
-  userMessage: ApiConversationMessage;
-  hasVisibleUser: boolean;
-  toolResults: ApiToolResultBlock[];
-  assistantBlocks: ApiMessageBlock[];
-}
-
-interface SummaryGroup {
-  type: 'summary';
-  message: ApiConversationMessage;
-}
-
-type MessageGroup = ConversationGroup | SummaryGroup;
-
-const PERMISSION_ACTION_TYPES = new Set<string>(Object.values(PermissionActionType));
-
-interface TimelineGroupItemData {
-  block: ApiToolUseBlock | ApiToolResultBlock;
-  index: number;
-  renderable: boolean;
-}
-
-interface TimelineGroupData {
-  items: TimelineGroupItemData[];
-  startIndex: number;
-  isLastBlockOfMessage: boolean;
-}
-
-type GroupedContentBlock =
-  | {
-      type: 'single';
-      content: ApiMessageBlock;
-      index: number;
-    }
-  | {
-      type: 'group';
-      content: TimelineGroupData;
-      index: number;
-    };
 
 function isBase64ImageSource(source: unknown): source is Base64ImageSource {
   return (
@@ -3413,8 +3253,6 @@ function AssistantMessageRow({
     </div>
   );
 }
-
-type StreamingTextStore = ReturnType<typeof createStreamingTextStore>;
 
 /** Lightweight component that subscribes to the streaming text store.
  * Only THIS component re-renders on each rAF during streaming — not the entire MessageList. */
