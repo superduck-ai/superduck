@@ -191,6 +191,8 @@ import {
   SecondaryTabView,
   VersionBlockedView
 } from './components/SidepanelSupportViews';
+import { SidepanelHeader } from './components/SidepanelHeader';
+import { SidepanelBanners } from './components/SidepanelBanners';
 import { CursorClickIcon } from './icons';
 import type {
   ChatRole,
@@ -5359,191 +5361,36 @@ export function SidepanelApp() {
       }
     >
       <div className="relative flex h-full min-h-0 flex-col">
-        <header className="shrink-0 flex justify-between items-center px-4 pt-3 pb-3">
-          <div className="flex items-center gap-3">
-            <div ref={modelMenuRef} className="relative">
-              <button
-                type="button"
-                className="hide-focus-ring py-1 px-2 rounded-md transition-colors text-text-200 hover:bg-bg-300 hover:text-text-100"
-                onClick={() => {
-                  setIsHeaderMenuOpen(false);
-                  setIsLanguageSubmenuOpen(false);
-                  setIsModelMenuOpen((value) => !value);
-                }}
-                aria-haspopup="menu"
-                aria-expanded={isModelMenuOpen}
-                aria-label={intl.formatMessage({
-                  defaultMessage: 'Select model',
-                  id: 'select_model'
-                })}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span className="text-[12px] font-ui font-normal leading-[140%] tracking-[-0.2px]">
-                    {selectedModelLabel}
-                  </span>
-                  <ChevronDown size={12} className="text-text-300" />
-                </span>
-              </button>
-              {isModelMenuOpen ? (
-                <div className="absolute left-0 top-full mt-2 z-50 min-w-[240px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5 max-h-60 overflow-y-auto">
-                  {normalizedModelOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleModelChange(option.value)}
-                      className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
-                    >
-                      <span className="flex-1">{option.label}</span>
-                      {option.value === effectiveSelectedModel ? (
-                        <Check size={14} className="text-accent-secondary-200" />
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5">
-            {purlModeFeatureEnabled && (
-              <Tooltip tooltipContent="Quick mode" side="bottom">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isPurlMode) {
-                      setPurlModeToggle(false);
-                      chrome.storage.local.set({ purlMode: false });
-                      void trackEvent('superduck.sidebar.quick_mode_toggled', { enabled: false });
-                    } else {
-                      setPurlModeToggle(true);
-                      chrome.storage.local.set({ purlMode: true });
-                      void trackEvent('superduck.sidebar.quick_mode_toggled', { enabled: true });
-                    }
-                  }}
-                  disabled={effectiveIsAgentRunning}
-                  className={`p-1.5 rounded-md transition-colors ${
-                    isPurlMode
-                      ? 'text-accent-main-100 bg-bg-300'
-                      : 'text-text-300 hover:bg-bg-300 hover:text-text-100'
-                  } ${effectiveIsAgentRunning ? 'opacity-40 cursor-not-allowed' : ''}`}
-                  aria-label="Toggle quick mode"
-                  data-test-id={isPurlMode ? 'lightning-mode-active' : 'lightning-mode-inactive'}
-                >
-                  <Zap size={12} fill={isPurlMode ? 'currentColor' : 'none'} />
-                </button>
-              </Tooltip>
-            )}
-            <button
-              type="button"
-              className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
-              onClick={clearConversation}
-              aria-label={intl.formatMessage({ defaultMessage: 'Clear chat', id: 'clear_chat' })}
-              title={intl.formatMessage({ defaultMessage: 'Clear chat', id: 'clear_chat' })}
-            >
-              <MessageSquarePlus size={14} />
-            </button>
-            <div ref={headerMenuRef} className="relative">
-              <button
-                type="button"
-                className="hide-focus-ring p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
-                onClick={() => {
-                  setIsModelMenuOpen(false);
-                  setIsHeaderMenuOpen((value) => {
-                    if (value) {
-                      setIsLanguageSubmenuOpen(false);
-                    }
-                    return !value;
-                  });
-                }}
-                aria-label={intl.formatMessage({ defaultMessage: 'Menu', id: 'menu' })}
-                title={intl.formatMessage({ defaultMessage: 'Menu', id: 'menu' })}
-              >
-                <MoreHorizontal size={12} />
-              </button>
-              {isHeaderMenuOpen ? (
-                <div className="absolute right-0 top-full mt-2 z-50 w-[240px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
-                  <button
-                    type="button"
-                    onClick={handleConvertToScheduledTask}
-                    disabled={
-                      isConvertingToTask ||
-                      effectiveIsAgentRunning ||
-                      (!hasChatMessages && !input.trim())
-                    }
-                    className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors disabled:opacity-40"
-                  >
-                    {isConvertingToTask ? (
-                      <Loader2 size={16} className="animate-spin shrink-0" />
-                    ) : (
-                      <Workflow size={16} className="shrink-0" />
-                    )}
-                    <span className="flex-1">
-                      <MemoizedFormattedMessage
-                        defaultMessage="Convert to task"
-                        id="convert_to_task"
-                      />
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openOptionsPage}
-                    className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
-                  >
-                    <Settings2 size={16} className="shrink-0" />
-                    <span className="flex-1">
-                      <MemoizedFormattedMessage defaultMessage="Settings" id="settings" />
-                    </span>
-                  </button>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setIsLanguageSubmenuOpen((value) => !value)}
-                      aria-expanded={isLanguageSubmenuOpen}
-                      aria-controls="language-submenu"
-                      className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
-                    >
-                      <Languages size={16} className="shrink-0" />
-                      <span className="flex-1">
-                        <MemoizedFormattedMessage defaultMessage="Language" id="language" />
-                      </span>
-                      {isLanguageSubmenuOpen ? (
-                        <ChevronDown size={16} className="text-text-300 shrink-0" />
-                      ) : (
-                        <ChevronRight size={16} className="text-text-300 shrink-0" />
-                      )}
-                    </button>
-                    {isLanguageSubmenuOpen ? (
-                      <div id="language-submenu" className="pl-4">
-                        {SUPPORTED_LOCALES.map((entry) => (
-                          <button
-                            key={entry}
-                            type="button"
-                            onClick={() => handleLanguageSelection(entry)}
-                            className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
-                          >
-                            <span className="flex-1 whitespace-nowrap">
-                              {LOCALE_DISPLAY_NAMES[entry]}
-                            </span>
-                            {locale === entry ? (
-                              <Check size={14} className="text-accent-secondary-200" />
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  {!hasChatMessages ? (
-                    <p className="px-2 pt-2 text-[11px] text-text-300">
-                      <MemoizedFormattedMessage
-                        defaultMessage="Start a chat to convert it into a task."
-                        id="start_a_chat_to_convert_it_into_a"
-                      />
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </header>
+        <SidepanelHeader
+          modelMenuRef={modelMenuRef}
+          isModelMenuOpen={isModelMenuOpen}
+          setIsModelMenuOpen={setIsModelMenuOpen}
+          selectedModelLabel={selectedModelLabel}
+          normalizedModelOptions={normalizedModelOptions}
+          handleModelChange={handleModelChange}
+          effectiveSelectedModel={effectiveSelectedModel}
+          headerMenuRef={headerMenuRef}
+          isHeaderMenuOpen={isHeaderMenuOpen}
+          setIsHeaderMenuOpen={setIsHeaderMenuOpen}
+          isLanguageSubmenuOpen={isLanguageSubmenuOpen}
+          setIsLanguageSubmenuOpen={setIsLanguageSubmenuOpen}
+          purlModeFeatureEnabled={purlModeFeatureEnabled}
+          isPurlMode={isPurlMode}
+          setPurlModeToggle={setPurlModeToggle}
+          effectiveIsAgentRunning={effectiveIsAgentRunning}
+          clearConversation={clearConversation}
+          handleConvertToScheduledTask={handleConvertToScheduledTask}
+          isConvertingToTask={isConvertingToTask}
+          hasChatMessages={hasChatMessages}
+          input={input}
+          openOptionsPage={openOptionsPage}
+          SUPPORTED_LOCALES={SUPPORTED_LOCALES}
+          LOCALE_DISPLAY_NAMES={LOCALE_DISPLAY_NAMES}
+          locale={locale}
+          handleLanguageSelection={handleLanguageSelection}
+          intl={intl}
+          trackEvent={trackEvent}
+        />
 
         {/* Workflow Mode Selection Modal */}
         {showWorkflowModeSelectionModal && (
@@ -5639,191 +5486,26 @@ export function SidepanelApp() {
                   />
                   <div className="bg-bg-100">
                     {/* Banner area — matches bundle placement inside input area */}
-                    <div className="px-3 md:px-2">
-                      <AnimatePresence mode="wait">
-                        {(() => {
-                          if (activeBanner === 'error') {
-                            const isNetworkError =
-                              effectiveRuntimeError?.toLowerCase().includes('connection error') ||
-                              effectiveRuntimeError?.toLowerCase().includes('network error') ||
-                              effectiveRuntimeError?.toLowerCase().includes('failed to fetch');
-                            return (
-                              <CompactBanner
-                                key="error"
-                                type="error"
-                                onDismiss={() => effectiveClearError()}
-                                dismissWithGradient
-                              >
-                                {effectiveRuntimeError}
-                                {isNetworkError && (
-                                  <>
-                                    {' '}
-                                    <button
-                                      onClick={() => {
-                                        setRuntimeError(null);
-                                        // Retry is not available in simplified source
-                                      }}
-                                      className="underline hover:opacity-80 transition-opacity"
-                                    >
-                                      Retry
-                                    </button>
-                                  </>
-                                )}
-                              </CompactBanner>
-                            );
-                          }
-                          if (activeBanner === 'refusal') {
-                            return (
-                              <CompactBanner key="refusal" type="refusal">
-                                <span className="font-small">
-                                  SuperDuck is unable to respond to this request, which appears to
-                                  violate our{' '}
-                                  <button
-                                    onClick={() =>
-                                      chrome.tabs.create({
-                                        url: 'https://superduck-ai.github.io/superduck/'
-                                      })
-                                    }
-                                    className="inline-link"
-                                  >
-                                    Usage Policy
-                                  </button>
-                                  . Please start a new chat.
-                                </span>
-                              </CompactBanner>
-                            );
-                          }
-                          if (activeBanner === 'messageLimit' && messageLimitBanner) {
-                            return (
-                              <CompactBanner
-                                key="messageLimit"
-                                type={messageLimitBanner.isBlocking ? 'danger' : 'info'}
-                                onDismiss={
-                                  messageLimitBanner.dismissible
-                                    ? () => setMessageLimitDismissed(true)
-                                    : undefined
-                                }
-                              >
-                                {messageLimitBanner.text}
-                                {messageLimitBanner.actionLabel && messageLimitBanner.actionUrl && (
-                                  <>
-                                    {' · '}
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        chrome.tabs.create({ url: messageLimitBanner.actionUrl! });
-                                      }}
-                                      className="underline cursor-pointer text-text-100 opacity-90 hover:opacity-100"
-                                    >
-                                      {messageLimitBanner.actionLabel}
-                                    </button>
-                                  </>
-                                )}
-                              </CompactBanner>
-                            );
-                          }
-                          if (activeBanner === 'highRisk') {
-                            return (
-                              <CompactBanner
-                                key="highRisk"
-                                type="high-risk"
-                                onDismiss={() => setSkipWarningDismissed(true)}
-                                dismissWithGradient
-                              >
-                                <MemoizedFormattedMessage
-                                  id="high_risk_superduck_can_take_most_actions_on"
-                                  defaultMessage="<bold>HIGH RISK:</bold> SuperDuck can take most actions on the internet now. This setting could put your data at risk. <link>See safe use tips</link>"
-                                  values={{
-                                    bold: (chunks: React.ReactNode) => (
-                                      <span className="font-bold">{chunks}</span>
-                                    ),
-                                    link: (chunks: React.ReactNode) => (
-                                      <button
-                                        onClick={() =>
-                                          chrome.tabs.create({ url: SAFE_USE_TIPS_URL })
-                                        }
-                                        className="underline hover:opacity-80 transition-colors"
-                                      >
-                                        {chunks}
-                                      </button>
-                                    )
-                                  }}
-                                />
-                              </CompactBanner>
-                            );
-                          }
-                          if (activeBanner === 'notification') {
-                            return (
-                              <CompactBanner
-                                key="notification"
-                                type="notification"
-                                onAction={async () => {
-                                  setNotificationsEnabled('enabled');
-                                  void trackEvent('superduck.sidebar.notification_toggled', {
-                                    enabled: true
-                                  });
-                                  await setStorageValue(
-                                    StorageKeys.NOTIFICATIONS_ENABLED,
-                                    'enabled'
-                                  );
-                                  setShowNotificationBanner(false);
-                                }}
-                                onDismiss={() => {
-                                  setNotificationsEnabled('disabled');
-                                  void trackEvent('superduck.sidebar.notification_toggled', {
-                                    enabled: false
-                                  });
-                                  void setStorageValue(
-                                    StorageKeys.NOTIFICATIONS_ENABLED,
-                                    'disabled'
-                                  );
-                                  setShowNotificationBanner(false);
-                                }}
-                                actionText="Notify me"
-                                actionIcon={<Bell size={16} />}
-                              >
-                                Get notified when tasks complete or need input
-                              </CompactBanner>
-                            );
-                          }
-                          if (activeBanner === 'announcement') {
-                            const text = announcementConfig.text ?? '';
-                            return (
-                              <CompactBanner
-                                key="announcement"
-                                type="announcement"
-                                onDismiss={dismissAnnouncement}
-                              >
-                                <div className="flex items-start gap-2">
-                                  <AnnouncementIcon size={16} />
-                                  {text}
-                                </div>
-                              </CompactBanner>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </AnimatePresence>
-                    </div>
-                    {/* Model fallback card — shown when safety filters pause the chat */}
-                    {lastStopReason?.reason === 'refusal' && fallbackConfig && (
-                      <ModelFallbackCard
-                        currentModelName={
-                          fallbackConfig.currentModelName ||
-                          getModelDisplayName(selectedModel, modelConfig)
-                        }
-                        fallbackModelName={fallbackConfig.fallbackModelName || ''}
-                        fallbackDisplayName={
-                          fallbackConfig.fallbackDisplayName ||
-                          getModelDisplayName(fallbackConfig.fallbackModelName || '', modelConfig)
-                        }
-                        learnMoreUrl={
-                          fallbackConfig.learnMoreUrl || 'https://superduck-ai.github.io/superduck/'
-                        }
-                        onRetry={() => void retryWithFallback()}
-                        onSendFeedback={sendRefusalFeedback}
-                      />
-                    )}
+                    <SidepanelBanners
+                      activeBanner={activeBanner}
+                      effectiveRuntimeError={effectiveRuntimeError}
+                      effectiveClearError={effectiveClearError}
+                      setRuntimeError={setRuntimeError}
+                      messageLimitBanner={messageLimitBanner}
+                      setMessageLimitDismissed={setMessageLimitDismissed}
+                      setSkipWarningDismissed={setSkipWarningDismissed}
+                      setNotificationsEnabled={setNotificationsEnabled}
+                      setShowNotificationBanner={setShowNotificationBanner}
+                      announcementConfig={announcementConfig}
+                      dismissAnnouncement={dismissAnnouncement}
+                      lastStopReason={lastStopReason}
+                      fallbackConfig={fallbackConfig}
+                      selectedModel={selectedModel}
+                      modelConfig={modelConfig}
+                      retryWithFallback={retryWithFallback}
+                      sendRefusalFeedback={sendRefusalFeedback}
+                      trackEvent={trackEvent}
+                    />
                     {/* Chat input — hidden when fallback card is shown or when recording */}
                     {!(lastStopReason?.reason === 'refusal' && fallbackConfig) &&
                       !recordingState.isRecording && (
