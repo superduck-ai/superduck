@@ -119,6 +119,8 @@ export function useRuntimeMessages({
 
   // Main runtime message listener
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     const listener = (
       message: any,
       _sender: chrome.runtime.MessageSender,
@@ -202,7 +204,7 @@ export function useRuntimeMessages({
         });
         sendResponse({ success: true });
 
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           if (!prompt.trim()) return;
           if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
             setInput('');
@@ -286,9 +288,11 @@ export function useRuntimeMessages({
             setActiveConversationUuid(targetConversationUuid);
             setActiveRemoteSessionId(targetRemoteSessionId || null);
             setActiveSessionId(targetSessionId);
+            sendResponse({ success: true });
           })();
+          return true; // Indicate async response
         }
-        sendResponse({ success: true });
+        sendResponse({ success: false });
         return;
       }
 
@@ -338,7 +342,10 @@ export function useRuntimeMessages({
     };
 
     chrome.runtime.onMessage.addListener(listener);
-    return () => chrome.runtime.onMessage.removeListener(listener);
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
     // sendPrompt, isAgentRunning, hasBrowserControlPermissionAccepted accessed via refs
   }, [loadSnapshotForSession, querySkipPermissions, queryTabId, shouldHandleTaskForCurrentContext]);
 
