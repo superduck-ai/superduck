@@ -152,15 +152,19 @@ class ChromeDebuggerProtocol {
     const gate = new Promise<void>((r) => {
       release = r;
     });
-    this.tabLocks.set(
-      tabId,
-      prev.catch(() => {}).then(() => gate)
-    );
+    const chained = prev.catch(() => {}).then(() => gate);
+    this.tabLocks.set(tabId, chained);
     try {
       await prev.catch(() => {});
       return await fn();
     } finally {
       release();
+      // Clean up the entry if no successor has replaced it.
+      // Without this, each withTabLock call leaves a resolved promise
+      // chain in the map that grows unboundedly over the tab's lifetime.
+      if (this.tabLocks.get(tabId) === chained) {
+        this.tabLocks.delete(tabId);
+      }
     }
   }
 
@@ -255,6 +259,7 @@ class ChromeDebuggerProtocol {
       ChromeDebuggerProtocol.debuggerListenerRegistered = true;
       this.registerDebuggerEventHandlers();
       this.registerDebuggerDetachHandler();
+      this.registerTabCloseCleanup();
     }
   }
 
@@ -277,6 +282,26 @@ class ChromeDebuggerProtocol {
 
       chrome.runtime.sendMessage({ type: 'STOP_AGENT', targetTabId: tabId }).catch(() => {});
     });
+  }
+
+  /**
+   * Listen for tab close events and clean up all per-tab CDP state.
+   * Without this, tabLocks, consoleMessagesByTab, networkRequestsByTab,
+   * consoleTrackingEnabled, and networkTrackingEnabled grow unboundedly
+   * for the lifetime of the service worker.
+   */
+  registerTabCloseCleanup(): void {
+    chrome.tabs.onRemoved.addListener((tabId) => {
+      this.cleanupTabResources(tabId);
+    });
+  }
+
+  cleanupTabResources(tabId: number): void {
+    this.tabLocks.delete(tabId);
+    ChromeDebuggerProtocol.consoleMessagesByTab.delete(tabId);
+    ChromeDebuggerProtocol.networkRequestsByTab.delete(tabId);
+    ChromeDebuggerProtocol.consoleTrackingEnabled.delete(tabId);
+    ChromeDebuggerProtocol.networkTrackingEnabled.delete(tabId);
   }
 
   defaultResizeParams: ResizeParams = {
