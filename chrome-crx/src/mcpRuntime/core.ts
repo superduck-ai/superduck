@@ -185,6 +185,12 @@ let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 let cachedDeviceId: string | null = null;
 let currentDeviceId: string | null = null;
 
+// Maximum number of consecutive reconnection attempts before giving up.
+// After ~15 retries with exponential backoff (capped at 20s), this gives
+// roughly 4-5 minutes of retries before stopping. Users can manually
+// trigger connectBridge() to restart the cycle.
+const MAX_BRIDGE_RETRIES = 15;
+
 async function getBridgeDisplayName(): Promise<string | undefined> {
   return (await chrome.storage.local.get('bridgeDisplayName')).bridgeDisplayName as
     | string
@@ -254,15 +260,23 @@ function sendBridgeMessage(message: Record<string, unknown>): void {
 function scheduleReconnect(): void {
   if (reconnectTimer) return;
   retryCount++;
+  if (retryCount > MAX_BRIDGE_RETRIES) {
+    trackEvent('superduck.bridge.reconnect_exhausted', {
+      attempts: retryCount - 1,
+      max_retries: MAX_BRIDGE_RETRIES
+    });
+    return;
+  }
   const delay = Math.min(2000 * Math.pow(1.5, retryCount - 1), 20000);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connectBridge();
+    connectBridge(false);
   }, delay);
 }
 
 // --- connectBridge (ir) --- EXPORT
-export async function connectBridge(): Promise<boolean> {
+export async function connectBridge(resetRetries: boolean = true): Promise<boolean> {
+  if (resetRetries) retryCount = 0;
   if (bridgeWebSocket?.readyState === WebSocket.OPEN || bridgeConnecting) return false;
   bridgeConnecting = true;
   const bridgeUrl = await getBridgeUrl();
