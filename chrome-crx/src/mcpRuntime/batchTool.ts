@@ -13,14 +13,29 @@ interface BatchToolParams {
 }
 
 const NON_NAVIGATING_TOOLS = new Set([
-  'read_page', 'find', 'get_page_text', 'read_console_messages',
-  'read_network_requests', 'tabs_context', 'tabs_context_mcp',
-  'turn_answer_start', 'update_plan', 'resize_window'
+  'read_page',
+  'find',
+  'get_page_text',
+  'read_console_messages',
+  'read_network_requests',
+  'tabs_context',
+  'tabs_context_mcp',
+  'turn_answer_start',
+  'update_plan',
+  'resize_window'
 ]);
+
+// Cap batch size to prevent runaway agent loops from consuming excessive
+// resources. The tool description encourages 2+ predictable steps; 20 is
+// a generous upper bound for legitimate use cases.
+const MAX_BATCH_ACTIONS = 20;
 
 let cachedRegistry: { tools: ToolDefinition[]; map: Map<string, ToolDefinition> } | null = null;
 
-async function getToolRegistry(): Promise<{ tools: ToolDefinition[]; map: Map<string, ToolDefinition> }> {
+async function getToolRegistry(): Promise<{
+  tools: ToolDefinition[];
+  map: Map<string, ToolDefinition>;
+}> {
   if (!cachedRegistry) {
     const { getAllTools } = await import('./core/tools');
     const tools = getAllTools();
@@ -41,7 +56,10 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       items: {
         type: 'object',
         properties: {
-          tool: { type: 'string', description: 'Tool name (e.g., "computer", "form_input", "navigate")' },
+          tool: {
+            type: 'string',
+            description: 'Tool name (e.g., "computer", "form_input", "navigate")'
+          },
           input: { type: 'object', description: 'Input parameters for the tool' }
         },
         required: ['tool', 'input']
@@ -56,6 +74,11 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
   execute: async (params: BatchToolParams, context: ToolContext): Promise<ToolResult> => {
     if (!params.actions || !Array.isArray(params.actions) || params.actions.length === 0) {
       return { error: 'actions array is required and must not be empty' };
+    }
+    if (params.actions.length > MAX_BATCH_ACTIONS) {
+      return {
+        error: `actions array has ${params.actions.length} items, exceeding the maximum of ${MAX_BATCH_ACTIONS}. Please split into smaller batches.`
+      };
     }
 
     const { tools: allToolsList, map: toolRegistry } = await getToolRegistry();
@@ -72,7 +95,8 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       if (!tool) {
         const errMsg = `actions[${i}] unknown tool: "${action.tool}" (${completedOutputs.length} completed, ${params.actions.length - i - 1} remaining)`;
         return {
-          output: completedOutputs.length > 0 ? completedOutputs.join('\n') + '\n\n' + errMsg : undefined,
+          output:
+            completedOutputs.length > 0 ? completedOutputs.join('\n') + '\n\n' + errMsg : undefined,
           error: errMsg,
           ...(lastImage || {})
         };
@@ -91,7 +115,8 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       } catch (err) {
         const errMsg = `actions[${i}] (${action.tool}) failed: ${err instanceof Error ? err.message : 'Unknown error'} (${completedOutputs.length} completed, ${params.actions.length - i - 1} remaining)`;
         return {
-          output: completedOutputs.length > 0 ? completedOutputs.join('\n') + '\n\n' + errMsg : undefined,
+          output:
+            completedOutputs.length > 0 ? completedOutputs.join('\n') + '\n\n' + errMsg : undefined,
           error: errMsg,
           ...(lastImage || {})
         };
@@ -100,7 +125,8 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       if (result.error) {
         const errMsg = `actions[${i}] (${action.tool}) failed: ${result.error} (${completedOutputs.length} completed, ${params.actions.length - i - 1} remaining)`;
         return {
-          output: completedOutputs.length > 0 ? completedOutputs.join('\n') + '\n\n' + errMsg : undefined,
+          output:
+            completedOutputs.length > 0 ? completedOutputs.join('\n') + '\n\n' + errMsg : undefined,
           error: errMsg,
           ...(lastImage || {})
         };
@@ -134,7 +160,7 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
   toProviderSchema: async () => ({
     name: 'browser_batch',
     description:
-      'Execute multiple browser actions sequentially in a single call. Prefer this over individual tool calls when you can predict 2+ steps ahead (e.g., click → type → click → screenshot). Significantly faster than separate calls. Stops on first error.',
+      'Execute multiple browser actions sequentially in a single call. Prefer this over individual tool calls when you can predict 2+ steps ahead (e.g., click → type → click → screenshot). Significantly faster than separate calls. Stops on first error. Maximum 20 actions per batch.',
     input_schema: {
       type: 'object',
       properties: {
@@ -154,7 +180,8 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
             },
             required: ['tool', 'input']
           },
-          description: 'Array of {tool, input} actions to execute sequentially'
+          description: `Array of {tool, input} actions to execute sequentially (max ${MAX_BATCH_ACTIONS})`,
+          maxItems: MAX_BATCH_ACTIONS
         },
         tabId: {
           type: 'number',
