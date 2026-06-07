@@ -207,6 +207,16 @@ export const screenshotContextManager = new (class {
   }
 })();
 
+// Clean up screenshot context when tabs are closed.
+// Without this, the Map grows unboundedly for the service worker lifetime.
+// Stale contexts for closed tabs would also produce incorrect coordinate
+// mappings if Chrome reuses tab IDs.
+if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    screenshotContextManager.clearContext(tabId);
+  });
+}
+
 export async function waitForTabLoading(tabId: number, timeoutMs: number = 3000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
