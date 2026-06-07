@@ -238,8 +238,16 @@ async function getBridgeUrl(): Promise<string | undefined> {
 // Forward declarations for functions used before definition
 let lastPairingRequestId: string | undefined;
 
-function clearAllPendingToolCalls(): void {
+function clearAllPendingToolCalls(
+  reason: 'bridge_disconnected' | 'manual_disconnect' = 'bridge_disconnected'
+): void {
   for (const [, entry] of pendingToolCalls) {
+    // Resolve false is ambiguous — was it "user denied" or "infrastructure
+    // failed"? Per RoboCFO: structured actionable errors. We log the reason
+    // so the operator can distinguish permission denial from bridge loss.
+    console.warn(
+      `[clearAllPendingToolCalls] resolving pending request as false (reason: ${reason})`
+    );
     entry.resolve(false);
   }
   pendingToolCalls.clear();
@@ -315,7 +323,7 @@ export async function connectBridge(): Promise<boolean> {
         stopKeepalive();
         bridgeConnecting = false;
         bridgeWebSocket = null;
-        clearAllPendingToolCalls();
+        clearAllPendingToolCalls('bridge_disconnected');
         scheduleReconnect();
       }
     };
@@ -489,7 +497,7 @@ export function reconnectMcp(): void {
   stopKeepalive();
   retryCount = 0;
   bridgeConnecting = false;
-  clearAllPendingToolCalls();
+  clearAllPendingToolCalls('manual_disconnect');
   if (bridgeWebSocket) {
     bridgeWebSocket.onclose = null;
     bridgeWebSocket.close();
