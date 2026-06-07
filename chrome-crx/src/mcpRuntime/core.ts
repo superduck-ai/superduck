@@ -1135,8 +1135,32 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       if (!wasAttached) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
-    } catch {
-      // silently fail
+    } catch (attachErr) {
+      // Chrome internal pages (chrome://, edge://, etc.) cannot be debugged —
+      // silently skip CDP for them. For all other tabs, report the failure so
+      // the agent receives an actionable error instead of a confusing downstream
+      // CDP error (e.g. "No debugger attached" when the user clicked Cancel).
+      const isInternalPage =
+        url?.startsWith('chrome://') ||
+        url?.startsWith('chrome-extension://') ||
+        url?.startsWith('edge://') ||
+        url?.startsWith('brave://') ||
+        url?.startsWith('about:') ||
+        url === 'chrome://newtab/' ||
+        url === '';
+      if (!isInternalPage) {
+        trackEvent('superduck.mcp.tool_called', {
+          tool_name: options.toolName,
+          client_id: options.clientId,
+          model: await getSelectedModel(),
+          success: false,
+          error_type: 'debugger_attach_failed',
+          duration_ms: Date.now() - startTime
+        });
+        return createErrorResponse(
+          `Failed to attach debugger to tab: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}. The user may have declined the Chrome debugger prompt, or the tab may have been closed. Please try again or use a different tab.`
+        );
+      }
     }
   }
 
