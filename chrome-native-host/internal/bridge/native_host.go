@@ -178,7 +178,10 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	}
 
 	// Normalize arguments before forwarding
-	args = b.normalizeArgs(toolName, args)
+	args, normErr := b.normalizeArgs(toolName, args)
+	if normErr != nil {
+		return nil, fmt.Errorf("invalid tool arguments: %w", normErr)
+	}
 
 	slog.Debug("forwarding to native host", "tool", toolName, "args", args)
 
@@ -281,8 +284,9 @@ func isTimeoutError(err error) bool {
 	return false
 }
 
-// normalizeArgs normalizes tool arguments to match Chrome extension expectations
-func (b *NativeHostBridge) normalizeArgs(tool string, args map[string]interface{}) map[string]interface{} {
+// normalizeArgs normalizes tool arguments to match Chrome extension expectations.
+// Returns an error if validation fails (e.g., out-of-range parameters).
+func (b *NativeHostBridge) normalizeArgs(tool string, args map[string]interface{}) (map[string]interface{}, error) {
 	normalized := make(map[string]interface{})
 	for k, v := range args {
 		normalized[k] = v
@@ -290,20 +294,26 @@ func (b *NativeHostBridge) normalizeArgs(tool string, args map[string]interface{
 
 	// Validate computer tool parameters (duration bounds, etc.)
 	if tool == "computer" {
-		validateComputerArgs(normalized)
+		if err := validateComputerArgs(normalized); err != nil {
+			return nil, err
+		}
 	}
 
-	return normalized
+	return normalized, nil
 }
 
-func validateComputerArgs(args map[string]interface{}) {
-	// Validate duration is within schema limits
+func validateComputerArgs(args map[string]interface{}) error {
+	// Validate duration is within schema limits (0–30 seconds).
+	// Reject rather than clamp so the agent receives a clear error and
+	// learns the correct bounds (avoids "over-shackling" per agent
+	// harness best practices).
 	if duration, ok := args["duration"].(float64); ok {
 		if duration > 30 {
-			slog.Warn("duration exceeds schema maximum", "duration", duration, "max", 30)
+			return fmt.Errorf("duration %.1f exceeds schema maximum of 30 seconds", duration)
 		}
 		if duration < 0 {
-			slog.Warn("negative duration", "duration", duration)
+			return fmt.Errorf("duration %.1f is negative; must be >= 0", duration)
 		}
 	}
+	return nil
 }
