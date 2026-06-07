@@ -208,6 +208,12 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 		return nil, fmt.Errorf("context expired while waiting for bridge lock: %w", err)
 	}
 
+	// Recheck b.conn after acquiring the lock — Close() may have nil'd it
+	// between reconnect() releasing the lock and us re-acquiring it.
+	if b.conn == nil {
+		return nil, fmt.Errorf("connection closed while waiting for bridge lock")
+	}
+
 	// Set deadline on the connection and ensure it's cleared on all paths
 	deadline := time.Now().Add(timeout)
 	if err := b.conn.SetDeadline(deadline); err != nil {
