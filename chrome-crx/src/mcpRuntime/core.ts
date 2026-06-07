@@ -626,6 +626,20 @@ class ToolExecutor {
           if (appName) trackData.app = appName;
         }
 
+        // Audit: include safe, low-cardinality input fields for traceability.
+        // Per RoboCFO: "record every action, tool call." Avoid PII — only
+        // include structural parameters (filter, depth, mode), not user data.
+        const input = isRecord(toolInput) ? toolInput : {};
+        if (typeof input.filter === 'string') trackData.input_filter = input.filter;
+        if (typeof input.depth === 'number') trackData.input_depth = input.depth;
+        if (typeof input.limit === 'number') trackData.input_limit = input.limit;
+        if (typeof input.clear === 'boolean') trackData.input_clear = input.clear;
+        if (typeof input.diff === 'boolean') trackData.input_diff = input.diff;
+        if (typeof input.newTab === 'boolean') trackData.input_new_tab = input.newTab;
+        if (typeof input.full === 'boolean') trackData.input_full = input.full;
+        if (typeof input.allowCrossOrigin === 'boolean')
+          trackData.input_cross_origin = input.allowCrossOrigin;
+
         try {
           const coercedInput = coerceToolInput(toolName, toolInput, allTools);
           const result = await tool.execute(coercedInput, executionContext);
@@ -1230,6 +1244,19 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   }
 
   const appName = url ? extractAppName(url) : undefined;
+
+  // Audit: include safe input parameters for traceability
+  const mcpArgs = isRecord(options.args) ? options.args : {};
+  const mcpInputFields: Record<string, unknown> = {};
+  if (typeof mcpArgs.action === 'string') mcpInputFields.action = mcpArgs.action;
+  if (typeof mcpArgs.filter === 'string') mcpInputFields.input_filter = mcpArgs.filter;
+  if (typeof mcpArgs.depth === 'number') mcpInputFields.input_depth = mcpArgs.depth;
+  if (typeof mcpArgs.limit === 'number') mcpInputFields.input_limit = mcpArgs.limit;
+  if (typeof mcpArgs.clear === 'boolean') mcpInputFields.input_clear = mcpArgs.clear;
+  if (typeof mcpArgs.diff === 'boolean') mcpInputFields.input_diff = mcpArgs.diff;
+  if (typeof mcpArgs.newTab === 'boolean') mcpInputFields.input_new_tab = mcpArgs.newTab;
+  if (typeof mcpArgs.full === 'boolean') mcpInputFields.input_full = mcpArgs.full;
+
   trackEvent('superduck.mcp.tool_called', {
     tool_name: options.toolName,
     client_id: clientId,
@@ -1238,6 +1265,7 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     tab_id: tabId,
     tab_group_id: options.tabGroupId,
     duration_ms: Date.now() - startTime,
+    ...mcpInputFields,
     ...(domain && { domain }),
     ...(appName && { app: appName }),
     ...(errorType && { error_type: errorType })
