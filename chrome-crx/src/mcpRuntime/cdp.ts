@@ -326,6 +326,38 @@ class ChromeDebuggerProtocol {
     const wasConsoleTracking = ChromeDebuggerProtocol.consoleTrackingEnabled.has(tabId);
     const wasAttached = await this.isDebuggerAttached(tabId);
 
+    // If debugger is already attached, skip detach/attach cycle to avoid
+    // triggering Chrome's "X is debugging this browser" banner repeatedly.
+    // Each chrome.debugger.attach() call causes Chrome to display a new banner,
+    // so re-attaching when already attached creates overlapping banners.
+    if (wasAttached) {
+      this.registerDebuggerEventHandlers();
+
+      // Ensure DOM domain is enabled for subsequent operations
+      try {
+        await this.sendCommandInner(tabId, 'DOM.enable');
+      } catch (_err) {
+        // ignore
+      }
+
+      if (wasConsoleTracking) {
+        try {
+          await this.sendCommandInner(tabId, 'Runtime.enable');
+        } catch (_err) {
+          // ignore
+        }
+      }
+
+      if (wasNetworkTracking) {
+        try {
+          await this.sendCommandInner(tabId, 'Network.enable', { maxPostDataSize: 65536 });
+        } catch (_err) {
+          // ignore
+        }
+      }
+      return;
+    }
+
     try {
       await this.detachDebugger(tabId);
     } catch {
@@ -342,9 +374,7 @@ class ChromeDebuggerProtocol {
       });
     });
 
-    if (!wasAttached) {
-      tabGroupManager.showRunningIndicatorImmediately(tabId, true).catch(() => {});
-    }
+    tabGroupManager.showRunningIndicatorImmediately(tabId, true).catch(() => {});
 
     this.registerDebuggerEventHandlers();
 
