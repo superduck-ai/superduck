@@ -5,7 +5,7 @@ import {
   takeSnapshotUnlocked,
   SnapshotMaxCharsError,
   normalizeSnapshotForDiff,
-  withSnapshotLock,
+  withSnapshotLock
 } from './axSnapshot';
 import { registerRefsInPage, pruneStaleRefs } from './refBridge';
 import type { CdpRuntimeEvaluateResult, ConsoleMessage, NetworkRequest } from './cdpTypes';
@@ -416,8 +416,13 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
                   : 'This site is not allowed due to safety restrictions.'
             };
           }
-        } catch {
-          // ignore category check errors
+        } catch (err) {
+          // Category check unavailable — log the failure so safety-gate
+          // bypasses are observable. Per RoboCFO: "tool errors must never
+          // be silently swallowed." We proceed with navigation (fail-open)
+          // because the category service may be temporarily unavailable;
+          // the permission check below still enforces per-host grants.
+          console.warn('[navigate] domain category check failed for', url, err);
         }
       }
 
@@ -464,7 +469,9 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
       try {
         new URL(normalizedUrl);
       } catch {
-        throw new Error(`Invalid URL: ${url}`);
+        throw new Error(
+          `Invalid URL: "${url}". Ensure the URL has a valid format (e.g., "https://example.com" or "example.com"). Only http:// and https:// schemes are supported.`
+        );
       }
 
       const toolUseId = context?.toolUseId;
@@ -582,10 +589,7 @@ function stripSystemReminders(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim();
 }
 
-function textMatchFallback(
-  treeContent: string,
-  query: string
-): ToolResult {
+function textMatchFallback(treeContent: string, query: string): ToolResult {
   const queryTerms = query
     .toLowerCase()
     .split(/\s+/)
@@ -615,9 +619,7 @@ function textMatchFallback(
     return { error: `No matching elements found for "${query}"` };
   }
 
-  const resultLines = top.map(
-    (m) => `- ${m.ref}: ${m.line.replace(/\[ref=ref_\d+\]/, '').trim()}`
-  );
+  const resultLines = top.map((m) => `- ${m.ref}: ${m.line.replace(/\[ref=ref_\d+\]/, '').trim()}`);
   return {
     output: `Found ${scored.length} matching element${scored.length === 1 ? '' : 's'} (showing ${top.length}):\n\n${resultLines.join('\n')}`
   };
@@ -1066,7 +1068,10 @@ const readPageTool: ToolDefinition<ReadPageToolInput> = {
     } = input || {};
     if (!context?.tabId) throw new Error('No active tab found');
     if (diffMode === true && (refId || selector)) {
-      return { error: 'diff is not supported with ref_id or selector (subtree reads have no integral baseline). Use diff only on full-page reads.' };
+      return {
+        error:
+          'diff is not supported with ref_id or selector (subtree reads have no integral baseline). Use diff only on full-page reads.'
+      };
     }
 
     const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
@@ -1112,11 +1117,11 @@ const readPageTool: ToolDefinition<ReadPageToolInput> = {
                   func: () => {
                     const pageWindow = window as Window & { __superduckRefCounter?: number };
                     return pageWindow.__superduckRefCounter || 0;
-                  },
+                  }
                 }),
                 chrome.scripting.executeScript({
                   target: { tabId: effectiveTabId },
-                  func: () => ({ width: window.innerWidth, height: window.innerHeight }),
+                  func: () => ({ width: window.innerWidth, height: window.innerHeight })
                 })
               ]);
               const currentRefCounter = Math.max(
@@ -1133,7 +1138,7 @@ const readPageTool: ToolDefinition<ReadPageToolInput> = {
                 compact: readFilter === 'interactive',
                 startRef: currentRefCounter,
                 selector: typeof selector === 'string' && selector ? selector : undefined,
-                urls: urlsOpt === true,
+                urls: urlsOpt === true
               });
 
               if (snapshotResult.refMappings.length > 0) {
@@ -1154,13 +1159,21 @@ const readPageTool: ToolDefinition<ReadPageToolInput> = {
               filter: readFilter,
               depth: depth ?? 15,
               maxChars: maxChars ?? 50000,
-              urls: urlsOpt === true,
+              urls: urlsOpt === true
             });
             if (diffMode === true) {
               const prev = snapshotCacheGet(context.sessionId, effectiveTabId, tabUrl, variantKey);
-              snapshotCacheSet(context.sessionId, effectiveTabId, tabUrl, variantKey, outputContent);
+              snapshotCacheSet(
+                context.sessionId,
+                effectiveTabId,
+                tabUrl,
+                variantKey,
+                outputContent
+              );
               if (prev !== undefined) {
-                if (normalizeSnapshotForDiff(prev.content) === normalizeSnapshotForDiff(outputContent)) {
+                if (
+                  normalizeSnapshotForDiff(prev.content) === normalizeSnapshotForDiff(outputContent)
+                ) {
                   outputContent = DIFF_NO_CHANGES;
                 } else {
                   const { added, removed, body } = formatCompactDiff(prev.content, outputContent);
@@ -1170,7 +1183,13 @@ const readPageTool: ToolDefinition<ReadPageToolInput> = {
                 outputContent = `${DIFF_NO_BASELINE_PREFIX}\n${outputContent}`;
               }
             } else if (!selector) {
-              snapshotCacheSet(context.sessionId, effectiveTabId, tabUrl, variantKey, outputContent);
+              snapshotCacheSet(
+                context.sessionId,
+                effectiveTabId,
+                tabUrl,
+                variantKey,
+                outputContent
+              );
             }
 
             return {
@@ -1211,12 +1230,7 @@ const readPageTool: ToolDefinition<ReadPageToolInput> = {
           };
           if ('function' !== typeof pageWindow.__generateAccessibilityTree)
             throw new Error('Accessibility tree function not found. Please refresh the page.');
-          return pageWindow.__generateAccessibilityTree(
-            filterArg,
-            depthArg,
-            maxCharsArg,
-            refIdArg
-          );
+          return pageWindow.__generateAccessibilityTree(filterArg, depthArg, maxCharsArg, refIdArg);
         },
         args: [filter || null, depth ?? null, maxChars ?? 50000, refId ?? null]
       });
@@ -1430,7 +1444,8 @@ const tabsContextTool: ToolDefinition<EmptyToolInput> = {
 
 const tabsCreateTool: ToolDefinition<EmptyToolInput> = {
   name: 'tabs_create',
-  description: 'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
+  description:
+    'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
   parameters: {},
   execute: async (_input, context): Promise<ToolResult> => {
     try {
@@ -1462,7 +1477,8 @@ const tabsCreateTool: ToolDefinition<EmptyToolInput> = {
   },
   toProviderSchema: async () => ({
     name: 'tabs_create',
-    description: 'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
+    description:
+      'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
     input_schema: { type: 'object', properties: {}, required: [] }
   })
 };
@@ -1530,7 +1546,9 @@ const updatePlanTool: ToolDefinition<UpdatePlanToolInput> = {
     'Present a plan to the user for approval before taking actions. The user will see the domains you intend to visit and your approach. Once approved, you can proceed with actions on the approved domains without additional permission prompts.',
   parameters: updatePlanInputSchema.properties,
   async execute(input, context): Promise<ToolResult> {
-    const validationError = (function validatePlan(plan: UpdatePlanToolInput | Record<string, unknown>) {
+    const validationError = (function validatePlan(
+      plan: UpdatePlanToolInput | Record<string, unknown>
+    ) {
       const planData = isRecord(plan) ? plan : {};
       const domains = planData.domains;
       const approach = planData.approach;
