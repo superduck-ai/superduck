@@ -56,7 +56,6 @@ const HANDLED_MESSAGE_TYPES = new Set([
 ]);
 
 export interface RuntimeMessageListenerDeps {
-  openSidePanel: (tabId: number) => Promise<void>;
   openSidePanelRequest: (request: {
     tabId: number;
     prompt?: string;
@@ -156,16 +155,12 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       chrome.runtime
         .sendMessage({ type: 'STOP_AGENT', targetTabId: resolvedTargetTabId })
         .catch(() => {
-          deps
-            .openSidePanel(resolvedTargetTabId)
-            .then(() => {
-              setTimeout(() => {
-                chrome.runtime
-                  .sendMessage({ type: 'STOP_AGENT', targetTabId: resolvedTargetTabId })
-                  .catch(() => {});
-              }, 1500);
-            })
-            .catch(() => {});
+          // Cannot open sidepanel here — chrome.sidePanel.open() requires a
+          // user gesture and runtime message handlers have none. The panel
+          // will open on the next user click via setOptions configuration.
+          console.debug(
+            '[superduck:stop-agent] STOP_AGENT delivery failed; panel will open on next user click'
+          );
         });
 
       sendResponse({ success: true });

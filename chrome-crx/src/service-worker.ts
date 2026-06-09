@@ -194,7 +194,6 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
 });
 
 registerRuntimeMessageListener({
-  openSidePanel: sidePanelController.openSidePanel,
   openSidePanelRequest: sidePanelController.openSidePanelRequest,
   openOptionsWithTask: sidePanelController.openOptionsWithTask,
   getNativeHostStatus: nativeHostManager.getStatus,

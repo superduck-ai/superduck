@@ -40,7 +40,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
     }
   }
 
-  async function openSidePanel(tabId: number, windowId?: number) {
+  async function openSidePanel(tabId: number, windowId?: number, gestureCapable = false) {
     // Use window-bound opening instead of tab-bound to allow the sidepanel to
     // survive tab switches. The sidepanel will track the active tab dynamically
     // via chrome.tabs.onActivated.
@@ -54,6 +54,12 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
     // intact. The `await tabs.get(tabId)` fallback only runs for non-gesture
     // callers (runtime messages) — those paths can't open the panel anyway
     // because they have no user gesture, so the await is harmless there.
+    //
+    // gestureCapable: only call chrome.sidePanel.open() when the caller is
+    // inside a user-gesture chain (e.g. chrome.action.onClicked,
+    // chrome.commands.onCommand). Runtime message handlers and STOP_AGENT
+    // fallbacks have no gesture and open() would always reject — skip it
+    // and rely on setOptions so the panel opens on the next user click.
     let resolvedWindowId = windowId;
     if (typeof resolvedWindowId !== 'number') {
       const tab = await chrome.tabs.get(tabId);
@@ -69,20 +75,26 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       console.error('[superduck:sidepanel] setOptions FAILED', err);
     }
 
-    try {
-      // Fire-and-forget: do NOT await. chrome.sidePanel.open() must run
-      // inside the user gesture chain that triggered it, and the gesture
-      // expires across an await. Awaiting here would reject open() with
-      // "may only be called in response to a user gesture" on the
-      // chrome.commands.onCommand path (Ctrl+E) — where the gesture is
-      // real but any await between the callback and open() breaks the
-      // chain. The follow-up tabGroupManager calls below don't need a
-      // user gesture, so they're free to await.
-      chrome.sidePanel.open({ windowId: resolvedWindowId }).catch((err) => {
+    if (gestureCapable) {
+      try {
+        // Fire-and-forget: do NOT await. chrome.sidePanel.open() must run
+        // inside the user gesture chain that triggered it, and the gesture
+        // expires across an await. Awaiting here would reject open() with
+        // "may only be called in response to a user gesture" on the
+        // chrome.commands.onCommand path (Ctrl+E) — where the gesture is
+        // real but any await between the callback and open() breaks the
+        // chain. The follow-up tabGroupManager calls below don't need a
+        // user gesture, so they're free to await.
+        chrome.sidePanel.open({ windowId: resolvedWindowId }).catch((err) => {
+          console.error('[superduck:sidepanel] open() FAILED', err);
+        });
+      } catch (err) {
         console.error('[superduck:sidepanel] open() FAILED', err);
-      });
-    } catch (err) {
-      console.error('[superduck:sidepanel] open() FAILED', err);
+      }
+    } else {
+      console.debug(
+        '[superduck:sidepanel] skipping open() — no user gesture; setOptions configured panel for next click'
+      );
     }
 
     await tabGroupManager.initialize(true);
@@ -131,9 +143,9 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
 
   async function handleActionClick(tab: chrome.tabs.Tab) {
     if (tab.id !== undefined && tab.windowId !== undefined) {
-      await openSidePanel(tab.id, tab.windowId);
+      await openSidePanel(tab.id, tab.windowId, true);
     } else if (tab.id !== undefined) {
-      await openSidePanel(tab.id);
+      await openSidePanel(tab.id, undefined, true);
     }
   }
 
