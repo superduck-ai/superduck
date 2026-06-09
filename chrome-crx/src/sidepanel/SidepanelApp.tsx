@@ -1371,15 +1371,30 @@ export function SidepanelApp() {
         // resolution cycle (cheap, idempotent).
         void persistTabMapping(lastSessionId);
       } else if (sessionResolvedForTabRef.current !== tabId) {
-        // Tab has never been bound before — always start a fresh
-        // conversation for it. Do NOT fall back to
-        // LAST_ACTIVE_SESSION_KEY: that would load another tab's
-        // conversation, which is confusing when the user switches to
-        // a new tab and expects a clean slate. The user can still
-        // reach prior conversations via the session history panel.
-        const newId = crypto.randomUUID();
-        setActiveSessionId(newId);
-        void persistTabMapping(newId);
+        // Tab-specific session not found AND we are entering a tab that
+        // has never been bound before. The currently-active session was
+        // inherited from the previous tab, so don't leak it into this
+        // tab's storage — fall back to the global last-active session
+        // (or generate fresh) and bind that to the new tab.
+        const fallbackSessionId = await getStorageValue(LAST_ACTIVE_SESSION_KEY);
+        if (!active) return;
+        if (
+          typeof fallbackSessionId === 'string' &&
+          fallbackSessionId &&
+          fallbackSessionId !== activeSessionId
+        ) {
+          setActiveSessionId(fallbackSessionId);
+          void persistTabMapping(fallbackSessionId);
+        } else if (!activeSessionId) {
+          const newId = crypto.randomUUID();
+          setActiveSessionId(newId);
+          void persistTabMapping(newId);
+        } else {
+          // The active session has no tab binding yet — record the
+          // association now so future tab switches know which tab owns
+          // it.
+          void persistTabMapping(activeSessionId);
+        }
       }
       sessionResolvedForTabRef.current = tabId;
     })();
