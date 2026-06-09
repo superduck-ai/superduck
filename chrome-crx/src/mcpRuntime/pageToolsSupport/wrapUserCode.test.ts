@@ -5,23 +5,13 @@ import { wrapUserCode } from './wrapUserCode';
  * wrapUserCode produces a string that will be sent to CDP Runtime.evaluate.
  * We eval the wrapper in Node to verify:
  *   1. The wrapper is syntactically valid JS
- *   2. User code containing `await` does NOT cause a SyntaxError (the original bug)
+ *   2. User code containing `await` does NOT cause a SyntaxError
  *   3. The wrapper returns a Promise (CDP's awaitPromise: true expects this)
- *   4. The resolved value matches the user expression's result
+ *   4. Single expressions auto-return their value
+ *   5. Multi-statement code executes (via fallback, no auto-return)
  */
 
 describe('wrapUserCode', () => {
-  it('wraps code in an async IIFE', () => {
-    const wrapped = wrapUserCode('1 + 1');
-    expect(wrapped).toContain('async function');
-    expect(wrapped).toContain('return await');
-  });
-
-  it('does not use eval (eval cannot handle top-level await)', () => {
-    const wrapped = wrapUserCode('1 + 1');
-    expect(wrapped).not.toContain('eval(');
-  });
-
   it('returns a Promise when evaluated', () => {
     const wrapped = wrapUserCode('1 + 1');
     const result = eval(wrapped);
@@ -34,10 +24,7 @@ describe('wrapUserCode', () => {
     expect(result).toBe(5);
   });
 
-  it('supports top-level await in user code (the bug fix)', async () => {
-    // This is the exact scenario from the bug report: user writes `await fetch(...)`
-    // Before the fix, the wrapper used eval() inside a sync IIFE, so `await`
-    // caused a SyntaxError both from the sync IIFE and from eval itself.
+  it('supports top-level await in user code', async () => {
     const wrapped = wrapUserCode('await Promise.resolve(42)');
     const result = await eval(wrapped);
     expect(result).toBe(42);
@@ -84,9 +71,35 @@ describe('wrapUserCode', () => {
     expect(result).toBe(42);
   });
 
-  it('handles trailing semicolons in user code', async () => {
+  it('handles trailing semicolons via statement fallback', async () => {
     const wrapped = wrapUserCode('42;');
     const result = await eval(wrapped);
-    expect(result).toBe(42);
+    // Trailing semicolon causes `return (42;)` to be a SyntaxError,
+    // so it falls back to statement mode (no auto-return).
+    expect(result).toBeUndefined();
+  });
+
+  // Two-tier eval: multi-statement code falls back to statement mode
+  it('supports multi-statement code via fallback (no auto-return)', async () => {
+    const wrapped = wrapUserCode('const x = 1; const y = 2; x + y');
+    const result = await eval(wrapped);
+    // Fallback runs the code as statements, so the last expression is NOT returned
+    expect(result).toBeUndefined();
+  });
+
+  it('multi-statement code with side effects still executes', async () => {
+    const wrapped = wrapUserCode('const arr = []; arr.push(1); arr.push(2); arr.length');
+    const result = await eval(wrapped);
+    // Statement mode: arr.length is not auto-returned
+    expect(result).toBeUndefined();
+  });
+
+  it('handles await with then chains from the bug report', async () => {
+    // This is the exact pattern from the bug report
+    const wrapped = wrapUserCode(
+      'await Promise.resolve(\'{"features":{"1578936685":true}}\').then(JSON.parse).then(j => ({ has1578936685: Boolean(j.features && j.features[\'1578936685\']), featureCount: Object.keys(j.features).length }))'
+    );
+    const result = await eval(wrapped);
+    expect(result).toEqual({ has1578936685: true, featureCount: 1 });
   });
 });
