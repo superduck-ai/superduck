@@ -36,6 +36,7 @@ import type {
   ToolSchemaProperty,
   ToolTabSummary
 } from './pageToolsSupport/types';
+import { wrapUserCode } from './pageToolsSupport/wrapUserCode';
 
 interface JavaScriptToolInput {
   action: string;
@@ -209,16 +210,7 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       const securityCheck = await checkUrlSecurity(effectiveTabId, tabUrl, 'JavaScript execution');
       if (securityCheck) return securityCheck;
 
-      const wrappedCode = `
-        (function() {
-          'use strict';
-          try {
-            return eval(${JSON.stringify(code)});
-          } catch (e) {
-            throw e;
-          }
-        })()
-      `;
+      const wrappedCode = wrapUserCode(code);
 
       const evalResult = await cdpDebugger.sendCommand<CdpRuntimeEvaluateResult>(
         effectiveTabId,
