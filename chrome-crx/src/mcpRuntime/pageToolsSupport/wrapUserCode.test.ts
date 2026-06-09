@@ -8,7 +8,8 @@ import { wrapUserCode } from './wrapUserCode';
  *   2. User code containing `await` does NOT cause a SyntaxError
  *   3. The wrapper returns a Promise (CDP's awaitPromise: true expects this)
  *   4. Single expressions auto-return their value
- *   5. Multi-statement code executes (via fallback, no auto-return)
+ *   5. Multi-statement code executes and auto-returns the last expression
+ *   6. Line comments in user code don't break the wrapper
  */
 
 describe('wrapUserCode', () => {
@@ -75,27 +76,38 @@ describe('wrapUserCode', () => {
     const wrapped = wrapUserCode('42;');
     const result = await eval(wrapped);
     // Trailing semicolon causes `return (42;)` to be a SyntaxError,
-    // so it falls back to statement mode (no auto-return).
-    expect(result).toBeUndefined();
+    // so it falls back to plain eval which still returns 42.
+    expect(result).toBe(42);
   });
 
-  // Two-tier eval: multi-statement code falls back to statement mode
-  it('supports multi-statement code via fallback (no auto-return)', async () => {
+  // Multi-statement code: fallback to plain eval, auto-returns last expression
+  it('supports multi-statement code with auto-return via fallback', async () => {
     const wrapped = wrapUserCode('const x = 1; const y = 2; x + y');
     const result = await eval(wrapped);
-    // Fallback runs the code as statements, so the last expression is NOT returned
-    expect(result).toBeUndefined();
+    // Plain eval returns the last expression value
+    expect(result).toBe(3);
   });
 
-  it('multi-statement code with side effects still executes', async () => {
+  it('multi-statement code with side effects returns last expression', async () => {
     const wrapped = wrapUserCode('const arr = []; arr.push(1); arr.push(2); arr.length');
     const result = await eval(wrapped);
-    // Statement mode: arr.length is not auto-returned
-    expect(result).toBeUndefined();
+    expect(result).toBe(2);
+  });
+
+  // Line comments: newlines around user code prevent comment from eating wrapper
+  it('handles code ending with a line comment', async () => {
+    const wrapped = wrapUserCode('42 // the answer');
+    const result = await eval(wrapped);
+    expect(result).toBe(42);
+  });
+
+  it('handles await code ending with a line comment', async () => {
+    const wrapped = wrapUserCode('await Promise.resolve(42) // async result');
+    const result = await eval(wrapped);
+    expect(result).toBe(42);
   });
 
   it('handles await with then chains from the bug report', async () => {
-    // This is the exact pattern from the bug report
     const wrapped = wrapUserCode(
       'await Promise.resolve(\'{"features":{"1578936685":true}}\').then(JSON.parse).then(j => ({ has1578936685: Boolean(j.features && j.features[\'1578936685\']), featureCount: Object.keys(j.features).length }))'
     );
