@@ -114,4 +114,16 @@ describe('wrapUserCode', () => {
     const result = await eval(wrapped);
     expect(result).toEqual({ has1578936685: true, featureCount: 1 });
   });
+
+  // No double execution: code that throws SyntaxError at runtime must not
+  // be re-executed by the fallback path
+  it('does not double-execute when user code throws SyntaxError at runtime', async () => {
+    const wrapped = wrapUserCode(
+      '(() => { globalThis.__execCount = (globalThis.__execCount || 0) + 1; throw new SyntaxError("boom"); })()'
+    );
+    (globalThis as any).__execCount = 0;
+    await expect(eval(wrapped)).rejects.toThrow('boom');
+    expect((globalThis as any).__execCount).toBe(1);
+    delete (globalThis as any).__execCount;
+  });
 });
