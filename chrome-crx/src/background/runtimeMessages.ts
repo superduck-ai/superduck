@@ -5,6 +5,7 @@ import {
   trackEvent
 } from '../mcpRuntime';
 import type { NativeHostStatus } from './nativeHost';
+import type { OpenSidePanelRequest } from './sidePanel';
 import type { ScheduledTask } from './types';
 
 type RuntimeMessage = { type: string; [key: string]: unknown };
@@ -56,14 +57,7 @@ const HANDLED_MESSAGE_TYPES = new Set([
 ]);
 
 export interface RuntimeMessageListenerDeps {
-  openSidePanelRequest: (request: {
-    tabId: number;
-    prompt?: string;
-    permissionMode?: unknown;
-    selectedModel?: string;
-    attachments?: unknown;
-    conversationUuid?: string;
-  }) => Promise<void>;
+  openSidePanelRequest: (request: OpenSidePanelRequest) => Promise<void>;
   openOptionsWithTask: (task: ScheduledTask) => Promise<void>;
   getNativeHostStatus: () => Promise<NativeHostStatus>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
