@@ -1332,6 +1332,16 @@ export function SidepanelApp() {
       return;
     }
 
+    // Defer session switching while an agent is executing. Switching
+    // sessions mid-execution would wipe the visible state (messages,
+    // apiMessages) and cause the agent's output to be written to the
+    // wrong session. Once the agent finishes, this effect re-runs
+    // (effectiveIsAgentRunning is in the deps) and resolves the session
+    // for the current tab.
+    if (effectiveIsAgentRunning && sessionResolvedForTabRef.current !== undefined) {
+      return;
+    }
+
     // Wait for dynamicTabId to be known (a real number) before reading
     // any tab-specific mapping. If we have a URL sessionId, the user
     // is explicitly opening a specific conversation, so we proceed
@@ -1407,7 +1417,7 @@ export function SidepanelApp() {
     return () => {
       active = false;
     };
-  }, [activeSessionId, dynamicTabId, query.sessionId]);
+  }, [activeSessionId, dynamicTabId, effectiveIsAgentRunning, query.sessionId]);
 
   // ─── Tab-session mapping persistence ──────────────────────────────────────
   // The tab→session mapping is written once inside the resolver effect above
