@@ -177,6 +177,17 @@ export function SidepanelApp() {
       // PANEL_READY is best-effort: if the service worker isn't ready or the
       // user closes the sidepanel before the message roundtrips, that's fine.
     });
+
+    // Notify SW when the sidepanel iframe is destroyed so it can clear
+    // panelAlive and properly reconfigure on next open.
+    const onUnload = () => {
+      chrome.runtime.sendMessage({ type: 'PANEL_CLOSED' }).catch(() => {});
+    };
+    window.addEventListener('beforeunload', onUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', onUnload);
+    };
   }, []);
 
   const _query = useQueryState();

@@ -2,6 +2,13 @@ import { setStorageValue, StorageKeys } from '../extensionServices';
 import { tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
 
+// Tracks whether the sidepanel iframe is alive. When true, openSidePanel
+// skips setOptions to avoid reloading the iframe and killing a running agent.
+let panelAlive = false;
+export function setPanelAlive(value: boolean): void {
+  panelAlive = value;
+}
+
 export interface OpenSidePanelRequest {
   tabId: number;
   prompt?: string;
@@ -66,13 +73,19 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       resolvedWindowId = tab.windowId;
     }
 
-    try {
-      chrome.sidePanel.setOptions({
-        path: `sidepanel.html?initialTabId=${encodeURIComponent(tabId)}`,
-        enabled: true
-      });
-    } catch (err) {
-      console.error('[superduck:sidepanel] setOptions FAILED', err);
+    // Skip setOptions when panel is alive to avoid reloading the iframe.
+    // The sidepanel tracks the active tab dynamically via useActiveTabId.
+    if (panelAlive) {
+      console.debug('[superduck:sidepanel] panel alive, skipping setOptions');
+    } else {
+      try {
+        chrome.sidePanel.setOptions({
+          path: `sidepanel.html?initialTabId=${encodeURIComponent(tabId)}`,
+          enabled: true
+        });
+      } catch (err) {
+        console.error('[superduck:sidepanel] setOptions FAILED', err);
+      }
     }
 
     if (gestureCapable) {
