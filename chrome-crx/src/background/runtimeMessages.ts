@@ -6,7 +6,7 @@ import {
 } from '../mcpRuntime';
 import type { NativeHostStatus } from './nativeHost';
 import type { OpenSidePanelRequest } from './sidePanel';
-import { setPanelAlive } from './sidePanel';
+import { incrementPanelAlive, decrementPanelAlive } from './sidePanel';
 import type { ScheduledTask } from './types';
 
 type RuntimeMessage = { type: string; [key: string]: unknown };
@@ -326,13 +326,13 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
 
       if (message.type === 'PANEL_CLOSED') {
-        setPanelAlive(false);
+        decrementPanelAlive();
         sendResponse({ success: true });
         return;
       }
 
       if (message.type === 'PANEL_READY') {
-        setPanelAlive(true);
+        incrementPanelAlive();
 
         // Sidepanel just (re)opened and is asking us to make sure the active
         // tab belongs to a SuperDuck group. The tabId comes from the user's

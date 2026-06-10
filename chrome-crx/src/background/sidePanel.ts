@@ -2,11 +2,17 @@ import { setStorageValue, StorageKeys } from '../extensionServices';
 import { tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
 
-// Tracks whether the sidepanel iframe is alive. When true, openSidePanel
-// skips setOptions to avoid reloading the iframe and killing a running agent.
-let panelAlive = false;
-export function setPanelAlive(value: boolean): void {
-  panelAlive = value;
+// Count of alive sidepanel iframes. When > 0, openSidePanel skips setOptions
+// to avoid reloading any live iframe and killing a running agent.
+let alivePanelCount = 0;
+export function incrementPanelAlive(): void {
+  alivePanelCount++;
+}
+export function decrementPanelAlive(): void {
+  alivePanelCount = Math.max(0, alivePanelCount - 1);
+}
+export function isPanelAlive(): boolean {
+  return alivePanelCount > 0;
 }
 
 export interface OpenSidePanelRequest {
@@ -75,7 +81,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
 
     // Skip setOptions when panel is alive to avoid reloading the iframe.
     // The sidepanel tracks the active tab dynamically via useActiveTabId.
-    if (panelAlive) {
+    if (isPanelAlive()) {
       console.debug('[superduck:sidepanel] panel alive, skipping setOptions');
     } else {
       try {
