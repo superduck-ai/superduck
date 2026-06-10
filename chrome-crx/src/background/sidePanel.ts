@@ -2,16 +2,39 @@ import { setStorageValue, StorageKeys } from '../extensionServices';
 import { tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
 
-// Count of alive sidepanel iframes. When > 0, openSidePanel skips setOptions
-// to avoid reloading any live iframe and killing a running agent.
+// Count of alive sidepanel iframes, persisted to session storage to survive
+// SW restarts. When > 0, openSidePanel skips setOptions to avoid reloading
+// any live iframe and killing a running agent.
+const PANEL_ALIVE_COUNT_KEY = 'panelAliveCount';
 let alivePanelCount = 0;
-export function incrementPanelAlive(): void {
+let initialized = false;
+
+async function initPanelAliveCount(): Promise<void> {
+  if (initialized) return;
+  const result = await chrome.storage.session.get(PANEL_ALIVE_COUNT_KEY);
+  alivePanelCount =
+    typeof result[PANEL_ALIVE_COUNT_KEY] === 'number' ? result[PANEL_ALIVE_COUNT_KEY] : 0;
+  initialized = true;
+}
+
+async function persistPanelAliveCount(): Promise<void> {
+  await chrome.storage.session.set({ [PANEL_ALIVE_COUNT_KEY]: alivePanelCount });
+}
+
+export async function incrementPanelAlive(): Promise<void> {
+  await initPanelAliveCount();
   alivePanelCount++;
+  await persistPanelAliveCount();
 }
-export function decrementPanelAlive(): void {
+
+export async function decrementPanelAlive(): Promise<void> {
+  await initPanelAliveCount();
   alivePanelCount = Math.max(0, alivePanelCount - 1);
+  await persistPanelAliveCount();
 }
-export function isPanelAlive(): boolean {
+
+export async function isPanelAlive(): Promise<boolean> {
+  await initPanelAliveCount();
   return alivePanelCount > 0;
 }
 
@@ -81,7 +104,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
 
     // Skip setOptions when panel is alive to avoid reloading the iframe.
     // The sidepanel tracks the active tab dynamically via useActiveTabId.
-    if (isPanelAlive()) {
+    if (await isPanelAlive()) {
       console.debug('[superduck:sidepanel] panel alive, skipping setOptions');
     } else {
       try {

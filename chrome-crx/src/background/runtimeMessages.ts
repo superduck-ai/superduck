@@ -326,13 +326,13 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
 
       if (message.type === 'PANEL_CLOSED') {
-        decrementPanelAlive();
+        await decrementPanelAlive();
         sendResponse({ success: true });
         return;
       }
 
       if (message.type === 'PANEL_READY') {
-        incrementPanelAlive();
+        await incrementPanelAlive();
 
         // Sidepanel just (re)opened and is asking us to make sure the active
         // tab belongs to a SuperDuck group. The tabId comes from the user's
