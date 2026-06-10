@@ -91,22 +91,6 @@ export function useRuntimeMessages({
     });
   }, [queryTabId, secondaryState.mainTabId]);
 
-  // PANEL_CLOSED on visibility hidden
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== 'hidden' || typeof queryTabId !== 'number') return;
-      void chrome.runtime.sendMessage({
-        type: 'PANEL_CLOSED',
-        tabId: queryTabId,
-        mainTabId: secondaryState.mainTabId ?? queryTabId
-      });
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [queryTabId, secondaryState.mainTabId]);
-
   // shouldHandleTaskForCurrentContext
   const shouldHandleTaskForCurrentContext = useCallback(
     (message: any) => {
