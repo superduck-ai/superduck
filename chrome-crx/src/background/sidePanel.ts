@@ -2,6 +2,42 @@ import { setStorageValue, StorageKeys } from '../extensionServices';
 import { tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
 
+// Count of alive sidepanel iframes, persisted to session storage to survive
+// SW restarts. When > 0, openSidePanel skips setOptions to avoid reloading
+// any live iframe and killing a running agent.
+const PANEL_ALIVE_COUNT_KEY = 'panelAliveCount';
+let alivePanelCount = 0;
+let initialized = false;
+
+async function initPanelAliveCount(): Promise<void> {
+  if (initialized) return;
+  const result = await chrome.storage.session.get(PANEL_ALIVE_COUNT_KEY);
+  alivePanelCount =
+    typeof result[PANEL_ALIVE_COUNT_KEY] === 'number' ? result[PANEL_ALIVE_COUNT_KEY] : 0;
+  initialized = true;
+}
+
+async function persistPanelAliveCount(): Promise<void> {
+  await chrome.storage.session.set({ [PANEL_ALIVE_COUNT_KEY]: alivePanelCount });
+}
+
+export async function incrementPanelAlive(): Promise<void> {
+  await initPanelAliveCount();
+  alivePanelCount++;
+  await persistPanelAliveCount();
+}
+
+export async function decrementPanelAlive(): Promise<void> {
+  await initPanelAliveCount();
+  alivePanelCount = Math.max(0, alivePanelCount - 1);
+  await persistPanelAliveCount();
+}
+
+export async function isPanelAlive(): Promise<boolean> {
+  await initPanelAliveCount();
+  return alivePanelCount > 0;
+}
+
 export interface OpenSidePanelRequest {
   tabId: number;
   prompt?: string;
