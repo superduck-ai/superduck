@@ -62,7 +62,10 @@ export function createNativeHostManager(): NativeHostManager {
   let disconnectHandler: (() => void) | null = null;
 
   const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
-    if (!nativeHostInstalled || explicitDisconnect) return;
+    // Don't gate on nativeHostInstalled — after a service worker restart
+    // it resets to false, which would silently kill the retry chain.
+    // Only explicit disconnect should stop auto-reconnect.
+    if (explicitDisconnect) return;
     console.warn('[nativeHost] auto-reconnect: attempting to reconnect...');
     void connect();
   });
