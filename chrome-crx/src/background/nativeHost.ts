@@ -221,6 +221,8 @@ export function createNativeHostManager(): NativeHostManager {
   async function handleHeartbeatAlarm(): Promise<void> {
     if (!nativePort) return;
 
+    const portAtStart = nativePort;
+
     const timeout = new Promise<boolean>((resolve) =>
       setTimeout(() => resolve(false), HEARTBEAT_TIMEOUT_MS)
     );
@@ -235,6 +237,10 @@ export function createNativeHostManager(): NativeHostManager {
 
     const alive = await Promise.race([timeout, ping]);
     if (alive) return;
+
+    // If the port was replaced by auto-reconnect while we were awaiting,
+    // bail out — the new port is healthy and must not be killed.
+    if (nativePort !== portAtStart) return;
 
     heartbeatResolve = null;
     stopHeartbeat();
@@ -293,7 +299,9 @@ export function createNativeHostManager(): NativeHostManager {
               const onDisconnect = () => {
                 if (settled) return;
                 settled = true;
-                chrome.runtime.lastError;
+                // Propagate disconnect error so nativeHostInstalled is updated
+                // (e.g. "native messaging host not found" on uninstall).
+                handleDisconnectError(chrome.runtime.lastError?.message);
                 resolve(false);
               };
 
@@ -332,6 +340,14 @@ export function createNativeHostManager(): NativeHostManager {
               continue;
             }
 
+            // Guard: if disconnect() was called while we were awaiting the
+            // handshake, abort this connection — the user explicitly wanted
+            // to disconnect and we must not silently reconnect behind them.
+            if (explicitDisconnect) {
+              port.disconnect();
+              continue;
+            }
+
             nativePort = port;
             nativeHostInstalled = true;
             reconnectScheduler.reset();
@@ -358,6 +374,7 @@ export function createNativeHostManager(): NativeHostManager {
               void setStorageValue(StorageKeys.MCP_CONNECTED, false);
               stopHeartbeat();
               handleDisconnectError(errorMessage);
+              tabGroupManager.stopTabGroupChangeListener();
               reconnectMcp();
               reconnectScheduler.schedule();
             };

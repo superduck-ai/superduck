@@ -6,9 +6,9 @@
  * schedule. Skipped when explicitly disconnected.
  */
 export class ReconnectScheduler {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private attempt = 0;
-  private disabled = false;
+  private _timer: ReturnType<typeof setTimeout> | null = null;
+  private _attempt = 0;
+  private _disabled = false;
 
   constructor(
     private readonly delays: number[],
@@ -17,57 +17,57 @@ export class ReconnectScheduler {
 
   /** Schedule the next reconnect attempt. No-op if disabled or exhausted. */
   schedule(): void {
-    if (this.disabled) return;
-    if (this.timer) return; // already scheduled
-    if (this.attempt >= this.delays.length) return;
+    if (this._disabled) return;
+    if (this._timer) return; // already scheduled
+    if (this._attempt >= this.delays.length) return;
 
-    const delay = this.delays[this.attempt];
-    this.attempt++;
-    this.timer = setTimeout(() => {
-      this.timer = null;
+    const delay = this.delays[this._attempt];
+    this._attempt++;
+    this._timer = setTimeout(() => {
+      this._timer = null;
       this.onReconnect();
     }, delay);
   }
 
-  /** Cancel any pending reconnect and reset the attempt counter. */
+  /** Cancel any pending reconnect timer. */
   cancel(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
+    if (this._timer) {
+      clearTimeout(this._timer);
+      this._timer = null;
     }
   }
 
   /** Reset attempt counter (call after successful reconnect). */
   reset(): void {
-    this.attempt = 0;
+    this._attempt = 0;
     this.cancel();
   }
 
   /** Disable scheduling (call on explicit/user-initiated disconnect). */
   disable(): void {
-    this.disabled = true;
+    this._disabled = true;
     this.cancel();
   }
 
   /** Re-enable scheduling (call when connect is attempted again). */
   enable(): void {
-    this.disabled = false;
+    this._disabled = false;
   }
 
   // ─── Test helpers (expose internal state for assertions) ─────────────
 
   /** Current attempt index (0-based, incremented on each schedule()). */
   get currentAttempt(): number {
-    return this.attempt;
+    return this._attempt;
   }
 
   /** Whether a timer is currently pending. */
   get isPending(): boolean {
-    return this.timer !== null;
+    return this._timer !== null;
   }
 
   /** Whether scheduling is disabled. */
   get isDisabled(): boolean {
-    return this.disabled;
+    return this._disabled;
   }
 }
