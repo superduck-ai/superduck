@@ -299,9 +299,7 @@ export function createNativeHostManager(): NativeHostManager {
               const onDisconnect = () => {
                 if (settled) return;
                 settled = true;
-                // Propagate disconnect error so nativeHostInstalled is updated
-                // (e.g. "native messaging host not found" on uninstall).
-                handleDisconnectError(chrome.runtime.lastError?.message);
+                chrome.runtime.lastError;
                 resolve(false);
               };
 
@@ -400,13 +398,11 @@ export function createNativeHostManager(): NativeHostManager {
         return false;
       } finally {
         isConnecting = false;
-        // If connect failed but we previously had a working native host,
-        // schedule a retry. This handles the case where the service worker
-        // was hibernated during a reconnect timer — on wake, connect() is
-        // called fresh but may fail if the host isn't ready yet. The
-        // schedule() call is idempotent so it's safe if the onDisconnect
-        // listener already scheduled one.
-        if (!nativePort && !explicitDisconnect && nativeHostInstalled) {
+        // If connect failed, schedule a retry. Use nativePort (not
+        // nativeHostInstalled) as the success indicator — the probe loop
+        // may have cleared nativeHostInstalled when the first host name
+        // returned "not found" before trying the fallback host.
+        if (!nativePort && !explicitDisconnect) {
           reconnectScheduler.schedule();
         }
       }
