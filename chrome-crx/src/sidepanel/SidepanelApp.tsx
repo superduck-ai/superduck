@@ -336,6 +336,15 @@ export function SidepanelApp() {
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<RichTextInputHandle | null>(null);
+  // IMPORTANT: Any code path that changes activeSessionId MUST ensure
+  // hasLoadedSessionRef is false when the save effect cleanup runs.
+  // - clearConversation / handleLoadHistorySession: set it to false explicitly
+  //   BEFORE the state update.
+  // - Session resolver (tab switch, fallback): relies on the load effect
+  //   running BEFORE the save effect (React runs effects in declaration order)
+  //   to set it to false at the top of the load effect body.
+  // Without this gate, the save effect cleanup writes stale/empty messages
+  // to the old session's storage key.
   const hasLoadedSessionRef = useRef(false);
   const activeConversationUuidRef = useRef(activeConversationUuid);
   activeConversationUuidRef.current = activeConversationUuid;
@@ -1861,6 +1870,11 @@ export function SidepanelApp() {
     setPermissionMode('skip_all_permission_checks');
     hasApprovedPlanRef.current = false;
     permissionManagerRef.current?.clearTurnApprovedDomains();
+    // Gate the persistence save effect BEFORE switching sessionId.
+    // Without this, the save effect cleanup fires with empty messages/apiMessages
+    // and writes an empty snapshot to the old session's storage key, destroying
+    // the historical data. (Same pattern as handleLoadHistorySession.)
+    hasLoadedSessionRef.current = false;
     if (!query.sessionId) {
       const nextSessionId = crypto.randomUUID();
       sessionCreatedAtRef.current = Date.now();

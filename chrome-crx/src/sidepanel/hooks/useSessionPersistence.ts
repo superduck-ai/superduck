@@ -1,6 +1,6 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { getStorageValue, setStorageValue } from '../../extensionServices';
-import { isRecord, type ApiConversationMessage } from '../../messageTypes';
+import { type ApiConversationMessage } from '../../messageTypes';
 import {
   extractTextFromContent,
   getConversationStorageKey,
@@ -99,6 +99,34 @@ export function useSessionPersistence({
   shouldDisableSkipPermissions
 }: UseSessionPersistenceProps) {
   const historyStorageKey = getHistoryStorageKey(activeSessionId);
+
+  // ─── Render-phase snapshot ref ──────────────────────────────────────────────
+  // Updated synchronously during render so that useEffect cleanups and
+  // beforeunload handlers always read the latest state, not stale closure
+  // values from the render that registered the effect. This fixes three
+  // classes of race conditions:
+  //   1. clearConversation overwriting old session with empty messages
+  //   2. beforeunload saving stale messages when panel closes quickly
+  //   3. Cleanup saves during rapid state changes (streaming) always see
+  //      the correct snapshot for the current render.
+  const snapshotRef = useRef<SessionSnapshot>({
+    uiMessages: messages,
+    apiMessages,
+    selectedModel,
+    permissionMode,
+    createdAt: sessionCreatedAtRef.current,
+    conversationUuid: activeConversationUuid || undefined,
+    remoteSessionId: activeRemoteSessionId || undefined
+  });
+  snapshotRef.current = {
+    uiMessages: messages,
+    apiMessages,
+    selectedModel,
+    permissionMode,
+    createdAt: sessionCreatedAtRef.current,
+    conversationUuid: activeConversationUuid || undefined,
+    remoteSessionId: activeRemoteSessionId || undefined
+  };
 
   // ─── Load snapshot from local storage ───────────────────────────────────────
 
@@ -330,56 +358,62 @@ export function useSessionPersistence({
   }, [activeSessionId, loadSnapshotForSession, restoreSnapshotFromRemoteSession]);
 
   // ─── Session persistence effect (debounced) ─────────────────────────────────
+  // Reads the snapshot from snapshotRef (updated during render) instead of
+  // closure values, so the cleanup always sees the latest state for the
+  // current render. The hasLoadedSessionRef gate in the cleanup prevents
+  // saving during session transitions (clearConversation, loadHistory).
+  //
+  // IMPORTANT: This effect MUST remain declared AFTER the session-loading
+  // effect above. React runs effects in declaration order, so the load
+  // effect sets hasLoadedSessionRef = false before this effect's cleanup
+  // checks it. The session resolver (in SidepanelApp) relies on this
+  // ordering — it calls setActiveSessionId without its own gate.
 
   useEffect(() => {
     if (!activeSessionId || !hasLoadedSessionRef.current) return;
 
     const persistSnapshot = () => {
-      const preview = [...messages]
+      const snap = snapshotRef.current;
+      const preview = [...snap.uiMessages]
         .reverse()
         .find((message) => message.role === 'user' && message.text.trim())?.text;
-      const snapshot: SessionSnapshot = {
-        uiMessages: messages,
-        apiMessages,
-        selectedModel,
-        permissionMode,
-        createdAt: sessionCreatedAtRef.current,
-        conversationUuid: activeConversationUuid || undefined,
-        remoteSessionId: activeRemoteSessionId || undefined
-      };
       void (async () => {
-        await setStorageValue(historyStorageKey, snapshot);
-        if (activeConversationUuid) {
-          const conversationKey = getConversationStorageKey(activeConversationUuid);
-          await setStorageValue(conversationKey, snapshot);
-          const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-          const currentMap = isStringRecord(rawMap) ? rawMap : {};
-          if (currentMap[activeConversationUuid] !== activeSessionId) {
-            await setStorageValue(SESSION_CONVERSATION_MAP_KEY, {
-              ...currentMap,
-              [activeConversationUuid]: activeSessionId
-            });
-          }
-          if (activeRemoteSessionId) {
-            const rawRemoteMap = await getStorageValue(SESSION_REMOTE_MAP_KEY, {});
-            const currentRemoteMap = isStringRecord(rawRemoteMap) ? rawRemoteMap : {};
-            if (currentRemoteMap[activeConversationUuid] !== activeRemoteSessionId) {
-              await setStorageValue(SESSION_REMOTE_MAP_KEY, {
-                ...currentRemoteMap,
-                [activeConversationUuid]: activeRemoteSessionId
+        try {
+          await setStorageValue(historyStorageKey, snap);
+          if (snap.conversationUuid) {
+            const conversationKey = getConversationStorageKey(snap.conversationUuid);
+            await setStorageValue(conversationKey, snap);
+            const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
+            const currentMap = isStringRecord(rawMap) ? rawMap : {};
+            if (currentMap[snap.conversationUuid] !== activeSessionId) {
+              await setStorageValue(SESSION_CONVERSATION_MAP_KEY, {
+                ...currentMap,
+                [snap.conversationUuid]: activeSessionId
               });
             }
+            if (snap.remoteSessionId) {
+              const rawRemoteMap = await getStorageValue(SESSION_REMOTE_MAP_KEY, {});
+              const currentRemoteMap = isStringRecord(rawRemoteMap) ? rawRemoteMap : {};
+              if (currentRemoteMap[snap.conversationUuid] !== snap.remoteSessionId) {
+                await setStorageValue(SESSION_REMOTE_MAP_KEY, {
+                  ...currentRemoteMap,
+                  [snap.conversationUuid]: snap.remoteSessionId
+                });
+              }
+            }
           }
+          await upsertSessionIndex({
+            sessionId: activeSessionId,
+            conversationUuid: snap.conversationUuid || undefined,
+            remoteSessionId: snap.remoteSessionId || undefined,
+            createdAt: snap.createdAt || sessionCreatedAtRef.current,
+            updatedAt: Date.now(),
+            model: snap.selectedModel || undefined,
+            preview: preview ? preview.slice(0, 240) : undefined
+          });
+        } catch (error) {
+          console.error('[sidepanel] failed to persist session snapshot', error);
         }
-        await upsertSessionIndex({
-          sessionId: activeSessionId,
-          conversationUuid: activeConversationUuid || undefined,
-          remoteSessionId: activeRemoteSessionId || undefined,
-          createdAt: sessionCreatedAtRef.current,
-          updatedAt: Date.now(),
-          model: selectedModel || undefined,
-          preview: preview ? preview.slice(0, 240) : undefined
-        });
       })();
     };
 
@@ -387,12 +421,23 @@ export function useSessionPersistence({
     const timer = setTimeout(persistSnapshot, 2000);
 
     // On cleanup (component unmount or deps change), save immediately.
-    // This ensures state is persisted when the sidepanel iframe is destroyed
-    // by Chrome (e.g. on tab switch) before the debounce timer fires.
+    // The hasLoadedSessionRef gate prevents saving during session transitions
+    // (clearConversation / handleLoadHistorySession set it to false before
+    // changing activeSessionId), so old session data is never overwritten
+    // with empty messages from the new session.
     return () => {
       clearTimeout(timer);
-      persistSnapshot();
+      if (hasLoadedSessionRef.current) {
+        persistSnapshot();
+      }
     };
+    // Full dependency array is intentional: the effect must re-run whenever
+    // persisted state changes so that (a) the bail-out check at the top
+    // re-evaluates hasLoadedSessionRef after the load effect sets it to true,
+    // and (b) the 2s debounce timer resets on each change. During streaming
+    // the cleanup fires on every state change and saves via snapshotRef —
+    // this trades debounce efficiency for data correctness, which is the
+    // right tradeoff since chrome.storage.local.set is fast (~1-5ms).
   }, [
     activeConversationUuid,
     activeRemoteSessionId,
@@ -408,33 +453,33 @@ export function useSessionPersistence({
   // When Chrome destroys the sidepanel iframe (e.g. tab switch), React cleanup
   // functions may not run reliably. The beforeunload/pagehide events fire on
   // the iframe's window before destruction, giving us a last chance to persist.
+  //
+  // The handler reads from snapshotRef (updated during render) instead of
+  // closure values, so it always sees the latest state regardless of when
+  // it was registered. This avoids the stale-closure problem where the
+  // handler would save messages from the render it was created in, not the
+  // most recent render.
 
   useEffect(() => {
     if (!activeSessionId || !hasLoadedSessionRef.current) return;
 
     const handleBeforeUnload = () => {
-      if (!activeSessionId) return;
-      const preview = [...messages].reverse().find((m) => m.role === 'user' && m.text.trim())?.text;
-      const snapshot: SessionSnapshot = {
-        uiMessages: messages,
-        apiMessages,
-        selectedModel,
-        permissionMode,
-        createdAt: sessionCreatedAtRef.current,
-        conversationUuid: activeConversationUuid || undefined,
-        remoteSessionId: activeRemoteSessionId || undefined
-      };
+      if (!hasLoadedSessionRef.current) return;
+      const snap = snapshotRef.current;
+      const preview = [...snap.uiMessages]
+        .reverse()
+        .find((m) => m.role === 'user' && m.text.trim())?.text;
       // chrome.storage.local.set is the only synchronous-ish API available
       // in extension context during beforeunload. Fire and forget — the
       // browser will typically complete the microtask before destruction.
-      void setStorageValue(historyStorageKey, snapshot);
+      void setStorageValue(historyStorageKey, snap);
       void upsertSessionIndex({
         sessionId: activeSessionId,
-        conversationUuid: activeConversationUuid || undefined,
-        remoteSessionId: activeRemoteSessionId || undefined,
-        createdAt: sessionCreatedAtRef.current,
+        conversationUuid: snap.conversationUuid || undefined,
+        remoteSessionId: snap.remoteSessionId || undefined,
+        createdAt: snap.createdAt || sessionCreatedAtRef.current,
         updatedAt: Date.now(),
-        model: selectedModel || undefined,
+        model: snap.selectedModel || undefined,
         preview: preview ? preview.slice(0, 240) : undefined
       });
     };
@@ -445,16 +490,9 @@ export function useSessionPersistence({
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
     };
-  }, [
-    activeConversationUuid,
-    activeRemoteSessionId,
-    activeSessionId,
-    apiMessages,
-    historyStorageKey,
-    messages,
-    permissionMode,
-    selectedModel
-  ]);
+    // The handler reads all mutable state from snapshotRef, so it only needs
+    // to re-register when the storage target changes (session switch).
+  }, [activeSessionId, historyStorageKey]);
 
   return {
     loadSnapshotForSession,
