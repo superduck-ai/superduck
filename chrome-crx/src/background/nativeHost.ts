@@ -4,7 +4,14 @@ import {
   setStorageValue,
   StorageKeys
 } from '../extensionServices';
-import { reconnectMcp, tabGroupManager, createErrorResponse, executeTool } from '../mcpRuntime';
+import {
+  reconnectMcp,
+  connectBridge,
+  tabGroupManager,
+  createErrorResponse,
+  executeTool
+} from '../mcpRuntime';
+import { ReconnectScheduler } from './ReconnectScheduler';
 
 const NATIVE_HOST_NAMES = [
   'com.me.superduck_browser_extension',
@@ -13,6 +20,11 @@ const NATIVE_HOST_NAMES = [
 
 const HEARTBEAT_ALARM = 'native-host-heartbeat';
 const HEARTBEAT_TIMEOUT_MS = 3000;
+
+// Reconnect backoff schedule (ms). Stops retrying after the last entry.
+// First delay is 200ms — native host is a local process, reconnection is
+// essentially instant. Short backoff avoids tight loops if binary is missing.
+const RECONNECT_DELAYS = [200, 1_000, 3_000, 5_000];
 
 type NativeMessage = { type: string; [key: string]: unknown };
 type ToolRequestMessage = {
@@ -46,6 +58,14 @@ export function createNativeHostManager(): NativeHostManager {
   let statusResolve: ((value: NativeHostStatus) => void) | null = null;
   let statusTimeout: ReturnType<typeof setTimeout> | null = null;
   let heartbeatResolve: ((alive: boolean) => void) | null = null;
+  let explicitDisconnect = false;
+  let disconnectHandler: (() => void) | null = null;
+
+  const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
+    if (!nativeHostInstalled || explicitDisconnect) return;
+    console.warn('[nativeHost] auto-reconnect: attempting to reconnect...');
+    void connect();
+  });
 
   function handleDisconnectError(message?: string) {
     if (message?.includes('native messaging host not found')) {
@@ -221,6 +241,16 @@ export function createNativeHostManager(): NativeHostManager {
     const deadPort = nativePort;
     nativePort = null;
     mcpConnected = false;
+
+    // Remove the disconnect handler before calling disconnect() to prevent
+    // it from firing and duplicating cleanup (reconnectMcp + schedule).
+    if (deadPort && disconnectHandler) {
+      try {
+        deadPort.onDisconnect.removeListener(disconnectHandler);
+      } catch {
+        /* port already disconnected */
+      }
+    }
     try {
       deadPort?.disconnect();
     } catch {
@@ -237,6 +267,7 @@ export function createNativeHostManager(): NativeHostManager {
 
     tabGroupManager.stopTabGroupChangeListener();
     reconnectMcp();
+    reconnectScheduler.schedule();
   }
 
   async function connect(): Promise<boolean> {
@@ -244,6 +275,9 @@ export function createNativeHostManager(): NativeHostManager {
       if (nativePort) return true;
       if (isConnecting) return false;
       isConnecting = true;
+      explicitDisconnect = false;
+      reconnectScheduler.enable();
+      reconnectScheduler.cancel();
 
       try {
         if (!(await chrome.permissions.contains({ permissions: ['nativeMessaging'] })))
@@ -300,20 +334,34 @@ export function createNativeHostManager(): NativeHostManager {
 
             nativePort = port;
             nativeHostInstalled = true;
+            reconnectScheduler.reset();
+            console.warn('[nativeHost] connected', { host: hostName });
+
+            // Re-establish the MCP bridge after native host reconnection.
+            // The bridge is independent of the native host, but reconnectMcp()
+            // (called on disconnect) closes it. Reset retries to ensure a
+            // fresh bridge connection attempt regardless of prior state.
+            void connectBridge(true);
 
             nativePort.onMessage.addListener((message) => {
               void handleNativeMessage(message);
             });
 
-            nativePort.onDisconnect.addListener(() => {
+            disconnectHandler = () => {
               const errorMessage = chrome.runtime.lastError?.message;
+              console.warn('[nativeHost] disconnected', {
+                error: errorMessage || 'unknown',
+                willReconnect: !explicitDisconnect && nativeHostInstalled
+              });
               nativePort = null;
               mcpConnected = false;
               void setStorageValue(StorageKeys.MCP_CONNECTED, false);
               stopHeartbeat();
               handleDisconnectError(errorMessage);
               reconnectMcp();
-            });
+              reconnectScheduler.schedule();
+            };
+            nativePort.onDisconnect.addListener(disconnectHandler);
 
             nativePort.postMessage({ type: 'get_status' });
             const storedAnalyticsId = await getStoredSharedAnalyticsId();
@@ -335,6 +383,15 @@ export function createNativeHostManager(): NativeHostManager {
         return false;
       } finally {
         isConnecting = false;
+        // If connect failed but we previously had a working native host,
+        // schedule a retry. This handles the case where the service worker
+        // was hibernated during a reconnect timer — on wake, connect() is
+        // called fresh but may fail if the host isn't ready yet. The
+        // schedule() call is idempotent so it's safe if the onDisconnect
+        // listener already scheduled one.
+        if (!nativePort && !explicitDisconnect && nativeHostInstalled) {
+          reconnectScheduler.schedule();
+        }
       }
     } catch {
       return false;
@@ -343,6 +400,8 @@ export function createNativeHostManager(): NativeHostManager {
 
   async function disconnect(): Promise<boolean> {
     try {
+      explicitDisconnect = true;
+      reconnectScheduler.disable();
       stopHeartbeat();
       await chrome.permissions.remove({ permissions: ['nativeMessaging'] });
       nativePort?.disconnect();
