@@ -102,19 +102,18 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       resolvedWindowId = tab.windowId;
     }
 
-    // Skip setOptions when panel is alive to avoid reloading the iframe.
-    // The sidepanel tracks the active tab dynamically via useActiveTabId.
-    if (await isPanelAlive()) {
-      console.debug('[superduck:sidepanel] panel alive, skipping setOptions');
-    } else {
-      try {
-        chrome.sidePanel.setOptions({
-          path: `sidepanel.html?initialTabId=${encodeURIComponent(tabId)}`,
-          enabled: true
-        });
-      } catch (err) {
-        console.error('[superduck:sidepanel] setOptions FAILED', err);
-      }
+    // Use a stable path (no initialTabId) so that repeated setOptions calls
+    // don't change the URL and trigger an iframe reload — which would kill
+    // a running agent. The sidepanel's useActiveTabId hook already resolves
+    // the active tab via chrome.tabs.query + chrome.tabs.onActivated, so
+    // the query parameter is unnecessary.
+    try {
+      chrome.sidePanel.setOptions({
+        path: 'sidepanel.html',
+        enabled: true
+      });
+    } catch (err) {
+      console.error('[superduck:sidepanel] setOptions FAILED', err);
     }
 
     if (gestureCapable) {
