@@ -336,6 +336,15 @@ export function SidepanelApp() {
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<RichTextInputHandle | null>(null);
+  // IMPORTANT: Any code path that changes activeSessionId MUST ensure
+  // hasLoadedSessionRef is false when the save effect cleanup runs.
+  // - clearConversation / handleLoadHistorySession: set it to false explicitly
+  //   BEFORE the state update.
+  // - Session resolver (tab switch, fallback): relies on the load effect
+  //   running BEFORE the save effect (React runs effects in declaration order)
+  //   to set it to false at the top of the load effect body.
+  // Without this gate, the save effect cleanup writes stale/empty messages
+  // to the old session's storage key.
   const hasLoadedSessionRef = useRef(false);
   const activeConversationUuidRef = useRef(activeConversationUuid);
   activeConversationUuidRef.current = activeConversationUuid;
@@ -1432,7 +1441,7 @@ export function SidepanelApp() {
 
   // ─── Session persistence hook ─────────────────────────────────────────────
 
-  const { loadSnapshotForSession } = useSessionPersistence({
+  const { loadSnapshotForSession, flushSession } = useSessionPersistence({
     activeSessionId,
     activeConversationUuid,
     activeRemoteSessionId,
@@ -1861,12 +1870,21 @@ export function SidepanelApp() {
     setPermissionMode('skip_all_permission_checks');
     hasApprovedPlanRef.current = false;
     permissionManagerRef.current?.clearTurnApprovedDomains();
+    // Flush the current session before lowering the gate, so any
+    // messages/model changes within the 2s debounce window are persisted
+    // before the save effect cleanup is suppressed.
+    flushSession();
+    // Gate the persistence save effect BEFORE switching sessionId.
+    // Without this, the save effect cleanup fires with empty messages/apiMessages
+    // and writes an empty snapshot to the old session's storage key, destroying
+    // the historical data. (Same pattern as handleLoadHistorySession.)
+    hasLoadedSessionRef.current = false;
     if (!query.sessionId) {
       const nextSessionId = crypto.randomUUID();
       sessionCreatedAtRef.current = Date.now();
       setActiveSessionId(nextSessionId);
     }
-  }, [messages, query.sessionId]);
+  }, [flushSession, messages, query.sessionId]);
 
   // Load a historical session: clears current state and switches to the selected session.
   // The useSessionPersistence hook's load effect will pick up the new activeSessionId
@@ -1916,6 +1934,9 @@ export function SidepanelApp() {
       }
       setPermissionPrompt(null);
 
+      // Flush the current session before lowering the gate, so any
+      // messages/model changes within the 2s debounce window are persisted.
+      flushSession();
       // Gate the persistence save effect BEFORE switching sessionId.
       // Without this, the save effect fires with empty messages/apiMessages
       // (set above) and writes an empty snapshot to the new session's storage
@@ -1939,7 +1960,7 @@ export function SidepanelApp() {
         void setStorageValue(getTabSessionKey(query.tabId), sessionId);
       }
     },
-    [activeSessionId, query.tabId]
+    [activeSessionId, flushSession, query.tabId]
   );
 
   const normalizedModelOptions = useMemo(() => {

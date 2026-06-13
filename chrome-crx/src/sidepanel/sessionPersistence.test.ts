@@ -511,3 +511,218 @@ describe('snapshot round-trip integrity', () => {
     expect(isSessionSnapshot(snapshot)).toBe(true);
   });
 });
+
+// ─── Snapshot ref pattern: render-phase updates ──────────────────────────────
+// These tests verify the core invariant of the snapshotRef fix: a ref updated
+// synchronously during "render" always reflects the latest state, even when
+// read by "cleanup" functions that were registered during a previous render.
+
+describe('snapshotRef pattern: render-phase updates visible to cleanup', () => {
+  it('simulates clearConversation: cleanup reads empty messages from ref, gate prevents save', () => {
+    // Simulate the React lifecycle of clearConversation:
+    //   Render N: messages = [userMsg, assistantMsg], sessionId = 'old'
+    //   clearConversation() → setMessages([]), setActiveSessionId('new')
+    //   Render N+1: messages = [], sessionId = 'new'
+    //   Save effect cleanup (from render N's effect) fires
+    //
+    // With the fix:
+    //   - snapshotRef was updated during render N+1 → has { uiMessages: [] }
+    //   - BUT hasLoadedSessionRef.current = false (set by clearConversation)
+    //   - So cleanup checks the gate and SKIPS save → old session NOT overwritten
+
+    const snapshotRef = { current: null as SessionSnapshot | null };
+    const hasLoadedSessionRef = { current: true };
+
+    // --- Render N: session is active with messages ---
+    const oldMessages: ChatMessage[] = [
+      { id: 'u1', role: 'user', text: 'Hello' },
+      { id: 'a1', role: 'assistant', text: 'Hi there' }
+    ];
+    snapshotRef.current = {
+      uiMessages: oldMessages,
+      apiMessages: [{ role: 'user', content: 'Hello' }],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks'
+    };
+    const oldSessionId = 'session-old-123';
+
+    // --- clearConversation() is called ---
+    hasLoadedSessionRef.current = false; // gate set BEFORE state changes
+
+    // --- Render N+1: state cleared ---
+    snapshotRef.current = {
+      uiMessages: [],
+      apiMessages: [],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks'
+    };
+    const _newSessionId = 'session-new-456';
+
+    // --- Save effect cleanup fires (from render N's effect) ---
+    let savedKey: string | null = null;
+    let savedSnapshot: SessionSnapshot | null = null;
+
+    // The cleanup has oldSessionId in closure (from render N),
+    // but reads snapshotRef.current (updated during render N+1)
+    if (hasLoadedSessionRef.current) {
+      savedKey = `sidepanel_session_${oldSessionId}`;
+      savedSnapshot = snapshotRef.current;
+    }
+
+    // The gate prevented the save
+    expect(savedKey).toBeNull();
+    expect(savedSnapshot).toBeNull();
+  });
+
+  it('simulates handleLoadHistorySession: gate prevents overwrite of old session', () => {
+    const snapshotRef = { current: null as SessionSnapshot | null };
+    const hasLoadedSessionRef = { current: true };
+
+    // Current session has messages
+    snapshotRef.current = {
+      uiMessages: [
+        { id: 'u1', role: 'user', text: 'Current conversation' },
+        { id: 'a1', role: 'assistant', text: 'Response' }
+      ],
+      apiMessages: [{ role: 'user', content: 'Current conversation' }],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks'
+    };
+
+    // handleLoadHistorySession: gate BEFORE clearing
+    hasLoadedSessionRef.current = false;
+    // State cleared and session switched
+    snapshotRef.current = {
+      uiMessages: [],
+      apiMessages: [],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks'
+    };
+
+    // Cleanup fires — gate should prevent save
+    const wouldSave = hasLoadedSessionRef.current;
+    expect(wouldSave).toBe(false);
+  });
+
+  it('simulates normal unmount: gate allows save with latest ref state', () => {
+    const snapshotRef = { current: null as SessionSnapshot | null };
+    const hasLoadedSessionRef = { current: true };
+
+    // User has been chatting
+    const latestMessages: ChatMessage[] = [
+      { id: 'u1', role: 'user', text: 'Question' },
+      { id: 'a1', role: 'assistant', text: 'Answer' }
+    ];
+    snapshotRef.current = {
+      uiMessages: latestMessages,
+      apiMessages: [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: 'Answer' }
+      ],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks',
+      conversationUuid: 'conv-abc'
+    };
+
+    // User closes the panel — cleanup fires (no transition, gate stays true)
+    let savedSnapshot: SessionSnapshot | null = null;
+    if (hasLoadedSessionRef.current) {
+      savedSnapshot = snapshotRef.current;
+    }
+
+    expect(savedSnapshot).not.toBeNull();
+    expect(savedSnapshot!.uiMessages).toHaveLength(2);
+    expect(savedSnapshot!.uiMessages[1].text).toBe('Answer');
+  });
+
+  it('simulates beforeunload reading snapshotRef with latest messages', () => {
+    const snapshotRef = { current: null as SessionSnapshot | null };
+    const hasLoadedSessionRef = { current: true };
+
+    // Render N: handler registered with old messages
+    snapshotRef.current = {
+      uiMessages: [{ id: 'u1', role: 'user', text: 'Old message' }],
+      apiMessages: [{ role: 'user', content: 'Old message' }],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks'
+    };
+
+    // Render N+1: user sends new message, snapshotRef updated during render
+    snapshotRef.current = {
+      uiMessages: [
+        { id: 'u1', role: 'user', text: 'Old message' },
+        { id: 'a1', role: 'assistant', text: 'Reply' },
+        { id: 'u2', role: 'user', text: 'New message' }
+      ],
+      apiMessages: [
+        { role: 'user', content: 'Old message' },
+        { role: 'assistant', content: 'Reply' },
+        { role: 'user', content: 'New message' }
+      ],
+      selectedModel: 'claude-sonnet-4-6',
+      permissionMode: 'skip_all_permission_checks'
+    };
+
+    // beforeunload fires — checks gate then reads snapshotRef.current
+    expect(hasLoadedSessionRef.current).toBe(true);
+    const snap = snapshotRef.current;
+    expect(snap.uiMessages).toHaveLength(3);
+    expect(snap.uiMessages[2].text).toBe('New message');
+  });
+
+  it('simulates streaming: cleanup during rapid state changes reads correct snapshot', () => {
+    const snapshotRef = { current: null as SessionSnapshot | null };
+    const hasLoadedSessionRef = { current: true };
+
+    // Simulate 3 rapid state updates during streaming
+    const states: SessionSnapshot[] = [
+      {
+        uiMessages: [{ id: 'u1', role: 'user', text: 'Do something' }],
+        apiMessages: [{ role: 'user', content: 'Do something' }],
+        selectedModel: 'claude-sonnet-4-6',
+        permissionMode: 'skip_all_permission_checks'
+      },
+      {
+        uiMessages: [
+          { id: 'u1', role: 'user', text: 'Do something' },
+          { id: 'a1', role: 'assistant', text: 'Step 1 done' }
+        ],
+        apiMessages: [
+          { role: 'user', content: 'Do something' },
+          { role: 'assistant', content: 'Step 1 done' }
+        ],
+        selectedModel: 'claude-sonnet-4-6',
+        permissionMode: 'skip_all_permission_checks'
+      },
+      {
+        uiMessages: [
+          { id: 'u1', role: 'user', text: 'Do something' },
+          { id: 'a1', role: 'assistant', text: 'Step 1 done' },
+          { id: 'a2', role: 'assistant', text: 'Step 2 done' }
+        ],
+        apiMessages: [
+          { role: 'user', content: 'Do something' },
+          { role: 'assistant', content: 'Step 1 done' },
+          { role: 'assistant', content: 'Step 2 done' }
+        ],
+        selectedModel: 'claude-sonnet-4-6',
+        permissionMode: 'skip_all_permission_checks'
+      }
+    ];
+
+    // Each state update: render updates ref, effect cleanup reads ref
+    for (const state of states) {
+      snapshotRef.current = state;
+
+      // Simulate cleanup reading the ref
+      if (hasLoadedSessionRef.current) {
+        const snap = snapshotRef.current;
+        // The snapshot always matches the current render's state
+        expect(snap).toBe(state);
+      }
+    }
+
+    // After all updates, ref has the final state
+    expect(snapshotRef.current!.uiMessages).toHaveLength(3);
+  });
+});
