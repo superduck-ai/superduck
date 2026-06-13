@@ -47,12 +47,28 @@ type Server struct {
 }
 
 func NewServer() (*Server, error) {
-	if err := prepareSocketPath(socketPath); err != nil {
-		return nil, err
-	}
+	// bindAttempts covers the edge case where the old process's
+	// Listener.Close() removes our freshly-bound socket file. If
+	// net.Listen fails, re-run prepareSocketPath and retry.
+	const bindAttempts = 3
+	var listener net.Listener
+	for attempt := 0; attempt < bindAttempts; attempt++ {
+		if err := prepareSocketPath(socketPath); err != nil {
+			return nil, err
+		}
 
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
+		var err error
+		listener, err = net.Listen("unix", socketPath)
+		if err == nil {
+			break
+		}
+
+		if attempt < bindAttempts-1 {
+			slog.Warn("bind failed, retrying (old process may have removed socket)",
+				"path", socketPath, "attempt", attempt+1, "error", err)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
 		return nil, fmt.Errorf("failed to create UDS listener: %w", err)
 	}
 
