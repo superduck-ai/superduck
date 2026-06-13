@@ -112,17 +112,20 @@ export function createNativeHostManager(): NativeHostManager {
 
   function sendToolResponse({
     content,
-    isError
+    isError,
+    is_error: isErrorLegacy
   }: {
     content: string | unknown[];
     isError?: boolean;
+    is_error?: boolean;
   }) {
     if (!nativePort) return;
     if (!content || (typeof content !== 'string' && !Array.isArray(content))) return;
 
-    const response = isError
-      ? buildErrorToolResponse(content)
-      : { type: 'tool_response', result: { content } };
+    const response =
+      (isError ?? isErrorLegacy)
+        ? buildErrorToolResponse(content)
+        : { type: 'tool_response', result: { content } };
 
     nativePort.postMessage(response);
   }
