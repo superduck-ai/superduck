@@ -386,13 +386,18 @@ func (s *Server) Close() error {
 		close(s.closed)
 		if s.udsListener != nil {
 			s.udsListener.Close()
+			// Note: Go's net.Listener.Close() for Unix domain sockets
+			// automatically removes the socket file. We intentionally do
+			// NOT call os.Remove(socketPath) here because it creates a
+			// race condition: if a new process has already bound a new
+			// socket at the same path, os.Remove would delete the NEW
+			// socket, leaving the new process unreachable.
 		}
 		s.connMu.Lock()
 		for conn := range s.udsConnections {
 			_ = conn.Close()
 		}
 		s.connMu.Unlock()
-		_ = os.Remove(socketPath)
 	})
 	return nil
 }
