@@ -67,20 +67,25 @@ describe('ReconnectScheduler', () => {
     expect(scheduler.currentAttempt).toBe(1);
   });
 
-  test('stops after exhausting the schedule', async () => {
-    // Schedule 3 times (schedule has 3 delays: 100, 200, 500)
+  test('keeps retrying at the last delay after exhausting the schedule', async () => {
+    // Schedule has 3 delays: 100, 200, 500
+    // Fire through all 3
     for (let i = 0; i < 3; i++) {
       scheduler.schedule();
-      // Wait for the timer to fire (which calls onReconnect)
       await new Promise((r) => setTimeout(r, 600));
     }
     expect(calls).toBe(3);
 
-    // 4th schedule should be a no-op (schedule exhausted)
+    // 4th schedule should still fire (using last delay: 500ms)
     scheduler.schedule();
-    expect(scheduler.isPending).toBe(false);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(calls).toBe(3); // still 3
+    expect(scheduler.isPending).toBe(true);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(calls).toBe(4);
+
+    // 5th should also fire
+    scheduler.schedule();
+    await new Promise((r) => setTimeout(r, 600));
+    expect(calls).toBe(5);
   });
 
   test('disable() prevents schedule() from firing', async () => {

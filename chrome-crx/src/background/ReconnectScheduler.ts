@@ -1,9 +1,10 @@
 /**
- * Exponential-backoff reconnect scheduler.
+ * Backoff reconnect scheduler.
  *
  * Calls the provided `onReconnect` callback after a delay from a fixed
- * schedule. Resets on successful reconnect. Stops after exhausting the
- * schedule. Skipped when explicitly disconnected.
+ * schedule. After the schedule is exhausted, keeps retrying at the last
+ * delay indefinitely (bounded by service worker lifecycle). Resets on
+ * successful reconnect. Skipped when explicitly disconnected.
  */
 export class ReconnectScheduler {
   private _timer: ReturnType<typeof setTimeout> | null = null;
@@ -15,13 +16,18 @@ export class ReconnectScheduler {
     private readonly onReconnect: () => void
   ) {}
 
-  /** Schedule the next reconnect attempt. No-op if disabled or exhausted. */
+  /** Schedule the next reconnect attempt. No-op if disabled. */
   schedule(): void {
     if (this._disabled) return;
     if (this._timer) return; // already scheduled
-    if (this._attempt >= this.delays.length) return;
 
-    const delay = this.delays[this._attempt];
+    // Use the backoff schedule for early attempts, then repeat the last
+    // delay indefinitely. The service worker lifecycle (hibernation after
+    // ~5 min) provides a natural upper bound on retries.
+    const delay =
+      this._attempt < this.delays.length
+        ? this.delays[this._attempt]
+        : this.delays[this.delays.length - 1];
     this._attempt++;
     this._timer = setTimeout(() => {
       this._timer = null;
