@@ -60,6 +60,18 @@ func NewServer() (*Server, error) {
 		var err error
 		listener, err = net.Listen("unix", socketPath)
 		if err == nil {
+			// Verify the socket file still exists: the old process's
+			// Listener.Close() may have unlinked it after our bind.
+			if _, statErr := os.Lstat(socketPath); statErr != nil {
+				_ = listener.Close()
+				if os.IsNotExist(statErr) {
+					slog.Warn("socket unlinked after bind, retrying",
+						"path", socketPath, "attempt", attempt+1)
+					time.Sleep(200 * time.Millisecond)
+					continue
+				}
+				return nil, fmt.Errorf("failed to stat newly-created UDS socket: %w", statErr)
+			}
 			break
 		}
 
