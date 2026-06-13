@@ -1332,6 +1332,16 @@ export function SidepanelApp() {
       return;
     }
 
+    // Defer session switching while an agent is executing. Switching
+    // sessions mid-execution would wipe the visible state (messages,
+    // apiMessages) and cause the agent's output to be written to the
+    // wrong session. Once the agent finishes, this effect re-runs
+    // (effectiveIsAgentRunning is in the deps) and resolves the session
+    // for the current tab.
+    if (effectiveIsAgentRunning) {
+      return;
+    }
+
     // Wait for dynamicTabId to be known (a real number) before reading
     // any tab-specific mapping. If we have a URL sessionId, the user
     // is explicitly opening a specific conversation, so we proceed
@@ -1391,30 +1401,15 @@ export function SidepanelApp() {
         // resolution cycle (cheap, idempotent).
         void persistTabMapping(lastSessionId);
       } else if (sessionResolvedForTabRef.current !== tabId) {
-        // Tab-specific session not found AND we are entering a tab that
-        // has never been bound before. The currently-active session was
-        // inherited from the previous tab, so don't leak it into this
-        // tab's storage — fall back to the global last-active session
-        // (or generate fresh) and bind that to the new tab.
-        const fallbackSessionId = await getStorageValue(LAST_ACTIVE_SESSION_KEY);
-        if (!active) return;
-        if (
-          typeof fallbackSessionId === 'string' &&
-          fallbackSessionId &&
-          fallbackSessionId !== activeSessionId
-        ) {
-          setActiveSessionId(fallbackSessionId);
-          void persistTabMapping(fallbackSessionId);
-        } else if (!activeSessionId) {
-          const newId = crypto.randomUUID();
-          setActiveSessionId(newId);
-          void persistTabMapping(newId);
-        } else {
-          // The active session has no tab binding yet — record the
-          // association now so future tab switches know which tab owns
-          // it.
-          void persistTabMapping(activeSessionId);
-        }
+        // Tab has never been bound before — always start a fresh
+        // conversation for it. Do NOT fall back to
+        // LAST_ACTIVE_SESSION_KEY: that would load another tab's
+        // conversation, which is confusing when the user switches to
+        // a new tab and expects a clean slate. The user can still
+        // reach prior conversations via the session history panel.
+        const newId = crypto.randomUUID();
+        setActiveSessionId(newId);
+        void persistTabMapping(newId);
       }
       sessionResolvedForTabRef.current = tabId;
     })();
@@ -1422,7 +1417,7 @@ export function SidepanelApp() {
     return () => {
       active = false;
     };
-  }, [activeSessionId, dynamicTabId, query.sessionId]);
+  }, [activeSessionId, dynamicTabId, effectiveIsAgentRunning, query.sessionId]);
 
   // ─── Tab-session mapping persistence ──────────────────────────────────────
   // The tab→session mapping is written once inside the resolver effect above
@@ -1883,8 +1878,13 @@ export function SidepanelApp() {
       const nextSessionId = crypto.randomUUID();
       sessionCreatedAtRef.current = Date.now();
       setActiveSessionId(nextSessionId);
+      // Persist the tab→session mapping so the resolver doesn't revert
+      // this tab to the old stored session on the next resolve/reopen.
+      if (typeof query.tabId === 'number') {
+        void setStorageValue(getTabSessionKey(query.tabId), nextSessionId);
+      }
     }
-  }, [flushSession, messages, query.sessionId]);
+  }, [flushSession, messages, query.sessionId, query.tabId]);
 
   // Load a historical session: clears current state and switches to the selected session.
   // The useSessionPersistence hook's load effect will pick up the new activeSessionId
