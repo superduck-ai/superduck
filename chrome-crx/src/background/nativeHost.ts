@@ -4,7 +4,14 @@ import {
   setStorageValue,
   StorageKeys
 } from '../extensionServices';
-import { reconnectMcp, tabGroupManager, createErrorResponse, executeTool } from '../mcpRuntime';
+import {
+  reconnectMcp,
+  connectBridge,
+  tabGroupManager,
+  createErrorResponse,
+  executeTool
+} from '../mcpRuntime';
+import { ReconnectScheduler } from './ReconnectScheduler';
 
 const NATIVE_HOST_NAMES = [
   'com.me.superduck_browser_extension',
@@ -13,6 +20,11 @@ const NATIVE_HOST_NAMES = [
 
 const HEARTBEAT_ALARM = 'native-host-heartbeat';
 const HEARTBEAT_TIMEOUT_MS = 3000;
+
+// Reconnect backoff schedule (ms). Stops retrying after the last entry.
+// First delay is 200ms — native host is a local process, reconnection is
+// essentially instant. Short backoff avoids tight loops if binary is missing.
+const RECONNECT_DELAYS = [200, 1_000, 3_000, 5_000];
 
 type NativeMessage = { type: string; [key: string]: unknown };
 type ToolRequestMessage = {
@@ -46,6 +58,17 @@ export function createNativeHostManager(): NativeHostManager {
   let statusResolve: ((value: NativeHostStatus) => void) | null = null;
   let statusTimeout: ReturnType<typeof setTimeout> | null = null;
   let heartbeatResolve: ((alive: boolean) => void) | null = null;
+  let explicitDisconnect = false;
+  let disconnectHandler: (() => void) | null = null;
+
+  const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
+    // Don't gate on nativeHostInstalled — after a service worker restart
+    // it resets to false, which would silently kill the retry chain.
+    // Only explicit disconnect should stop auto-reconnect.
+    if (explicitDisconnect) return;
+    console.warn('[nativeHost] auto-reconnect: attempting to reconnect...');
+    void connect(false);
+  });
 
   function handleDisconnectError(message?: string) {
     if (message?.includes('native messaging host not found')) {
@@ -201,6 +224,8 @@ export function createNativeHostManager(): NativeHostManager {
   async function handleHeartbeatAlarm(): Promise<void> {
     if (!nativePort) return;
 
+    const portAtStart = nativePort;
+
     const timeout = new Promise<boolean>((resolve) =>
       setTimeout(() => resolve(false), HEARTBEAT_TIMEOUT_MS)
     );
@@ -216,11 +241,25 @@ export function createNativeHostManager(): NativeHostManager {
     const alive = await Promise.race([timeout, ping]);
     if (alive) return;
 
+    // If the port was replaced by auto-reconnect while we were awaiting,
+    // bail out — the new port is healthy and must not be killed.
+    if (nativePort !== portAtStart) return;
+
     heartbeatResolve = null;
     stopHeartbeat();
     const deadPort = nativePort;
     nativePort = null;
     mcpConnected = false;
+
+    // Remove the disconnect handler before calling disconnect() to prevent
+    // it from firing and duplicating cleanup (reconnectMcp + schedule).
+    if (deadPort && disconnectHandler) {
+      try {
+        deadPort.onDisconnect.removeListener(disconnectHandler);
+      } catch {
+        /* port already disconnected */
+      }
+    }
     try {
       deadPort?.disconnect();
     } catch {
@@ -237,13 +276,21 @@ export function createNativeHostManager(): NativeHostManager {
 
     tabGroupManager.stopTabGroupChangeListener();
     reconnectMcp();
+    reconnectScheduler.schedule();
   }
 
-  async function connect(): Promise<boolean> {
+  async function connect(isScheduled: boolean = false): Promise<boolean> {
     try {
       if (nativePort) return true;
       if (isConnecting) return false;
       isConnecting = true;
+      explicitDisconnect = false;
+      reconnectScheduler.enable();
+      reconnectScheduler.cancel();
+      // Reset backoff counter for manual connect calls (permissions added,
+      // SW startup, user action) so retries start from the shortest delay.
+      // Don't reset for scheduler-driven retries — those must escalate.
+      if (!isScheduled) reconnectScheduler.reset();
 
       try {
         if (!(await chrome.permissions.contains({ permissions: ['nativeMessaging'] })))
@@ -298,22 +345,45 @@ export function createNativeHostManager(): NativeHostManager {
               continue;
             }
 
+            // Guard: if disconnect() was called while we were awaiting the
+            // handshake, abort this connection — the user explicitly wanted
+            // to disconnect and we must not silently reconnect behind them.
+            if (explicitDisconnect) {
+              port.disconnect();
+              continue;
+            }
+
             nativePort = port;
             nativeHostInstalled = true;
+            reconnectScheduler.reset();
+            console.warn('[nativeHost] connected', { host: hostName });
+
+            // Re-establish the MCP bridge after native host reconnection.
+            // The bridge is independent of the native host, but reconnectMcp()
+            // (called on disconnect) closes it. Reset retries to ensure a
+            // fresh bridge connection attempt regardless of prior state.
+            void connectBridge(true);
 
             nativePort.onMessage.addListener((message) => {
               void handleNativeMessage(message);
             });
 
-            nativePort.onDisconnect.addListener(() => {
+            disconnectHandler = () => {
               const errorMessage = chrome.runtime.lastError?.message;
+              console.warn('[nativeHost] disconnected', {
+                error: errorMessage || 'unknown',
+                willReconnect: !explicitDisconnect && nativeHostInstalled
+              });
               nativePort = null;
               mcpConnected = false;
               void setStorageValue(StorageKeys.MCP_CONNECTED, false);
               stopHeartbeat();
               handleDisconnectError(errorMessage);
+              tabGroupManager.stopTabGroupChangeListener();
               reconnectMcp();
-            });
+              reconnectScheduler.schedule();
+            };
+            nativePort.onDisconnect.addListener(disconnectHandler);
 
             nativePort.postMessage({ type: 'get_status' });
             const storedAnalyticsId = await getStoredSharedAnalyticsId();
@@ -335,6 +405,13 @@ export function createNativeHostManager(): NativeHostManager {
         return false;
       } finally {
         isConnecting = false;
+        // If connect failed, schedule a retry. Use nativePort (not
+        // nativeHostInstalled) as the success indicator — the probe loop
+        // may have cleared nativeHostInstalled when the first host name
+        // returned "not found" before trying the fallback host.
+        if (!nativePort && !explicitDisconnect) {
+          reconnectScheduler.schedule();
+        }
       }
     } catch {
       return false;
@@ -343,6 +420,8 @@ export function createNativeHostManager(): NativeHostManager {
 
   async function disconnect(): Promise<boolean> {
     try {
+      explicitDisconnect = true;
+      reconnectScheduler.disable();
       stopHeartbeat();
       await chrome.permissions.remove({ permissions: ['nativeMessaging'] });
       nativePort?.disconnect();
