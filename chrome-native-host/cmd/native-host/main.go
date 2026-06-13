@@ -143,6 +143,18 @@ func prepareSocketPath(path string) error {
 		return fmt.Errorf("socket at %s exists and dial failed with unexpected error: %w", path, err)
 	}
 
+	// Revalidate before cleanup: another replacement process may have
+	// bound a live socket at this path while we were in the retry loop.
+	// If the socket is now active, abort — the other process owns it.
+	conn, err = net.DialTimeout("unix", path, 200*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return fmt.Errorf("chrome-native-host already listening at %s (recheck)", path)
+	}
+	if !isConnRefused(err) {
+		return fmt.Errorf("socket at %s recheck dial failed with unexpected error: %w", path, err)
+	}
+
 	// Socket is stale. Rename first to free the path immediately, then
 	// remove the renamed file. A unique suffix avoids colliding with a
 	// leftover .stale file from a previous crashed cleanup.
