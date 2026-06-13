@@ -67,7 +67,7 @@ export function createNativeHostManager(): NativeHostManager {
     // Only explicit disconnect should stop auto-reconnect.
     if (explicitDisconnect) return;
     console.warn('[nativeHost] auto-reconnect: attempting to reconnect...');
-    void connect();
+    void connect(false);
   });
 
   function handleDisconnectError(message?: string) {
@@ -279,7 +279,7 @@ export function createNativeHostManager(): NativeHostManager {
     reconnectScheduler.schedule();
   }
 
-  async function connect(): Promise<boolean> {
+  async function connect(isScheduled: boolean = false): Promise<boolean> {
     try {
       if (nativePort) return true;
       if (isConnecting) return false;
@@ -287,6 +287,10 @@ export function createNativeHostManager(): NativeHostManager {
       explicitDisconnect = false;
       reconnectScheduler.enable();
       reconnectScheduler.cancel();
+      // Reset backoff counter for manual connect calls (permissions added,
+      // SW startup, user action) so retries start from the shortest delay.
+      // Don't reset for scheduler-driven retries — those must escalate.
+      if (!isScheduled) reconnectScheduler.reset();
 
       try {
         if (!(await chrome.permissions.contains({ permissions: ['nativeMessaging'] })))
