@@ -7,7 +7,7 @@ describe('ReconnectScheduler', () => {
 
   beforeEach(() => {
     calls = 0;
-    scheduler = new ReconnectScheduler([100, 200, 500], () => {
+    scheduler = new ReconnectScheduler([30, 50, 80], () => {
       calls++;
     });
   });
@@ -19,22 +19,22 @@ describe('ReconnectScheduler', () => {
   test('schedule() fires after the first delay', async () => {
     scheduler.schedule();
     expect(calls).toBe(0);
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toBe(1);
   });
 
   test('schedule() does not fire before the delay', async () => {
     scheduler.schedule();
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 15));
     expect(calls).toBe(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 30));
     expect(calls).toBe(1);
   });
 
   test('schedule() is idempotent (double call does not double-fire)', async () => {
     scheduler.schedule();
     scheduler.schedule(); // should be no-op
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toBe(1);
   });
 
@@ -68,23 +68,23 @@ describe('ReconnectScheduler', () => {
   });
 
   test('keeps retrying at the last delay after exhausting the schedule', async () => {
-    // Schedule has 3 delays: 100, 200, 500
+    // Schedule has 3 delays: 30, 50, 80
     // Fire through all 3
     for (let i = 0; i < 3; i++) {
       scheduler.schedule();
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 100));
     }
     expect(calls).toBe(3);
 
-    // 4th schedule should still fire (using last delay: 500ms)
+    // 4th schedule should still fire (using last delay: 80ms)
     scheduler.schedule();
     expect(scheduler.isPending).toBe(true);
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 100));
     expect(calls).toBe(4);
 
     // 5th should also fire
     scheduler.schedule();
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 100));
     expect(calls).toBe(5);
   });
 
@@ -92,7 +92,7 @@ describe('ReconnectScheduler', () => {
     scheduler.disable();
     scheduler.schedule();
     expect(scheduler.isPending).toBe(false);
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toBe(0);
   });
 
@@ -102,7 +102,7 @@ describe('ReconnectScheduler', () => {
 
     scheduler.disable();
     expect(scheduler.isPending).toBe(false);
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toBe(0);
   });
 
@@ -113,7 +113,7 @@ describe('ReconnectScheduler', () => {
 
     scheduler.enable();
     scheduler.schedule();
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toBe(1);
   });
 
@@ -130,8 +130,8 @@ describe('ReconnectScheduler', () => {
     // First disconnect → schedule reconnect
     scheduler.schedule();
     expect(scheduler.currentAttempt).toBe(1);
-    await new Promise((r) => setTimeout(r, 150));
-    expect(calls).toBe(1); // reconnect fired after 100ms
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBe(1); // reconnect fired after 30ms
 
     // Reconnect succeeded → reset
     scheduler.reset();
@@ -140,13 +140,13 @@ describe('ReconnectScheduler', () => {
     // Second disconnect → schedule reconnect from delay[0] again
     scheduler.schedule();
     expect(scheduler.currentAttempt).toBe(1);
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 50));
     expect(calls).toBe(2);
 
     // User explicitly disconnects
     scheduler.disable();
     scheduler.schedule(); // should be no-op
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 100));
     expect(calls).toBe(2); // no new reconnect
   });
 });

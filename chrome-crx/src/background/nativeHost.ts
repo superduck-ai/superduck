@@ -67,7 +67,7 @@ export function createNativeHostManager(): NativeHostManager {
     // Only explicit disconnect should stop auto-reconnect.
     if (explicitDisconnect) return;
     console.warn('[nativeHost] auto-reconnect: attempting to reconnect...');
-    void connect(false);
+    void connect(true);
   });
 
   function handleDisconnectError(message?: string) {
