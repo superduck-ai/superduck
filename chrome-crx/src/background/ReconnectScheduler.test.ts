@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReconnectScheduler } from './ReconnectScheduler';
 
 describe('ReconnectScheduler', () => {
@@ -6,6 +6,7 @@ describe('ReconnectScheduler', () => {
   let scheduler: ReconnectScheduler;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     calls = 0;
     scheduler = new ReconnectScheduler([100, 200, 500], () => {
       calls++;
@@ -14,27 +15,28 @@ describe('ReconnectScheduler', () => {
 
   afterEach(() => {
     scheduler.cancel();
+    vi.useRealTimers();
   });
 
   test('schedule() fires after the first delay', async () => {
     scheduler.schedule();
     expect(calls).toBe(0);
-    await new Promise((r) => setTimeout(r, 150));
+    await vi.advanceTimersByTimeAsync(100);
     expect(calls).toBe(1);
   });
 
   test('schedule() does not fire before the delay', async () => {
     scheduler.schedule();
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.advanceTimersByTimeAsync(50);
     expect(calls).toBe(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await vi.advanceTimersByTimeAsync(50);
     expect(calls).toBe(1);
   });
 
   test('schedule() is idempotent (double call does not double-fire)', async () => {
     scheduler.schedule();
     scheduler.schedule(); // should be no-op
-    await new Promise((r) => setTimeout(r, 150));
+    await vi.advanceTimersByTimeAsync(100);
     expect(calls).toBe(1);
   });
 
@@ -72,19 +74,19 @@ describe('ReconnectScheduler', () => {
     // Fire through all 3
     for (let i = 0; i < 3; i++) {
       scheduler.schedule();
-      await new Promise((r) => setTimeout(r, 600));
+      await vi.advanceTimersByTimeAsync(500);
     }
     expect(calls).toBe(3);
 
     // 4th schedule should still fire (using last delay: 500ms)
     scheduler.schedule();
     expect(scheduler.isPending).toBe(true);
-    await new Promise((r) => setTimeout(r, 600));
+    await vi.advanceTimersByTimeAsync(500);
     expect(calls).toBe(4);
 
     // 5th should also fire
     scheduler.schedule();
-    await new Promise((r) => setTimeout(r, 600));
+    await vi.advanceTimersByTimeAsync(500);
     expect(calls).toBe(5);
   });
 
@@ -92,7 +94,7 @@ describe('ReconnectScheduler', () => {
     scheduler.disable();
     scheduler.schedule();
     expect(scheduler.isPending).toBe(false);
-    await new Promise((r) => setTimeout(r, 200));
+    await vi.advanceTimersByTimeAsync(200);
     expect(calls).toBe(0);
   });
 
@@ -102,7 +104,7 @@ describe('ReconnectScheduler', () => {
 
     scheduler.disable();
     expect(scheduler.isPending).toBe(false);
-    await new Promise((r) => setTimeout(r, 200));
+    await vi.advanceTimersByTimeAsync(200);
     expect(calls).toBe(0);
   });
 
@@ -113,7 +115,7 @@ describe('ReconnectScheduler', () => {
 
     scheduler.enable();
     scheduler.schedule();
-    await new Promise((r) => setTimeout(r, 150));
+    await vi.advanceTimersByTimeAsync(100);
     expect(calls).toBe(1);
   });
 
@@ -130,7 +132,7 @@ describe('ReconnectScheduler', () => {
     // First disconnect → schedule reconnect
     scheduler.schedule();
     expect(scheduler.currentAttempt).toBe(1);
-    await new Promise((r) => setTimeout(r, 150));
+    await vi.advanceTimersByTimeAsync(100);
     expect(calls).toBe(1); // reconnect fired after 100ms
 
     // Reconnect succeeded → reset
@@ -140,13 +142,13 @@ describe('ReconnectScheduler', () => {
     // Second disconnect → schedule reconnect from delay[0] again
     scheduler.schedule();
     expect(scheduler.currentAttempt).toBe(1);
-    await new Promise((r) => setTimeout(r, 150));
+    await vi.advanceTimersByTimeAsync(100);
     expect(calls).toBe(2);
 
     // User explicitly disconnects
     scheduler.disable();
     scheduler.schedule(); // should be no-op
-    await new Promise((r) => setTimeout(r, 200));
+    await vi.advanceTimersByTimeAsync(500);
     expect(calls).toBe(2); // no new reconnect
   });
 });

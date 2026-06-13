@@ -67,7 +67,7 @@ export function createNativeHostManager(): NativeHostManager {
     // Only explicit disconnect should stop auto-reconnect.
     if (explicitDisconnect) return;
     console.warn('[nativeHost] auto-reconnect: attempting to reconnect...');
-    void connect(false);
+    void connect(true);
   });
 
   function handleDisconnectError(message?: string) {
@@ -112,17 +112,20 @@ export function createNativeHostManager(): NativeHostManager {
 
   function sendToolResponse({
     content,
-    is_error
+    isError,
+    is_error: isErrorLegacy
   }: {
     content: string | unknown[];
+    isError?: boolean;
     is_error?: boolean;
   }) {
     if (!nativePort) return;
     if (!content || (typeof content !== 'string' && !Array.isArray(content))) return;
 
-    const response = is_error
-      ? buildErrorToolResponse(content)
-      : { type: 'tool_response', result: { content } };
+    const response =
+      (isError ?? isErrorLegacy)
+        ? buildErrorToolResponse(content)
+        : { type: 'tool_response', result: { content } };
 
     nativePort.postMessage(response);
   }
@@ -157,7 +160,7 @@ export function createNativeHostManager(): NativeHostManager {
 
       sendToolResponse({
         content: result.content ?? '',
-        is_error: result.is_error
+        isError: result.is_error
       });
     } catch (err) {
       sendToolResponse(
