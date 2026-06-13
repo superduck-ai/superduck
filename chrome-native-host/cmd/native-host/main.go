@@ -93,13 +93,37 @@ func prepareSocketPath(path string) error {
 	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
 	if err == nil {
 		_ = conn.Close()
-		return fmt.Errorf("chrome-native-host already listening at %s", path)
-	}
 
-	// Only treat connection-refused errors as stale sockets.
-	// Other dial failures (permission denied, path is a directory, etc.)
-	// indicate a real problem and should not be silently removed.
-	if !isConnRefused(err) {
+		// The socket is responding, but the owning process may be shutting
+		// down (race between old process SIGTERM/stdin-close and new process
+		// startup). Retry with short intervals — the old process typically
+		// exits within 200-300ms based on observed logs.
+		const maxRetries = 5
+		const retryInterval = 300 * time.Millisecond
+
+		slog.Info("socket appears active, retrying in case old process is shutting down", "path", path, "maxRetries", maxRetries)
+		stillAlive := true
+		for i := 0; i < maxRetries; i++ {
+			time.Sleep(retryInterval)
+			c, e := net.DialTimeout("unix", path, 200*time.Millisecond)
+			if e != nil {
+				if isConnRefused(e) {
+					slog.Info("previous process exited during retry", "path", path, "attempt", i+1)
+					stillAlive = false
+					break
+				}
+				return fmt.Errorf("socket at %s dial failed with unexpected error during retry %d: %w", path, i+1, e)
+			}
+			_ = c.Close()
+		}
+		if stillAlive {
+			return fmt.Errorf("chrome-native-host already listening at %s", path)
+		}
+		// Fall through to stale socket cleanup below
+	} else if !isConnRefused(err) {
+		// Only treat connection-refused errors as stale sockets.
+		// Other dial failures (permission denied, path is a directory, etc.)
+		// indicate a real problem and should not be silently removed.
 		return fmt.Errorf("socket at %s exists and dial failed with unexpected error: %w", path, err)
 	}
 
@@ -108,8 +132,14 @@ func prepareSocketPath(path string) error {
 	// leftover .stale file from a previous crashed cleanup.
 	stalePath := fmt.Sprintf("%s.stale.%d", path, os.Getpid())
 	if err := os.Rename(path, stalePath); err != nil {
-		// If rename fails, try direct remove as fallback
-		if err := os.Remove(path); err != nil {
+		// Rename failed — the file may have been removed by the dying
+		// process (Go's net.Listener.Close removes UDS files). Check
+		// if the path is already gone; if so, we're done.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		// If rename fails for other reasons, try direct remove as fallback
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove stale UDS socket: %w", err)
 		}
 		return nil
