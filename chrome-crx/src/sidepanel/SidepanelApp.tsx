@@ -1338,7 +1338,7 @@ export function SidepanelApp() {
     // wrong session. Once the agent finishes, this effect re-runs
     // (effectiveIsAgentRunning is in the deps) and resolves the session
     // for the current tab.
-    if (effectiveIsAgentRunning && sessionResolvedForTabRef.current !== undefined) {
+    if (effectiveIsAgentRunning) {
       return;
     }
 
