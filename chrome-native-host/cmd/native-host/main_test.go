@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPrepareSocketPathRemovesStaleSocket(t *testing.T) {
@@ -69,6 +70,41 @@ func TestPrepareSocketPathKeepsLiveSocket(t *testing.T) {
 		t.Fatalf("live socket was removed or broken: %v", err)
 	}
 	conn.Close()
+}
+
+// TestPrepareSocketPathRaceWithShutdown simulates the race where the old
+// process is shutting down: first dial succeeds (old process still listening),
+// but by the time prepareSocketPath retries (after 500ms), the old process
+// has exited and the socket is stale.
+func TestPrepareSocketPathRaceWithShutdown(t *testing.T) {
+	t.Parallel()
+
+	dir := shortTempDir(t)
+	path := filepath.Join(dir, "race.sock")
+
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Close the listener after 200ms — simulating the old process
+	// exiting during prepareSocketPath's 500ms wait. Don't remove the
+	// socket file: it stays on disk as a stale socket (connection refused).
+	go func() {
+		<-time.After(200 * time.Millisecond)
+		listener.Close()
+	}()
+
+	// prepareSocketPath should: first dial succeeds → wait 500ms →
+	// second dial fails (listener closed) → treat as stale → succeed.
+	if err := prepareSocketPath(path); err != nil {
+		t.Fatalf("prepareSocketPath() should succeed after old process exits, got: %v", err)
+	}
+
+	// Socket file should be cleaned up
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("stale socket path should be removed, stat err: %v", err)
+	}
 }
 
 func shortTempDir(t *testing.T) string {

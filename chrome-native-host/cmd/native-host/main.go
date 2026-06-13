@@ -47,12 +47,43 @@ type Server struct {
 }
 
 func NewServer() (*Server, error) {
-	if err := prepareSocketPath(socketPath); err != nil {
-		return nil, err
-	}
+	// bindAttempts covers the edge case where the old process's
+	// Listener.Close() removes our freshly-bound socket file. If
+	// net.Listen fails, re-run prepareSocketPath and retry.
+	const bindAttempts = 3
+	var listener net.Listener
+	for attempt := 0; attempt < bindAttempts; attempt++ {
+		if err := prepareSocketPath(socketPath); err != nil {
+			return nil, err
+		}
 
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
+		var err error
+		listener, err = net.Listen("unix", socketPath)
+		if err == nil {
+			// Verify the socket file still exists: the old process's
+			// Listener.Close() may have unlinked it after our bind.
+			if _, statErr := os.Lstat(socketPath); statErr != nil {
+				_ = listener.Close()
+				if os.IsNotExist(statErr) {
+					if attempt == bindAttempts-1 {
+						return nil, fmt.Errorf("socket unlinked after bind (retries exhausted): %w", statErr)
+					}
+					slog.Warn("socket unlinked after bind, retrying",
+						"path", socketPath, "attempt", attempt+1)
+					time.Sleep(200 * time.Millisecond)
+					continue
+				}
+				return nil, fmt.Errorf("failed to stat newly-created UDS socket: %w", statErr)
+			}
+			break
+		}
+
+		if attempt < bindAttempts-1 {
+			slog.Warn("bind failed, retrying (old process may have removed socket)",
+				"path", socketPath, "attempt", attempt+1, "error", err)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
 		return nil, fmt.Errorf("failed to create UDS listener: %w", err)
 	}
 
@@ -93,14 +124,50 @@ func prepareSocketPath(path string) error {
 	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
 	if err == nil {
 		_ = conn.Close()
-		return fmt.Errorf("chrome-native-host already listening at %s", path)
+
+		// The socket is responding, but the owning process may be shutting
+		// down (race between old process SIGTERM/stdin-close and new process
+		// startup). Retry with short intervals — the old process typically
+		// exits within 200-300ms based on observed logs.
+		const maxRetries = 5
+		const retryInterval = 300 * time.Millisecond
+
+		slog.Info("socket appears active, retrying in case old process is shutting down", "path", path, "maxRetries", maxRetries)
+		stillAlive := true
+		for i := 0; i < maxRetries; i++ {
+			time.Sleep(retryInterval)
+			c, e := net.DialTimeout("unix", path, 200*time.Millisecond)
+			if e != nil {
+				if isConnRefused(e) {
+					slog.Info("previous process exited during retry", "path", path, "attempt", i+1)
+					stillAlive = false
+					break
+				}
+				return fmt.Errorf("socket at %s dial failed with unexpected error during retry %d: %w", path, i+1, e)
+			}
+			_ = c.Close()
+		}
+		if stillAlive {
+			return fmt.Errorf("chrome-native-host already listening at %s", path)
+		}
+		// Fall through to stale socket cleanup below
+	} else if !isConnRefused(err) {
+		// Only treat connection-refused errors as stale sockets.
+		// Other dial failures (permission denied, path is a directory, etc.)
+		// indicate a real problem and should not be silently removed.
+		return fmt.Errorf("socket at %s exists and dial failed with unexpected error: %w", path, err)
 	}
 
-	// Only treat connection-refused errors as stale sockets.
-	// Other dial failures (permission denied, path is a directory, etc.)
-	// indicate a real problem and should not be silently removed.
+	// Revalidate before cleanup: another replacement process may have
+	// bound a live socket at this path while we were in the retry loop.
+	// If the socket is now active, abort — the other process owns it.
+	conn, err = net.DialTimeout("unix", path, 200*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return fmt.Errorf("chrome-native-host already listening at %s (recheck)", path)
+	}
 	if !isConnRefused(err) {
-		return fmt.Errorf("socket at %s exists and dial failed with unexpected error: %w", path, err)
+		return fmt.Errorf("socket at %s recheck dial failed with unexpected error: %w", path, err)
 	}
 
 	// Socket is stale. Rename first to free the path immediately, then
@@ -108,8 +175,14 @@ func prepareSocketPath(path string) error {
 	// leftover .stale file from a previous crashed cleanup.
 	stalePath := fmt.Sprintf("%s.stale.%d", path, os.Getpid())
 	if err := os.Rename(path, stalePath); err != nil {
-		// If rename fails, try direct remove as fallback
-		if err := os.Remove(path); err != nil {
+		// Rename failed — the file may have been removed by the dying
+		// process (Go's net.Listener.Close removes UDS files). Check
+		// if the path is already gone; if so, we're done.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		// If rename fails for other reasons, try direct remove as fallback
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove stale UDS socket: %w", err)
 		}
 		return nil
@@ -356,13 +429,18 @@ func (s *Server) Close() error {
 		close(s.closed)
 		if s.udsListener != nil {
 			s.udsListener.Close()
+			// Note: Go's net.Listener.Close() for Unix domain sockets
+			// automatically removes the socket file. We intentionally do
+			// NOT call os.Remove(socketPath) here because it creates a
+			// race condition: if a new process has already bound a new
+			// socket at the same path, os.Remove would delete the NEW
+			// socket, leaving the new process unreachable.
 		}
 		s.connMu.Lock()
 		for conn := range s.udsConnections {
 			_ = conn.Close()
 		}
 		s.connMu.Unlock()
-		_ = os.Remove(socketPath)
 	})
 	return nil
 }
