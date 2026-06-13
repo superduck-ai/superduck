@@ -58,6 +58,7 @@ import type {
   NotificationPreference,
   ChatMessage,
   ResponseWithMessageLimit,
+  SendPromptOptions,
   ToolUseBlock
 } from '../types';
 
@@ -133,10 +134,7 @@ export interface UseAgentLoopProps {
 }
 
 export interface UseAgentLoopReturn {
-  sendPrompt: (
-    text: string,
-    options?: { attachments?: PromptAttachmentPayload[]; isAnnotated?: boolean }
-  ) => Promise<void>;
+  sendPrompt: (text: string, options?: SendPromptOptions) => Promise<void>;
   compactConversation: (
     manual?: boolean,
     options?: { visibleCommandText?: string }
@@ -370,10 +368,7 @@ export function useAgentLoop({
   // ─── Send prompt (main agent loop) ────────────────────────────────────────
 
   const sendPrompt = useCallback(
-    async (
-      text: string,
-      options?: { attachments?: PromptAttachmentPayload[]; isAnnotated?: boolean }
-    ) => {
+    async (text: string, options?: SendPromptOptions) => {
       const trimmed = text.trim();
       const attachments = options?.attachments ?? [];
       if (!trimmed && attachments.length === 0) return;
@@ -384,7 +379,7 @@ export function useAgentLoop({
 
       // Capture the tab ID at the start of execution so that switching tabs
       // doesn't redirect tool calls or indicator messages to a different tab.
-      const executionTabId = queryTabId;
+      const executionTabId = options?.targetTabId ?? queryTabId;
 
       // --- System command interception (matching compiled zs/Rs) ---
       const slashCommand = trimmed.startsWith('/') ? trimmed.slice(1) : '';

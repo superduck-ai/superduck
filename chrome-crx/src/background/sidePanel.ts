@@ -168,6 +168,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       await retryRuntimeMessage({
         type: 'POPULATE_INPUT_TEXT',
         prompt: request.prompt,
+        targetTabId: request.tabId,
         permissionMode: request.permissionMode,
         selectedModel: request.selectedModel,
         attachments: request.attachments

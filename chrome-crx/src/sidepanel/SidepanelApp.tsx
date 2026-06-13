@@ -140,6 +140,7 @@ import type {
   PermissionGrantScope,
   PairingPromptState,
   PendingPromptPayload,
+  SendPromptOptions,
   BlockedTabInfo,
   ToolUseBlock,
   AnnouncementConfig
@@ -158,11 +159,12 @@ const TAB_GROUP_EVENT_PROPERTIES: string[] = ['groupId', 'url', 'status'];
 
 export function SidepanelApp() {
   const intl = useIntlSafe();
-  // Performance monitoring - remove in production
+  // Keep this diagnostic below warn/error level so Chrome does not surface
+  // long-lived sidepanel sessions as extension errors.
   const renderCountRef = useRef(0);
   renderCountRef.current++;
   if (renderCountRef.current % 100 === 0) {
-    console.warn(`[PERF] SidepanelApp rendered ${renderCountRef.current} times`);
+    console.debug(`[PERF] SidepanelApp rendered ${renderCountRef.current} times`);
   }
 
   useEffect(() => {
@@ -197,6 +199,11 @@ export function SidepanelApp() {
   // the iframe is NOT destroyed on tab switch — it stays open and this hook
   // updates the target tabId to match the user's active tab.
   const dynamicTabId = useActiveTabId(_query.tabId);
+  const [preservedTranscriptTabId, setPreservedTranscriptTabId] = useState<number | undefined>();
+  const [preservedTranscriptActiveTabId, setPreservedTranscriptActiveTabId] = useState<
+    number | undefined
+  >();
+  const sessionTabId = preservedTranscriptTabId ?? dynamicTabId;
   const query = useMemo(
     () => ({ ..._query, tabId: dynamicTabId ?? _query.tabId }),
     [_query, dynamicTabId]
@@ -365,11 +372,7 @@ export function SidepanelApp() {
   const _lastTabContextJsonRef = useRef<string | null>(null);
   // Stable refs for values used in the message listener to avoid re-registering on every change
   const sendPromptRef = useRef<
-    | ((
-        text: string,
-        options?: { attachments?: PromptAttachmentPayload[]; isAnnotated?: boolean }
-      ) => Promise<void>)
-    | null
+    ((text: string, options?: SendPromptOptions) => Promise<void>) | null
   >(null);
   const isAgentRunningRef = useRef(isAgentRunning);
   // Lock the tab ID when the agent starts running so that switching tabs
@@ -377,6 +380,9 @@ export function SidepanelApp() {
   // CDP attach on the new tab → duplicate "debugging" banners and
   // unexpected tab group creation).
   const lockedTabIdRef = useRef<number | undefined>(undefined);
+  const agentStartedTabIdRef = useRef<number | undefined>(undefined);
+  const tabChangedDuringAgentRef = useRef(false);
+  const wasAgentRunningRef = useRef(false);
   // Tracks which tab the currently active session belongs to. When the
   // user switches tabs while the sidepanel stays open, the resolver
   // re-runs and compares this ref against the new active tab — if they
@@ -814,8 +820,9 @@ export function SidepanelApp() {
       permissionResolveRef.current = null;
       setPermissionPrompt(null);
       // Re-add loading prefix to tab title
-      if (query.tabId != null) {
-        tabGroupManager.addLoadingPrefix(query.tabId).catch(() => {});
+      const permissionTabId = lockedTabIdRef.current ?? query.tabId;
+      if (permissionTabId != null) {
+        tabGroupManager.addLoadingPrefix(permissionTabId).catch(() => {});
       }
     },
     [permissionPrompt, getPermissionManager, query.tabId]
@@ -1020,22 +1027,22 @@ export function SidepanelApp() {
 
   // Route sendPrompt: in lightning mode, delegate to lightningResult.sendMessage
   const effectiveSendPrompt = useCallback(
-    async (
-      text: string,
-      options?: { attachments?: PromptAttachmentPayload[]; isAnnotated?: boolean }
-    ) => {
+    async (text: string, options?: SendPromptOptions) => {
+      const targetTabId = options?.targetTabId ?? preservedTranscriptTabId ?? query.tabId;
       // Lock tab ID synchronously BEFORE starting the agent, so that tool calls
       // always target the tab the user was on when they sent the message.
       // Using useEffect for this creates a race condition where the first tool
       // call could fire before the effect runs.
-      if (typeof query.tabId === 'number') {
-        lockedTabIdRef.current = query.tabId;
+      if (typeof targetTabId === 'number') {
+        lockedTabIdRef.current = targetTabId;
+        agentStartedTabIdRef.current = targetTabId;
+        tabChangedDuringAgentRef.current = false;
       }
       try {
         if (isPurlMode && lightningResult) {
           return await lightningResult.sendMessage(text, options?.attachments, null, false);
         }
-        return await sendPrompt(text, options);
+        return await sendPrompt(text, { ...options, targetTabId });
       } finally {
         // If neither the normal agent nor the lightning mode actually
         // transitioned into a "running" state (e.g. sendPrompt hit an
@@ -1052,7 +1059,7 @@ export function SidepanelApp() {
         }
       }
     },
-    [isPurlMode, lightningResult, sendPrompt, query.tabId]
+    [isPurlMode, lightningResult, preservedTranscriptTabId, query.tabId, sendPrompt]
   );
 
   const effectiveCancel = useCallback(() => {
@@ -1087,6 +1094,63 @@ export function SidepanelApp() {
   isAgentRunningRef.current = effectiveIsAgentRunning;
   hasBrowserControlPermissionAcceptedRef.current = hasBrowserControlPermissionAccepted;
   pushMessageRef.current = pushMessage;
+
+  useEffect(() => {
+    if (
+      effectiveIsAgentRunning &&
+      typeof agentStartedTabIdRef.current === 'number' &&
+      typeof dynamicTabId === 'number' &&
+      dynamicTabId !== agentStartedTabIdRef.current
+    ) {
+      tabChangedDuringAgentRef.current = true;
+    }
+  }, [dynamicTabId, effectiveIsAgentRunning]);
+
+  const clearPreservedTranscriptForTarget = useCallback(
+    (targetTabId: number | undefined): boolean => {
+      if (
+        typeof targetTabId !== 'number' ||
+        typeof preservedTranscriptTabId !== 'number' ||
+        targetTabId !== dynamicTabId ||
+        targetTabId === preservedTranscriptTabId
+      ) {
+        return false;
+      }
+      setPreservedTranscriptTabId(undefined);
+      setPreservedTranscriptActiveTabId(undefined);
+      void (async () => {
+        const storedSessionId = await getStorageValue(getTabSessionKey(targetTabId));
+        const nextSessionId =
+          typeof storedSessionId === 'string' && storedSessionId
+            ? storedSessionId
+            : crypto.randomUUID();
+        if (nextSessionId !== storedSessionId) {
+          await setStorageValue(getTabSessionKey(targetTabId), nextSessionId);
+        }
+        sessionResolvedForTabRef.current = targetTabId;
+        if (nextSessionId !== activeSessionId) {
+          setActiveConversationUuid(null);
+          setActiveRemoteSessionId(null);
+          sessionCreatedAtRef.current = Date.now();
+          setActiveSessionId(nextSessionId);
+        }
+      })();
+      return true;
+    },
+    [activeSessionId, dynamicTabId, preservedTranscriptTabId]
+  );
+
+  useEffect(() => {
+    if (
+      typeof preservedTranscriptTabId === 'number' &&
+      typeof preservedTranscriptActiveTabId === 'number' &&
+      typeof dynamicTabId === 'number' &&
+      dynamicTabId !== preservedTranscriptActiveTabId
+    ) {
+      setPreservedTranscriptTabId(undefined);
+      setPreservedTranscriptActiveTabId(undefined);
+    }
+  }, [dynamicTabId, preservedTranscriptActiveTabId, preservedTranscriptTabId]);
 
   // Unlock tab ID when agent stops running. The lock is set synchronously
   // in effectiveSendPrompt (not here) to avoid a race condition where the
@@ -1310,25 +1374,54 @@ export function SidepanelApp() {
   // we try to restore the last session ID that was used for this tab.
   // This prevents chat history from being lost on panel close/reopen.
   //
-  // We depend on `dynamicTabId` (the live value from useActiveTabId) rather
-  // than `query.tabId` (a useMemo derived from it). useActiveTabId resolves
-  // the active tab asynchronously, so on first render `dynamicTabId` is
-  // `undefined` even when a tab ID will arrive a few frames later. Watching
-  // the memoized `query.tabId` would race against that: if we early-returned
-  // on `query.tabId` being undefined, the effect would never re-run for the
-  // same `activeSessionId` (no `query.tabId` change either) and we'd skip
-  // the tab-specific restore and generate a fresh UUID instead.
+  // We depend on `sessionTabId` rather than `query.tabId`: it follows the
+  // live active tab, except while we are intentionally preserving the just-
+  // finished transcript after a tab activation during an agent run. In that
+  // preserved state, `sessionTabId` remains pinned to the transcript's tab so
+  // any follow-up prompt, session mapping, and tool execution stay consistent.
   //
   // We also re-resolve when the user switches tabs while the sidepanel
-  // is window-bound: `dynamicTabId` changes, the previous `activeSessionId`
+  // is window-bound: `sessionTabId` changes, the previous `activeSessionId`
   // belongs to the old tab, and reading `getTabSessionKey(newTabId)` is
   // the only way to surface the new tab's prior conversation. The
   // `sessionResolvedForTabRef` ref records which tab the active session
   // was last resolved for so we only re-resolve on an actual tab change.
   useEffect(() => {
+    // If a tab activation happened while the agent was running, keep the
+    // just-finished transcript visible instead of immediately switching to
+    // the newly-active tab's session, which is often empty.
+    const didAgentJustStop = wasAgentRunningRef.current && !effectiveIsAgentRunning;
+    const startedTabId = agentStartedTabIdRef.current;
+    const postRunTabMismatch =
+      didAgentJustStop &&
+      typeof startedTabId === 'number' &&
+      typeof dynamicTabId === 'number' &&
+      dynamicTabId !== startedTabId;
+
+    if (
+      activeSessionId &&
+      !effectiveIsAgentRunning &&
+      (tabChangedDuringAgentRef.current || postRunTabMismatch)
+    ) {
+      tabChangedDuringAgentRef.current = false;
+      agentStartedTabIdRef.current = undefined;
+      if (typeof startedTabId === 'number') {
+        setPreservedTranscriptTabId(startedTabId);
+        setPreservedTranscriptActiveTabId(
+          typeof dynamicTabId === 'number' ? dynamicTabId : startedTabId
+        );
+      }
+      return;
+    }
+
+    if (didAgentJustStop) {
+      tabChangedDuringAgentRef.current = false;
+      agentStartedTabIdRef.current = undefined;
+    }
+
     // Skip if the current session was already resolved for this tab.
     // This is the hot path: nothing changed, nothing to re-read.
-    if (activeSessionId && sessionResolvedForTabRef.current === dynamicTabId) {
+    if (activeSessionId && sessionResolvedForTabRef.current === sessionTabId) {
       return;
     }
 
@@ -1342,15 +1435,15 @@ export function SidepanelApp() {
       return;
     }
 
-    // Wait for dynamicTabId to be known (a real number) before reading
+    // Wait for sessionTabId to be known (a real number) before reading
     // any tab-specific mapping. If we have a URL sessionId, the user
     // is explicitly opening a specific conversation, so we proceed
     // without a tab context.
-    if (typeof dynamicTabId !== 'number' && !query.sessionId) return;
+    if (typeof sessionTabId !== 'number' && !query.sessionId) return;
 
     let active = true;
     (async () => {
-      const tabId = dynamicTabId;
+      const tabId = sessionTabId;
       const persistTabMapping = async (sessionId: string): Promise<void> => {
         // Only persist the tab→session mapping when we actually have a tab
         // to bind to. Writing under the *current* tab's key (not the
@@ -1417,7 +1510,11 @@ export function SidepanelApp() {
     return () => {
       active = false;
     };
-  }, [activeSessionId, dynamicTabId, effectiveIsAgentRunning, query.sessionId]);
+  }, [activeSessionId, dynamicTabId, effectiveIsAgentRunning, query.sessionId, sessionTabId]);
+
+  useEffect(() => {
+    wasAgentRunningRef.current = effectiveIsAgentRunning;
+  }, [effectiveIsAgentRunning]);
 
   // ─── Tab-session mapping persistence ──────────────────────────────────────
   // The tab→session mapping is written once inside the resolver effect above
@@ -1492,7 +1589,8 @@ export function SidepanelApp() {
     hasBrowserControlPermissionAcceptedRef,
     pushMessageRef,
     abortControllerRef,
-    shouldDisableSkipPermissions
+    shouldDisableSkipPermissions,
+    clearPreservedTranscriptForTarget
   });
 
   useEffect(() => {
@@ -1836,6 +1934,7 @@ export function SidepanelApp() {
   }, [effectiveIsAgentRunning, effectiveCancel, permissionMode, permissionModeMenuOptions]);
 
   const clearConversation = useCallback(() => {
+    const conversationTabId = lockedTabIdRef.current ?? sessionTabId;
     const hadMessages = messages.length > 0;
     setMessages([]);
     if (hadMessages) {
@@ -1843,9 +1942,9 @@ export function SidepanelApp() {
     }
     abortControllerRef.current?.abort();
     setIsAgentRunning(false);
-    if (typeof query.tabId === 'number') {
-      chrome.tabs.sendMessage(query.tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(query.tabId, 'none').catch(() => {});
+    if (typeof conversationTabId === 'number') {
+      chrome.tabs.sendMessage(conversationTabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
+      tabGroupManager.setTabIndicatorState(conversationTabId, 'none').catch(() => {});
     }
     setApiMessages([]);
     setMessageHistory([]);
@@ -1879,12 +1978,13 @@ export function SidepanelApp() {
       sessionCreatedAtRef.current = Date.now();
       setActiveSessionId(nextSessionId);
       // Persist the tab→session mapping so the resolver doesn't revert
-      // this tab to the old stored session on the next resolve/reopen.
-      if (typeof query.tabId === 'number') {
-        void setStorageValue(getTabSessionKey(query.tabId), nextSessionId);
+      // the visible conversation tab to the old stored session on the next
+      // resolve/reopen.
+      if (typeof conversationTabId === 'number') {
+        void setStorageValue(getTabSessionKey(conversationTabId), nextSessionId);
       }
     }
-  }, [flushSession, messages, query.sessionId, query.tabId]);
+  }, [flushSession, messages, query.sessionId, sessionTabId]);
 
   // Load a historical session: clears current state and switches to the selected session.
   // The useSessionPersistence hook's load effect will pick up the new activeSessionId
@@ -1894,13 +1994,16 @@ export function SidepanelApp() {
       if (sessionId === activeSessionId) return;
 
       void trackEvent('superduck.sidebar.history_session_loaded', {});
+      const conversationTabId = lockedTabIdRef.current ?? sessionTabId;
 
       // Abort any running agent
       abortControllerRef.current?.abort();
       setIsAgentRunning(false);
-      if (typeof query.tabId === 'number') {
-        chrome.tabs.sendMessage(query.tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-        tabGroupManager.setTabIndicatorState(query.tabId, 'none').catch(() => {});
+      if (typeof conversationTabId === 'number') {
+        chrome.tabs
+          .sendMessage(conversationTabId, { type: 'HIDE_AGENT_INDICATORS' })
+          .catch(() => {});
+        tabGroupManager.setTabIndicatorState(conversationTabId, 'none').catch(() => {});
       }
 
       // Clear current state before switching
@@ -1954,13 +2057,13 @@ export function SidepanelApp() {
       // The resolver only writes the tab→session mapping on its own
       // resolution path, so explicitly switching to a history session
       // would otherwise leave the next reopen pointing at the tab's
-      // pre-history session. Persist the alias for the current tab
-      // so the user's explicit choice is restored next time.
-      if (typeof query.tabId === 'number') {
-        void setStorageValue(getTabSessionKey(query.tabId), sessionId);
+      // pre-history session. Persist the alias for the visible conversation
+      // tab so the user's explicit choice is restored next time.
+      if (typeof conversationTabId === 'number') {
+        void setStorageValue(getTabSessionKey(conversationTabId), sessionId);
       }
     },
-    [activeSessionId, flushSession, query.tabId]
+    [activeSessionId, flushSession, sessionTabId]
   );
 
   const normalizedModelOptions = useMemo(() => {
@@ -2178,7 +2281,8 @@ export function SidepanelApp() {
     if (pendingPrompt) {
       void effectiveSendPrompt(pendingPrompt.prompt, {
         attachments: pendingPrompt.attachments,
-        isAnnotated: pendingPrompt.isAnnotated
+        isAnnotated: pendingPrompt.isAnnotated,
+        targetTabId: pendingPrompt.targetTabId
       });
       setPendingPrompt(null);
       setInput('');
@@ -2574,7 +2678,7 @@ export function SidepanelApp() {
                 captureCurrentTabScreenshot={captureCurrentTabScreenshot}
                 effectiveCancel={effectiveCancel}
                 sendPrompt={sendPrompt}
-                effectiveSendPrompt={sendPrompt}
+                effectiveSendPrompt={effectiveSendPrompt}
                 insertShortcutChip={insertShortcutChip}
                 navigateActiveTabToUrl={navigateActiveTabToUrl}
                 activeBanner={activeBanner}

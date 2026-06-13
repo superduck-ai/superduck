@@ -9,7 +9,7 @@ import {
 } from '../sidepanelUtils';
 import { isSessionSnapshot, isStringRecord } from '../sidepanelGuards';
 import { SESSION_CONVERSATION_MAP_KEY, SESSION_REMOTE_MAP_KEY } from '../sidepanelGuards';
-import type { PairingPromptState, PendingPromptPayload } from '../types';
+import type { PairingPromptState, PendingPromptPayload, SendPromptOptions } from '../types';
 
 export interface UseRuntimeMessagesProps {
   queryTabId: number | undefined;
@@ -36,12 +36,15 @@ export interface UseRuntimeMessagesProps {
   setIsAgentRunning: React.Dispatch<React.SetStateAction<boolean>>;
   loadSnapshotForSession: (sessionId: string, conversationUuid?: string | null) => Promise<any>;
   sessionCreatedAtRef: React.MutableRefObject<number>;
-  sendPromptRef: React.MutableRefObject<((text: string, options?: any) => Promise<void>) | null>;
+  sendPromptRef: React.MutableRefObject<
+    ((text: string, options?: SendPromptOptions) => Promise<void>) | null
+  >;
   isAgentRunningRef: React.MutableRefObject<boolean>;
   hasBrowserControlPermissionAcceptedRef: React.RefObject<boolean | null>;
   pushMessageRef: React.RefObject<((role: any, text: string) => void) | null>;
   abortControllerRef: React.MutableRefObject<AbortController | null>;
   shouldDisableSkipPermissions: boolean;
+  clearPreservedTranscriptForTarget: (targetTabId: number | undefined) => boolean;
 }
 
 export function useRuntimeMessages({
@@ -71,7 +74,8 @@ export function useRuntimeMessages({
   hasBrowserControlPermissionAcceptedRef,
   pushMessageRef,
   abortControllerRef,
-  shouldDisableSkipPermissions
+  shouldDisableSkipPermissions,
+  clearPreservedTranscriptForTarget
 }: UseRuntimeMessagesProps) {
   // Track the current activeSessionId in a ref so async callbacks (like the
   // POPULATE_INPUT_TEXT timeout) can detect stale sessions without re-running
@@ -80,6 +84,11 @@ export function useRuntimeMessages({
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  const clearPreservedTranscriptForTargetRef = useRef(clearPreservedTranscriptForTarget);
+  useEffect(() => {
+    clearPreservedTranscriptForTargetRef.current = clearPreservedTranscriptForTarget;
+  }, [clearPreservedTranscriptForTarget]);
 
   // PANEL_OPENED
   useEffect(() => {
@@ -164,6 +173,11 @@ export function useRuntimeMessages({
 
       if (message.type === 'POPULATE_INPUT_TEXT') {
         const prompt = typeof message.prompt === 'string' ? message.prompt : '';
+        const targetTabId =
+          typeof message.targetTabId === 'number' ? message.targetTabId : undefined;
+        const clearedPreservedTranscript =
+          clearPreservedTranscriptForTargetRef.current(targetTabId);
+        const shouldAutoSend = message.autoSend !== false;
         setInput(prompt);
         if (isPermissionMode(message.permissionMode)) {
           if (
@@ -191,12 +205,21 @@ export function useRuntimeMessages({
         }
         setAttachmentCount(validAttachments.length);
         setPendingAttachments(validAttachments);
-        setPendingPrompt({
-          prompt,
-          attachments: validAttachments,
-          isAnnotated: hasAnnotatedAttachment
-        });
+        setPendingPrompt(
+          shouldAutoSend
+            ? {
+                prompt,
+                attachments: validAttachments,
+                isAnnotated: hasAnnotatedAttachment,
+                targetTabId
+              }
+            : null
+        );
         sendResponse({ success: true });
+
+        if (!shouldAutoSend) {
+          return;
+        }
 
         // Capture the session ID at the time POPULATE_INPUT_TEXT arrives.
         // If the user switches sessions during the 500ms delay, we should
@@ -205,12 +228,15 @@ export function useRuntimeMessages({
         timeoutId = setTimeout(() => {
           if (!prompt.trim()) return;
           // Only send if we're still in the same session
-          if (capturedSessionId !== activeSessionIdRef.current) return;
+          if (!clearedPreservedTranscript && capturedSessionId !== activeSessionIdRef.current) {
+            return;
+          }
           if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
             setInput('');
             void sendPromptRef.current?.(prompt, {
               attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment
+              isAnnotated: hasAnnotatedAttachment,
+              targetTabId
             });
             setPendingPrompt(null);
             setPendingAttachments([]);
@@ -220,7 +246,8 @@ export function useRuntimeMessages({
             setPendingPrompt({
               prompt,
               attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment
+              isAnnotated: hasAnnotatedAttachment,
+              targetTabId
             });
           }
         }, 500);

@@ -1,9 +1,9 @@
-import { test, expect } from "../fixtures/extension";
-import { seedStorage, getDefaultProviderConfig, clearStorage } from "../fixtures/storage";
-import { openSidepanel, sendMessage, waitForAssistantMessage } from "../helpers/sidepanel";
-import { openFixturePage } from "../helpers/pages";
-import { mockLLMStreaming } from "../fixtures/mockLLM";
-import type { Page, BrowserContext, Worker } from "@playwright/test";
+import { test, expect } from '../fixtures/extension';
+import { seedStorage, getDefaultProviderConfig, clearStorage } from '../fixtures/storage';
+import { openSidepanel, sendMessage, waitForAssistantMessage } from '../helpers/sidepanel';
+import { openFixturePage } from '../helpers/pages';
+import { mockLLMStreaming } from '../fixtures/mockLLM';
+import type { Page, BrowserContext, Worker } from '@playwright/test';
 
 /**
  * Regressions for the two session-history edge bugs reported on Edge:
@@ -29,8 +29,8 @@ import type { Page, BrowserContext, Worker } from "@playwright/test";
  * spec catches it.
  */
 
-const SESSION_PREFIX = "sidepanel_session_";
-const TAB_SESSION_PREFIX = "sidepanel_tab_session_";
+const SESSION_PREFIX = 'sidepanel_session_';
+const TAB_SESSION_PREFIX = 'sidepanel_tab_session_';
 
 /** Read the session snapshot for a given sessionId from SW storage. */
 async function readSessionSnapshot(sw: any, sessionId: string) {
@@ -71,8 +71,7 @@ async function readMostRecentSnapshot(sw: any) {
         // Prefer snapshots that have uiMessages (i.e. real chat snapshots)
         const snap = v as any;
         if (!Array.isArray(snap.uiMessages)) continue;
-        const updatedAt =
-          typeof snap.createdAt === "number" ? snap.createdAt : 0;
+        const updatedAt = typeof snap.createdAt === 'number' ? snap.createdAt : 0;
         if (!best || updatedAt > best.updatedAt) {
           best = { sessionId: k.slice(prefix.length), snapshot: snap, updatedAt };
         }
@@ -131,9 +130,9 @@ async function seedSuperDuckGroup(sw: any, tabId: number): Promise<void> {
       try {
         const id = await sw.chrome.tabs.group({ tabIds: [tabId] });
         await sw.chrome.tabGroups.update(id, {
-          title: "🦆SuperDuck",
-          color: "orange",
-          collapsed: false,
+          title: '🦆SuperDuck',
+          color: 'orange',
+          collapsed: false
         });
         return { ok: true, chromeGroupId: id };
       } catch (err) {
@@ -143,9 +142,7 @@ async function seedSuperDuckGroup(sw: any, tabId: number): Promise<void> {
     { tabId }
   );
   if (!groupId.ok) {
-    throw new Error(
-      `chrome.tabs.group failed for tab ${tabId}: ${groupId.error}`
-    );
+    throw new Error(`chrome.tabs.group failed for tab ${tabId}: ${groupId.error}`);
   }
 
   // Now seed the in-memory groupMetadata the SW's tabGroupManager would
@@ -154,12 +151,12 @@ async function seedSuperDuckGroup(sw: any, tabId: number): Promise<void> {
     async ({ tabId, chromeGroupId }: { tabId: number; chromeGroupId: number }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sw = globalThis as any;
-      const existing = (await sw.chrome.storage.local.get("tabGroups")).tabGroups ?? {};
+      const existing = (await sw.chrome.storage.local.get('tabGroups')).tabGroups ?? {};
       // Read the tab's URL to derive a domain like the manager does
-      let domain = "blank";
+      let domain = 'blank';
       try {
         const tab = await sw.chrome.tabs.get(tabId);
-        if (tab.url) domain = new URL(tab.url).hostname || "blank";
+        if (tab.url) domain = new URL(tab.url).hostname || 'blank';
       } catch {
         // ignore
       }
@@ -168,7 +165,7 @@ async function seedSuperDuckGroup(sw: any, tabId: number): Promise<void> {
         createdAt: Date.now(),
         domain,
         chromeGroupId,
-        memberStates: { [tabId]: { indicatorState: "none" } },
+        memberStates: { [tabId]: { indicatorState: 'none' } }
       };
       await sw.chrome.storage.local.set({ tabGroups: existing });
     },
@@ -221,7 +218,7 @@ async function openChatSidepanel(
   const spTabId = await sw.evaluate(async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tabs = await (globalThis as any).chrome.tabs.query({});
-    const sp = tabs.find((t: any) => (t.url ?? "").includes("sidepanel.html"));
+    const sp = tabs.find((t: any) => (t.url ?? '').includes('sidepanel.html'));
     return sp?.id;
   });
 
@@ -231,13 +228,13 @@ async function openChatSidepanel(
     async ({ tabId, spTabId: sideTabId }: { tabId: number; spTabId: number }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sw = globalThis as any;
-      const groups = (await sw.chrome.storage.local.get("tabGroups"))?.tabGroups ?? {};
+      const groups = (await sw.chrome.storage.local.get('tabGroups'))?.tabGroups ?? {};
       const oldEntry = groups[String(sideTabId)];
       const chromeGroupId = oldEntry?.chromeGroupId ?? 12345;
-      let domain = "blank";
+      let domain = 'blank';
       try {
         const tab = await sw.chrome.tabs.get(tabId);
-        if (tab.url) domain = new URL(tab.url).hostname || "blank";
+        if (tab.url) domain = new URL(tab.url).hostname || 'blank';
       } catch {
         // ignore
       }
@@ -247,7 +244,7 @@ async function openChatSidepanel(
         createdAt: Date.now(),
         domain,
         chromeGroupId,
-        memberStates: { [tabId]: { indicatorState: "none" } },
+        memberStates: { [tabId]: { indicatorState: 'none' } }
       };
       await sw.chrome.storage.local.set({ tabGroups: groups });
     },
@@ -268,20 +265,20 @@ async function openChatSidepanel(
 
   // Make sure the chat UI is up. If it isn't, surface the DOM so the
   // failure is debuggable instead of a 10s ProseMirror timeout later.
-  await sp.waitForSelector(".ProseMirror", { timeout: 10_000 });
+  await sp.waitForSelector('.ProseMirror', { timeout: 10_000 });
   return sp;
 }
 
-test.describe("Session history: assistant reply persists across sidepanel close/reopen", () => {
+test.describe('Session history: assistant reply persists across sidepanel close/reopen', () => {
   test("after sending '你好' and getting a reply, closing + reopening the sidepanel shows both messages", async ({
     context,
     extensionId,
-    serviceWorker,
+    serviceWorker
   }) => {
     await clearStorage(serviceWorker);
     await seedStorage(serviceWorker, getDefaultProviderConfig());
 
-    const targetPage = await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, 'simple-form.html');
     const targetTabId = await getChromeTabIdFor(serviceWorker, targetPage);
     await seedSuperDuckGroup(serviceWorker, targetTabId);
 
@@ -297,14 +294,12 @@ test.describe("Session history: assistant reply persists across sidepanel close/
     await mockLLMStreaming(sp1, {
       responses: [
         {
-          content: [
-            { type: "text", text: "你好！很高兴见到你。" },
-          ],
-          stop_reason: "end_turn",
-        },
-      ],
+          content: [{ type: 'text', text: '你好！很高兴见到你。' }],
+          stop_reason: 'end_turn'
+        }
+      ]
     });
-    await sendMessage(sp1, "你好");
+    await sendMessage(sp1, '你好');
     await waitForAssistantMessage(sp1, 15_000);
 
     // 2) Give the 2s debounce + cleanup-save path time to fire BEFORE we
@@ -314,12 +309,12 @@ test.describe("Session history: assistant reply persists across sidepanel close/
 
     // 3) Assert storage has the snapshot with both messages
     const first = await readMostRecentSnapshot(serviceWorker);
-    expect(first, "a session snapshot should be persisted before close").toBeTruthy();
+    expect(first, 'a session snapshot should be persisted before close').toBeTruthy();
     expect(first!.snapshot.uiMessages.length).toBe(2);
-    expect(first!.snapshot.uiMessages[0].role).toBe("user");
-    expect(first!.snapshot.uiMessages[0].text).toContain("你好");
-    expect(first!.snapshot.uiMessages[1].role).toBe("assistant");
-    expect(first!.snapshot.uiMessages[1].text).toContain("很高兴见到你");
+    expect(first!.snapshot.uiMessages[0].role).toBe('user');
+    expect(first!.snapshot.uiMessages[0].text).toContain('你好');
+    expect(first!.snapshot.uiMessages[1].role).toBe('assistant');
+    expect(first!.snapshot.uiMessages[1].text).toContain('很高兴见到你');
 
     // 4) Close and wait for any final persistence
     await sp1.close();
@@ -338,37 +333,181 @@ test.describe("Session history: assistant reply persists across sidepanel close/
 
     // 6) Storage still has the snapshot
     const stillThere = await readSessionSnapshot(serviceWorker, first!.sessionId);
-    expect(stillThere, "snapshot should survive close").toBeTruthy();
+    expect(stillThere, 'snapshot should survive close').toBeTruthy();
     expect(stillThere.uiMessages.length).toBe(2);
 
     // 7) DOM check — the assistant's reply is visible in the reloaded
     //    sidepanel. This is the user-visible Bug 1: the user reported
     //    the reply disappearing; if it disappears, this assertion fails.
-    const assistantBlocks = sp2.locator(".superduck-response");
-    await expect(assistantBlocks.first()).toContainText("很高兴见到你", {
-      timeout: 5000,
+    const assistantBlocks = sp2.locator('.superduck-response');
+    await expect(assistantBlocks.first()).toContainText('很高兴见到你', {
+      timeout: 5000
     });
 
     // 8) The user message text should also be in the DOM (rendered in
     //    UserMessageRow via ReactMarkdown; we just check raw content).
     const pageContent = await sp2.content();
-    expect(pageContent).toContain("你好");
+    expect(pageContent).toContain('你好');
 
     await sp2.close();
     await targetPage.close();
   });
 });
 
-test.describe("Session history: user message persists when sidepanel is closed mid-agent-run", () => {
+test.describe('Session history: task completion keeps the visible transcript', () => {
+  test('switching tabs while a task is running does not reset the sidepanel after completion', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    test.setTimeout(60_000);
+
+    await clearStorage(serviceWorker);
+    await seedStorage(serviceWorker, getDefaultProviderConfig());
+
+    const targetPage = await openFixturePage(context, 'simple-form.html');
+    const targetTabId = await getChromeTabIdFor(serviceWorker, targetPage);
+    await seedSuperDuckGroup(serviceWorker, targetTabId);
+
+    const sp = await openChatSidepanel(
+      context,
+      serviceWorker,
+      extensionId,
+      targetPage,
+      targetTabId
+    );
+
+    await mockLLMStreaming(sp, {
+      responses: [
+        {
+          content: [
+            {
+              type: 'text',
+              text: '任务执行完成，历史消息应该继续留在侧边栏里。'
+            }
+          ],
+          stop_reason: 'end_turn'
+        },
+        {
+          content: [
+            {
+              type: 'text',
+              text: '任务执行完成，历史消息应该继续留在侧边栏里。'
+            }
+          ],
+          stop_reason: 'end_turn'
+        },
+        {
+          content: [
+            {
+              type: 'text',
+              text: '后续任务继续使用原来的会话和页面。'
+            }
+          ],
+          stop_reason: 'end_turn'
+        }
+      ]
+    });
+
+    // Keep the request in-flight long enough to switch tabs before completion.
+    await sp.evaluate(() => {
+      const win = window as Window & {
+        __mockedDelayedFetch?: boolean;
+        __llmRequestBodies?: unknown[];
+      };
+      win.__llmRequestBodies = [];
+      const mockedFetch = window.fetch;
+      window.fetch = async (
+        url: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1]
+      ) => {
+        const urlStr =
+          typeof url === 'string'
+            ? url
+            : url instanceof Request
+              ? url.url
+              : url instanceof URL
+                ? url.href
+                : String(url);
+        const isLLMCall =
+          urlStr.includes('/v1/messages') ||
+          urlStr.includes('/chat/completions') ||
+          urlStr.includes('/v1/responses');
+        if (isLLMCall) {
+          const body = init?.body;
+          if (typeof body === 'string') {
+            try {
+              win.__llmRequestBodies?.push(JSON.parse(body) as unknown);
+            } catch {
+              win.__llmRequestBodies?.push(body);
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+        return mockedFetch(url, init);
+      };
+      win.__mockedDelayedFetch = true;
+    });
+
+    await sendMessage(sp, '执行一个会切换 tab 的任务');
+    await sp.locator('[data-test-id="stop-button"]').waitFor({
+      state: 'visible',
+      timeout: 5000
+    });
+
+    const otherPage = await openFixturePage(context, 'long-article.html');
+    const otherTabId = await getChromeTabIdFor(serviceWorker, otherPage);
+    await serviceWorker.evaluate(async (tabId: number) => {
+      await (globalThis as typeof globalThis & { chrome: typeof chrome }).chrome.tabs.update(
+        tabId,
+        { active: true }
+      );
+    }, otherTabId);
+    await otherPage.bringToFront();
+
+    await waitForAssistantMessage(sp, 20_000);
+
+    // Give the session resolver a chance to run after isAgentRunning flips
+    // back to false. The regression cleared messages during this window.
+    await sp.waitForTimeout(1500);
+
+    const pageContent = await sp.content();
+    expect(pageContent).toContain('执行一个会切换 tab 的任务');
+    expect(pageContent).toContain('历史消息应该继续留在侧边栏里');
+
+    await sendMessage(sp, '继续处理上一页');
+    await expect(sp.locator('.superduck-response').last()).toContainText(
+      '后续任务继续使用原来的会话和页面',
+      { timeout: 20_000 }
+    );
+
+    const followUpRequest = await sp.evaluate((followUpText) => {
+      const win = window as Window & { __llmRequestBodies?: unknown[] };
+      return (
+        win.__llmRequestBodies
+          ?.map((body) => JSON.stringify(body))
+          .find((body) => body.includes(followUpText)) || ''
+      );
+    }, '继续处理上一页');
+    expect(followUpRequest).toMatch(new RegExp(`\\b${targetTabId}\\b`));
+    expect(followUpRequest).not.toMatch(new RegExp(`\\b${otherTabId}\\b`));
+
+    await sp.close();
+    await otherPage.close();
+    await targetPage.close();
+  });
+});
+
+test.describe('Session history: user message persists when sidepanel is closed mid-agent-run', () => {
   test("sending '你好' and immediately closing the sidepanel persists at least the user message", async ({
     context,
     extensionId,
-    serviceWorker,
+    serviceWorker
   }) => {
     await clearStorage(serviceWorker);
     await seedStorage(serviceWorker, getDefaultProviderConfig());
 
-    const targetPage = await openFixturePage(context, "simple-form.html");
+    const targetPage = await openFixturePage(context, 'simple-form.html');
     const targetTabId = await getChromeTabIdFor(serviceWorker, targetPage);
     await seedSuperDuckGroup(serviceWorker, targetTabId);
 
@@ -388,18 +527,17 @@ test.describe("Session history: user message persists when sidepanel is closed m
       const w = window as any;
       w.__originalFetch = w.__originalFetch || window.fetch;
       window.fetch = (url: any, init?: any) => {
-        const urlStr =
-          typeof url === "string" ? url : url?.url || url?.href || String(url);
+        const urlStr = typeof url === 'string' ? url : url?.url || url?.href || String(url);
         if (
-          urlStr.includes("/v1/messages") ||
-          urlStr.includes("/chat/completions") ||
-          urlStr.includes("/v1/responses")
+          urlStr.includes('/v1/messages') ||
+          urlStr.includes('/chat/completions') ||
+          urlStr.includes('/v1/responses')
         ) {
           return new Promise<Response>((_resolve, reject) => {
             // Honor abort so we don't leak event listeners when the
             // React tree eventually aborts the controller.
-            init?.signal?.addEventListener?.("abort", () => {
-              reject(new DOMException("Aborted", "AbortError"));
+            init?.signal?.addEventListener?.('abort', () => {
+              reject(new DOMException('Aborted', 'AbortError'));
             });
           });
         }
@@ -407,7 +545,7 @@ test.describe("Session history: user message persists when sidepanel is closed m
       };
     });
 
-    await sendMessage(sp1, "你好");
+    await sendMessage(sp1, '你好');
 
     // Give the user message time to be added to React state and trigger
     // the persistence debounce, but NOT enough for the agent to reply
@@ -433,23 +571,21 @@ test.describe("Session history: user message persists when sidepanel is closed m
     const sessionIds = await listSessionIds(serviceWorker);
     expect(
       sessionIds.length,
-      "at least one session snapshot should exist after sidepanel close"
+      'at least one session snapshot should exist after sidepanel close'
     ).toBeGreaterThan(0);
 
     const best = await readMostRecentSnapshot(serviceWorker);
-    expect(best, "a session snapshot with uiMessages should exist").toBeTruthy();
-    const userMessages = best!.snapshot.uiMessages.filter(
-      (m: any) => m.role === "user"
-    );
+    expect(best, 'a session snapshot with uiMessages should exist').toBeTruthy();
+    const userMessages = best!.snapshot.uiMessages.filter((m: any) => m.role === 'user');
     expect(
       userMessages.length,
-      "user message must be persisted even when assistant never replies"
+      'user message must be persisted even when assistant never replies'
     ).toBeGreaterThanOrEqual(1);
-    expect(userMessages[0].text).toContain("你好");
+    expect(userMessages[0].text).toContain('你好');
 
     // DOM check: reopened sidepanel shows the user message
     const pageContent = await sp2.content();
-    expect(pageContent).toContain("你好");
+    expect(pageContent).toContain('你好');
 
     await sp2.close();
     await targetPage.close();

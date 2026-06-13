@@ -1,8 +1,6 @@
-import { connectBridge, syncPermissions } from "../mcpRuntime";
-
 const ALLOWED_ORIGINS = new Set([
-  "https://open.bigmodel.cn",
-  "https://coding.dashscope.aliyuncs.com",
+  'https://open.bigmodel.cn',
+  'https://coding.dashscope.aliyuncs.com'
 ]);
 
 export interface ExternalMessageListenerDeps {
@@ -10,28 +8,39 @@ export interface ExternalMessageListenerDeps {
 }
 
 export function registerExternalMessageListener({
-  connectNativeHost,
+  connectNativeHost: _connectNativeHost
 }: ExternalMessageListenerDeps) {
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     void (async () => {
       const origin = sender.origin;
       if (!origin || !ALLOWED_ORIGINS.has(origin)) {
-        sendResponse({ success: false, error: "Untrusted origin" });
+        sendResponse({ success: false, error: 'Untrusted origin' });
         return;
       }
 
-      if (message.type === "ping") {
+      if (message.type === 'ping') {
         sendResponse({ success: true, exists: true });
         return;
       }
 
-      if (message.type === "onboarding_task") {
+      if (message.type === 'onboarding_task') {
+        const prompt = typeof message.payload?.prompt === 'string' ? message.payload.prompt : '';
+        if (!prompt.trim()) {
+          sendResponse({ success: false, error: 'Missing prompt' });
+          return;
+        }
+
         chrome.runtime.sendMessage({
-          type: "POPULATE_INPUT_TEXT",
-          prompt: message.payload?.prompt,
+          type: 'POPULATE_INPUT_TEXT',
+          prompt,
+          targetTabId: sender.tab?.id,
+          autoSend: false
         });
-        sendResponse({ success: true });
+        sendResponse({ success: true, autoSend: false });
+        return;
       }
+
+      sendResponse({ success: false, error: 'Unsupported message type' });
     })();
 
     return true;
