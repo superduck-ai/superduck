@@ -1878,8 +1878,13 @@ export function SidepanelApp() {
       const nextSessionId = crypto.randomUUID();
       sessionCreatedAtRef.current = Date.now();
       setActiveSessionId(nextSessionId);
+      // Persist the tab→session mapping so the resolver doesn't revert
+      // this tab to the old stored session on the next resolve/reopen.
+      if (typeof query.tabId === 'number') {
+        void setStorageValue(getTabSessionKey(query.tabId), nextSessionId);
+      }
     }
-  }, [flushSession, messages, query.sessionId]);
+  }, [flushSession, messages, query.sessionId, query.tabId]);
 
   // Load a historical session: clears current state and switches to the selected session.
   // The useSessionPersistence hook's load effect will pick up the new activeSessionId
