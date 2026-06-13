@@ -1441,7 +1441,7 @@ export function SidepanelApp() {
 
   // ─── Session persistence hook ─────────────────────────────────────────────
 
-  const { loadSnapshotForSession } = useSessionPersistence({
+  const { loadSnapshotForSession, flushSession } = useSessionPersistence({
     activeSessionId,
     activeConversationUuid,
     activeRemoteSessionId,
@@ -1870,6 +1870,10 @@ export function SidepanelApp() {
     setPermissionMode('skip_all_permission_checks');
     hasApprovedPlanRef.current = false;
     permissionManagerRef.current?.clearTurnApprovedDomains();
+    // Flush the current session before lowering the gate, so any
+    // messages/model changes within the 2s debounce window are persisted
+    // before the save effect cleanup is suppressed.
+    flushSession();
     // Gate the persistence save effect BEFORE switching sessionId.
     // Without this, the save effect cleanup fires with empty messages/apiMessages
     // and writes an empty snapshot to the old session's storage key, destroying
@@ -1880,7 +1884,7 @@ export function SidepanelApp() {
       sessionCreatedAtRef.current = Date.now();
       setActiveSessionId(nextSessionId);
     }
-  }, [messages, query.sessionId]);
+  }, [flushSession, messages, query.sessionId]);
 
   // Load a historical session: clears current state and switches to the selected session.
   // The useSessionPersistence hook's load effect will pick up the new activeSessionId
@@ -1930,6 +1934,9 @@ export function SidepanelApp() {
       }
       setPermissionPrompt(null);
 
+      // Flush the current session before lowering the gate, so any
+      // messages/model changes within the 2s debounce window are persisted.
+      flushSession();
       // Gate the persistence save effect BEFORE switching sessionId.
       // Without this, the save effect fires with empty messages/apiMessages
       // (set above) and writes an empty snapshot to the new session's storage
@@ -1953,7 +1960,7 @@ export function SidepanelApp() {
         void setStorageValue(getTabSessionKey(query.tabId), sessionId);
       }
     },
-    [activeSessionId, query.tabId]
+    [activeSessionId, flushSession, query.tabId]
   );
 
   const normalizedModelOptions = useMemo(() => {

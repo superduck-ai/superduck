@@ -100,6 +100,14 @@ export function useSessionPersistence({
 }: UseSessionPersistenceProps) {
   const historyStorageKey = getHistoryStorageKey(activeSessionId);
 
+  // Holds the latest persistSnapshot function so flushSession() can
+  // trigger an immediate save (bypassing the 2s debounce) before the
+  // gate is lowered in clearConversation / handleLoadHistorySession.
+  const persistSnapshotRef = useRef<(() => void) | null>(null);
+  const flushSession = useCallback(() => {
+    persistSnapshotRef.current?.();
+  }, []);
+
   // ─── Render-phase snapshot ref ──────────────────────────────────────────────
   // Updated synchronously during render so that useEffect cleanups and
   // beforeunload handlers always read the latest state, not stale closure
@@ -416,6 +424,7 @@ export function useSessionPersistence({
         }
       })();
     };
+    persistSnapshotRef.current = persistSnapshot;
 
     // Debounce storage writes to avoid thrashing during streaming
     const timer = setTimeout(persistSnapshot, 2000);
@@ -461,7 +470,13 @@ export function useSessionPersistence({
   // most recent render.
 
   useEffect(() => {
-    if (!activeSessionId || !hasLoadedSessionRef.current) return;
+    if (!activeSessionId) return;
+    // NOTE: Do NOT gate on hasLoadedSessionRef here. The load effect
+    // (declared above) sets hasLoadedSessionRef = false before this
+    // effect runs, and the later flip to true does not change
+    // activeSessionId/historyStorageKey, so this effect would never
+    // re-run to register the handler. The handler itself checks the
+    // gate internally, which is sufficient.
 
     const handleBeforeUnload = () => {
       if (!hasLoadedSessionRef.current) return;
@@ -498,6 +513,7 @@ export function useSessionPersistence({
     loadSnapshotForSession,
     restoreSnapshotFromRemoteSession,
     upsertSessionIndex,
+    flushSession,
     historyStorageKey
   };
 }
