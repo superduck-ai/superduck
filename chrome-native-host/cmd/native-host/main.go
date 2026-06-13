@@ -65,6 +65,9 @@ func NewServer() (*Server, error) {
 			if _, statErr := os.Lstat(socketPath); statErr != nil {
 				_ = listener.Close()
 				if os.IsNotExist(statErr) {
+					if attempt == bindAttempts-1 {
+						return nil, fmt.Errorf("socket unlinked after bind (retries exhausted): %w", statErr)
+					}
 					slog.Warn("socket unlinked after bind, retrying",
 						"path", socketPath, "attempt", attempt+1)
 					time.Sleep(200 * time.Millisecond)
