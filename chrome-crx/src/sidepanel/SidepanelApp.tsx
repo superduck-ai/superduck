@@ -1835,6 +1835,9 @@ export function SidepanelApp() {
   );
 
   const captureCurrentTabScreenshot = useCallback(async () => {
+    let previousActiveTabId: number | undefined;
+    let shouldRestoreActiveTab = false;
+
     try {
       const targetTabId = preservedTranscriptTabId ?? query.tabId;
       let captureWindowId: number | undefined;
@@ -1845,6 +1848,13 @@ export function SidepanelApp() {
         }
         captureWindowId = targetTab.windowId;
         if (!targetTab.active) {
+          const activeTabs = await chrome.tabs.query({
+            active: true,
+            windowId: targetTab.windowId
+          });
+          previousActiveTabId = activeTabs[0]?.id;
+          shouldRestoreActiveTab =
+            typeof previousActiveTabId === 'number' && previousActiveTabId !== targetTabId;
           await chrome.tabs.update(targetTabId, { active: true });
         }
       } else {
@@ -1879,6 +1889,10 @@ export function SidepanelApp() {
       void trackEvent('superduck.sidebar.screenshot_captured', {});
     } catch (error) {
       setRuntimeError(`Unable to capture screenshot: ${getErrorMessage(error)}`);
+    } finally {
+      if (shouldRestoreActiveTab && typeof previousActiveTabId === 'number') {
+        await chrome.tabs.update(previousActiveTabId, { active: true }).catch(() => {});
+      }
     }
   }, [preservedTranscriptTabId, query.tabId]);
 

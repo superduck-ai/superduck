@@ -110,11 +110,7 @@ export function useRuntimeMessages({
         return message.windowSessionId === querySessionId;
       }
       if (isWindowMode || message.windowSessionId) return false;
-      if (
-        typeof message.targetTabId === 'number' &&
-        typeof queryTabId === 'number' &&
-        message.targetTabId !== queryTabId
-      ) {
+      if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
         return false;
       }
       return true;
@@ -174,11 +170,7 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'POPULATE_INPUT_TEXT') {
-        if (
-          typeof message.targetTabId === 'number' &&
-          typeof queryTabId === 'number' &&
-          message.targetTabId !== queryTabId
-        ) {
+        if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
           sendResponse({ success: false, skipped: true });
           return;
         }
@@ -359,11 +351,7 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'STOP_AGENT') {
-        if (
-          typeof message.targetTabId === 'number' &&
-          typeof queryTabId === 'number' &&
-          message.targetTabId !== queryTabId
-        ) {
+        if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
           sendResponse({ success: false, skipped: true });
           return;
         }
