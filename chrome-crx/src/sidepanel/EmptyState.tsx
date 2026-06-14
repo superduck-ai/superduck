@@ -1,12 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { FormattedMessage, useIntl } from "react-intl";
-import {
-  StorageKeys,
-  getStorageValue,
-  setStorageValue,
-} from "../extensionServices";
-import { useTabEvent } from "./hooks";
-import { HandwritingAnimation } from "./HandwritingAnimation";
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { StorageKeys, getStorageValue, setStorageValue } from '../extensionServices';
+import { useTabEvent } from './hooks';
+import { HandwritingAnimation } from './HandwritingAnimation';
 
 // =============================================================================
 // DomainPrompts (lines 729-748)
@@ -27,22 +23,16 @@ export function DomainPrompts({ domainConfig, onPromptClick }: DomainPromptsProp
   return (
     <div className="flex flex-col items-center justify-center h-full px-4 py-8">
       <div className="w-12 h-12 rounded-xl border-[0.5px] border-border-300 bg-always-white shadow-sm mb-4 overflow-hidden">
-        <img
-          src={domainConfig.logo_url}
-          alt=""
-          className="w-full h-full object-cover"
-        />
+        <img src={domainConfig.logo_url} alt="" className="w-full h-full object-cover" />
       </div>
-      <h2 className="font-ui-sm text-text-500 mb-[22px]">
-        {domainConfig.header_text}
-      </h2>
+      <h2 className="font-ui-sm text-text-500 mb-[22px]">{domainConfig.header_text}</h2>
       <div className="flex flex-col items-center gap-2 w-full max-w-sm">
         {domainConfig.prompts.map((prompt, index) => (
           <button
             key={index}
             onClick={() => onPromptClick(prompt.prompt)}
             className="min-w-[75px] min-h-8 px-[14px] py-[3px] font-base text-text-100 border-[0.5px] border-border-300 bg-bg-000/30 hover:bg-bg-200 transition-colors text-center line-clamp-2 break-words"
-            style={{ borderRadius: "38px" }}
+            style={{ borderRadius: '38px' }}
           >
             {prompt.prompt_title}
           </button>
@@ -66,11 +56,11 @@ interface FeatureCardProps {
 function useDarkMode(): boolean {
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
     setIsDark(mql.matches);
     const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
   }, []);
   return isDark;
 }
@@ -97,7 +87,7 @@ export function FeatureCard({ lightImage, darkImage, title, subtitle }: FeatureC
 // =============================================================================
 
 const TIP_CONFIGS: Record<string, { maxDisplays: number; requiresGate: boolean }> = {
-  pin_extension: { maxDisplays: 1, requiresGate: false },
+  pin_extension: { maxDisplays: 1, requiresGate: false }
 };
 
 function useTipDisplay(tipId: string, tabId: number | undefined) {
@@ -113,10 +103,8 @@ function useTipDisplay(tipId: string, tabId: number | undefined) {
       try {
         const config = TIP_CONFIGS[tipId];
         const counts =
-          ((await getStorageValue(StorageKeys.TIP_DISPLAY_COUNTS)) as Record<
-            string,
-            string[]
-          >) || {};
+          ((await getStorageValue(StorageKeys.TIP_DISPLAY_COUNTS)) as Record<string, string[]>) ||
+          {};
         const shown = counts[tipId] || [];
         const alreadyShownForTab = shown.includes(String(tabId));
         const reachedLimit = shown.length >= config.maxDisplays;
@@ -134,10 +122,7 @@ function useTipDisplay(tipId: string, tabId: number | undefined) {
     if (!tabId) return;
     try {
       const counts =
-        ((await getStorageValue(StorageKeys.TIP_DISPLAY_COUNTS)) as Record<
-          string,
-          string[]
-        >) || {};
+        ((await getStorageValue(StorageKeys.TIP_DISPLAY_COUNTS)) as Record<string, string[]>) || {};
       const shown = counts[tipId] || [];
       if (!shown.includes(String(tabId))) {
         shown.push(String(tabId));
@@ -154,7 +139,7 @@ function useTipDisplay(tipId: string, tabId: number | undefined) {
 
 const MountEffect: React.FC<{ onMount: () => void; children: React.ReactNode }> = ({
   children,
-  onMount,
+  onMount
 }) => {
   useEffect(() => {
     onMount();
@@ -181,12 +166,14 @@ interface EmptyStateProps {
   onPromptClick: (prompt: string) => void;
 }
 
+const URL_TAB_EVENT_PROPERTIES = ['url'];
+
 export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
   const intl = useIntl();
-  const [currentUrl, setCurrentUrl] = useState("");
+  const [currentUrl, setCurrentUrl] = useState('');
   const [isPinned, setIsPinned] = useState<boolean | null>(null);
   const crochetChips: Record<string, unknown> = {};
-  const tipDisplay = useTipDisplay("pin_extension", tabId);
+  const tipDisplay = useTipDisplay('pin_extension', tabId);
 
   useEffect(() => {
     (async () => {
@@ -196,7 +183,7 @@ export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
   }, []);
 
   const handleTabUpdate = useCallback((tab: chrome.tabs.Tab) => {
-    setCurrentUrl(tab.url || "");
+    setCurrentUrl(tab.url || '');
   }, []);
 
   useEffect(() => {
@@ -204,13 +191,13 @@ export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
       chrome.tabs
         .get(tabId)
         .then(handleTabUpdate)
-        .catch(() => setCurrentUrl(""));
+        .catch(() => setCurrentUrl(''));
     }
   }, [tabId, handleTabUpdate]);
 
   useTabEvent(
     tabId,
-    ["url"],
+    URL_TAB_EVENT_PROPERTIES,
     (eventTabId, changeInfo, tab) => {
       if (eventTabId === tabId && changeInfo.url && tab) {
         handleTabUpdate(tab);
@@ -223,8 +210,8 @@ export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
     if (!currentUrl) return undefined;
     try {
       const url = new URL(currentUrl);
-      const hostname = url.hostname.replace(/^www\./, "");
-      const firstPath = url.pathname.split("/")[1];
+      const hostname = url.hostname.replace(/^www\./, '');
+      const firstPath = url.pathname.split('/')[1];
 
       if (firstPath) {
         const fullKey = `${hostname}/${firstPath}`;
@@ -250,13 +237,12 @@ export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
             lightImage="/assets/extension-light-min-CwWd0kAK.svg"
             darkImage="/assets/extension-dark-min-Ctxo0Z8w.svg"
             title={intl.formatMessage({
-              defaultMessage: "Pin SuperDuck for quick access",
-              id: "9qJKQKXInl",
+              defaultMessage: 'Pin SuperDuck for quick access',
+              id: '9qJKQKXInl'
             })}
             subtitle={intl.formatMessage({
-              defaultMessage:
-                "Click the pin icon in the top right corner of the extension window",
-              id: "PqHH2BNESm",
+              defaultMessage: 'Click the pin icon in the top right corner of the extension window',
+              id: 'PqHH2BNESm'
             })}
           />
         </SuperDuckHeader>
@@ -267,11 +253,11 @@ export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
   return <SuperDuckHeader />;
 }
 
-const HEADER_COLOR = "rgb(156,156,156)";
-const HEADER_SKEW = "skewX(-10deg)";
+const HEADER_COLOR = 'rgb(156,156,156)';
+const HEADER_SKEW = 'skewX(-10deg)';
 // Sit slightly above vertical center so the header reads as "upper-middle"
 // across both tall windows and short ones (fixed bottom offsets don't scale).
-const HEADER_VERTICAL_BIAS = "-15%";
+const HEADER_VERTICAL_BIAS = '-15%';
 
 function SuperDuckHeader({ children }: { children?: React.ReactNode }) {
   return (

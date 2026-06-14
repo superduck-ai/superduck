@@ -49,15 +49,21 @@ export async function removeSessionIndexEntry(sessionId: string) {
 
 async function removeEmptySessionArtifacts(sessionId: string, snapshot: SessionSnapshot) {
   const keysToRemove = [getHistoryStorageKey(sessionId)];
+  let ownsConversationSnapshot = false;
 
   if (snapshot.conversationUuid) {
-    keysToRemove.push(getConversationStorageKey(snapshot.conversationUuid));
+    const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
+    const currentMap = isStringRecord(rawMap) ? rawMap : {};
+    ownsConversationSnapshot = currentMap[snapshot.conversationUuid] === sessionId;
+    if (ownsConversationSnapshot) {
+      keysToRemove.push(getConversationStorageKey(snapshot.conversationUuid));
+    }
   }
 
   await removeStorageValues(keysToRemove);
   await removeSessionIndexEntry(sessionId);
 
-  if (snapshot.conversationUuid) {
+  if (snapshot.conversationUuid && ownsConversationSnapshot) {
     const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
     const currentMap = isStringRecord(rawMap) ? rawMap : {};
     if (currentMap[snapshot.conversationUuid] === sessionId) {

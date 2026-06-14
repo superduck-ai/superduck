@@ -1,5 +1,10 @@
 import { PermissionActionType } from '../extensionServices';
-import { PermissionTools, checkUrlSecurity, screenshotContextManager, waitForTabLoading } from './shared';
+import {
+  PermissionTools,
+  checkUrlSecurity,
+  screenshotContextManager,
+  waitForTabLoading
+} from './shared';
 import { tabGroupManager } from './tabState';
 import {
   cdpDebugger,
@@ -638,8 +643,15 @@ async function getFrameOffsetForNode(
   }
 }
 
-async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?: { block: string; inline: string }): Promise<ScrollToRefResult> {
-  const scrollScript = (elementRef: string, alignment: { block: string; inline: string } | null) => {
+async function scrollToElementByRef(
+  tabId: number,
+  ref: string,
+  scrollAlignment?: { block: string; inline: string }
+): Promise<ScrollToRefResult> {
+  const scrollScript = (
+    elementRef: string,
+    alignment: { block: string; inline: string } | null
+  ) => {
     try {
       let element: Element | null = null;
       if (window.__superduckElementMap?.[elementRef]) {
@@ -681,13 +693,10 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
   };
 
   try {
-    const result = await execWithStaleRecovery<ScrollToRefResult, [string, { block: string; inline: string } | null]>(
-      tabId,
-      ref,
-      scrollScript,
-      [ref, scrollAlignment ?? null],
-      isScrollToRefResult
-    );
+    const result = await execWithStaleRecovery<
+      ScrollToRefResult,
+      [string, { block: string; inline: string } | null]
+    >(tabId, ref, scrollScript, [ref, scrollAlignment ?? null], isScrollToRefResult);
 
     if (!result) {
       return { success: false, error: 'Failed to execute script to get element coordinates' };
@@ -697,7 +706,9 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
 
     // content script 找不到元素但有 backendNodeId 时，跳过 content script 错误，走 CDP 路径
     if (!result.success && backendNodeId !== null) {
-      console.info(`[scrollToRef] content script failed (${result.error}), but have backendNodeId=${backendNodeId}, trying CDP path`);
+      console.info(
+        `[scrollToRef] content script failed (${result.error}), but have backendNodeId=${backendNodeId}, trying CDP path`
+      );
       // 先用 CDP 滚动元素到可见区域
       try {
         await cdpDebugger.sendCommand(tabId, 'DOM.scrollIntoViewIfNeeded', { backendNodeId });
@@ -709,7 +720,9 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
     }
 
     let localCoords: [number, number] | null = result.success ? (result.coordinates ?? null) : null;
-    console.info(`[scrollToRef] ref=${ref}, backendNodeId=${backendNodeId}, contentScript coords=${localCoords}`);
+    console.info(
+      `[scrollToRef] ref=${ref}, backendNodeId=${backendNodeId}, contentScript coords=${localCoords}`
+    );
 
     if (backendNodeId !== null) {
       try {
@@ -725,7 +738,11 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
           );
           const quad = quads?.quads?.[0];
           if (!quad) break;
-          if (prevQuad && quad.length === prevQuad.length && quad.every((v, i) => v === prevQuad![i])) {
+          if (
+            prevQuad &&
+            quad.length === prevQuad.length &&
+            quad.every((v, i) => v === prevQuad![i])
+          ) {
             consecutiveStable++;
             if (consecutiveStable >= 2) {
               stableCoords = [
@@ -742,7 +759,9 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
         }
 
         if (stableCoords) {
-          console.info(`[scrollToRef] stable after CDP quads: (${stableCoords[0].toFixed(1)}, ${stableCoords[1].toFixed(1)})`);
+          console.info(
+            `[scrollToRef] stable after CDP quads: (${stableCoords[0].toFixed(1)}, ${stableCoords[1].toFixed(1)})`
+          );
           localCoords = stableCoords;
         } else {
           // 超时未稳定，取最后一次 quads 的中心
@@ -758,10 +777,17 @@ async function scrollToElementByRef(tabId: number, ref: string, scrollAlignment?
       }
 
       const offset = await getFrameOffsetForNode(tabId, backendNodeId);
-      console.info(`[scrollToRef] frameOffset=${JSON.stringify(offset)}, localCoords=${localCoords}`);
+      console.info(
+        `[scrollToRef] frameOffset=${JSON.stringify(offset)}, localCoords=${localCoords}`
+      );
       if (offset && localCoords) {
-        const finalCoords: [number, number] = [localCoords[0] + offset.x, localCoords[1] + offset.y];
-        console.info(`[scrollToRef] final=(${finalCoords[0].toFixed(1)}, ${finalCoords[1].toFixed(1)})`);
+        const finalCoords: [number, number] = [
+          localCoords[0] + offset.x,
+          localCoords[1] + offset.y
+        ];
+        console.info(
+          `[scrollToRef] final=(${finalCoords[0].toFixed(1)}, ${finalCoords[1].toFixed(1)})`
+        );
         return {
           success: true,
           coordinates: finalCoords
@@ -850,7 +876,10 @@ async function executeClick(
     console.info(`[Click] ref=${params.ref}`);
     const backendNodeId = getRefBackendNodeId(tabId, params.ref);
     console.info(`[Click] backendNodeId=${backendNodeId}`);
-    const SCROLL_ALIGNMENTS: Array<{ block: ScrollLogicalPosition; inline: ScrollLogicalPosition }> = [
+    const SCROLL_ALIGNMENTS: Array<{
+      block: ScrollLogicalPosition;
+      inline: ScrollLogicalPosition;
+    }> = [
       { block: 'center', inline: 'center' },
       { block: 'end', inline: 'end' },
       { block: 'start', inline: 'start' }
@@ -864,22 +893,34 @@ async function executeClick(
         return { error: refResult.error };
       }
       [x, y] = refResult.coordinates!;
-      console.info(`[Click] alignment=${alignment.block} → coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
+      console.info(
+        `[Click] alignment=${alignment.block} → coords=(${x.toFixed(1)}, ${y.toFixed(1)})`
+      );
 
       if (backendNodeId !== null) {
         try {
-          const hitResult = await cdpDebugger.sendCommand<{ backendNodeId: number; nodeId: number }>(
-            tabId, 'DOM.getNodeForLocation',
-            { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }
+          const hitResult = await cdpDebugger.sendCommand<{
+            backendNodeId: number;
+            nodeId: number;
+          }>(tabId, 'DOM.getNodeForLocation', {
+            x: Math.round(x),
+            y: Math.round(y),
+            includeUserAgentShadowDOM: true
+          });
+          console.info(
+            `[Click] hitTest: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, match=${hitResult?.backendNodeId === backendNodeId}`
           );
-          console.info(`[Click] hitTest: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, match=${hitResult?.backendNodeId === backendNodeId}`);
           if (hitResult?.backendNodeId === backendNodeId) {
             resolved = true;
             break;
           }
-          console.info(`[Click] hit-target mismatch: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, retrying with ${alignment.block}`);
+          console.info(
+            `[Click] hit-target mismatch: expected=${backendNodeId}, got=${hitResult?.backendNodeId}, retrying with ${alignment.block}`
+          );
         } catch (e) {
-          console.info(`[Click] hitTest error: ${e instanceof Error ? e.message : 'unknown'}, proceeding`);
+          console.info(
+            `[Click] hitTest error: ${e instanceof Error ? e.message : 'unknown'}, proceeding`
+          );
           resolved = true;
           break;
         }
@@ -891,12 +932,16 @@ async function executeClick(
     }
     if (!resolved) {
       console.info(`[Click] all 3 alignments failed hitTest, using last coords`);
-      console.warn(`[Click] hit-target verification failed for ref=${params.ref}, proceeding with last coords`);
+      console.info(
+        `[Click] hit-target verification failed for ref=${params.ref}, proceeding with last coords`
+      );
     }
     console.info(`[Click] final coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
     console.info(`[Click] ref=${params.ref} → resolved coords=(${x}, ${y})`);
   } else if (params.coordinate) {
-    console.info(`[Click] AI passed coordinate=(${params.coordinate[0]}, ${params.coordinate[1]}), attempting auto-ref-match`);
+    console.info(
+      `[Click] AI passed coordinate=(${params.coordinate[0]}, ${params.coordinate[1]}), attempting auto-ref-match`
+    );
     [x, y] = params.coordinate;
     const context = screenshotContextManager.getContext(tabId);
     if (context) {
@@ -911,7 +956,8 @@ async function executeClick(
     if (refMeta && refMeta.size > 0) {
       try {
         const hitNode = await cdpDebugger.sendCommand<{ backendNodeId: number }>(
-          tabId, 'DOM.getNodeForLocation',
+          tabId,
+          'DOM.getNodeForLocation',
           { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true }
         );
         if (hitNode?.backendNodeId) {
@@ -924,8 +970,12 @@ async function executeClick(
             }
           }
           if (matchedRef) {
-            console.info(`[Click] auto-matched coordinate to ${matchedRef} (backendNodeId=${hitNode.backendNodeId}), switching to ref path`);
-            console.info(`[Click] auto-matched coordinate (${Math.round(x)}, ${Math.round(y)}) to ref=${matchedRef}`);
+            console.info(
+              `[Click] auto-matched coordinate to ${matchedRef} (backendNodeId=${hitNode.backendNodeId}), switching to ref path`
+            );
+            console.info(
+              `[Click] auto-matched coordinate (${Math.round(x)}, ${Math.round(y)}) to ref=${matchedRef}`
+            );
             // 切换到 ref 路径：用 scrollToElementByRef 获取精确坐标
             const refResult = await scrollToElementByRef(tabId, matchedRef);
             if (refResult.success && refResult.coordinates) {
@@ -933,11 +983,15 @@ async function executeClick(
               console.info(`[Click] ref-resolved coords=(${x.toFixed(1)}, ${y.toFixed(1)})`);
             }
           } else {
-            console.info(`[Click] backendNodeId=${hitNode.backendNodeId} not in refMeta, using raw coords`);
+            console.info(
+              `[Click] backendNodeId=${hitNode.backendNodeId} not in refMeta, using raw coords`
+            );
           }
         }
       } catch (e) {
-        console.info(`[Click] auto-ref-match failed: ${e instanceof Error ? e.message : 'unknown'}`);
+        console.info(
+          `[Click] auto-ref-match failed: ${e instanceof Error ? e.message : 'unknown'}`
+        );
       }
     }
 
@@ -964,7 +1018,9 @@ async function executeClick(
     // Checkbox/radio: 记录点击前状态
     let checkedBefore: boolean | null = null;
     const refRole = params.ref ? getRefRole(tabId, params.ref) : null;
-    const isCheckableRole = refRole && ['checkbox', 'radio', 'switch', 'menuitemcheckbox', 'menuitemradio'].includes(refRole);
+    const isCheckableRole =
+      refRole &&
+      ['checkbox', 'radio', 'switch', 'menuitemcheckbox', 'menuitemradio'].includes(refRole);
     if (isCheckableRole && clickCount === 1) {
       checkedBefore = await getElementCheckedState(tabId, params.ref!);
     }
@@ -976,7 +1032,9 @@ async function executeClick(
       try {
         const checkedAfter = await getElementCheckedState(tabId, params.ref!);
         if (checkedAfter !== null && checkedAfter === checkedBefore) {
-          console.info(`[Click] checkbox/radio state unchanged after CDP click, trying JS click fallback`);
+          console.info(
+            `[Click] checkbox/radio state unchanged after CDP click, trying JS click fallback`
+          );
           await jsClickFallback(tabId, params.ref!);
         }
       } catch {
@@ -992,7 +1050,11 @@ async function executeClick(
 
     if (permissionManager && !options?.skipIndicator) {
       await waitForTabLoading(tabId, 3000);
-      const postClickScreenshot = await tryTakePostScrollScreenshot(tabId, permissionManager, options);
+      const postClickScreenshot = await tryTakePostScrollScreenshot(
+        tabId,
+        permissionManager,
+        options
+      );
       if (postClickScreenshot) {
         return {
           output: outputText,
@@ -1196,15 +1258,19 @@ async function getElementCheckedState(tabId: number, ref: string): Promise<boole
         const el = window.__superduckElementMap?.[elementRef]?.deref();
         if (!el) return null;
         // 1. Native input checked
-        if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) return el.checked;
+        if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio'))
+          return el.checked;
         // 2. ARIA checked
         const ariaChecked = el.getAttribute('aria-checked');
         if (ariaChecked !== null) return ariaChecked === 'true';
         // 3. Label association
         const label = el.closest('label') as HTMLLabelElement | null;
-        if (label?.control && label.control instanceof HTMLInputElement) return label.control.checked;
+        if (label?.control && label.control instanceof HTMLInputElement)
+          return label.control.checked;
         // 4. Nested input
-        const nested = el.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLInputElement | null;
+        const nested = el.querySelector(
+          'input[type="checkbox"], input[type="radio"]'
+        ) as HTMLInputElement | null;
         if (nested) return nested.checked;
         return null;
       },
@@ -1239,7 +1305,9 @@ async function jsClickFallback(tabId: number, ref: string): Promise<void> {
           return;
         }
         // Tier 3: nested input
-        const nested = el.querySelector('input[type="checkbox"], input[type="radio"]') as HTMLElement | null;
+        const nested = el.querySelector(
+          'input[type="checkbox"], input[type="radio"]'
+        ) as HTMLElement | null;
         if (nested) {
           nested.click();
           return;
@@ -1685,10 +1753,17 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
           // Native setter 绕过 React/Vue 受控组件的 value 劫持
-          const nativeInputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-          const nativeTextareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          const nativeInputSetter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            'value'
+          )?.set;
+          const nativeTextareaSetter = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            'value'
+          )?.set;
           const setNativeValue = (el: HTMLInputElement | HTMLTextAreaElement, val: string) => {
-            const setter = el instanceof HTMLTextAreaElement ? nativeTextareaSetter : nativeInputSetter;
+            const setter =
+              el instanceof HTMLTextAreaElement ? nativeTextareaSetter : nativeInputSetter;
             if (setter) setter.call(el, val);
             else el.value = val;
             el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1864,22 +1939,33 @@ const formInputTool: ToolDefinition<FormInputToolParams> = {
       // CDP 后处理: contentEditable 和 file input 需要 CDP 命令
       if (formResult.action === 'contenteditable_needs_cdp') {
         try {
-          await cdpDebugger.sendCommand(activeTabId, 'Input.insertText', { text: String(params.value) });
+          await cdpDebugger.sendCommand(activeTabId, 'Input.insertText', {
+            text: String(params.value)
+          });
           formResult.output = `Set contentEditable to "${String(params.value).substring(0, 50)}${String(params.value).length > 50 ? '...' : ''}" (previous: "${formResult.previous_value}")`;
           formResult.action = 'form_input';
         } catch (cdpErr) {
-          return { error: `Failed to insert text into contentEditable: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}` };
+          return {
+            error: `Failed to insert text into contentEditable: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}`
+          };
         }
       } else if (formResult.action === 'file_input_needs_cdp') {
         try {
           const backendNodeId = getRefBackendNodeId(activeTabId, params.ref);
           if (backendNodeId === null) return { error: 'Cannot resolve element for file upload' };
-          const files = Array.isArray(params.value) ? params.value.map(String) : [String(params.value)];
-          await cdpDebugger.sendCommand(activeTabId, 'DOM.setFileInputFiles', { files, backendNodeId });
+          const files = Array.isArray(params.value)
+            ? params.value.map(String)
+            : [String(params.value)];
+          await cdpDebugger.sendCommand(activeTabId, 'DOM.setFileInputFiles', {
+            files,
+            backendNodeId
+          });
           formResult.output = `Uploaded file(s): ${files.join(', ')}`;
           formResult.action = 'form_input';
         } catch (cdpErr) {
-          return { error: `Failed to upload file: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}` };
+          return {
+            error: `Failed to upload file: ${cdpErr instanceof Error ? cdpErr.message : 'Unknown error'}`
+          };
         }
       }
 

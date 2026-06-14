@@ -80,8 +80,8 @@ export function SessionHistoryPanel({
 
         for (const entry of list) {
           const snapshot = await getStorageValue(getHistoryStorageKey(entry.sessionId));
-          if (isSessionSnapshot(snapshot)) {
-            if (hasPersistableSessionContent(snapshot)) visibleEntries.push(entry);
+          if (isSessionSnapshot(snapshot) && hasPersistableSessionContent(snapshot)) {
+            visibleEntries.push(entry);
             continue;
           }
 
