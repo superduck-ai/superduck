@@ -1836,12 +1836,25 @@ export function SidepanelApp() {
 
   const captureCurrentTabScreenshot = useCallback(async () => {
     try {
-      const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const activeTab = activeTabs[0];
-      if (!activeTab?.windowId) {
+      const targetTabId = preservedTranscriptTabId ?? query.tabId;
+      let captureWindowId: number | undefined;
+      if (typeof targetTabId === 'number') {
+        const targetTab = await chrome.tabs.get(targetTabId);
+        if (typeof targetTab.windowId !== 'number') {
+          throw new Error('No active tab found.');
+        }
+        captureWindowId = targetTab.windowId;
+        if (!targetTab.active) {
+          await chrome.tabs.update(targetTabId, { active: true });
+        }
+      } else {
+        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        captureWindowId = activeTabs[0]?.windowId;
+      }
+      if (typeof captureWindowId !== 'number') {
         throw new Error('No active tab found.');
       }
-      const dataUrl = await chrome.tabs.captureVisibleTab(activeTab.windowId, { format: 'png' });
+      const dataUrl = await chrome.tabs.captureVisibleTab(captureWindowId, { format: 'png' });
       const marker = 'base64,';
       const markerIndex = dataUrl.indexOf(marker);
       if (markerIndex < 0) {
@@ -1867,7 +1880,7 @@ export function SidepanelApp() {
     } catch (error) {
       setRuntimeError(`Unable to capture screenshot: ${getErrorMessage(error)}`);
     }
-  }, []);
+  }, [preservedTranscriptTabId, query.tabId]);
 
   // Rotating tips for empty input placeholder
   const rotatingTips = useMemo(

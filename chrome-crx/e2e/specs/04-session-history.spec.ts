@@ -409,13 +409,20 @@ test.describe('Session history: task completion keeps the visible transcript', (
       ]
     });
 
-    // Keep the request in-flight long enough to switch tabs before completion.
+    // Keep the request in-flight until after the tab switch. This makes the
+    // ordering deterministic on slow CI instead of relying on a fixed timeout.
     await sp.evaluate(() => {
       const win = window as Window & {
         __mockedDelayedFetch?: boolean;
+        __llmRequestStarted?: boolean;
+        __llmResponseReleased?: boolean;
+        __releaseLlmResponse?: () => void;
         __llmRequestBodies?: unknown[];
       };
       win.__llmRequestBodies = [];
+      win.__llmRequestStarted = false;
+      win.__llmResponseReleased = false;
+      win.__releaseLlmResponse = undefined;
       const mockedFetch = window.fetch;
       window.fetch = async (
         url: Parameters<typeof fetch>[0],
@@ -442,7 +449,15 @@ test.describe('Session history: task completion keeps the visible transcript', (
               win.__llmRequestBodies?.push(body);
             }
           }
-          await new Promise((resolve) => setTimeout(resolve, 1200));
+          win.__llmRequestStarted = true;
+          if (!win.__llmResponseReleased) {
+            await new Promise<void>((resolve) => {
+              win.__releaseLlmResponse = () => {
+                win.__llmResponseReleased = true;
+                resolve();
+              };
+            });
+          }
         }
         return mockedFetch(url, init);
       };
@@ -454,6 +469,16 @@ test.describe('Session history: task completion keeps the visible transcript', (
       state: 'visible',
       timeout: 5000
     });
+    await expect
+      .poll(
+        () =>
+          sp.evaluate(() => {
+            const win = window as Window & { __llmRequestStarted?: boolean };
+            return Boolean(win.__llmRequestStarted);
+          }),
+        { timeout: 5000 }
+      )
+      .toBe(true);
 
     const otherPage = await openFixturePage(context, 'long-article.html');
     const otherTabId = await getChromeTabIdFor(serviceWorker, otherPage);
@@ -464,6 +489,10 @@ test.describe('Session history: task completion keeps the visible transcript', (
       );
     }, otherTabId);
     await otherPage.bringToFront();
+    await sp.evaluate(() => {
+      const win = window as Window & { __releaseLlmResponse?: () => void };
+      win.__releaseLlmResponse?.();
+    });
 
     await waitForAssistantMessage(sp, 20_000);
 
@@ -475,20 +504,29 @@ test.describe('Session history: task completion keeps the visible transcript', (
     expect(pageContent).toContain('执行一个会切换 tab 的任务');
     expect(pageContent).toContain('历史消息应该继续留在侧边栏里');
 
+    // The first turn may consume more than one mocked response while the tab
+    // switch settles. Pin the next response to the follow-up phase.
+    await sp.evaluate(() => {
+      const win = window as Window & { __mockLLMIndex?: number };
+      win.__mockLLMIndex = 2;
+    });
+
     await sendMessage(sp, '继续处理上一页');
+    const readFollowUpRequest = () =>
+      sp.evaluate((followUpText) => {
+        const win = window as Window & { __llmRequestBodies?: unknown[] };
+        return (
+          win.__llmRequestBodies
+            ?.map((body) => JSON.stringify(body))
+            .find((body) => body.includes(followUpText)) || ''
+        );
+      }, '继续处理上一页');
+    await expect.poll(readFollowUpRequest, { timeout: 5000 }).not.toBe('');
+    const followUpRequest = await readFollowUpRequest();
     await expect(sp.locator('.superduck-response').last()).toContainText(
       '后续任务继续使用原来的会话和页面',
       { timeout: 20_000 }
     );
-
-    const followUpRequest = await sp.evaluate((followUpText) => {
-      const win = window as Window & { __llmRequestBodies?: unknown[] };
-      return (
-        win.__llmRequestBodies
-          ?.map((body) => JSON.stringify(body))
-          .find((body) => body.includes(followUpText)) || ''
-      );
-    }, '继续处理上一页');
     expect(followUpRequest).toMatch(new RegExp(`\\b${targetTabId}\\b`));
     expect(followUpRequest).not.toMatch(new RegExp(`\\b${otherTabId}\\b`));
 
