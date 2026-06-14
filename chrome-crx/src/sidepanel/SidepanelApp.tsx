@@ -1137,6 +1137,7 @@ export function SidepanelApp() {
       setPreservedTranscriptTabId(undefined);
       setPreservedTranscriptActiveTabId(undefined);
       if (nextSessionId !== activeSessionId) {
+        hasLoadedSessionRef.current = false;
         setActiveConversationUuid(null);
         setActiveRemoteSessionId(null);
         sessionCreatedAtRef.current = Date.now();
@@ -1577,6 +1578,7 @@ export function SidepanelApp() {
 
   useRuntimeMessages({
     queryTabId: query.tabId,
+    runtimeTabId: lockedTabIdRef.current ?? sessionTabId ?? query.tabId,
     queryMode: query.mode,
     querySessionId: query.sessionId,
     querySkipPermissions: query.skipPermissions,

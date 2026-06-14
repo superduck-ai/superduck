@@ -16,6 +16,7 @@ const TARGET_SESSION_READY_POLL_MS = 50;
 
 export interface UseRuntimeMessagesProps {
   queryTabId: number | undefined;
+  runtimeTabId: number | undefined;
   queryMode: string | undefined;
   querySessionId: string | undefined;
   querySkipPermissions: boolean | undefined;
@@ -70,6 +71,7 @@ async function waitForTargetSessionReady(
 
 export function useRuntimeMessages({
   queryTabId,
+  runtimeTabId,
   queryMode,
   querySessionId,
   querySkipPermissions,
@@ -123,6 +125,24 @@ export function useRuntimeMessages({
     });
   }, [queryTabId, secondaryState.mainTabId]);
 
+  const shouldHandleRuntimeTabTarget = useCallback(
+    (targetTabId: unknown) => typeof targetTabId !== 'number' || targetTabId === runtimeTabId,
+    [runtimeTabId]
+  );
+
+  const shouldHandlePopulateTabTarget = useCallback(
+    (targetTabId: unknown) => {
+      if (shouldHandleRuntimeTabTarget(targetTabId)) return true;
+      // A non-running preserved transcript can still receive a prompt for the
+      // live active tab; that path intentionally clears preservation and
+      // switches to the active tab's session before exposing/sending input.
+      return (
+        !isAgentRunningRef.current && typeof targetTabId === 'number' && targetTabId === queryTabId
+      );
+    },
+    [queryTabId, shouldHandleRuntimeTabTarget, isAgentRunningRef]
+  );
+
   // shouldHandleTaskForCurrentContext
   const shouldHandleTaskForCurrentContext = useCallback(
     (message: any) => {
@@ -131,12 +151,12 @@ export function useRuntimeMessages({
         return message.windowSessionId === querySessionId;
       }
       if (isWindowMode || message.windowSessionId) return false;
-      if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
+      if (!shouldHandleRuntimeTabTarget(message.targetTabId)) {
         return false;
       }
       return true;
     },
-    [queryMode, querySessionId, queryTabId]
+    [queryMode, querySessionId, shouldHandleRuntimeTabTarget]
   );
 
   // Main runtime message listener
@@ -191,7 +211,7 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'POPULATE_INPUT_TEXT') {
-        if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
+        if (!shouldHandlePopulateTabTarget(message.targetTabId)) {
           // Let the target panel own the runtime response; skipped panels can win the race.
           return;
         }
@@ -410,7 +430,7 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'STOP_AGENT') {
-        if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
+        if (!shouldHandleRuntimeTabTarget(message.targetTabId)) {
           sendResponse({ success: false, skipped: true });
           return;
         }
@@ -435,7 +455,14 @@ export function useRuntimeMessages({
       if (timeoutId) clearTimeout(timeoutId);
     };
     // sendPrompt, isAgentRunning, hasBrowserControlPermissionAccepted accessed via refs
-  }, [loadSnapshotForSession, querySkipPermissions, queryTabId, shouldHandleTaskForCurrentContext]);
+  }, [
+    loadSnapshotForSession,
+    querySkipPermissions,
+    queryTabId,
+    shouldHandlePopulateTabTarget,
+    shouldHandleRuntimeTabTarget,
+    shouldHandleTaskForCurrentContext
+  ]);
 
   return { shouldHandleTaskForCurrentContext };
 }
