@@ -201,21 +201,6 @@ export function useRuntimeMessages({
           typeof message.targetTabId === 'number' ? message.targetTabId : undefined;
         const targetSessionIdPromise = clearPreservedTranscriptForTargetRef.current(targetTabId);
         const shouldAutoSend = message.autoSend !== false;
-        setInput(prompt);
-        if (isPermissionMode(message.permissionMode)) {
-          if (
-            shouldDisableSkipPermissions &&
-            message.permissionMode === 'skip_all_permission_checks'
-          ) {
-            setPermissionMode('follow_a_plan');
-          } else {
-            setPermissionMode(message.permissionMode);
-          }
-        }
-        if (typeof message.selectedModel === 'string') {
-          setSelectedModel(message.selectedModel);
-          void setStorageValue(StorageKeys.SELECTED_MODEL, message.selectedModel);
-        }
 
         const validAttachments: PromptAttachmentPayload[] = [];
         let hasAnnotatedAttachment = false;
@@ -226,25 +211,64 @@ export function useRuntimeMessages({
             if (attachment.isAnnotated) hasAnnotatedAttachment = true;
           }
         }
-        setAttachmentCount(validAttachments.length);
-        setPendingAttachments(validAttachments);
-        setPopulatedInputTargetTabId(shouldAutoSend ? undefined : targetTabId);
-        setPendingPrompt(
-          shouldAutoSend
-            ? {
-                prompt,
-                attachments: validAttachments,
-                isAnnotated: hasAnnotatedAttachment,
-                targetTabId
-              }
-            : null
-        );
-        sendResponse({ success: true });
+
+        const applyPopulatedInput = () => {
+          setInput(prompt);
+          if (isPermissionMode(message.permissionMode)) {
+            if (
+              shouldDisableSkipPermissions &&
+              message.permissionMode === 'skip_all_permission_checks'
+            ) {
+              setPermissionMode('follow_a_plan');
+            } else {
+              setPermissionMode(message.permissionMode);
+            }
+          }
+          if (typeof message.selectedModel === 'string') {
+            setSelectedModel(message.selectedModel);
+            void setStorageValue(StorageKeys.SELECTED_MODEL, message.selectedModel);
+          }
+          setAttachmentCount(validAttachments.length);
+          setPendingAttachments(validAttachments);
+          setPopulatedInputTargetTabId(shouldAutoSend ? undefined : targetTabId);
+          setPendingPrompt(
+            shouldAutoSend
+              ? {
+                  prompt,
+                  attachments: validAttachments,
+                  isAnnotated: hasAnnotatedAttachment,
+                  targetTabId
+                }
+              : null
+          );
+        };
 
         if (!shouldAutoSend) {
-          void targetSessionIdPromise.catch(() => {});
-          return;
+          void (async () => {
+            try {
+              const targetSessionId = await targetSessionIdPromise;
+              if (targetSessionId) {
+                const targetSessionReady = await waitForTargetSessionReady(
+                  targetSessionId,
+                  activeSessionIdRef,
+                  hasLoadedSessionRef
+                );
+                if (!targetSessionReady) {
+                  sendResponse({ success: false, error: 'Target session not ready' });
+                  return;
+                }
+              }
+              applyPopulatedInput();
+              sendResponse({ success: true });
+            } catch {
+              sendResponse({ success: false, error: 'Failed to prepare target session' });
+            }
+          })();
+          return true;
         }
+
+        applyPopulatedInput();
+        sendResponse({ success: true });
 
         // Capture the session ID at the time POPULATE_INPUT_TEXT arrives.
         // If the user switches sessions during the 500ms delay, we should
