@@ -1,5 +1,12 @@
 import type { ApiConversationMessage } from '../messageTypes';
-import { isRecord, isTextContentBlock, isToolUseContentBlock } from '../messageTypes';
+import {
+  isImageContentBlock,
+  isRecord,
+  isTextContentBlock,
+  isToolResultContentBlock,
+  isToolUseContentBlock
+} from '../messageTypes';
+import type { SessionSnapshot } from './types';
 
 function isApiUsage(value: unknown): value is ApiConversationMessage['usage'] {
   return (
@@ -32,6 +39,39 @@ export function extractTextFromContent(content: unknown): string {
     .filter(Boolean)
     .join('\n')
     .trim();
+}
+
+function hasMeaningfulContentBlock(block: unknown): boolean {
+  if (isTextContentBlock(block)) return block.text.trim().length > 0;
+  if (isImageContentBlock(block) || isToolUseContentBlock(block)) return true;
+
+  if (isToolResultContentBlock(block)) {
+    const content = block.content;
+    if (typeof content === 'string') return content.trim().length > 0;
+    if (Array.isArray(content)) return content.some(hasMeaningfulContentBlock);
+  }
+
+  return false;
+}
+
+function hasMeaningfulApiContent(content: ApiConversationMessage['content']): boolean {
+  if (typeof content === 'string') return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some(hasMeaningfulContentBlock);
+}
+
+export function hasPersistableSessionContent(
+  snapshot: Pick<SessionSnapshot, 'uiMessages' | 'apiMessages'>
+): boolean {
+  const hasVisibleMessage = snapshot.uiMessages.some(
+    (message) =>
+      (message.role === 'user' || message.role === 'assistant') && message.text.trim().length > 0
+  );
+  if (hasVisibleMessage) return true;
+
+  return snapshot.apiMessages.some(
+    (message) => !message.isLocalOnlyMessage && hasMeaningfulApiContent(message.content)
+  );
 }
 
 export function getHistoryStorageKey(sessionId: string) {

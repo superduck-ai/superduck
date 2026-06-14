@@ -30,7 +30,17 @@ import type { Page, BrowserContext, Worker } from "@playwright/test";
  */
 
 const SESSION_PREFIX = "sidepanel_session_";
-const TAB_SESSION_PREFIX = "sidepanel_tab_session_";
+const SESSION_INDEX_KEY = "sidepanel_session_index_v1";
+
+type ChromeStorageGlobal = {
+  chrome: {
+    storage: {
+      local: {
+        get: (key: string) => Promise<Record<string, unknown>>;
+      };
+    };
+  };
+};
 
 /** Read the session snapshot for a given sessionId from SW storage. */
 async function readSessionSnapshot(sw: any, sessionId: string) {
@@ -54,6 +64,44 @@ async function listSessionIds(sw: any): Promise<string[]> {
     },
     { prefix: SESSION_PREFIX }
   );
+}
+
+async function readSessionIndex(sw: any): Promise<unknown[]> {
+  return sw.evaluate(async ({ key }: { key: string }) => {
+    const got = await (globalThis as ChromeStorageGlobal).chrome.storage.local.get(key);
+    return Array.isArray(got[key]) ? got[key] : [];
+  }, { key: SESSION_INDEX_KEY });
+}
+
+function sessionIndexHasPreview(index: unknown[], previewText: string): boolean {
+  return index.some((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const preview = (entry as Record<string, unknown>).preview;
+    return typeof preview === "string" && preview.includes(previewText);
+  });
+}
+
+async function mockNeverResolvingLLM(sp: Page): Promise<void> {
+  await sp.evaluate(() => {
+    const w = window as typeof window & { __originalFetch?: typeof window.fetch };
+    w.__originalFetch = w.__originalFetch || window.fetch.bind(window);
+    window.fetch = (url: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      if (
+        urlStr.includes("/v1/messages") ||
+        urlStr.includes("/chat/completions") ||
+        urlStr.includes("/v1/responses")
+      ) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener?.("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        });
+      }
+      return w.__originalFetch!(url, init);
+    };
+  });
 }
 
 /**
@@ -359,6 +407,129 @@ test.describe("Session history: assistant reply persists across sidepanel close/
   });
 });
 
+test.describe("Session history: empty conversations are not persisted", () => {
+  test("opening and closing the sidepanel without sending a message does not create a history item", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
+    await clearStorage(serviceWorker);
+    await seedStorage(serviceWorker, getDefaultProviderConfig());
+
+    const targetPage = await openFixturePage(context, "simple-form.html");
+    const targetTabId = await getChromeTabIdFor(serviceWorker, targetPage);
+    await seedSuperDuckGroup(serviceWorker, targetTabId);
+
+    const sp = await openChatSidepanel(
+      context,
+      serviceWorker,
+      extensionId,
+      targetPage,
+      targetTabId
+    );
+
+    await sp.waitForTimeout(2500);
+    await sp.close();
+    await targetPage.waitForTimeout(1500);
+
+    const sessionIds = await listSessionIds(serviceWorker);
+    expect(sessionIds, "empty sidepanel open should not persist snapshots").toHaveLength(0);
+
+    const index = await readSessionIndex(serviceWorker);
+    expect(index, "empty sidepanel open should not create history index entries").toHaveLength(0);
+
+    await targetPage.close();
+  });
+});
+
+test.describe("Session history: user-only interrupted turns", () => {
+  test("stopping before the LLM returns still records the user's message in history", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
+    await clearStorage(serviceWorker);
+    await seedStorage(serviceWorker, getDefaultProviderConfig());
+
+    const targetPage = await openFixturePage(context, "simple-form.html");
+    const targetTabId = await getChromeTabIdFor(serviceWorker, targetPage);
+    await seedSuperDuckGroup(serviceWorker, targetTabId);
+
+    const sp = await openChatSidepanel(
+      context,
+      serviceWorker,
+      extensionId,
+      targetPage,
+      targetTabId
+    );
+    await mockNeverResolvingLLM(sp);
+
+    const prompt = "只记录这个被中断的问题";
+    await sendMessage(sp, prompt);
+    const stopButton = sp.locator('[data-test-id="stop-button"]');
+    await expect(stopButton).toBeVisible({ timeout: 5000 });
+    await stopButton.click();
+    await sp.waitForTimeout(2500);
+
+    const best = await readMostRecentSnapshot(serviceWorker);
+    expect(best, "a stopped user-only turn should persist a snapshot").toBeTruthy();
+    expect(
+      best!.snapshot.uiMessages.some((message: unknown) => {
+        if (typeof message !== "object" || message === null) return false;
+        const text = (message as Record<string, unknown>).text;
+        return typeof text === "string" && text.includes(prompt);
+      })
+    ).toBe(true);
+
+    const index = await readSessionIndex(serviceWorker);
+    expect(
+      sessionIndexHasPreview(index, prompt),
+      "a stopped user-only turn should be listed in the raw history index"
+    ).toBe(true);
+
+    await sp.close();
+    await targetPage.close();
+  });
+
+  test("the history panel lists the current in-progress user-only turn", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
+    await clearStorage(serviceWorker);
+    await seedStorage(serviceWorker, getDefaultProviderConfig());
+
+    const targetPage = await openFixturePage(context, "simple-form.html");
+    const targetTabId = await getChromeTabIdFor(serviceWorker, targetPage);
+    await seedSuperDuckGroup(serviceWorker, targetTabId);
+
+    const sp = await openChatSidepanel(
+      context,
+      serviceWorker,
+      extensionId,
+      targetPage,
+      targetTabId
+    );
+    await mockNeverResolvingLLM(sp);
+
+    const prompt = "执行中也应该显示在历史面板";
+    await sendMessage(sp, prompt);
+    await expect(sp.locator('[data-test-id="stop-button"]')).toBeVisible({ timeout: 5000 });
+
+    // Wait for the persistence debounce to write the in-progress user turn.
+    await sp.waitForTimeout(2500);
+    await sp.locator('button[aria-label="History"]').click();
+
+    await expect(sp.getByRole("heading", { name: "历史对话" })).toBeVisible({ timeout: 5000 });
+    await expect(sp.getByRole("button", { name: `当前会话 ${prompt}` })).toBeVisible({
+      timeout: 5000,
+    });
+
+    await sp.close();
+    await targetPage.close();
+  });
+});
+
 test.describe("Session history: user message persists when sidepanel is closed mid-agent-run", () => {
   test("sending '你好' and immediately closing the sidepanel persists at least the user message", async ({
     context,
@@ -380,32 +551,10 @@ test.describe("Session history: user message persists when sidepanel is closed m
       targetTabId
     );
 
-    // Replace fetch with one that NEVER resolves for LLM calls. This
-    // simulates an agent that is mid-streaming (or mid-tool-call) when
+    // Simulates an agent that is mid-streaming (or mid-tool-call) when
     // the user closes the sidepanel. There's no assistant reply to
     // wait for; we close almost immediately after sending.
-    await sp1.evaluate(() => {
-      const w = window as any;
-      w.__originalFetch = w.__originalFetch || window.fetch;
-      window.fetch = (url: any, init?: any) => {
-        const urlStr =
-          typeof url === "string" ? url : url?.url || url?.href || String(url);
-        if (
-          urlStr.includes("/v1/messages") ||
-          urlStr.includes("/chat/completions") ||
-          urlStr.includes("/v1/responses")
-        ) {
-          return new Promise<Response>((_resolve, reject) => {
-            // Honor abort so we don't leak event listeners when the
-            // React tree eventually aborts the controller.
-            init?.signal?.addEventListener?.("abort", () => {
-              reject(new DOMException("Aborted", "AbortError"));
-            });
-          });
-        }
-        return w.__originalFetch(url, init);
-      };
-    });
+    await mockNeverResolvingLLM(sp1);
 
     await sendMessage(sp1, "你好");
 

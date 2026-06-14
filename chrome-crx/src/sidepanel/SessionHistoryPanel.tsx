@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Trash2, X, MessageSquare, ChevronRight } from 'lucide-react';
 import { getStorageValue, setStorageValue } from '../extensionServices';
 import {
@@ -11,7 +11,11 @@ import {
   isStringRecord,
   isSessionSnapshot
 } from './sidepanelGuards';
-import { getHistoryStorageKey, getConversationStorageKey } from './sessionHistory';
+import {
+  getHistoryStorageKey,
+  getConversationStorageKey,
+  hasPersistableSessionContent
+} from './sessionHistory';
 import type { SessionIndexEntry } from './types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,9 +76,38 @@ export function SessionHistoryPanel({
         // Filter to well-formed entries so a corrupted / migrated storage
         // payload can't crash the sort or downstream render.
         const list: SessionIndexEntry[] = candidate.filter(isSessionIndexEntry);
+        const visibleEntries: SessionIndexEntry[] = [];
+
+        for (const entry of list) {
+          const snapshot = await getStorageValue(getHistoryStorageKey(entry.sessionId));
+          if (isSessionSnapshot(snapshot)) {
+            if (hasPersistableSessionContent(snapshot)) visibleEntries.push(entry);
+            continue;
+          }
+
+          if (entry.conversationUuid) {
+            const conversationSnapshot = await getStorageValue(
+              getConversationStorageKey(entry.conversationUuid)
+            );
+            if (isSessionSnapshot(conversationSnapshot)) {
+              if (hasPersistableSessionContent(conversationSnapshot)) {
+                visibleEntries.push(entry);
+              }
+              continue;
+            }
+          }
+
+          if (entry.preview?.trim()) {
+            visibleEntries.push(entry);
+          }
+        }
         // Sort by updatedAt descending
-        list.sort((a, b) => b.updatedAt - a.updatedAt);
-        setEntries(list);
+        if (!active) return;
+        visibleEntries.sort((a, b) => b.updatedAt - a.updatedAt);
+        setEntries(visibleEntries);
+        if (visibleEntries.length !== list.length) {
+          await setStorageValue(SESSION_INDEX_KEY, visibleEntries);
+        }
       } catch {
         if (active) setEntries([]);
       } finally {
@@ -155,11 +188,7 @@ export function SessionHistoryPanel({
     [activeSessionId, onLoadSession, onClose]
   );
 
-  // Filter out the current session from the list
-  const filteredEntries = useMemo(
-    () => entries.filter((entry) => entry.sessionId !== activeSessionId),
-    [entries, activeSessionId]
-  );
+  const displayEntries = entries;
 
   if (!isOpen) return null;
 
@@ -175,9 +204,9 @@ export function SessionHistoryPanel({
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-text-300" />
             <h2 className="text-sm font-medium text-text-100">历史对话</h2>
-            {filteredEntries.length > 0 && (
+            {displayEntries.length > 0 && (
               <span className="text-xs text-text-400 bg-bg-300 px-1.5 py-0.5 rounded-full">
-                {filteredEntries.length}
+                {displayEntries.length}
               </span>
             )}
           </div>
@@ -197,7 +226,7 @@ export function SessionHistoryPanel({
             <div className="flex items-center justify-center py-12">
               <div className="text-sm text-text-400">加载中…</div>
             </div>
-          ) : filteredEntries.length === 0 ? (
+          ) : displayEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
               <MessageSquare size={24} className="text-text-500 mb-3" />
               <p className="text-sm text-text-400">还没有历史对话</p>
@@ -205,8 +234,9 @@ export function SessionHistoryPanel({
             </div>
           ) : (
             <div className="py-1">
-              {filteredEntries.map((entry) => {
+              {displayEntries.map((entry) => {
                 const isDeleting = deletingId === entry.sessionId;
+                const isActive = entry.sessionId === activeSessionId;
                 return (
                   // Outer row is a div, not a button, so the nested
                   // delete <button> stays valid HTML and reachable for
@@ -216,7 +246,7 @@ export function SessionHistoryPanel({
                     role="button"
                     tabIndex={isDeleting ? -1 : 0}
                     aria-disabled={isDeleting}
-                    aria-label={`加载会话 ${truncatePreview(entry.preview, 30)}`}
+                    aria-label={`${isActive ? '当前会话' : '加载会话'} ${truncatePreview(entry.preview, 30)}`}
                     onClick={() => {
                       if (!isDeleting) handleLoad(entry);
                     }}
@@ -229,6 +259,7 @@ export function SessionHistoryPanel({
                     }}
                     className={
                       'w-full group flex items-start gap-3 px-4 py-3 text-left hover:bg-bg-200 transition-colors ' +
+                      (isActive ? 'bg-bg-200/70 ' : '') +
                       (isDeleting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer')
                     }
                   >
@@ -253,19 +284,26 @@ export function SessionHistoryPanel({
                             {entry.model}
                           </span>
                         )}
+                        {isActive && (
+                          <span className="text-[10px] text-text-400 bg-bg-300 px-1 py-0.5 rounded">
+                            当前
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={(e) => handleDelete(entry, e)}
-                        className="p-1 rounded-md text-text-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                        aria-label="删除对话"
-                        title="删除对话"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                      <ChevronRight size={12} className="text-text-500" />
+                      {isActive ? null : (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDelete(entry, e)}
+                          className="p-1 rounded-md text-text-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          aria-label="删除对话"
+                          title="删除对话"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                      {isActive ? null : <ChevronRight size={12} className="text-text-500" />}
                     </div>
                   </div>
                 );
