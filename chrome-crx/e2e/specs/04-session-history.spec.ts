@@ -34,7 +34,7 @@ import type { Page, BrowserContext, Worker } from '@playwright/test';
  * spec catches it.
  */
 
-const SESSION_PREFIX = 'sidepanel_session_';
+const SESSION_PREFIX = getHistoryStorageKey('');
 
 type ChromeStorageGlobal = {
   chrome: {
@@ -53,7 +53,7 @@ async function readSessionSnapshot(sw: any, sessionId: string) {
       const got = await (globalThis as any).chrome.storage.local.get(key);
       return got[key] ?? null;
     },
-    { key: `${SESSION_PREFIX}${sessionId}` }
+    { key: getHistoryStorageKey(sessionId) }
   );
 }
 
@@ -275,6 +275,9 @@ async function openChatSidepanel(
     const sp = tabs.find((t: any) => (t.url ?? '').includes('sidepanel.html'));
     return sp?.id;
   });
+  if (typeof spTabId !== 'number') {
+    throw new Error('Could not resolve sidepanel tabId while opening chat sidepanel');
+  }
 
   // Re-write tabGroups storage so the fixture is the main, reusing the
   // chromeGroupId the boot-time PANEL_READY already created.
