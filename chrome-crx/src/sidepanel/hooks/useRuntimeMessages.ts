@@ -11,6 +11,9 @@ import { isSessionSnapshot, isStringRecord } from '../sidepanelGuards';
 import { SESSION_CONVERSATION_MAP_KEY, SESSION_REMOTE_MAP_KEY } from '../sidepanelGuards';
 import type { PairingPromptState, PendingPromptPayload, SendPromptOptions } from '../types';
 
+const TARGET_SESSION_READY_TIMEOUT_MS = 2000;
+const TARGET_SESSION_READY_POLL_MS = 50;
+
 export interface UseRuntimeMessagesProps {
   queryTabId: number | undefined;
   queryMode: string | undefined;
@@ -37,6 +40,7 @@ export interface UseRuntimeMessagesProps {
   setIsAgentRunning: React.Dispatch<React.SetStateAction<boolean>>;
   loadSnapshotForSession: (sessionId: string, conversationUuid?: string | null) => Promise<any>;
   sessionCreatedAtRef: React.MutableRefObject<number>;
+  hasLoadedSessionRef: React.MutableRefObject<boolean>;
   sendPromptRef: React.MutableRefObject<
     ((text: string, options?: SendPromptOptions) => Promise<void>) | null
   >;
@@ -45,7 +49,23 @@ export interface UseRuntimeMessagesProps {
   pushMessageRef: React.RefObject<((role: any, text: string) => void) | null>;
   abortControllerRef: React.MutableRefObject<AbortController | null>;
   shouldDisableSkipPermissions: boolean;
-  clearPreservedTranscriptForTarget: (targetTabId: number | undefined) => boolean;
+  clearPreservedTranscriptForTarget: (targetTabId: number | undefined) => Promise<string | null>;
+}
+
+async function waitForTargetSessionReady(
+  targetSessionId: string,
+  activeSessionIdRef: React.MutableRefObject<string>,
+  hasLoadedSessionRef: React.MutableRefObject<boolean>
+): Promise<boolean> {
+  const deadline = Date.now() + TARGET_SESSION_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (activeSessionIdRef.current === targetSessionId && hasLoadedSessionRef.current) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return activeSessionIdRef.current === targetSessionId && hasLoadedSessionRef.current;
+    }
+    await new Promise((resolve) => setTimeout(resolve, TARGET_SESSION_READY_POLL_MS));
+  }
+  return activeSessionIdRef.current === targetSessionId && hasLoadedSessionRef.current;
 }
 
 export function useRuntimeMessages({
@@ -71,6 +91,7 @@ export function useRuntimeMessages({
   setIsAgentRunning,
   loadSnapshotForSession,
   sessionCreatedAtRef,
+  hasLoadedSessionRef,
   sendPromptRef,
   isAgentRunningRef,
   hasBrowserControlPermissionAcceptedRef,
@@ -178,8 +199,7 @@ export function useRuntimeMessages({
         const prompt = typeof message.prompt === 'string' ? message.prompt : '';
         const targetTabId =
           typeof message.targetTabId === 'number' ? message.targetTabId : undefined;
-        const clearedPreservedTranscript =
-          clearPreservedTranscriptForTargetRef.current(targetTabId);
+        const targetSessionIdPromise = clearPreservedTranscriptForTargetRef.current(targetTabId);
         const shouldAutoSend = message.autoSend !== false;
         setInput(prompt);
         if (isPermissionMode(message.permissionMode)) {
@@ -222,6 +242,7 @@ export function useRuntimeMessages({
         sendResponse({ success: true });
 
         if (!shouldAutoSend) {
+          void targetSessionIdPromise.catch(() => {});
           return;
         }
 
@@ -230,31 +251,45 @@ export function useRuntimeMessages({
         // NOT send the prompt to the new session (Issue 2.5/3.8 from UX audit).
         const capturedSessionId = activeSessionIdRef.current;
         timeoutId = setTimeout(() => {
-          if (!prompt.trim()) return;
-          // Only send if we're still in the same session
-          if (!clearedPreservedTranscript && capturedSessionId !== activeSessionIdRef.current) {
-            return;
-          }
-          if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
-            setInput('');
-            setPopulatedInputTargetTabId(undefined);
-            void sendPromptRef.current?.(prompt, {
-              attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment,
-              targetTabId
-            });
-            setPendingPrompt(null);
-            setPendingAttachments([]);
-            setPreviewAttachmentImage(null);
-            setAttachmentCount(0);
-          } else {
-            setPendingPrompt({
-              prompt,
-              attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment,
-              targetTabId
-            });
-          }
+          void (async () => {
+            if (!prompt.trim()) return;
+            let targetSessionId: string | null;
+            try {
+              targetSessionId = await targetSessionIdPromise;
+            } catch {
+              return;
+            }
+            if (targetSessionId) {
+              const targetSessionReady = await waitForTargetSessionReady(
+                targetSessionId,
+                activeSessionIdRef,
+                hasLoadedSessionRef
+              );
+              if (!targetSessionReady) return;
+            } else if (capturedSessionId !== activeSessionIdRef.current) {
+              return;
+            }
+            if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
+              setInput('');
+              setPopulatedInputTargetTabId(undefined);
+              void sendPromptRef.current?.(prompt, {
+                attachments: validAttachments,
+                isAnnotated: hasAnnotatedAttachment,
+                targetTabId
+              });
+              setPendingPrompt(null);
+              setPendingAttachments([]);
+              setPreviewAttachmentImage(null);
+              setAttachmentCount(0);
+            } else {
+              setPendingPrompt({
+                prompt,
+                attachments: validAttachments,
+                isAnnotated: hasAnnotatedAttachment,
+                targetTabId
+              });
+            }
+          })();
         }, 500);
         return;
       }

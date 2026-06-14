@@ -384,6 +384,8 @@ export function SidepanelApp() {
   const agentStartedTabIdRef = useRef<number | undefined>(undefined);
   const tabChangedDuringAgentRef = useRef(false);
   const wasAgentRunningRef = useRef(false);
+  const screenshotActivationTabIdsRef = useRef<Set<number>>(new Set());
+  const screenshotActivationSuppressionTokenRef = useRef(0);
   // Tracks which tab the currently active session belongs to. When the
   // user switches tabs while the sidepanel stays open, the resolver
   // re-runs and compares this ref against the new active tab — if they
@@ -1114,40 +1116,44 @@ export function SidepanelApp() {
   }, [dynamicTabId, effectiveIsAgentRunning]);
 
   const clearPreservedTranscriptForTarget = useCallback(
-    (targetTabId: number | undefined): boolean => {
+    async (targetTabId: number | undefined): Promise<string | null> => {
       if (
         typeof targetTabId !== 'number' ||
         typeof preservedTranscriptTabId !== 'number' ||
         targetTabId !== dynamicTabId ||
         targetTabId === preservedTranscriptTabId
       ) {
-        return false;
+        return null;
       }
       setPreservedTranscriptTabId(undefined);
       setPreservedTranscriptActiveTabId(undefined);
-      void (async () => {
-        const storedSessionId = await getStorageValue(getTabSessionKey(targetTabId));
-        const nextSessionId =
-          typeof storedSessionId === 'string' && storedSessionId
-            ? storedSessionId
-            : crypto.randomUUID();
-        if (nextSessionId !== storedSessionId) {
-          await setStorageValue(getTabSessionKey(targetTabId), nextSessionId);
-        }
-        sessionResolvedForTabRef.current = targetTabId;
-        if (nextSessionId !== activeSessionId) {
-          setActiveConversationUuid(null);
-          setActiveRemoteSessionId(null);
-          sessionCreatedAtRef.current = Date.now();
-          setActiveSessionId(nextSessionId);
-        }
-      })();
-      return true;
+      const storedSessionId = await getStorageValue(getTabSessionKey(targetTabId));
+      const nextSessionId =
+        typeof storedSessionId === 'string' && storedSessionId
+          ? storedSessionId
+          : crypto.randomUUID();
+      if (nextSessionId !== storedSessionId) {
+        await setStorageValue(getTabSessionKey(targetTabId), nextSessionId);
+      }
+      sessionResolvedForTabRef.current = targetTabId;
+      if (nextSessionId !== activeSessionId) {
+        setActiveConversationUuid(null);
+        setActiveRemoteSessionId(null);
+        sessionCreatedAtRef.current = Date.now();
+        setActiveSessionId(nextSessionId);
+      }
+      return nextSessionId;
     },
     [activeSessionId, dynamicTabId, preservedTranscriptTabId]
   );
 
   useEffect(() => {
+    if (
+      typeof dynamicTabId === 'number' &&
+      screenshotActivationTabIdsRef.current.has(dynamicTabId)
+    ) {
+      return;
+    }
     if (
       typeof preservedTranscriptTabId === 'number' &&
       typeof preservedTranscriptActiveTabId === 'number' &&
@@ -1592,6 +1598,7 @@ export function SidepanelApp() {
     setIsAgentRunning,
     loadSnapshotForSession,
     sessionCreatedAtRef,
+    hasLoadedSessionRef,
     sendPromptRef,
     isAgentRunningRef,
     hasBrowserControlPermissionAcceptedRef,
@@ -1837,6 +1844,7 @@ export function SidepanelApp() {
   const captureCurrentTabScreenshot = useCallback(async () => {
     let previousActiveTabId: number | undefined;
     let shouldRestoreActiveTab = false;
+    let activationSuppressionToken: number | undefined;
 
     try {
       const targetTabId = preservedTranscriptTabId ?? query.tabId;
@@ -1855,6 +1863,11 @@ export function SidepanelApp() {
           previousActiveTabId = activeTabs[0]?.id;
           shouldRestoreActiveTab =
             typeof previousActiveTabId === 'number' && previousActiveTabId !== targetTabId;
+          screenshotActivationTabIdsRef.current.add(targetTabId);
+          if (typeof previousActiveTabId === 'number') {
+            screenshotActivationTabIdsRef.current.add(previousActiveTabId);
+          }
+          activationSuppressionToken = ++screenshotActivationSuppressionTokenRef.current;
           await chrome.tabs.update(targetTabId, { active: true });
         }
       } else {
@@ -1892,6 +1905,13 @@ export function SidepanelApp() {
     } finally {
       if (shouldRestoreActiveTab && typeof previousActiveTabId === 'number') {
         await chrome.tabs.update(previousActiveTabId, { active: true }).catch(() => {});
+      }
+      if (typeof activationSuppressionToken === 'number') {
+        setTimeout(() => {
+          if (screenshotActivationSuppressionTokenRef.current === activationSuppressionToken) {
+            screenshotActivationTabIdsRef.current.clear();
+          }
+        }, 1000);
       }
     }
   }, [preservedTranscriptTabId, query.tabId]);
