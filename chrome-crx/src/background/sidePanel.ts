@@ -52,14 +52,22 @@ export interface SidePanelControllerDeps {
 }
 
 export function createSidePanelController({ connectNativeHost }: SidePanelControllerDeps) {
-  async function sendRuntimeMessage(message: Record<string, unknown>): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      chrome.runtime.sendMessage(message, () => {
+  function didHandleRuntimeMessage(response: unknown): boolean {
+    return (
+      typeof response === 'object' &&
+      response !== null &&
+      (response as { success?: unknown }).success === true
+    );
+  }
+
+  async function sendRuntimeMessage(message: Record<string, unknown>): Promise<unknown> {
+    return await new Promise<unknown>((resolve, reject) => {
+      chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
-        resolve();
+        resolve(response);
       });
     });
   }
@@ -68,8 +76,8 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
     for (let attempt = 0; attempt < 6; attempt++) {
       try {
         await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 800 : 500));
-        await sendRuntimeMessage(message);
-        return;
+        const response = await sendRuntimeMessage(message);
+        if (didHandleRuntimeMessage(response)) return;
       } catch {
         if (attempt === 5) return;
       }
@@ -168,6 +176,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       await retryRuntimeMessage({
         type: 'POPULATE_INPUT_TEXT',
         prompt: request.prompt,
+        targetTabId: request.tabId,
         permissionMode: request.permissionMode,
         selectedModel: request.selectedModel,
         attachments: request.attachments

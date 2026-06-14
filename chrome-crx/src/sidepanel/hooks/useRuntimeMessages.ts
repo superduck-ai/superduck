@@ -9,10 +9,14 @@ import {
 } from '../sidepanelUtils';
 import { isSessionSnapshot, isStringRecord } from '../sidepanelGuards';
 import { SESSION_CONVERSATION_MAP_KEY, SESSION_REMOTE_MAP_KEY } from '../sidepanelGuards';
-import type { PairingPromptState, PendingPromptPayload } from '../types';
+import type { PairingPromptState, PendingPromptPayload, SendPromptOptions } from '../types';
+
+const TARGET_SESSION_READY_TIMEOUT_MS = 2000;
+const TARGET_SESSION_READY_POLL_MS = 50;
 
 export interface UseRuntimeMessagesProps {
   queryTabId: number | undefined;
+  runtimeTabId: number | undefined;
   queryMode: string | undefined;
   querySessionId: string | undefined;
   querySkipPermissions: boolean | undefined;
@@ -32,20 +36,42 @@ export interface UseRuntimeMessagesProps {
   setAttachmentCount: React.Dispatch<React.SetStateAction<number>>;
   setPendingAttachments: React.Dispatch<React.SetStateAction<PromptAttachmentPayload[]>>;
   setPreviewAttachmentImage: React.Dispatch<React.SetStateAction<string | null>>;
+  setPopulatedInputTargetTabId: React.Dispatch<React.SetStateAction<number | undefined>>;
   setPendingPrompt: React.Dispatch<React.SetStateAction<PendingPromptPayload | null>>;
   setIsAgentRunning: React.Dispatch<React.SetStateAction<boolean>>;
   loadSnapshotForSession: (sessionId: string, conversationUuid?: string | null) => Promise<any>;
   sessionCreatedAtRef: React.MutableRefObject<number>;
-  sendPromptRef: React.MutableRefObject<((text: string, options?: any) => Promise<void>) | null>;
+  hasLoadedSessionRef: React.MutableRefObject<boolean>;
+  sendPromptRef: React.MutableRefObject<
+    ((text: string, options?: SendPromptOptions) => Promise<void>) | null
+  >;
   isAgentRunningRef: React.MutableRefObject<boolean>;
   hasBrowserControlPermissionAcceptedRef: React.RefObject<boolean | null>;
   pushMessageRef: React.RefObject<((role: any, text: string) => void) | null>;
   abortControllerRef: React.MutableRefObject<AbortController | null>;
   shouldDisableSkipPermissions: boolean;
+  clearPreservedTranscriptForTarget: (targetTabId: number | undefined) => Promise<string | null>;
+}
+
+async function waitForTargetSessionReady(
+  targetSessionId: string,
+  activeSessionIdRef: React.MutableRefObject<string>,
+  hasLoadedSessionRef: React.MutableRefObject<boolean>
+): Promise<boolean> {
+  const deadline = Date.now() + TARGET_SESSION_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (activeSessionIdRef.current === targetSessionId && hasLoadedSessionRef.current) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return activeSessionIdRef.current === targetSessionId && hasLoadedSessionRef.current;
+    }
+    await new Promise((resolve) => setTimeout(resolve, TARGET_SESSION_READY_POLL_MS));
+  }
+  return activeSessionIdRef.current === targetSessionId && hasLoadedSessionRef.current;
 }
 
 export function useRuntimeMessages({
   queryTabId,
+  runtimeTabId,
   queryMode,
   querySessionId,
   querySkipPermissions,
@@ -62,16 +88,19 @@ export function useRuntimeMessages({
   setAttachmentCount,
   setPendingAttachments,
   setPreviewAttachmentImage,
+  setPopulatedInputTargetTabId,
   setPendingPrompt,
   setIsAgentRunning,
   loadSnapshotForSession,
   sessionCreatedAtRef,
+  hasLoadedSessionRef,
   sendPromptRef,
   isAgentRunningRef,
   hasBrowserControlPermissionAcceptedRef,
   pushMessageRef,
   abortControllerRef,
-  shouldDisableSkipPermissions
+  shouldDisableSkipPermissions,
+  clearPreservedTranscriptForTarget
 }: UseRuntimeMessagesProps) {
   // Track the current activeSessionId in a ref so async callbacks (like the
   // POPULATE_INPUT_TEXT timeout) can detect stale sessions without re-running
@@ -80,6 +109,11 @@ export function useRuntimeMessages({
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  const clearPreservedTranscriptForTargetRef = useRef(clearPreservedTranscriptForTarget);
+  useEffect(() => {
+    clearPreservedTranscriptForTargetRef.current = clearPreservedTranscriptForTarget;
+  }, [clearPreservedTranscriptForTarget]);
 
   // PANEL_OPENED
   useEffect(() => {
@@ -91,6 +125,24 @@ export function useRuntimeMessages({
     });
   }, [queryTabId, secondaryState.mainTabId]);
 
+  const shouldHandleRuntimeTabTarget = useCallback(
+    (targetTabId: unknown) => typeof targetTabId !== 'number' || targetTabId === runtimeTabId,
+    [runtimeTabId]
+  );
+
+  const shouldHandlePopulateTabTarget = useCallback(
+    (targetTabId: unknown) => {
+      if (shouldHandleRuntimeTabTarget(targetTabId)) return true;
+      // A non-running preserved transcript can still receive a prompt for the
+      // live active tab; that path intentionally clears preservation and
+      // switches to the active tab's session before exposing/sending input.
+      return (
+        !isAgentRunningRef.current && typeof targetTabId === 'number' && targetTabId === queryTabId
+      );
+    },
+    [queryTabId, shouldHandleRuntimeTabTarget, isAgentRunningRef]
+  );
+
   // shouldHandleTaskForCurrentContext
   const shouldHandleTaskForCurrentContext = useCallback(
     (message: any) => {
@@ -99,16 +151,12 @@ export function useRuntimeMessages({
         return message.windowSessionId === querySessionId;
       }
       if (isWindowMode || message.windowSessionId) return false;
-      if (
-        typeof message.targetTabId === 'number' &&
-        typeof queryTabId === 'number' &&
-        message.targetTabId !== queryTabId
-      ) {
+      if (!shouldHandleRuntimeTabTarget(message.targetTabId)) {
         return false;
       }
       return true;
     },
-    [queryMode, querySessionId, queryTabId]
+    [queryMode, querySessionId, shouldHandleRuntimeTabTarget]
   );
 
   // Main runtime message listener
@@ -163,22 +211,16 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'POPULATE_INPUT_TEXT') {
+        if (!shouldHandlePopulateTabTarget(message.targetTabId)) {
+          // Let the target panel own the runtime response; skipped panels can win the race.
+          return;
+        }
+
         const prompt = typeof message.prompt === 'string' ? message.prompt : '';
-        setInput(prompt);
-        if (isPermissionMode(message.permissionMode)) {
-          if (
-            shouldDisableSkipPermissions &&
-            message.permissionMode === 'skip_all_permission_checks'
-          ) {
-            setPermissionMode('follow_a_plan');
-          } else {
-            setPermissionMode(message.permissionMode);
-          }
-        }
-        if (typeof message.selectedModel === 'string') {
-          setSelectedModel(message.selectedModel);
-          void setStorageValue(StorageKeys.SELECTED_MODEL, message.selectedModel);
-        }
+        const targetTabId =
+          typeof message.targetTabId === 'number' ? message.targetTabId : undefined;
+        const targetSessionIdPromise = clearPreservedTranscriptForTargetRef.current(targetTabId);
+        const shouldAutoSend = message.autoSend !== false;
 
         const validAttachments: PromptAttachmentPayload[] = [];
         let hasAnnotatedAttachment = false;
@@ -189,13 +231,54 @@ export function useRuntimeMessages({
             if (attachment.isAnnotated) hasAnnotatedAttachment = true;
           }
         }
-        setAttachmentCount(validAttachments.length);
-        setPendingAttachments(validAttachments);
-        setPendingPrompt({
-          prompt,
-          attachments: validAttachments,
-          isAnnotated: hasAnnotatedAttachment
-        });
+
+        const applyPopulatedInput = () => {
+          setInput(prompt);
+          if (isPermissionMode(message.permissionMode)) {
+            if (
+              shouldDisableSkipPermissions &&
+              message.permissionMode === 'skip_all_permission_checks'
+            ) {
+              setPermissionMode('follow_a_plan');
+            } else {
+              setPermissionMode(message.permissionMode);
+            }
+          }
+          if (typeof message.selectedModel === 'string') {
+            setSelectedModel(message.selectedModel);
+            void setStorageValue(StorageKeys.SELECTED_MODEL, message.selectedModel);
+          }
+          setAttachmentCount(validAttachments.length);
+          setPendingAttachments(validAttachments);
+          setPopulatedInputTargetTabId(shouldAutoSend ? undefined : targetTabId);
+          setPendingPrompt(null);
+        };
+
+        if (!shouldAutoSend) {
+          void (async () => {
+            try {
+              const targetSessionId = await targetSessionIdPromise;
+              if (targetSessionId) {
+                const targetSessionReady = await waitForTargetSessionReady(
+                  targetSessionId,
+                  activeSessionIdRef,
+                  hasLoadedSessionRef
+                );
+                if (!targetSessionReady) {
+                  sendResponse({ success: false, error: 'Target session not ready' });
+                  return;
+                }
+              }
+              applyPopulatedInput();
+              sendResponse({ success: true });
+            } catch {
+              sendResponse({ success: false, error: 'Failed to prepare target session' });
+            }
+          })();
+          return true;
+        }
+
+        applyPopulatedInput();
         sendResponse({ success: true });
 
         // Capture the session ID at the time POPULATE_INPUT_TEXT arrives.
@@ -203,26 +286,45 @@ export function useRuntimeMessages({
         // NOT send the prompt to the new session (Issue 2.5/3.8 from UX audit).
         const capturedSessionId = activeSessionIdRef.current;
         timeoutId = setTimeout(() => {
-          if (!prompt.trim()) return;
-          // Only send if we're still in the same session
-          if (capturedSessionId !== activeSessionIdRef.current) return;
-          if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
-            setInput('');
-            void sendPromptRef.current?.(prompt, {
-              attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment
-            });
-            setPendingPrompt(null);
-            setPendingAttachments([]);
-            setPreviewAttachmentImage(null);
-            setAttachmentCount(0);
-          } else {
-            setPendingPrompt({
-              prompt,
-              attachments: validAttachments,
-              isAnnotated: hasAnnotatedAttachment
-            });
-          }
+          void (async () => {
+            if (!prompt.trim()) return;
+            let targetSessionId: string | null;
+            try {
+              targetSessionId = await targetSessionIdPromise;
+            } catch {
+              return;
+            }
+            if (targetSessionId) {
+              const targetSessionReady = await waitForTargetSessionReady(
+                targetSessionId,
+                activeSessionIdRef,
+                hasLoadedSessionRef
+              );
+              if (!targetSessionReady) return;
+            } else if (capturedSessionId !== activeSessionIdRef.current) {
+              return;
+            }
+            if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
+              setInput('');
+              setPopulatedInputTargetTabId(undefined);
+              void sendPromptRef.current?.(prompt, {
+                attachments: validAttachments,
+                isAnnotated: hasAnnotatedAttachment,
+                targetTabId
+              });
+              setPendingPrompt(null);
+              setPendingAttachments([]);
+              setPreviewAttachmentImage(null);
+              setAttachmentCount(0);
+            } else {
+              setPendingPrompt({
+                prompt,
+                attachments: validAttachments,
+                isAnnotated: hasAnnotatedAttachment,
+                targetTabId
+              });
+            }
+          })();
         }, 500);
         return;
       }
@@ -311,6 +413,7 @@ export function useRuntimeMessages({
               ? `[Scheduled Task: ${message.taskName}]\n${prompt}`
               : prompt;
           setInput('');
+          setPopulatedInputTargetTabId(undefined);
           void sendPromptRef.current?.(taskPrompt);
         }
         sendResponse({ success: true });
@@ -318,11 +421,7 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'STOP_AGENT') {
-        if (
-          typeof message.targetTabId === 'number' &&
-          typeof queryTabId === 'number' &&
-          message.targetTabId !== queryTabId
-        ) {
+        if (!shouldHandleRuntimeTabTarget(message.targetTabId)) {
           sendResponse({ success: false, skipped: true });
           return;
         }
@@ -347,7 +446,14 @@ export function useRuntimeMessages({
       if (timeoutId) clearTimeout(timeoutId);
     };
     // sendPrompt, isAgentRunning, hasBrowserControlPermissionAccepted accessed via refs
-  }, [loadSnapshotForSession, querySkipPermissions, queryTabId, shouldHandleTaskForCurrentContext]);
+  }, [
+    loadSnapshotForSession,
+    querySkipPermissions,
+    queryTabId,
+    shouldHandlePopulateTabTarget,
+    shouldHandleRuntimeTabTarget,
+    shouldHandleTaskForCurrentContext
+  ]);
 
   return { shouldHandleTaskForCurrentContext };
 }

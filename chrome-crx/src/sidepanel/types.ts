@@ -80,6 +80,12 @@ export interface RuntimeMessage {
   current_name?: string;
 }
 
+export interface SendPromptOptions {
+  attachments?: PromptAttachmentPayload[];
+  isAnnotated?: boolean;
+  targetTabId?: number;
+}
+
 export interface PairingPromptState {
   requestId: string;
   clientType: string;
@@ -90,6 +96,7 @@ export interface PendingPromptPayload {
   prompt: string;
   attachments: PromptAttachmentPayload[];
   isAnnotated: boolean;
+  targetTabId?: number;
 }
 
 // ─── Tab / domain types ────────────────────────────────────────────────────────
