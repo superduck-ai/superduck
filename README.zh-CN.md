@@ -101,6 +101,19 @@ superduck --tab $TAB console --pattern error
 
 运行 `superduck --help` 查看完整命令参考。
 
+## AI 编程助手 Skill
+
+将 SuperDuck skill 添加到 Codex、Claude Code、Cursor、Gemini CLI、GitHub
+Copilot、Goose、OpenCode、Windsurf 等 AI 编程助手：
+
+```bash
+npx skills add superduck-ai/superduck
+```
+
+该 skill 来自本仓库的 `skills/superduck/` 目录，会教会 agent 使用当前
+SuperDuck CLI 工作流，包括基于 ref 的交互、复用浏览器登录态、截图、
+console/network 检查和故障排查。
+
 ## 从源码构建
 
 ```bash

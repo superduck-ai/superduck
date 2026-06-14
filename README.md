@@ -101,6 +101,19 @@ superduck --tab $TAB console --pattern error
 
 Run `superduck --help` for the full command reference.
 
+## AI Coding Assistant Skill
+
+Add the SuperDuck skill to AI coding assistants such as Codex, Claude Code,
+Cursor, Gemini CLI, GitHub Copilot, Goose, OpenCode, and Windsurf:
+
+```bash
+npx skills add superduck-ai/superduck
+```
+
+The skill is loaded from `skills/superduck/` in this repository and teaches the
+agent the current SuperDuck CLI workflow, including ref-based interaction,
+session reuse, screenshots, console/network inspection, and troubleshooting.
+
 ## Build from Source
 
 ```bash

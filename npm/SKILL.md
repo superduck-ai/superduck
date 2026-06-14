@@ -1,6 +1,8 @@
 ---
 name: SuperDuck
 description: When the user is doing something in their Chrome browser and needs an agent (Claude Code/Codex) to read or fetch from it as the logged-in user — use the `superduck` CLI to read the active tab's url/title/selection/visible text, or to fetch a URL using the user's existing cookies/session.
+metadata:
+  internal: true
 ---
 
 # SuperDuck
