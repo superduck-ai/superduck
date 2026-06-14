@@ -13,6 +13,7 @@ import {
   getHistoryStorageKey,
   getConversationStorageKey,
   extractTextFromContent,
+  hasPersistableSessionContent,
   normalizeHistoricalMessage,
   pickEventMessage
 } from './sessionHistory';
@@ -98,6 +99,58 @@ describe('extractTextFromContent', () => {
       { type: 'text', text: 'Final answer' }
     ];
     expect(extractTextFromContent(content)).toBe('Final answer');
+  });
+});
+
+// ─── hasPersistableSessionContent ───────────────────────────────────────────
+
+describe('hasPersistableSessionContent', () => {
+  it('rejects a brand new empty session', () => {
+    expect(hasPersistableSessionContent({ uiMessages: [], apiMessages: [] })).toBe(false);
+  });
+
+  it('rejects whitespace-only UI and local-only API messages', () => {
+    expect(
+      hasPersistableSessionContent({
+        uiMessages: [{ id: 'a1', role: 'assistant', text: '   ' }],
+        apiMessages: [{ role: 'user', content: 'local command', isLocalOnlyMessage: true }]
+      })
+    ).toBe(false);
+  });
+
+  it('accepts a visible user or assistant message', () => {
+    expect(
+      hasPersistableSessionContent({
+        uiMessages: [{ id: 'u1', role: 'user', text: 'Hello' }],
+        apiMessages: []
+      })
+    ).toBe(true);
+    expect(
+      hasPersistableSessionContent({
+        uiMessages: [{ id: 'a1', role: 'assistant', text: 'Answer' }],
+        apiMessages: []
+      })
+    ).toBe(true);
+  });
+
+  it('accepts non-local API content even when UI messages are not populated yet', () => {
+    expect(
+      hasPersistableSessionContent({
+        uiMessages: [],
+        apiMessages: [{ role: 'user', content: [{ type: 'text', text: 'Question' }] }]
+      })
+    ).toBe(true);
+    expect(
+      hasPersistableSessionContent({
+        uiMessages: [],
+        apiMessages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 'tool-1', name: 'navigate', input: {} }]
+          }
+        ]
+      })
+    ).toBe(true);
   });
 });
 

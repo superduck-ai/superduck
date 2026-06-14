@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { getStorageValue, setStorageValue } from '../../extensionServices';
+import { getStorageValue, removeStorageValues, setStorageValue } from '../../extensionServices';
 import { type ApiConversationMessage } from '../../messageTypes';
 import {
   extractTextFromContent,
   getConversationStorageKey,
   getHistoryStorageKey,
+  hasPersistableSessionContent,
   pickEventMessage
 } from '../sessionHistory';
 import { createId, isPermissionMode, type PermissionMode } from '../sidepanelUtils';
@@ -35,6 +36,42 @@ export async function upsertSessionIndex(entry: SessionIndexEntry) {
     : [entry, ...current];
   next.sort((a, b) => b.updatedAt - a.updatedAt);
   await setStorageValue(SESSION_INDEX_KEY, next.slice(0, 200));
+}
+
+export async function removeSessionIndexEntry(sessionId: string) {
+  const raw = await getStorageValue(SESSION_INDEX_KEY, []);
+  const current = Array.isArray(raw) ? (raw as SessionIndexEntry[]) : [];
+  const next = current.filter((item) => item.sessionId !== sessionId);
+  if (next.length !== current.length) {
+    await setStorageValue(SESSION_INDEX_KEY, next);
+  }
+}
+
+async function removeEmptySessionArtifacts(sessionId: string, snapshot: SessionSnapshot) {
+  const keysToRemove = [getHistoryStorageKey(sessionId)];
+  let ownsConversationSnapshot = false;
+
+  if (snapshot.conversationUuid) {
+    const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
+    const currentMap = isStringRecord(rawMap) ? rawMap : {};
+    ownsConversationSnapshot = currentMap[snapshot.conversationUuid] === sessionId;
+    if (ownsConversationSnapshot) {
+      keysToRemove.push(getConversationStorageKey(snapshot.conversationUuid));
+    }
+  }
+
+  await removeStorageValues(keysToRemove);
+  await removeSessionIndexEntry(sessionId);
+
+  if (snapshot.conversationUuid && ownsConversationSnapshot) {
+    const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
+    const currentMap = isStringRecord(rawMap) ? rawMap : {};
+    if (currentMap[snapshot.conversationUuid] === sessionId) {
+      const nextMap = { ...currentMap };
+      delete nextMap[snapshot.conversationUuid];
+      await setStorageValue(SESSION_CONVERSATION_MAP_KEY, nextMap);
+    }
+  }
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -144,14 +181,17 @@ export function useSessionPersistence({
       conversationUuid?: string | null
     ): Promise<SessionSnapshot | undefined> => {
       const sessionSnapshot = await getStorageValue(getHistoryStorageKey(sessionId));
-      if (isSessionSnapshot(sessionSnapshot)) {
+      if (isSessionSnapshot(sessionSnapshot) && hasPersistableSessionContent(sessionSnapshot)) {
         return sessionSnapshot;
       }
       if (!conversationUuid) return undefined;
       const conversationSnapshot = await getStorageValue(
         getConversationStorageKey(conversationUuid)
       );
-      if (isSessionSnapshot(conversationSnapshot)) {
+      if (
+        isSessionSnapshot(conversationSnapshot) &&
+        hasPersistableSessionContent(conversationSnapshot)
+      ) {
         return conversationSnapshot;
       }
       return undefined;
@@ -382,11 +422,16 @@ export function useSessionPersistence({
 
     const persistSnapshot = () => {
       const snap = snapshotRef.current;
-      const preview = [...snap.uiMessages]
-        .reverse()
-        .find((message) => message.role === 'user' && message.text.trim())?.text;
       void (async () => {
         try {
+          if (!hasPersistableSessionContent(snap)) {
+            await removeEmptySessionArtifacts(activeSessionId, snap);
+            return;
+          }
+
+          const preview = [...snap.uiMessages]
+            .reverse()
+            .find((message) => message.role === 'user' && message.text.trim())?.text;
           await setStorageValue(historyStorageKey, snap);
           if (snap.conversationUuid) {
             const conversationKey = getConversationStorageKey(snap.conversationUuid);
@@ -481,6 +526,11 @@ export function useSessionPersistence({
     const handleBeforeUnload = () => {
       if (!hasLoadedSessionRef.current) return;
       const snap = snapshotRef.current;
+      if (!hasPersistableSessionContent(snap)) {
+        void removeEmptySessionArtifacts(activeSessionId, snap);
+        return;
+      }
+
       const preview = [...snap.uiMessages]
         .reverse()
         .find((m) => m.role === 'user' && m.text.trim())?.text;
