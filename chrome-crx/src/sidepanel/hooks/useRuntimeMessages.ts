@@ -171,7 +171,7 @@ export function useRuntimeMessages({
 
       if (message.type === 'POPULATE_INPUT_TEXT') {
         if (typeof message.targetTabId === 'number' && message.targetTabId !== queryTabId) {
-          sendResponse({ success: false, skipped: true });
+          // Let the target panel own the runtime response; skipped panels can win the race.
           return;
         }
 
