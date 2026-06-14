@@ -37,6 +37,23 @@ describe('registerExternalMessageListener', () => {
     };
   }
 
+  it('responds to trusted ping messages', async () => {
+    const { connectNativeHost, listener } = registerAndGetListener();
+    const sendResponse = vi.fn();
+
+    listener(
+      { type: 'ping' },
+      { origin: 'https://open.bigmodel.cn', tab: { id: 42 } } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({ success: true, exists: true })
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(connectNativeHost).not.toHaveBeenCalled();
+  });
+
   it('requires user confirmation for external onboarding prompts', async () => {
     const { connectNativeHost, listener } = registerAndGetListener();
     const sendResponse = vi.fn();
@@ -109,6 +126,29 @@ describe('registerExternalMessageListener', () => {
 
     await vi.waitFor(() =>
       expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Missing prompt' })
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(connectNativeHost).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported trusted message types', async () => {
+    const { connectNativeHost, listener } = registerAndGetListener();
+    const sendResponse = vi.fn();
+
+    listener(
+      { type: 'unsupported_message' },
+      {
+        origin: 'https://coding.dashscope.aliyuncs.com',
+        tab: { id: 42 }
+      } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Unsupported message type'
+      })
     );
     expect(sendMessage).not.toHaveBeenCalled();
     expect(connectNativeHost).not.toHaveBeenCalled();
