@@ -23,18 +23,22 @@ describe('registerExternalMessageListener', () => {
   });
 
   function registerAndGetListener() {
+    const connectNativeHost = vi.fn(async () => true);
     registerExternalMessageListener({
-      connectNativeHost: vi.fn(async () => true)
+      connectNativeHost
     });
-    return addListener.mock.calls[0][0] as (
-      message: unknown,
-      sender: chrome.runtime.MessageSender,
-      sendResponse: (response?: unknown) => void
-    ) => boolean;
+    return {
+      connectNativeHost,
+      listener: addListener.mock.calls[0][0] as (
+        message: unknown,
+        sender: chrome.runtime.MessageSender,
+        sendResponse: (response?: unknown) => void
+      ) => boolean
+    };
   }
 
   it('requires user confirmation for external onboarding prompts', async () => {
-    const listener = registerAndGetListener();
+    const { connectNativeHost, listener } = registerAndGetListener();
     const sendResponse = vi.fn();
 
     const keepAlive = listener(
@@ -53,10 +57,11 @@ describe('registerExternalMessageListener', () => {
       targetTabId: 42,
       autoSend: false
     });
+    expect(connectNativeHost).not.toHaveBeenCalled();
   });
 
   it('rejects onboarding prompts from untrusted origins', async () => {
-    const listener = registerAndGetListener();
+    const { connectNativeHost, listener } = registerAndGetListener();
     const sendResponse = vi.fn();
 
     listener(
@@ -69,10 +74,28 @@ describe('registerExternalMessageListener', () => {
       expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Untrusted origin' })
     );
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(connectNativeHost).not.toHaveBeenCalled();
+  });
+
+  it('rejects null external messages from trusted origins', async () => {
+    const { connectNativeHost, listener } = registerAndGetListener();
+    const sendResponse = vi.fn();
+
+    listener(
+      null,
+      { origin: 'https://open.bigmodel.cn', tab: { id: 42 } } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Invalid message' })
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(connectNativeHost).not.toHaveBeenCalled();
   });
 
   it('rejects onboarding prompts without a prompt string', async () => {
-    const listener = registerAndGetListener();
+    const { connectNativeHost, listener } = registerAndGetListener();
     const sendResponse = vi.fn();
 
     listener(
@@ -88,5 +111,6 @@ describe('registerExternalMessageListener', () => {
       expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Missing prompt' })
     );
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(connectNativeHost).not.toHaveBeenCalled();
   });
 });

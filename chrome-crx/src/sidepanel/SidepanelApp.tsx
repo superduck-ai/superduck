@@ -274,6 +274,7 @@ export function SidepanelApp() {
     boolean | null
   >(null);
   const [pendingPrompt, setPendingPrompt] = useState<PendingPromptPayload | null>(null);
+  const [populatedInputTargetTabId, setPopulatedInputTargetTabId] = useState<number | undefined>();
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [toolSchemas, setToolSchemas] = useState<ToolProviderSchema[]>([]);
   const { apiKey, apiBaseUrl, authLoading, authError, refreshAuth } = useAuth({
@@ -1062,6 +1063,12 @@ export function SidepanelApp() {
     [isPurlMode, lightningResult, preservedTranscriptTabId, query.tabId, sendPrompt]
   );
 
+  useEffect(() => {
+    if (!input.trim()) {
+      setPopulatedInputTargetTabId(undefined);
+    }
+  }, [input]);
+
   const effectiveCancel = useCallback(() => {
     void trackEvent('superduck.sidebar.agent_cancelled', {
       mode: isPurlMode ? 'quick' : 'normal',
@@ -1580,6 +1587,7 @@ export function SidepanelApp() {
     setAttachmentCount,
     setPendingAttachments,
     setPreviewAttachmentImage,
+    setPopulatedInputTargetTabId,
     setPendingPrompt,
     setIsAgentRunning,
     loadSnapshotForSession,
@@ -1727,9 +1735,18 @@ export function SidepanelApp() {
     setIsActionsMenuOpen(false);
     void effectiveSendPrompt(finalPrompt, {
       attachments: attachmentsToSend,
-      isAnnotated: attachmentsToSend.some((item) => item.isAnnotated)
+      isAnnotated: attachmentsToSend.some((item) => item.isAnnotated),
+      targetTabId: populatedInputTargetTabId
     });
-  }, [input, pendingAttachments, effectiveSendPrompt, effectiveIsAgentRunning, apiKey]);
+    setPopulatedInputTargetTabId(undefined);
+  }, [
+    input,
+    pendingAttachments,
+    populatedInputTargetTabId,
+    effectiveSendPrompt,
+    effectiveIsAgentRunning,
+    apiKey
+  ]);
 
   const insertShortcutChip = useCallback((command: string, label?: string) => {
     void trackEvent('superduck.sidebar.shortcut_used', { command });
@@ -2286,6 +2303,7 @@ export function SidepanelApp() {
       });
       setPendingPrompt(null);
       setInput('');
+      setPopulatedInputTargetTabId(undefined);
     }
   }, [pendingPrompt, effectiveSendPrompt]);
 
@@ -2595,6 +2613,7 @@ export function SidepanelApp() {
                   <EmptyState
                     tabId={query.tabId}
                     onPromptClick={(prompt) => {
+                      setPopulatedInputTargetTabId(undefined);
                       setInput(prompt);
                     }}
                   />

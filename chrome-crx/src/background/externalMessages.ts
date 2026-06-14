@@ -18,6 +18,11 @@ export function registerExternalMessageListener({
         return;
       }
 
+      if (!message || typeof message !== 'object') {
+        sendResponse({ success: false, error: 'Invalid message' });
+        return;
+      }
+
       if (message.type === 'ping') {
         sendResponse({ success: true, exists: true });
         return;

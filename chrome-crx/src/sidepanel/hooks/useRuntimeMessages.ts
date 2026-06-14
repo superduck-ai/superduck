@@ -32,6 +32,7 @@ export interface UseRuntimeMessagesProps {
   setAttachmentCount: React.Dispatch<React.SetStateAction<number>>;
   setPendingAttachments: React.Dispatch<React.SetStateAction<PromptAttachmentPayload[]>>;
   setPreviewAttachmentImage: React.Dispatch<React.SetStateAction<string | null>>;
+  setPopulatedInputTargetTabId: React.Dispatch<React.SetStateAction<number | undefined>>;
   setPendingPrompt: React.Dispatch<React.SetStateAction<PendingPromptPayload | null>>;
   setIsAgentRunning: React.Dispatch<React.SetStateAction<boolean>>;
   loadSnapshotForSession: (sessionId: string, conversationUuid?: string | null) => Promise<any>;
@@ -65,6 +66,7 @@ export function useRuntimeMessages({
   setAttachmentCount,
   setPendingAttachments,
   setPreviewAttachmentImage,
+  setPopulatedInputTargetTabId,
   setPendingPrompt,
   setIsAgentRunning,
   loadSnapshotForSession,
@@ -205,6 +207,7 @@ export function useRuntimeMessages({
         }
         setAttachmentCount(validAttachments.length);
         setPendingAttachments(validAttachments);
+        setPopulatedInputTargetTabId(shouldAutoSend ? undefined : targetTabId);
         setPendingPrompt(
           shouldAutoSend
             ? {
@@ -233,6 +236,7 @@ export function useRuntimeMessages({
           }
           if (hasBrowserControlPermissionAcceptedRef.current && !isAgentRunningRef.current) {
             setInput('');
+            setPopulatedInputTargetTabId(undefined);
             void sendPromptRef.current?.(prompt, {
               attachments: validAttachments,
               isAnnotated: hasAnnotatedAttachment,
@@ -338,6 +342,7 @@ export function useRuntimeMessages({
               ? `[Scheduled Task: ${message.taskName}]\n${prompt}`
               : prompt;
           setInput('');
+          setPopulatedInputTargetTabId(undefined);
           void sendPromptRef.current?.(taskPrompt);
         }
         sendResponse({ success: true });
