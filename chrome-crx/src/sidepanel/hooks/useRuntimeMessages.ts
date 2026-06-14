@@ -251,16 +251,7 @@ export function useRuntimeMessages({
           setAttachmentCount(validAttachments.length);
           setPendingAttachments(validAttachments);
           setPopulatedInputTargetTabId(shouldAutoSend ? undefined : targetTabId);
-          setPendingPrompt(
-            shouldAutoSend
-              ? {
-                  prompt,
-                  attachments: validAttachments,
-                  isAnnotated: hasAnnotatedAttachment,
-                  targetTabId
-                }
-              : null
-          );
+          setPendingPrompt(null);
         };
 
         if (!shouldAutoSend) {
