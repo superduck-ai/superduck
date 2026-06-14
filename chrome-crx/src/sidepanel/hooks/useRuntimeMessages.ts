@@ -174,6 +174,15 @@ export function useRuntimeMessages({
       }
 
       if (message.type === 'POPULATE_INPUT_TEXT') {
+        if (
+          typeof message.targetTabId === 'number' &&
+          typeof queryTabId === 'number' &&
+          message.targetTabId !== queryTabId
+        ) {
+          sendResponse({ success: false, skipped: true });
+          return;
+        }
+
         const prompt = typeof message.prompt === 'string' ? message.prompt : '';
         const targetTabId =
           typeof message.targetTabId === 'number' ? message.targetTabId : undefined;
