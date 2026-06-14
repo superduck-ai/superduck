@@ -1125,8 +1125,6 @@ export function SidepanelApp() {
       ) {
         return null;
       }
-      setPreservedTranscriptTabId(undefined);
-      setPreservedTranscriptActiveTabId(undefined);
       const storedSessionId = await getStorageValue(getTabSessionKey(targetTabId));
       const nextSessionId =
         typeof storedSessionId === 'string' && storedSessionId
@@ -1136,6 +1134,8 @@ export function SidepanelApp() {
         await setStorageValue(getTabSessionKey(targetTabId), nextSessionId);
       }
       sessionResolvedForTabRef.current = targetTabId;
+      setPreservedTranscriptTabId(undefined);
+      setPreservedTranscriptActiveTabId(undefined);
       if (nextSessionId !== activeSessionId) {
         setActiveConversationUuid(null);
         setActiveRemoteSessionId(null);
