@@ -1,5 +1,5 @@
 import { setStorageValue, StorageKeys } from '../extensionServices';
-import { tabGroupManager } from '../mcpRuntime';
+import { migrateGroupFinalizationState, tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
 
 // Count of alive sidepanel iframes, persisted to session storage to survive
@@ -159,6 +159,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       } else if (group.mainTabId !== tabId) {
         try {
           await tabGroupManager.promoteToMainTab(group.mainTabId, tabId);
+          migrateGroupFinalizationState(group.mainTabId, tabId);
         } catch {
           // ignore
         }

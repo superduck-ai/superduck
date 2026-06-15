@@ -1649,6 +1649,32 @@ async function finalizeGroup(mainTabId: number): Promise<void> {
   groupFinalizationState.delete(mainTabId);
 }
 
+export function migrateGroupFinalizationState(oldMainTabId: number, newMainTabId: number): void {
+  if (oldMainTabId === newMainTabId) return;
+  const state = groupFinalizationState.get(oldMainTabId);
+  if (!state) return;
+
+  const existingState = groupFinalizationState.get(newMainTabId);
+  if (existingState?.timer) clearTimeout(existingState.timer);
+
+  const hadTimer = state.timer !== null;
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+
+  groupFinalizationState.delete(oldMainTabId);
+  groupFinalizationState.set(newMainTabId, state);
+
+  if (hadTimer && !hasActiveToolsInGroup(newMainTabId)) {
+    state.timer = setTimeout(() => {
+      if (!hasActiveToolsInGroup(newMainTabId)) {
+        void finalizeGroup(newMainTabId);
+      }
+    }, PREFIX_CLEANUP_DELAY);
+  }
+}
+
 // --- startToolContext (inline from executeTool) ---
 async function startToolContext(
   tabId: number,

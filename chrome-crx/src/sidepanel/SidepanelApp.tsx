@@ -48,6 +48,7 @@ import {
   categoryChecker,
   executeTool,
   getToolSchemasForMcp,
+  migrateGroupFinalizationState,
   tabGroupManager,
   trackEvent
 } from '../mcpRuntime';
@@ -1198,6 +1199,7 @@ export function SidepanelApp() {
       if (group.mainTabId !== query.tabId) {
         try {
           await tabGroupManager.promoteToMainTab(group.mainTabId, query.tabId);
+          migrateGroupFinalizationState(group.mainTabId, query.tabId);
           await tabGroupManager.initialize(true);
         } catch {
           // The service worker may have already promoted the tab, or the

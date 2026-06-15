@@ -1,5 +1,6 @@
 import {
   isBridgeConnected,
+  migrateGroupFinalizationState,
   sendMcpNotificationViaBridge,
   tabGroupManager,
   trackEvent
@@ -353,6 +354,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
               // clicked tab the main.
               try {
                 await tabGroupManager.promoteToMainTab(existing.mainTabId, activeTab.id);
+                migrateGroupFinalizationState(existing.mainTabId, activeTab.id);
               } catch (err) {
                 console.error('[superduck:panel-ready] promoteToMainTab failed', err);
               }

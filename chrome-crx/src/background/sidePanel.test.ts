@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mcpRuntimeMocks = vi.hoisted(() => ({
+  migrateGroupFinalizationState: vi.fn(),
   tabGroupManager: {
     initialize: vi.fn(),
     findGroupByTab: vi.fn(),
@@ -118,6 +119,7 @@ describe('createSidePanelController', () => {
     await controller.openSidePanel(42);
 
     expect(mcpRuntimeMocks.tabGroupManager.promoteToMainTab).toHaveBeenCalledWith(7, 42);
+    expect(mcpRuntimeMocks.migrateGroupFinalizationState).toHaveBeenCalledWith(7, 42);
     expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
   });
 });
