@@ -33,7 +33,7 @@ Subcommands:
   new                       Create a fresh MCP tab group with one tab; prints its tabId.
 
 Examples:
-  superduck tab_group list --create-if-empty
+  superduck tab_group list
   TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)`)
 		return nil
 	default:

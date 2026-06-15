@@ -295,7 +295,7 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "tabs_create_mcp",
-		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current.",
+		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.",
 		inputSchema: objectSchema(map[string]any{}),
 	},
 	{
