@@ -1662,6 +1662,7 @@ export function migrateGroupFinalizationState(oldMainTabId: number, newMainTabId
     clearTimeout(state.timer);
     state.timer = null;
   }
+  state.lastActiveTabId = newMainTabId;
 
   groupFinalizationState.delete(oldMainTabId);
   groupFinalizationState.set(newMainTabId, state);
