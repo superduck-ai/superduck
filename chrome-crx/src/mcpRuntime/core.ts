@@ -1633,6 +1633,7 @@ async function finalizeGroup(mainTabId: number): Promise<void> {
 
   const resultTabId = state.lastActiveTabId;
 
+  await tabGroupManager.clearIndicatorsForGroup(mainTabId).catch(() => {});
   await tabGroupManager.addCompletionPrefix(mainTabId).catch(() => {});
   await tabGroupManager.setGroupColor(mainTabId, chrome.tabGroups.Color.GREEN).catch(() => {});
 
