@@ -5,6 +5,7 @@ const mcpRuntimeMocks = vi.hoisted(() => ({
     initialize: vi.fn(),
     findGroupByTab: vi.fn(),
     adoptOrphanedGroup: vi.fn(),
+    promoteToMainTab: vi.fn(),
     createGroup: vi.fn()
   }
 }));
@@ -31,8 +32,10 @@ describe('createSidePanelController', () => {
     mcpRuntimeMocks.tabGroupManager.initialize.mockResolvedValue(undefined);
     mcpRuntimeMocks.tabGroupManager.findGroupByTab.mockResolvedValue({
       isUnmanaged: false,
+      mainTabId: 42,
       chromeGroupId: 1
     });
+    mcpRuntimeMocks.tabGroupManager.promoteToMainTab.mockResolvedValue(undefined);
 
     vi.stubGlobal('chrome', {
       runtime: {
@@ -99,5 +102,22 @@ describe('createSidePanelController', () => {
       },
       expect.any(Function)
     );
+  });
+
+  it('promotes the requested tab when opening the sidepanel for a managed secondary tab', async () => {
+    mcpRuntimeMocks.tabGroupManager.findGroupByTab.mockResolvedValue({
+      isUnmanaged: false,
+      mainTabId: 7,
+      chromeGroupId: 1
+    });
+
+    const controller = createSidePanelController({
+      connectNativeHost: vi.fn(async () => true)
+    });
+
+    await controller.openSidePanel(42);
+
+    expect(mcpRuntimeMocks.tabGroupManager.promoteToMainTab).toHaveBeenCalledWith(7, 42);
+    expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
   });
 });

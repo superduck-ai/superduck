@@ -20,10 +20,6 @@ export interface UseRuntimeMessagesProps {
   queryMode: string | undefined;
   querySessionId: string | undefined;
   querySkipPermissions: boolean | undefined;
-  secondaryState: {
-    isSecondaryTab: boolean;
-    mainTabId: number | null;
-  };
   activeSessionId: string;
   setActiveConversationUuid: React.Dispatch<React.SetStateAction<string | null>>;
   setActiveRemoteSessionId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -75,7 +71,6 @@ export function useRuntimeMessages({
   queryMode,
   querySessionId,
   querySkipPermissions,
-  secondaryState,
   activeSessionId,
   setActiveConversationUuid,
   setActiveRemoteSessionId,
@@ -121,9 +116,9 @@ export function useRuntimeMessages({
     void chrome.runtime.sendMessage({
       type: 'PANEL_OPENED',
       tabId: queryTabId,
-      mainTabId: secondaryState.mainTabId ?? queryTabId
+      mainTabId: queryTabId
     });
-  }, [queryTabId, secondaryState.mainTabId]);
+  }, [queryTabId]);
 
   const shouldHandleRuntimeTabTarget = useCallback(
     (targetTabId: unknown) => typeof targetTabId !== 'number' || targetTabId === runtimeTabId,

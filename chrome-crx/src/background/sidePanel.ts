@@ -156,6 +156,12 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
         } catch {
           // ignore
         }
+      } else if (group.mainTabId !== tabId) {
+        try {
+          await tabGroupManager.promoteToMainTab(group.mainTabId, tabId);
+        } catch {
+          // ignore
+        }
       }
       return;
     }

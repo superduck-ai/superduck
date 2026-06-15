@@ -3,42 +3,6 @@ import { ChevronDown, X } from 'lucide-react';
 import { MemoizedFormattedMessage, useIntlSafe } from '@/index-react-dom-intl';
 import type { ScrollContainerHandle } from '@/sidepanel/ScrollContainer';
 
-function SecondaryTabView({
-  mainTabId,
-  onOpenMain,
-  loading
-}: {
-  mainTabId: number;
-  onOpenMain: () => Promise<void>;
-  loading: boolean;
-}) {
-  if (loading) {
-    return (
-      <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center">
-        <div className="text-sm text-text-300">Checking tab group status...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center p-4">
-      <div className="max-w-md text-center">
-        <h2 className="text-lg font-medium mb-2">SuperDuck is active in this tab group</h2>
-        <p className="text-sm text-text-300 mb-4">
-          Open chat in the main tab to continue this session.
-        </p>
-        <button
-          type="button"
-          className="px-4 py-2 rounded-lg border border-border-300 text-text-100 hover:bg-bg-200"
-          onClick={() => void onOpenMain()}
-        >
-          Open main chat (tab {mainTabId})
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function BrowserPermissionGate({ onAccept }: { onAccept: () => Promise<void> }) {
   return (
     <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center p-4">
@@ -465,6 +429,5 @@ export {
   PermissionPrompt,
   SAFE_USE_TIPS_URL,
   ScrollToBottomButton,
-  SecondaryTabView,
   VersionBlockedView
 };

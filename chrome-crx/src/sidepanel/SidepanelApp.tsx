@@ -124,7 +124,6 @@ import {
   PermissionPrompt,
   SAFE_USE_TIPS_URL,
   ScrollToBottomButton,
-  SecondaryTabView,
   VersionBlockedView
 } from './components/SidepanelSupportViews';
 import { SidepanelHeader } from './components/SidepanelHeader';
@@ -162,6 +161,7 @@ export function SidepanelApp() {
   // Keep this diagnostic below warn/error level so Chrome does not surface
   // long-lived sidepanel sessions as extension errors.
   const renderCountRef = useRef(0);
+  const panelReadyPromiseRef = useRef<Promise<unknown> | null>(null);
   renderCountRef.current++;
   if (renderCountRef.current % 100 === 0) {
     console.debug(`[PERF] SidepanelApp rendered ${renderCountRef.current} times`);
@@ -175,7 +175,7 @@ export function SidepanelApp() {
     // safe to call on every open. This is the new home of group creation
     // since chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
     // bypasses our chrome.action.onClicked handler.
-    chrome.runtime.sendMessage({ type: 'PANEL_READY' }).catch(() => {
+    panelReadyPromiseRef.current = chrome.runtime.sendMessage({ type: 'PANEL_READY' }).catch(() => {
       // PANEL_READY is best-effort: if the service worker isn't ready or the
       // user closes the sidepanel before the message roundtrips, that's fine.
     });
@@ -312,15 +312,6 @@ export function SidepanelApp() {
     isMainTabBlocked: boolean;
     blockedTabs: BlockedTabInfo[];
   }>({ isMainTabBlocked: true, blockedTabs: [] });
-  const [secondaryState, setSecondaryState] = useState<{
-    checking: boolean;
-    isSecondaryTab: boolean;
-    mainTabId: number | null;
-  }>({
-    checking: false,
-    isSecondaryTab: false,
-    mainTabId: null
-  });
 
   // Workflow mode selection modal state
   const { showWorkflowModeSelectionModal, setShowWorkflowModeSelectionModal } = useUIStore();
@@ -1192,30 +1183,29 @@ export function SidepanelApp() {
     });
   }, [modelConfig, selectedModel, effectiveSendPrompt]);
 
-  const refreshSecondaryState = useCallback(async () => {
+  const ensureCurrentTabIsMainInGroup = useCallback(async () => {
     if (typeof query.tabId !== 'number') return;
     try {
-      setSecondaryState((prev) => ({ ...prev, checking: true }));
-      await tabGroupManager.initialize();
-      const inGroup = await tabGroupManager.isInGroup(query.tabId);
-      const isMain = tabGroupManager.isMainTab(query.tabId);
-      if (inGroup && !isMain) {
-        const mainTabId = await tabGroupManager.getMainTabId(query.tabId);
-        setSecondaryState({
-          checking: false,
-          isSecondaryTab: !!mainTabId,
-          mainTabId: mainTabId ?? null
-        });
-      } else {
-        // Don't create a group here — group creation should only happen
-        // when the user explicitly opens the sidepanel (handleActionClick
-        // in sidePanel.ts). Creating groups on tab activation causes
-        // unrelated tabs to be pulled into 🦆SuperDuck groups when the
-        // user switches tabs while the agent is running.
-        setSecondaryState({ checking: false, isSecondaryTab: false, mainTabId: null });
+      await panelReadyPromiseRef.current;
+      await tabGroupManager.initialize(true);
+      const group = await tabGroupManager.findGroupByTab(query.tabId);
+      if (!group) return;
+
+      if (group.isUnmanaged) {
+        return;
+      }
+
+      if (group.mainTabId !== query.tabId) {
+        try {
+          await tabGroupManager.promoteToMainTab(group.mainTabId, query.tabId);
+          await tabGroupManager.initialize(true);
+        } catch {
+          // The service worker may have already promoted the tab, or the
+          // group may have changed while the sidepanel was opening.
+        }
       }
     } catch {
-      setSecondaryState({ checking: false, isSecondaryTab: false, mainTabId: null });
+      // A tab-group sync failure should not block the sidepanel UI.
     }
   }, [query.tabId]);
 
@@ -1281,16 +1271,16 @@ export function SidepanelApp() {
     query.tabId,
     TAB_GROUP_EVENT_PROPERTIES,
     () => {
-      void refreshSecondaryState();
+      void ensureCurrentTabIsMainInGroup();
       void refreshBlockedState();
     },
-    [refreshBlockedState, refreshSecondaryState]
+    [ensureCurrentTabIsMainInGroup, refreshBlockedState]
   );
 
   useEffect(() => {
-    void refreshSecondaryState();
+    void ensureCurrentTabIsMainInGroup();
     void refreshBlockedState();
-  }, [refreshBlockedState, refreshSecondaryState]);
+  }, [ensureCurrentTabIsMainInGroup, refreshBlockedState]);
 
   useEffect(() => {
     let active = true;
@@ -1582,7 +1572,6 @@ export function SidepanelApp() {
     queryMode: query.mode,
     querySessionId: query.sessionId,
     querySkipPermissions: query.skipPermissions,
-    secondaryState,
     activeSessionId,
     setActiveConversationUuid,
     setActiveRemoteSessionId,
@@ -1633,60 +1622,6 @@ export function SidepanelApp() {
     },
     []
   );
-
-  useEffect(() => {
-    if (
-      !secondaryState.isSecondaryTab ||
-      !secondaryState.mainTabId ||
-      typeof query.tabId !== 'number'
-    ) {
-      return;
-    }
-
-    let active = true;
-    const timeout = setTimeout(async () => {
-      if (!active) return;
-      try {
-        if (query.tabId === undefined) return;
-        await tabGroupManager.promoteToMainTab(secondaryState.mainTabId!, query.tabId);
-        window.location.reload();
-      } catch {
-        setSecondaryState((prev) => ({ ...prev, checking: false }));
-      }
-    }, 3000);
-
-    chrome.runtime.sendMessage(
-      {
-        type: 'SECONDARY_TAB_CHECK_MAIN',
-        secondaryTabId: query.tabId,
-        mainTabId: secondaryState.mainTabId,
-        timestamp: Date.now()
-      },
-      async (response) => {
-        clearTimeout(timeout);
-        if (!active) return;
-        if (response?.success) {
-          setSecondaryState((prev) => ({ ...prev, checking: false }));
-        } else {
-          try {
-            if (query.tabId === undefined) {
-              setSecondaryState((prev) => ({ ...prev, checking: false }));
-              return;
-            }
-            await tabGroupManager.promoteToMainTab(secondaryState.mainTabId!, query.tabId);
-            window.location.reload();
-          } catch {
-            setSecondaryState((prev) => ({ ...prev, checking: false }));
-          }
-        }
-      }
-    );
-
-    return () => {
-      active = false;
-      clearTimeout(timeout);
-    };
-  }, [query.tabId, secondaryState.isSecondaryTab, secondaryState.mainTabId]);
 
   // Top gradient on scroll
   useEffect(() => {
@@ -2356,23 +2291,6 @@ export function SidepanelApp() {
     }
   }, [pendingPrompt, effectiveSendPrompt]);
 
-  const openMainTabChat = useCallback(async () => {
-    if (!secondaryState.mainTabId) return;
-    try {
-      await chrome.tabs.update(secondaryState.mainTabId, { active: true });
-      const tab = await chrome.tabs.get(secondaryState.mainTabId);
-      if (tab.windowId) {
-        await chrome.windows.update(tab.windowId, { focused: true });
-      }
-      await chrome.runtime.sendMessage({
-        type: 'open_side_panel',
-        tabId: secondaryState.mainTabId
-      });
-    } catch {
-      // ignore
-    }
-  }, [secondaryState.mainTabId]);
-
   const closeBlockedSites = useCallback(async () => {
     if (typeof query.tabId !== 'number') return;
     const blockedTabs = blockedTabInfo.blockedTabs.filter((item) => item.tabId !== query.tabId);
@@ -2525,16 +2443,6 @@ export function SidepanelApp() {
       <VersionBlockedView
         currentVersion={versionState.currentVersion}
         minSupportedVersion={versionState.minSupportedVersion}
-      />
-    );
-  }
-
-  if (secondaryState.isSecondaryTab && secondaryState.mainTabId) {
-    return (
-      <SecondaryTabView
-        mainTabId={secondaryState.mainTabId}
-        loading={secondaryState.checking}
-        onOpenMain={openMainTabChat}
       />
     );
   }
