@@ -288,14 +288,14 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "tabs_context_mcp",
-		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Each new conversation should create its own new tab (using tabs_create_mcp) rather than reusing existing tabs, unless the user explicitly asks to use an existing tab.",
+		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.",
 		inputSchema: objectSchema(map[string]any{
 			"createIfEmpty": booleanSchema("Creates a new MCP tab group if none exists. If one already exists, this has no effect."),
 		}),
 	},
 	{
 		name:        "tabs_create_mcp",
-		description: "Creates a new empty tab in the MCP tab group.",
+		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.",
 		inputSchema: objectSchema(map[string]any{}),
 	},
 	{

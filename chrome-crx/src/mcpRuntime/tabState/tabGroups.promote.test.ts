@@ -16,7 +16,16 @@
 //   * Misuse throws: promoting a tab that isn't in the group, or
 //     promoting away from a tab that isn't a tracked main.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+type MockTab = {
+  id: number;
+  windowId: number;
+  groupId: number;
+  url: string;
+  title: string;
+  index: number;
+};
 
 const chromeMock = vi.hoisted(() => ({
   tabs: {
@@ -29,7 +38,7 @@ const chromeMock = vi.hoisted(() => ({
       url: 'https://example.com',
       index: 0
     })),
-    query: vi.fn(async () => []),
+    query: vi.fn(async (_queryInfo?: unknown): Promise<MockTab[]> => []),
     sendMessage: vi.fn(async (_tabId: number, _message?: unknown) => {}),
     onRemoved: { addListener: vi.fn() }
   },
@@ -61,9 +70,17 @@ type AnyMgr = {
     {
       mainTabId: number;
       chromeGroupId: number;
-      memberStates: Map<number, { indicatorState: 'pulsing' | 'static' | 'none' }>;
+      memberStates: Map<
+        number,
+        {
+          indicatorState: 'pulsing' | 'static' | 'none';
+          previousIndicatorState?: 'pulsing' | 'static' | 'none';
+          pendingUpdate?: string;
+        }
+      >;
     }
   >;
+  indicatorUpdateTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const m = tabGroupManager as unknown as AnyMgr;
@@ -87,10 +104,89 @@ function setUpGroup(
   });
 }
 
+function setChromeGroupTabs(tabIds: number[]): void {
+  chromeMock.tabs.query.mockImplementation(async (queryInfo?: unknown) => {
+    const groupId =
+      typeof queryInfo === 'object' && queryInfo !== null && 'groupId' in queryInfo
+        ? (queryInfo as { groupId?: unknown }).groupId
+        : undefined;
+    if (groupId !== 100) return [];
+    return tabIds.map((id, index) => ({
+      id,
+      windowId: 1,
+      groupId: 100,
+      url: `https://example.com/${id}`,
+      title: `Tab ${id}`,
+      index
+    }));
+  });
+}
+
 beforeEach(() => {
+  if (m.indicatorUpdateTimer) {
+    clearTimeout(m.indicatorUpdateTimer);
+    m.indicatorUpdateTimer = null;
+  }
   m.groupMetadata.clear();
   chromeMock.tabs.sendMessage.mockClear();
+  chromeMock.tabs.query.mockReset();
+  chromeMock.tabs.query.mockResolvedValue([]);
   chromeMock.storage.local.set.mockClear();
+});
+
+afterEach(() => {
+  if (m.indicatorUpdateTimer) {
+    clearTimeout(m.indicatorUpdateTimer);
+    m.indicatorUpdateTimer = null;
+  }
+});
+
+describe('tabGroupManager.clearIndicatorsForGroup', () => {
+  it('hides agent and static indicators for every tracked member in the group', async () => {
+    setUpGroup(1, [2, 3], 'pulsing', 'static');
+    setChromeGroupTabs([1, 2, 3]);
+
+    await tabGroupManager.clearIndicatorsForGroup(1);
+
+    const meta = m.groupMetadata.get(1);
+    if (!meta) throw new Error('expected group to stay tracked');
+    for (const memberState of meta.memberStates.values()) {
+      expect(memberState.indicatorState).toBe('none');
+    }
+
+    const sendCalls = chromeMock.tabs.sendMessage.mock.calls;
+    for (const tabId of [1, 2, 3]) {
+      expect(
+        sendCalls.some(
+          (call) =>
+            call[0] === tabId && (call[1] as { type?: string }).type === 'HIDE_AGENT_INDICATORS'
+        )
+      ).toBe(true);
+      expect(
+        sendCalls.some(
+          (call) =>
+            call[0] === tabId && (call[1] as { type?: string }).type === 'HIDE_STATIC_INDICATOR'
+        )
+      ).toBe(true);
+    }
+  });
+
+  it('clears tracked members without re-querying Chrome group membership', async () => {
+    setUpGroup(1, [2, 3], 'pulsing', 'static');
+    chromeMock.tabs.query.mockImplementation(async () => {
+      throw new Error('membership should not be queried during group cleanup');
+    });
+
+    await tabGroupManager.clearIndicatorsForGroup(1);
+
+    expect(chromeMock.tabs.query).not.toHaveBeenCalled();
+    const meta = m.groupMetadata.get(1);
+    if (!meta) throw new Error('expected group to stay tracked');
+    expect(meta.memberStates.get(1)?.indicatorState).toBe('none');
+    expect(meta.memberStates.get(2)?.indicatorState).toBe('none');
+    expect(meta.memberStates.get(3)?.indicatorState).toBe('none');
+    expect(meta.memberStates.get(3)?.previousIndicatorState).toBeUndefined();
+  });
 });
 
 describe('tabGroupManager.promoteToMainTab', () => {

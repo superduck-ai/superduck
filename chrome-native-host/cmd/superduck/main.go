@@ -24,9 +24,8 @@ USAGE:
   superduck --tab <id> <command> [flags]      most browser commands need --tab
 
 WORKFLOW:
-  1. superduck tab_group list --create-if-empty   ensure an MCP tab group exists
-  2. TAB=$(superduck tab_group new ...)           create a fresh tab, grab its tabId
-  3. superduck --tab $TAB navigate <url>          drive that tab from the CLI
+  1. TAB=$(superduck tab_group new ...)           create a fresh tab group, grab its tabId
+  2. superduck --tab $TAB navigate <url>          drive that tab from the CLI
 
 SETUP / DIAGNOSTICS:
   init                       Install native messaging manifest and start the native-host
@@ -42,10 +41,10 @@ ACTIVE-TAB UTILITIES (no --tab required):
 
 MCP TAB GROUP (each conversation usually owns one group of tabs):
   tab_group list [--create-if-empty]
-                             Show the MCP tab group's tabs; --create-if-empty makes one
-                             if missing. Run this once before any --tab command.
-  tab_group new              Create a new empty tab inside the MCP tab group and print
-                             its tabId; pair with 'navigate' to load a URL.
+                             Show the current MCP tab group's tabs; --create-if-empty
+                             makes one if missing when reusing the current group.
+  tab_group new              Create a new empty tab in a fresh MCP tab group and print
+                             its tabId; that group becomes the current MCP group.
 
 MOUSE / KEYBOARD (all require --tab <id>):
   left_click <x> <y> [--modifiers M] [--ref R]
@@ -117,8 +116,7 @@ GLOBAL FLAGS:
   --timeout <s>     Per-request timeout in seconds (default 30)
 
 EXAMPLES:
-  # discover / create a tab to drive
-  superduck tab_group list --create-if-empty
+  # create a fresh tab group to drive
   TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)
   superduck --tab $TAB navigate https://example.com/
 

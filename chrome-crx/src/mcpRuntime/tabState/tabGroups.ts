@@ -1142,19 +1142,15 @@ class TabGroupManager {
     isMcp?: boolean,
     queueUpdate = true
   ): Promise<void> {
-    let chromeGroupId: number | undefined;
-    let found = false;
     for (const [, meta] of this.groupMetadata.entries()) {
       if ((await this.getGroupMembers(meta.chromeGroupId)).some((m) => m.tabId === tabId)) {
-        chromeGroupId = meta.chromeGroupId;
-        if ('static' === state && (await this.isGroupDismissed(chromeGroupId))) return;
+        if ('static' === state && (await this.isGroupDismissed(meta.chromeGroupId))) return;
         const existing = meta.memberStates.get(tabId);
         meta.memberStates.set(tabId, {
           indicatorState: state,
           previousIndicatorState: existing?.indicatorState,
           isMcp: isMcp ?? existing?.isMcp
         });
-        found = true;
         break;
       }
     }
@@ -1366,6 +1362,17 @@ class TabGroupManager {
   async stopRunning(): Promise<void> {
     for (const [, meta] of this.groupMetadata.entries())
       for (const [tabId] of meta.memberStates) await this.setTabIndicatorState(tabId, 'none');
+    await this.processIndicatorQueue();
+  }
+
+  async clearIndicatorsForGroup(mainTabId: number): Promise<void> {
+    const meta = this.groupMetadata.get(mainTabId);
+    if (!meta) return;
+    for (const [, memberState] of meta.memberStates) {
+      memberState.indicatorState = 'none';
+      delete memberState.previousIndicatorState;
+      memberState.pendingUpdate = 'none';
+    }
     await this.processIndicatorQueue();
   }
 

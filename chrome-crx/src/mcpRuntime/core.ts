@@ -1262,13 +1262,13 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       // the agent receives an actionable error instead of a confusing downstream
       // CDP error (e.g. "No debugger attached" when the user clicked Cancel).
       const isInternalPage =
+        url === undefined ||
+        url === '' ||
         url?.startsWith('chrome://') ||
         url?.startsWith('chrome-extension://') ||
         url?.startsWith('edge://') ||
         url?.startsWith('brave://') ||
-        url?.startsWith('about:') ||
-        url === 'chrome://newtab/' ||
-        url === '';
+        url?.startsWith('about:');
       if (!isInternalPage) {
         trackEvent('superduck.mcp.tool_called', {
           tool_name: options.toolName,
@@ -1633,6 +1633,7 @@ async function finalizeGroup(mainTabId: number): Promise<void> {
 
   const resultTabId = state.lastActiveTabId;
 
+  await tabGroupManager.clearIndicatorsForGroup(mainTabId).catch(() => {});
   await tabGroupManager.addCompletionPrefix(mainTabId).catch(() => {});
   await tabGroupManager.setGroupColor(mainTabId, chrome.tabGroups.Color.GREEN).catch(() => {});
 
@@ -1646,6 +1647,33 @@ async function finalizeGroup(mainTabId: number): Promise<void> {
   }
 
   groupFinalizationState.delete(mainTabId);
+}
+
+export function migrateGroupFinalizationState(oldMainTabId: number, newMainTabId: number): void {
+  if (oldMainTabId === newMainTabId) return;
+  const state = groupFinalizationState.get(oldMainTabId);
+  if (!state) return;
+
+  const existingState = groupFinalizationState.get(newMainTabId);
+  if (existingState?.timer) clearTimeout(existingState.timer);
+
+  const hadTimer = state.timer !== null;
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+  state.lastActiveTabId = newMainTabId;
+
+  groupFinalizationState.delete(oldMainTabId);
+  groupFinalizationState.set(newMainTabId, state);
+
+  if (hadTimer && !hasActiveToolsInGroup(newMainTabId)) {
+    state.timer = setTimeout(() => {
+      if (!hasActiveToolsInGroup(newMainTabId)) {
+        void finalizeGroup(newMainTabId);
+      }
+    }, PREFIX_CLEANUP_DELAY);
+  }
 }
 
 // --- startToolContext (inline from executeTool) ---

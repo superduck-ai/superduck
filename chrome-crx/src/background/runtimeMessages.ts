@@ -1,5 +1,6 @@
 import {
   isBridgeConnected,
+  migrateGroupFinalizationState,
   sendMcpNotificationViaBridge,
   tabGroupManager,
   trackEvent
@@ -50,7 +51,6 @@ const HANDLED_MESSAGE_TYPES = new Set([
   'EXECUTE_SCHEDULED_TASK',
   'STOP_AGENT',
   'SWITCH_TO_MAIN_TAB',
-  'SECONDARY_TAB_CHECK_MAIN',
   'MAIN_TAB_ACK_RESPONSE',
   'STATIC_INDICATOR_HEARTBEAT',
   'DISMISS_STATIC_INDICATOR_FOR_GROUP',
@@ -295,21 +295,6 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
         return;
       }
 
-      if (message.type === 'SECONDARY_TAB_CHECK_MAIN') {
-        chrome.runtime.sendMessage(
-          {
-            type: 'MAIN_TAB_ACK_REQUEST',
-            secondaryTabId: getOptionalNumber(message.secondaryTabId),
-            mainTabId: getOptionalNumber(message.mainTabId),
-            timestamp: getOptionalNumber(message.timestamp)
-          },
-          (response) => {
-            sendResponse(response?.success ? { success: true } : { success: false });
-          }
-        );
-        return;
-      }
-
       if (message.type === 'MAIN_TAB_ACK_RESPONSE') {
         sendResponse({ success: message.success === true });
         return;
@@ -354,6 +339,12 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
               } catch (err) {
                 console.error('[superduck:panel-ready] createGroup failed', err);
               }
+            } else if (existing.isUnmanaged) {
+              try {
+                await tabGroupManager.adoptOrphanedGroup(activeTab.id, existing.chromeGroupId);
+              } catch (err) {
+                console.error('[superduck:panel-ready] adoptOrphanedGroup failed', err);
+              }
             } else if (existing.mainTabId !== activeTab.id) {
               // Active tab is inside a SuperDuck group but isn't its main
               // tab. The user explicitly opened the sidepanel from this
@@ -363,6 +354,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
               // clicked tab the main.
               try {
                 await tabGroupManager.promoteToMainTab(existing.mainTabId, activeTab.id);
+                migrateGroupFinalizationState(existing.mainTabId, activeTab.id);
               } catch (err) {
                 console.error('[superduck:panel-ready] promoteToMainTab failed', err);
               }

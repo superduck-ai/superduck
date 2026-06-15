@@ -142,7 +142,7 @@ async function executeShortcutTask(options: {
 const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
   name: 'tabs_context_mcp',
   description:
-    'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. IMPORTANT: Always reuse existing tabs for navigation. Only create a new tab (using tabs_create_mcp) when the user explicitly requests opening a new tab or when you need to keep multiple pages open simultaneously.',
+    'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. IMPORTANT: Reuse one of the returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.',
   parameters: {
     createIfEmpty: {
       type: 'boolean',
@@ -176,7 +176,7 @@ const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
   toProviderSchema: async () => ({
     name: 'tabs_context_mcp',
     description:
-      'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. IMPORTANT: Always reuse existing tabs for navigation. Only create a new tab (using tabs_create_mcp) when the user explicitly requests opening a new tab or when you need to keep multiple pages open simultaneously.',
+      'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. IMPORTANT: Reuse one of the returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.',
     input_schema: {
       type: 'object',
       properties: {
@@ -194,26 +194,17 @@ const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
 const tabsCreateMcpTool: ToolDefinition = {
   name: 'tabs_create_mcp',
   description:
-    'Creates a new empty tab in the MCP tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
+    'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.',
   parameters: {},
   execute: async () => {
     try {
       await tabGroupManager.initialize();
-      const context = await tabGroupManager.getOrCreateMcpTabContext({
-        createIfEmpty: false
-      });
-      if (!context?.tabGroupId)
-        return {
-          error:
-            'No MCP tab group exists. Use tabs_context_mcp with createIfEmpty: true first to create one.'
-        };
-      const tabGroupId = context.tabGroupId;
-      const newTab = await chrome.tabs.create({
-        url: 'chrome://newtab',
-        active: true
-      });
+      const newTab = await chrome.tabs.create({ url: 'chrome://newtab', active: true });
       if (!newTab.id) throw new Error('Failed to create tab - no tab ID returned');
-      await chrome.tabs.group({ tabIds: newTab.id, groupId: tabGroupId });
+      const group = await tabGroupManager.createGroup(newTab.id);
+      const tabGroupId = group.chromeGroupId;
+      tabGroupManager.mcpTabGroupId = tabGroupId;
+      await tabGroupManager.saveMcpTabGroupId();
       const groupTabs = (await chrome.tabs.query({ groupId: tabGroupId }))
         .filter((tab) => tab.id !== undefined)
         .map((tab) => ({
@@ -240,7 +231,7 @@ const tabsCreateMcpTool: ToolDefinition = {
   toProviderSchema: async () => ({
     name: 'tabs_create_mcp',
     description:
-      'Creates a new empty tab in the MCP tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
+      'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.',
     input_schema: { type: 'object', properties: {}, required: [] }
   })
 };
@@ -332,10 +323,7 @@ const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
         shortcut = await promptManager.getPromptByCommand(cmd);
       }
       if (!shortcut) {
-        const tried = [
-          shortcutId && `ID "${shortcutId}"`,
-          command && `command "/${command}"`
-        ]
+        const tried = [shortcutId && `ID "${shortcutId}"`, command && `command "/${command}"`]
           .filter(Boolean)
           .join(' or ');
         return { error: `Shortcut not found (tried ${tried}).` };
@@ -363,8 +351,7 @@ const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
   },
   toProviderSchema: async () => ({
     name: 'shortcuts_get',
-    description:
-      'Fetch the raw prompt text of a shortcut by id or command, without executing it.',
+    description: 'Fetch the raw prompt text of a shortcut by id or command, without executing it.',
     input_schema: {
       type: 'object',
       properties: {
