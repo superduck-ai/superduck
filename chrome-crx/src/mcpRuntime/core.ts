@@ -1262,13 +1262,13 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       // the agent receives an actionable error instead of a confusing downstream
       // CDP error (e.g. "No debugger attached" when the user clicked Cancel).
       const isInternalPage =
+        url === undefined ||
+        url === '' ||
         url?.startsWith('chrome://') ||
         url?.startsWith('chrome-extension://') ||
         url?.startsWith('edge://') ||
         url?.startsWith('brave://') ||
-        url?.startsWith('about:') ||
-        url === 'chrome://newtab/' ||
-        url === '';
+        url?.startsWith('about:');
       if (!isInternalPage) {
         trackEvent('superduck.mcp.tool_called', {
           tool_name: options.toolName,

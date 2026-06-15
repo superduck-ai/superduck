@@ -199,21 +199,12 @@ const tabsCreateMcpTool: ToolDefinition = {
   execute: async () => {
     try {
       await tabGroupManager.initialize();
-      const context = await tabGroupManager.getOrCreateMcpTabContext({
-        createIfEmpty: false
-      });
-      if (!context?.tabGroupId)
-        return {
-          error:
-            'No MCP tab group exists. Use tabs_context_mcp with createIfEmpty: true first to create one.'
-        };
-      const tabGroupId = context.tabGroupId;
-      const newTab = await chrome.tabs.create({
-        url: 'chrome://newtab',
-        active: true
-      });
+      const newTab = await chrome.tabs.create({ url: 'chrome://newtab', active: true });
       if (!newTab.id) throw new Error('Failed to create tab - no tab ID returned');
-      await chrome.tabs.group({ tabIds: newTab.id, groupId: tabGroupId });
+      const group = await tabGroupManager.createGroup(newTab.id);
+      const tabGroupId = group.chromeGroupId;
+      tabGroupManager.mcpTabGroupId = tabGroupId;
+      await tabGroupManager.saveMcpTabGroupId();
       const groupTabs = (await chrome.tabs.query({ groupId: tabGroupId }))
         .filter((tab) => tab.id !== undefined)
         .map((tab) => ({
@@ -332,10 +323,7 @@ const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
         shortcut = await promptManager.getPromptByCommand(cmd);
       }
       if (!shortcut) {
-        const tried = [
-          shortcutId && `ID "${shortcutId}"`,
-          command && `command "/${command}"`
-        ]
+        const tried = [shortcutId && `ID "${shortcutId}"`, command && `command "/${command}"`]
           .filter(Boolean)
           .join(' or ');
         return { error: `Shortcut not found (tried ${tried}).` };
@@ -363,8 +351,7 @@ const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
   },
   toProviderSchema: async () => ({
     name: 'shortcuts_get',
-    description:
-      'Fetch the raw prompt text of a shortcut by id or command, without executing it.',
+    description: 'Fetch the raw prompt text of a shortcut by id or command, without executing it.',
     input_schema: {
       type: 'object',
       properties: {
