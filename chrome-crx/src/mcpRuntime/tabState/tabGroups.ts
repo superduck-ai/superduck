@@ -1368,7 +1368,11 @@ class TabGroupManager {
   async clearIndicatorsForGroup(mainTabId: number): Promise<void> {
     const meta = this.groupMetadata.get(mainTabId);
     if (!meta) return;
-    for (const [tabId] of meta.memberStates) await this.setTabIndicatorState(tabId, 'none');
+    for (const [, memberState] of meta.memberStates) {
+      memberState.indicatorState = 'none';
+      delete memberState.previousIndicatorState;
+      memberState.pendingUpdate = 'none';
+    }
     await this.processIndicatorQueue();
   }
 

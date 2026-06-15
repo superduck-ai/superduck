@@ -70,7 +70,14 @@ type AnyMgr = {
     {
       mainTabId: number;
       chromeGroupId: number;
-      memberStates: Map<number, { indicatorState: 'pulsing' | 'static' | 'none' }>;
+      memberStates: Map<
+        number,
+        {
+          indicatorState: 'pulsing' | 'static' | 'none';
+          previousIndicatorState?: 'pulsing' | 'static' | 'none';
+          pendingUpdate?: string;
+        }
+      >;
     }
   >;
   indicatorUpdateTimer: ReturnType<typeof setTimeout> | null;
@@ -162,6 +169,23 @@ describe('tabGroupManager.clearIndicatorsForGroup', () => {
         )
       ).toBe(true);
     }
+  });
+
+  it('clears tracked members without re-querying Chrome group membership', async () => {
+    setUpGroup(1, [2, 3], 'pulsing', 'static');
+    chromeMock.tabs.query.mockImplementation(async () => {
+      throw new Error('membership should not be queried during group cleanup');
+    });
+
+    await tabGroupManager.clearIndicatorsForGroup(1);
+
+    expect(chromeMock.tabs.query).not.toHaveBeenCalled();
+    const meta = m.groupMetadata.get(1);
+    if (!meta) throw new Error('expected group to stay tracked');
+    expect(meta.memberStates.get(1)?.indicatorState).toBe('none');
+    expect(meta.memberStates.get(2)?.indicatorState).toBe('none');
+    expect(meta.memberStates.get(3)?.indicatorState).toBe('none');
+    expect(meta.memberStates.get(3)?.previousIndicatorState).toBeUndefined();
   });
 });
 
