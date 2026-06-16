@@ -205,6 +205,7 @@ const ProviderConfigSection: React.FC = () => {
         modelId: value.modelId,
         apiKey: value.apiKey,
         baseURL: value.baseURL,
+        contextLength: value.contextLength,
         status:
           existingIndex >= 0
             ? previous.providers[existingIndex].apiKey === value.apiKey &&

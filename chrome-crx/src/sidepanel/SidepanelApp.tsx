@@ -84,6 +84,7 @@ import { SessionHistoryPanel, SESSION_HISTORY_PANEL_STYLES } from './SessionHist
 import {
   CONTEXT_WINDOW,
   MAX_TOKENS,
+  calculateContextUsageMetrics,
   getMessageLimitBannerState,
   type MessageLimitState
 } from './messageLimits';
@@ -714,7 +715,7 @@ export function SidepanelApp() {
   }, [versionInfo]);
 
   const { effectiveMessagesClient, hasProviderConfig, serverModelInfo, serverContextLengthRef } =
-    useProviderClient({ apiKey, apiBaseUrl });
+    useProviderClient({ apiKey, apiBaseUrl, selectedModel });
 
   const systemPrompt = useMemo(() => {
     const isMac = navigator.platform.toUpperCase().includes('MAC');
@@ -871,6 +872,8 @@ export function SidepanelApp() {
         }
       : undefined,
     permissionManager: getPermissionManager(),
+    serverContextLengthRef,
+    locale: intl.locale,
     enabled: isPurlMode
   });
 
@@ -1005,7 +1008,8 @@ export function SidepanelApp() {
     isPurlMode && lightningResult ? lightningResult.currentStatus : currentStatus;
   const effectiveRuntimeError =
     isPurlMode && lightningResult ? lightningResult.error : runtimeError;
-  const effectiveIsCompacting = isPurlMode && lightningResult ? false : isCompacting;
+  const effectiveIsCompacting =
+    isPurlMode && lightningResult ? lightningResult.isCompacting : isCompacting;
   const isChatInputRunning = effectiveIsAgentRunning || effectiveIsCompacting;
   const isChatInputBeamActive = !prefersReducedMotion && isChatInputRunning;
   const chatInputSurfaceClass =
@@ -2393,14 +2397,10 @@ export function SidepanelApp() {
   ]);
 
   // Compute context window debug info from the last assistant message's usage.
-  // - Denominator: real context_length from /v1/models (fallback to CONTEXT_WINDOW)
-  // - Cache tokens are intentionally excluded from totalUsed and the UI
-  // - input_tokens already represents the cumulative prompt length for that turn,
-  //   so no extra summing across messages is needed
+  // Uses the same token accounting as compaction triggers (input + output + cache).
   const contextDebugInfo = useMemo(() => {
     if (!debugMode) return null;
     const ctxWindow = serverModelInfo?.contextLength ?? CONTEXT_WINDOW;
-    const budget = Math.max(1, ctxWindow - MAX_TOKENS);
     let lastUsage: ApiUsage | null = null;
     for (let i = apiMessages.length - 1; i >= 0; i--) {
       const msg = apiMessages[i];
@@ -2409,22 +2409,18 @@ export function SidepanelApp() {
         break;
       }
     }
-    const hasUsage = lastUsage !== null;
-    const inputTokens = lastUsage?.input_tokens || 0;
-    const outputTokens = lastUsage?.output_tokens || 0;
-    const totalUsed = inputTokens + outputTokens;
-    const remaining = Math.max(0, budget - totalUsed);
-    const percentUsed = Math.round((totalUsed / budget) * 100);
+    const metrics = calculateContextUsageMetrics(lastUsage, ctxWindow);
     return {
-      hasUsage,
+      hasUsage: lastUsage !== null,
       contextWindow: ctxWindow,
       maxTokens: MAX_TOKENS,
-      tokenBudget: budget,
-      inputTokens,
-      outputTokens,
-      totalUsed,
-      remaining,
-      percentUsed
+      tokenBudget: metrics.tokenBudget,
+      inputTokens: metrics.inputTokens,
+      outputTokens: metrics.outputTokens,
+      cacheTokens: metrics.cacheTokens,
+      totalUsed: metrics.totalUsed,
+      remaining: metrics.remaining,
+      percentUsed: metrics.percentUsed
     };
   }, [debugMode, apiMessages, serverModelInfo]);
 

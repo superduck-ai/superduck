@@ -16,14 +16,61 @@ export interface MessageLimitBannerState {
   tone: 'warning' | 'danger';
 }
 
-export const CONTEXT_WINDOW = 200000;
+import { DEFAULT_CONTEXT_LENGTH } from '../constants/models';
+
+export const CONTEXT_WINDOW = DEFAULT_CONTEXT_LENGTH;
 export const MAX_TOKENS = 10000;
 
-interface UsageStats {
+export interface UsageStats {
   input_tokens?: number | null;
   output_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
+}
+
+export interface ContextUsageMetrics {
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  totalUsed: number;
+  tokenBudget: number;
+  remaining: number;
+  percentUsed: number;
+}
+
+export function calculateUsageTokens(usage: UsageStats | null | undefined): number {
+  const inputTokens = usage?.input_tokens || 0;
+  const outputTokens = usage?.output_tokens || 0;
+  const cacheTokens =
+    (usage?.cache_creation_input_tokens || 0) + (usage?.cache_read_input_tokens || 0);
+  return inputTokens + outputTokens + cacheTokens;
+}
+
+export function calculateTokenBudget(contextWindow: number = CONTEXT_WINDOW): number {
+  return Math.max(1, contextWindow - MAX_TOKENS);
+}
+
+export function calculateContextUsageMetrics(
+  usage: UsageStats | null | undefined,
+  contextWindow: number = CONTEXT_WINDOW
+): ContextUsageMetrics {
+  const inputTokens = usage?.input_tokens || 0;
+  const outputTokens = usage?.output_tokens || 0;
+  const cacheTokens =
+    (usage?.cache_creation_input_tokens || 0) + (usage?.cache_read_input_tokens || 0);
+  const totalUsed = inputTokens + outputTokens + cacheTokens;
+  const tokenBudget = calculateTokenBudget(contextWindow);
+  const remaining = Math.max(0, tokenBudget - totalUsed);
+  const percentUsed = Math.round((totalUsed / tokenBudget) * 100);
+  return {
+    inputTokens,
+    outputTokens,
+    cacheTokens,
+    totalUsed,
+    tokenBudget,
+    remaining,
+    percentUsed
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -48,13 +95,7 @@ export function calculateMessageLimitFromUsage(
   usage: UsageStats | null | undefined,
   contextWindow: number = CONTEXT_WINDOW
 ): MessageLimitState {
-  const inputTokens = usage?.input_tokens || 0;
-  const outputTokens = usage?.output_tokens || 0;
-  const cacheTokens =
-    (usage?.cache_creation_input_tokens || 0) + (usage?.cache_read_input_tokens || 0);
-  const total = inputTokens + outputTokens + cacheTokens;
-  const budget = Math.max(1, contextWindow - MAX_TOKENS);
-  const percentUsed = Math.round((total / budget) * 100);
+  const { percentUsed } = calculateContextUsageMetrics(usage, contextWindow);
   if (percentUsed >= 95) {
     return { type: 'exceeded_limit', percentUsed };
   }
@@ -87,7 +128,7 @@ export function parseMessageLimit(value: unknown): MessageLimitState | null {
 }
 
 export function parseRateLimitFromError(error: unknown): MessageLimitState | null {
-  let raw = '';
+  let raw: string;
   if (typeof error === 'string') {
     raw = error;
   } else if (error instanceof Error) {
@@ -96,7 +137,7 @@ export function parseRateLimitFromError(error: unknown): MessageLimitState | nul
     try {
       raw = JSON.stringify(error);
     } catch {
-      raw = '';
+      return null;
     }
   }
   if (!raw) return null;

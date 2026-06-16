@@ -1,28 +1,22 @@
-/**
- * Provider client management hook.
- *
- * Encapsulates the creation and lifecycle of LLM provider clients (Anthropic,
- * OpenAI-compatible, etc.). This hook manages:
- *
- * 1. Creating MessagesClient instances based on API key and base URL
- * 2. Falling back to tier-specific provider when direct config is unavailable
- * 3. Tracking whether a provider is configured (for setup gate)
- * 4. Fetching server model info (context_length) from /v1/models endpoint
- *
- * The returned `effectiveMessagesClient` can be passed to `dispatchMessagesClient`
- * as a fallback when no tier-specific provider is configured.
- */
 import { useState, useMemo, useEffect, useRef, type MutableRefObject } from 'react';
+import { DEFAULT_MODEL } from '../../constants/models';
 import { MessagesClient } from '../../mcpServersStore';
+import { resolveEffectiveContextWindow } from '../contextWindow';
 import { CONTEXT_WINDOW } from '../messageLimits';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
+import {
+  PROVIDER_CONFIG_BROADCAST,
+  PROVIDER_STORAGE_KEYS,
+  classifyTier,
+  fetchProviderModelCatalog,
+  loadProviderConfig,
+  lookupModelContextLength,
+  resolveTier
+} from '../../utils/providerStore';
 
 export interface UseProviderClientOptions {
   apiKey: string;
   apiBaseUrl: string;
+  selectedModel?: string;
 }
 
 export interface ServerModelInfo {
@@ -31,50 +25,29 @@ export interface ServerModelInfo {
 }
 
 export interface UseProviderClientResult {
-  /**
-   * The effective client to use for API requests. This is either the primary
-   * messagesClient (from apiKey+apiBaseUrl) or a tier-resolved providerClient.
-   * Will be null if neither is available.
-   */
   effectiveMessagesClient: InstanceType<typeof MessagesClient> | null;
-
-  /**
-   * Whether a provider configuration exists (either direct or tier-resolved).
-   * Derived from effectiveMessagesClient — true whenever a client is available.
-   * Used by SetupGate to show onboarding UI when no provider is configured.
-   */
   hasProviderConfig: boolean;
-
-  /**
-   * Server-reported model info from /v1/models endpoint.
-   * Contains context_length for the gateway's actual context window.
-   */
   serverModelInfo: ServerModelInfo | null;
-
-  /**
-   * Ref tracking the server's context length (defaults to CONTEXT_WINDOW constant).
-   * Updated when /v1/models returns a context_length value.
-   */
   serverContextLengthRef: MutableRefObject<number>;
 }
 
-/**
- * Hook to manage provider client lifecycle.
- *
- * Extracted from SidepanelApp.tsx lines 4680-4756.
- * Logic:
- * 1. If apiKey + apiBaseUrl provided → create messagesClient directly
- * 2. Otherwise → resolve tier-specific client via resolveClientForTier('smart')
- * 3. Fetch /v1/models to get server's context_length
- */
+type ProviderContextInfo =
+  | { status: 'pending'; sourceModelId: string }
+  | {
+      status: 'resolved';
+      sourceModelId: string;
+      modelId: string;
+      contextLength?: number;
+    };
+
 export function useProviderClient(options: UseProviderClientOptions): UseProviderClientResult {
-  const { apiKey, apiBaseUrl } = options;
+  const { apiKey, apiBaseUrl, selectedModel } = options;
+  const activeModel = selectedModel || DEFAULT_MODEL;
 
   const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(
     null
   );
 
-  // Memoized client that updates when apiKey or apiBaseUrl changes
   const messagesClient = useMemo(() => {
     if (!apiKey || !apiBaseUrl) return null;
     return new MessagesClient({
@@ -84,8 +57,6 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
     });
   }, [apiBaseUrl, apiKey]);
 
-  // Effect: if messagesClient exists, clear providerClient.
-  // Otherwise, resolve tier-specific client.
   useEffect(() => {
     if (messagesClient) {
       setProviderClient(null);
@@ -114,40 +85,104 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   }, [messagesClient, apiKey, apiBaseUrl]);
 
   const effectiveMessagesClient = messagesClient || providerClient;
-
-  // Derived: true whenever any provider client is available (direct or tier-resolved).
   const hasProviderConfig = effectiveMessagesClient !== null;
 
-  // Fetch /v1/models once per (baseURL, credential) so we can use the gateway's
-  // real context_length instead of the hard-coded 200k constant.
   const [serverModelInfo, setServerModelInfo] = useState<ServerModelInfo | null>(null);
+  // Actual provider model bound to the active tier, plus its saved context
+  // length captured at config time. Pending state intentionally falls back to
+  // the conservative 256k default while provider config resolves.
+  const [providerContextInfo, setProviderContextInfo] = useState<ProviderContextInfo>({
+    status: 'pending',
+    sourceModelId: activeModel
+  });
   const serverContextLengthRef = useRef<number>(CONTEXT_WINDOW);
 
+  // Resolve the context length for the active tier. Saved provider mappings use
+  // their config-time value; direct apiKey/apiBaseUrl clients fetch their
+  // catalog at runtime because they have no saved provider record.
   useEffect(() => {
-    if (!effectiveMessagesClient) return;
-    const ctrl = new AbortController();
-    (async () => {
-      try {
-        const modelsApi =
-          'models' in effectiveMessagesClient ? effectiveMessagesClient.models : null;
-        if (!isRecord(modelsApi) || typeof modelsApi.list !== 'function') return;
-        const page = await modelsApi.list({}, { signal: ctrl.signal });
-        if (!isRecord(page) || !Array.isArray(page.data)) return;
-        const first = page.data[0];
-        if (
-          isRecord(first) &&
-          typeof first.id === 'string' &&
-          typeof first.context_length === 'number'
-        ) {
-          serverContextLengthRef.current = first.context_length;
-          setServerModelInfo({ id: first.id, contextLength: first.context_length });
+    let cancelled = false;
+    let resolveVersion = 0;
+    const resolve = async () => {
+      const version = ++resolveVersion;
+      setProviderContextInfo({ status: 'pending', sourceModelId: activeModel });
+      const config = await loadProviderConfig(true);
+      if (cancelled || version !== resolveVersion) return;
+      const tier = classifyTier(activeModel);
+      const resolved = resolveTier(config, tier);
+      if (!resolved && apiKey && apiBaseUrl) {
+        let contextLength: number | undefined;
+        try {
+          const catalog = await fetchProviderModelCatalog({
+            kind: 'anthropic',
+            apiKey,
+            baseURL: apiBaseUrl
+          });
+          if (cancelled || version !== resolveVersion) return;
+          contextLength = lookupModelContextLength(catalog.contextLengths, activeModel);
+        } catch {
+          if (cancelled || version !== resolveVersion) return;
         }
-      } catch {
-        /* ignore — will fall back to default budget */
+        setProviderContextInfo({
+          status: 'resolved',
+          sourceModelId: activeModel,
+          modelId: activeModel,
+          contextLength
+        });
+        return;
       }
-    })();
-    return () => ctrl.abort();
-  }, [effectiveMessagesClient]);
+      setProviderContextInfo({
+        status: 'resolved',
+        sourceModelId: activeModel,
+        modelId: resolved?.modelId ?? activeModel,
+        contextLength: resolved?.provider.contextLength
+      });
+    };
+    void resolve();
+
+    const storageListener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string
+    ) => {
+      if (areaName !== 'local') return;
+      if (PROVIDER_STORAGE_KEYS.MAPPING in changes || PROVIDER_STORAGE_KEYS.PROVIDERS in changes) {
+        void resolve();
+      }
+    };
+    const runtimeListener = (message: unknown) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        (message as { type?: string }).type === PROVIDER_CONFIG_BROADCAST
+      ) {
+        void resolve();
+      }
+    };
+    chrome.storage.onChanged.addListener(storageListener);
+    chrome.runtime.onMessage.addListener(runtimeListener);
+    return () => {
+      cancelled = true;
+      chrome.storage.onChanged.removeListener(storageListener);
+      chrome.runtime.onMessage.removeListener(runtimeListener);
+    };
+  }, [activeModel, apiBaseUrl, apiKey]);
+
+  useEffect(() => {
+    const currentInfo =
+      providerContextInfo.sourceModelId === activeModel
+        ? providerContextInfo
+        : ({ status: 'pending', sourceModelId: activeModel } satisfies ProviderContextInfo);
+    const modelId = currentInfo.status === 'resolved' ? currentInfo.modelId : activeModel;
+    const contextLength =
+      currentInfo.status === 'resolved'
+        ? resolveEffectiveContextWindow({
+            modelId,
+            providerContextLength: currentInfo.contextLength
+          })
+        : CONTEXT_WINDOW;
+    serverContextLengthRef.current = contextLength;
+    setServerModelInfo({ id: modelId, contextLength });
+  }, [activeModel, providerContextInfo]);
 
   return {
     effectiveMessagesClient,
