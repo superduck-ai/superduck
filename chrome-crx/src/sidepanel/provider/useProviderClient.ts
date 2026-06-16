@@ -7,7 +7,9 @@ import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
   classifyTier,
+  fetchProviderModelCatalog,
   loadProviderConfig,
+  lookupModelContextLength,
   resolveTier
 } from '../../utils/providerStore';
 
@@ -95,18 +97,40 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   });
   const serverContextLengthRef = useRef<number>(CONTEXT_WINDOW);
 
-  // Resolve the bound provider's saved context length for the active tier.
-  // Authoritative — no runtime /v1/models call (the value is captured at save
-  // time via fetchProviderModelCatalog). Re-resolves when the model switches or
-  // the provider config changes (Options save broadcasts + storage events).
+  // Resolve the context length for the active tier. Saved provider mappings use
+  // their config-time value; direct apiKey/apiBaseUrl clients fetch their
+  // catalog at runtime because they have no saved provider record.
   useEffect(() => {
     let cancelled = false;
+    let resolveVersion = 0;
     const resolve = async () => {
+      const version = ++resolveVersion;
       setProviderContextInfo({ status: 'pending', sourceModelId: activeModel });
       const config = await loadProviderConfig(true);
-      if (cancelled) return;
+      if (cancelled || version !== resolveVersion) return;
       const tier = classifyTier(activeModel);
       const resolved = resolveTier(config, tier);
+      if (!resolved && apiKey && apiBaseUrl) {
+        let contextLength: number | undefined;
+        try {
+          const catalog = await fetchProviderModelCatalog({
+            kind: 'anthropic',
+            apiKey,
+            baseURL: apiBaseUrl
+          });
+          if (cancelled || version !== resolveVersion) return;
+          contextLength = lookupModelContextLength(catalog.contextLengths, activeModel);
+        } catch {
+          if (cancelled || version !== resolveVersion) return;
+        }
+        setProviderContextInfo({
+          status: 'resolved',
+          sourceModelId: activeModel,
+          modelId: activeModel,
+          contextLength
+        });
+        return;
+      }
       setProviderContextInfo({
         status: 'resolved',
         sourceModelId: activeModel,
@@ -141,7 +165,7 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       chrome.storage.onChanged.removeListener(storageListener);
       chrome.runtime.onMessage.removeListener(runtimeListener);
     };
-  }, [activeModel]);
+  }, [activeModel, apiBaseUrl, apiKey]);
 
   useEffect(() => {
     const currentInfo =

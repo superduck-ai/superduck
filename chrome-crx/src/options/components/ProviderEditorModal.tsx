@@ -59,8 +59,12 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isResolvingContextLength, setIsResolvingContextLength] = useState(false);
   const modelInputContainerRef = useRef<HTMLDivElement>(null);
+  const submitTokenRef = useRef(0);
+  const isOpenRef = useRef(isOpen);
 
   useEffect(() => {
+    isOpenRef.current = isOpen;
+    submitTokenRef.current += 1;
     if (!isOpen) return;
     setKind(provider?.kind ?? 'openai-compatible');
     setName(provider?.name ?? '');
@@ -189,7 +193,8 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   };
 
   const resolveContextLengthForSubmit = async (
-    trimmedModelId: string
+    trimmedModelId: string,
+    submitToken: number
   ): Promise<number | undefined> => {
     if (!trimmedModelId) return undefined;
     const alreadyDetected = lookupModelContextLength(modelContextLengths, trimmedModelId);
@@ -215,22 +220,37 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
       if (builtInContextLength) return undefined;
       return DEFAULT_CONTEXT_LENGTH;
     } finally {
-      setIsResolvingContextLength(false);
+      if (submitTokenRef.current === submitToken && isOpenRef.current) {
+        setIsResolvingContextLength(false);
+      }
     }
+  };
+
+  const handleCancel = () => {
+    submitTokenRef.current += 1;
+    isOpenRef.current = false;
+    setIsResolvingContextLength(false);
+    onCancel();
   };
 
   const handleSubmit = async () => {
     if (isResolvingContextLength) return;
     if (!isValidProviderBaseURL(baseURL)) return;
+    const submitToken = submitTokenRef.current + 1;
+    submitTokenRef.current = submitToken;
     const trimmedModelId = modelId.trim();
-    const contextLength = await resolveContextLengthForSubmit(trimmedModelId);
-    onSave({
+    const value: ProviderEditorValue = {
       id: provider?.id ?? newProviderId(),
       kind,
       name: name.trim() || PROVIDER_KIND_LABEL[kind],
       modelId: trimmedModelId,
       apiKey: apiKey.trim(),
-      baseURL: normalizeProviderBaseURL(kind, baseURL),
+      baseURL: normalizeProviderBaseURL(kind, baseURL)
+    };
+    const contextLength = await resolveContextLengthForSubmit(trimmedModelId, submitToken);
+    if (submitTokenRef.current !== submitToken || !isOpenRef.current) return;
+    onSave({
+      ...value,
       contextLength
     });
   };
@@ -238,7 +258,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onCancel}
+      onClose={handleCancel}
       modalSize="md"
       hasCloseButton
       title={intl.formatMessage(
@@ -366,7 +386,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
       </div>
 
       <ModalFooter>
-        <Button variant="secondary" onClick={onCancel}>
+        <Button variant="secondary" onClick={handleCancel}>
           <FormattedMessage id="cancel" defaultMessage="取消" />
         </Button>
         <Button
