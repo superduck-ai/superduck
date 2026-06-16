@@ -23,7 +23,7 @@ import {
 } from '../mcpRuntime/pageToolsSupport/helpers';
 import { MessagesClient } from '../mcpServersStore';
 import { parseModelTag, getBaseModel } from './sessionPool';
-import { dispatchMessagesClient } from '../utils/providerClient';
+import { dispatchMessagesClient, resolveClientForModel } from '../utils/providerClient';
 import { getModelsConfig } from '../components/providers/AppProviders';
 import {
   commandTypeToToolName,
@@ -35,6 +35,7 @@ import {
   type ParsedCommand
 } from './lightningCommands';
 import { ConversationCompactor } from './conversationCompaction';
+import { resolveEffectiveContextWindow } from './contextWindow';
 import { calculateMessageLimitFromUsage, MAX_TOKENS } from './messageLimits';
 import {
   clearTimings,
@@ -90,7 +91,6 @@ export function useLightningMode({
   permissionMode,
   onPermissionRequired,
   permissionManager,
-  serverContextLengthRef,
   locale,
   enabled = true
 }: UseLightningModeProps) {
@@ -270,6 +270,19 @@ export function useLightningMode({
     [getEffectiveModel, isFastModel]
   );
 
+  const resolveLightningContextWindow = useCallback(async (): Promise<number> => {
+    const modelId = getBaseModel(getEffectiveModel());
+    try {
+      const resolved = await resolveClientForModel(modelId);
+      return resolveEffectiveContextWindow({
+        modelId: resolved?.modelId ?? modelId,
+        providerContextLength: resolved?.provider.contextLength
+      });
+    } catch {
+      return resolveEffectiveContextWindow({ modelId });
+    }
+  }, [getEffectiveModel]);
+
   const maybeCompactLightningMessages = useCallback(
     async (messages: LightningMessage[]): Promise<LightningMessage[]> => {
       const lastAssistant = [...messages]
@@ -277,10 +290,8 @@ export function useLightningMode({
         .find((message) => message.role === 'assistant' && message.usage);
       if (!lastAssistant?.usage) return messages;
 
-      const limitState = calculateMessageLimitFromUsage(
-        lastAssistant.usage,
-        serverContextLengthRef.current
-      );
+      const contextWindow = await resolveLightningContextWindow();
+      const limitState = calculateMessageLimitFromUsage(lastAssistant.usage, contextWindow);
       if (limitState.type === 'within_limit') return messages;
 
       setLnIsCompacting(true);
@@ -288,12 +299,13 @@ export function useLightningMode({
         const compactor = new ConversationCompactor(
           async (params) =>
             createApiMessage({
-              ...params,
+              model: params.model,
               maxTokens: params.maxTokens ?? params.max_tokens ?? MAX_TOKENS,
-              messages: params.messages as LightningMessage[]
+              messages: params.messages as LightningMessage[],
+              system: (params.system ?? '') as LightningCreateApiMessageParams['system']
             }),
           locale,
-          serverContextLengthRef.current
+          contextWindow
         );
         const compactInput = filterSyntheticMessages(messages);
         const result = await compactor.compactConversation(compactInput, MAX_TOKENS, true);
@@ -305,7 +317,7 @@ export function useLightningMode({
         setLnIsCompacting(false);
       }
     },
-    [createApiMessage, locale, serverContextLengthRef]
+    [createApiMessage, locale, resolveLightningContextWindow]
   );
 
   /** Track analytics event — bundle's i function inside oe */
@@ -439,6 +451,7 @@ export function useLightningMode({
         }
 
         const compactedHistory = await maybeCompactLightningMessages(lnMessagesRef.current);
+        if (cancelledRef.current) return;
         if (compactedHistory !== lnMessagesRef.current) {
           lnMessagesRef.current = compactedHistory;
           setLnMessages(compactedHistory);
@@ -1318,6 +1331,7 @@ export function useLightningMode({
             // Continue if we executed commands (or switched tabs)
             if (commandCount > 0 || didSwitchTab) {
               const compactedMessages = await maybeCompactLightningMessages(allMessages);
+              if (cancelledRef.current) return;
               if (
                 compactedMessages.length !== allMessages.length ||
                 compactedMessages !== allMessages
@@ -1379,6 +1393,7 @@ export function useLightningMode({
   const cancel = useCallback(() => {
     cancelledRef.current = true;
     planApprovedRef.current = false;
+    setLnIsCompacting(false);
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;

@@ -159,6 +159,16 @@ describe('extractModelContextLengths', () => {
     });
   });
 
+  it('uses name as the model id when id is not present', () => {
+    expect(
+      extractModelContextLengths({
+        data: [{ name: 'models/gemini-2.5-pro', max_input_tokens: 1_048_576 }]
+      })
+    ).toEqual({
+      'gemini-2.5-pro': 1_048_576
+    });
+  });
+
   it('skips entries without a usable context_length', () => {
     expect(
       extractModelContextLengths([

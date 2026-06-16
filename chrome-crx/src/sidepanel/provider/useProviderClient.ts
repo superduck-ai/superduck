@@ -29,6 +29,15 @@ export interface UseProviderClientResult {
   serverContextLengthRef: MutableRefObject<number>;
 }
 
+type ProviderContextInfo =
+  | { status: 'pending'; sourceModelId: string }
+  | {
+      status: 'resolved';
+      sourceModelId: string;
+      modelId: string;
+      contextLength?: number;
+    };
+
 export function useProviderClient(options: UseProviderClientOptions): UseProviderClientResult {
   const { apiKey, apiBaseUrl, selectedModel } = options;
   const activeModel = selectedModel || DEFAULT_MODEL;
@@ -77,9 +86,13 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   const hasProviderConfig = effectiveMessagesClient !== null;
 
   const [serverModelInfo, setServerModelInfo] = useState<ServerModelInfo | null>(null);
-  // Context length saved on the provider bound to the active tier (captured at
-  // config time). Undefined until the provider config resolves.
-  const [providerContextLength, setProviderContextLength] = useState<number | undefined>(undefined);
+  // Actual provider model bound to the active tier, plus its saved context
+  // length captured at config time. Pending state intentionally falls back to
+  // the conservative 256k default while provider config resolves.
+  const [providerContextInfo, setProviderContextInfo] = useState<ProviderContextInfo>({
+    status: 'pending',
+    sourceModelId: activeModel
+  });
   const serverContextLengthRef = useRef<number>(CONTEXT_WINDOW);
 
   // Resolve the bound provider's saved context length for the active tier.
@@ -89,11 +102,17 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   useEffect(() => {
     let cancelled = false;
     const resolve = async () => {
+      setProviderContextInfo({ status: 'pending', sourceModelId: activeModel });
       const config = await loadProviderConfig(true);
       if (cancelled) return;
       const tier = classifyTier(activeModel);
       const resolved = resolveTier(config, tier);
-      setProviderContextLength(resolved?.provider.contextLength);
+      setProviderContextInfo({
+        status: 'resolved',
+        sourceModelId: activeModel,
+        modelId: resolved?.modelId ?? activeModel,
+        contextLength: resolved?.provider.contextLength
+      });
     };
     void resolve();
 
@@ -125,13 +144,21 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   }, [activeModel]);
 
   useEffect(() => {
-    const contextLength = resolveEffectiveContextWindow({
-      modelId: activeModel,
-      providerContextLength
-    });
+    const currentInfo =
+      providerContextInfo.sourceModelId === activeModel
+        ? providerContextInfo
+        : ({ status: 'pending', sourceModelId: activeModel } satisfies ProviderContextInfo);
+    const modelId = currentInfo.status === 'resolved' ? currentInfo.modelId : activeModel;
+    const contextLength =
+      currentInfo.status === 'resolved'
+        ? resolveEffectiveContextWindow({
+            modelId,
+            providerContextLength: currentInfo.contextLength
+          })
+        : CONTEXT_WINDOW;
     serverContextLengthRef.current = contextLength;
-    setServerModelInfo({ id: activeModel, contextLength });
-  }, [activeModel, providerContextLength]);
+    setServerModelInfo({ id: modelId, contextLength });
+  }, [activeModel, providerContextInfo]);
 
   return {
     effectiveMessagesClient,

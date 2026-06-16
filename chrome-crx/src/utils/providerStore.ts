@@ -490,7 +490,16 @@ export function extractModelContextLengths(payload: unknown): Record<string, num
   for (const entry of source) {
     if (!entry || typeof entry !== 'object') continue;
     const record = entry as Record<string, unknown>;
-    if (typeof record.id !== 'string') continue;
+    const rawModelId =
+      typeof record.id === 'string'
+        ? record.id
+        : typeof record.name === 'string'
+          ? record.name
+          : '';
+    if (!rawModelId) continue;
+    const modelId = rawModelId.startsWith('models/')
+      ? rawModelId.slice('models/'.length)
+      : rawModelId;
     const contextLength = [
       record.context_length,
       record.contextLength,
@@ -502,8 +511,8 @@ export function extractModelContextLengths(payload: unknown): Record<string, num
       record.inputTokenLimit
     ].find((value): value is number => typeof value === 'number' && value > 0);
     if (!contextLength) continue;
-    lengths[record.id] = contextLength;
-    lengths[normalizeModelId(record.id)] = contextLength;
+    lengths[modelId] = contextLength;
+    lengths[normalizeModelId(modelId)] = contextLength;
   }
   return lengths;
 }

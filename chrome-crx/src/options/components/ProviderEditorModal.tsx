@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { Button, Modal, ModalFooter, SimpleSelect, TextInput } from '@/components/ui';
-import { DEFAULT_CONTEXT_LENGTH } from '@/constants/models';
+import { DEFAULT_CONTEXT_LENGTH, getConfiguredModelContextLength } from '@/constants/models';
 import {
   DEFAULT_BASE_URL,
   PROVIDER_KIND_LABEL,
@@ -199,6 +199,20 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     try {
       const fetched = await fetchContextLengthForModel(trimmedModelId);
       if (fetched) return fetched;
+      const builtInContextLength = getConfiguredModelContextLength(trimmedModelId);
+      const isSameModelAsExisting = provider?.modelId?.trim() === trimmedModelId;
+      const existingContextLength =
+        typeof provider?.contextLength === 'number' && provider.contextLength > 0
+          ? provider.contextLength
+          : undefined;
+      if (
+        isSameModelAsExisting &&
+        existingContextLength &&
+        (!builtInContextLength || existingContextLength !== DEFAULT_CONTEXT_LENGTH)
+      ) {
+        return existingContextLength;
+      }
+      if (builtInContextLength) return undefined;
       return DEFAULT_CONTEXT_LENGTH;
     } finally {
       setIsResolvingContextLength(false);
