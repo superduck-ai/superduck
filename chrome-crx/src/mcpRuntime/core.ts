@@ -461,13 +461,19 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
     });
     trackEvent('superduck.bridge.tool_call', {
       ...trackData,
-      success: true
+      success: !result.error
     });
-    sendBridgeMessage({
+    const bridgePayload: Record<string, unknown> = {
       ...result,
       type: 'tool_result',
       tool_use_id: toolUseId
-    });
+    };
+    if (typeof bridgePayload.error === 'string') {
+      bridgePayload.error = {
+        content: [{ type: 'text', text: bridgePayload.error }]
+      };
+    }
+    sendBridgeMessage(bridgePayload);
   } catch (err) {
     trackEvent('superduck.bridge.tool_call', {
       ...trackData,
