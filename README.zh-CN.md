@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="extension_icon.svg" alt="SuperDuck" width="128" height="128" />
+  <img src="chrome-crx/extension_icon.svg" alt="SuperDuck" width="128" height="128" />
 </p>
 
 <h1 align="center">SuperDuck</h1>
