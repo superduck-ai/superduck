@@ -714,8 +714,18 @@ export function SidepanelApp() {
     }));
   }, [versionInfo]);
 
-  const { effectiveMessagesClient, hasProviderConfig, serverModelInfo, serverContextLengthRef } =
-    useProviderClient({ apiKey, apiBaseUrl, selectedModel });
+  const {
+    effectiveMessagesClient,
+    hasProviderConfig,
+    serverModelInfo,
+    serverContextLengthRef,
+    refreshProviderConfig
+  } = useProviderClient({ apiKey, apiBaseUrl, selectedModel });
+
+  const handleSetupRetry = useCallback(async () => {
+    await refreshAuth();
+    refreshProviderConfig();
+  }, [refreshAuth, refreshProviderConfig]);
 
   const systemPrompt = useMemo(() => {
     const isMac = navigator.platform.toUpperCase().includes('MAC');
@@ -2483,7 +2493,7 @@ export function SidepanelApp() {
     return (
       <SetupGate
         authError={authError}
-        onRetry={refreshAuth}
+        onRetry={handleSetupRetry}
         onOpenSettings={() => {
           void openOptionsTo('permissions');
         }}

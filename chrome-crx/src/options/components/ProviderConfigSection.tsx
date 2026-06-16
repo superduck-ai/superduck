@@ -18,9 +18,17 @@ import {
   type ProviderKind,
   type Tier
 } from '@/utils/providerStore';
+import {
+  PROVIDER_SETUP_TIER_ORDER,
+  getUpdatedMappingForProviderSave,
+  isProviderConfigUsable,
+  isProviderReadyForSetup,
+  isTierBoundToUsableProvider,
+  parseProviderConfigSnapshot
+} from '@/utils/providerConfigStatus';
 import { ProviderEditorModal, type ProviderEditorValue } from './ProviderEditorModal';
 
-const TIER_ORDER: Tier[] = ['deep', 'smart', 'flash'];
+const TIER_ORDER = PROVIDER_SETUP_TIER_ORDER;
 
 const DeepIcon = createLucideIcon('layers', [
   [
@@ -132,6 +140,7 @@ const ProviderConfigSection: React.FC = () => {
   const [savedSnapshot, setSavedSnapshot] = useState<string>(() =>
     JSON.stringify(emptyConfigSnapshot())
   );
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [dirtyProviderIds, setDirtyProviderIds] = useState<Set<string>>(new Set());
   const [editingProvider, setEditingProvider] = useState<AiProvider | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -141,12 +150,18 @@ const ProviderConfigSection: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   const isDirty = useMemo(() => JSON.stringify(config) !== savedSnapshot, [config, savedSnapshot]);
+  const hasUsableSavedConfig = useMemo(() => {
+    const savedConfig = parseProviderConfigSnapshot(savedSnapshot);
+    return savedConfig ? isProviderConfigUsable(savedConfig) : false;
+  }, [savedSnapshot]);
+  const shouldShowSetupGuide = isConfigLoaded && !hasUsableSavedConfig;
 
   useEffect(() => {
     void (async () => {
       const loaded = await loadProviderConfig();
       setConfig(loaded);
       setSavedSnapshot(JSON.stringify(loaded));
+      setIsConfigLoaded(true);
     })();
   }, []);
 
@@ -225,12 +240,7 @@ const ProviderConfigSection: React.FC = () => {
               index === existingIndex ? nextProvider : entry
             )
           : [...previous.providers, nextProvider];
-      const nextMapping = { ...previous.mapping } as ModelMappingV2;
-      TIER_ORDER.forEach((tier) => {
-        if (nextMapping[tier]?.providerId === nextProvider.id) {
-          nextMapping[tier] = { providerId: nextProvider.id, modelId: nextProvider.modelId };
-        }
-      });
+      const nextMapping = getUpdatedMappingForProviderSave(previous, nextProvider, existingIndex);
       return { ...previous, providers: nextProviders, mapping: nextMapping };
     });
     markDirty(value.id);
@@ -310,6 +320,21 @@ const ProviderConfigSection: React.FC = () => {
     });
   };
 
+  const handleBindAllTiersToProvider = useCallback((providerId: string) => {
+    setConfig((previous) => {
+      const provider = previous.providers.find((entry) => entry.id === providerId);
+      if (!provider || !isProviderReadyForSetup(provider)) return previous;
+      return {
+        ...previous,
+        mapping: {
+          deep: { providerId: provider.id, modelId: provider.modelId },
+          smart: { providerId: provider.id, modelId: provider.modelId },
+          flash: { providerId: provider.id, modelId: provider.modelId }
+        }
+      };
+    });
+  }, []);
+
   const handleDiscard = useCallback(async () => {
     try {
       const loaded = await loadProviderConfig(true);
@@ -320,6 +345,7 @@ const ProviderConfigSection: React.FC = () => {
       setConfig(empty);
       setSavedSnapshot(JSON.stringify(empty));
     }
+    setIsConfigLoaded(true);
     setDirtyProviderIds(new Set());
     setSaveError(null);
     setSaveNotice(null);
@@ -338,7 +364,11 @@ const ProviderConfigSection: React.FC = () => {
         continue;
       }
       const provider = config.providers.find((p) => p.id === binding.providerId);
-      if (!provider || (!binding.modelId && !provider.modelId)) {
+      if (
+        !provider ||
+        !isProviderReadyForSetup(provider) ||
+        !(binding.modelId || provider.modelId).trim()
+      ) {
         invalidTiers.push(TIER_LABEL[tier]);
       }
     }
@@ -361,7 +391,7 @@ const ProviderConfigSection: React.FC = () => {
         intl.formatMessage(
           {
             id: 'save_validation_invalid_tiers',
-            defaultMessage: '以下档位绑定无效（缺少模型ID）: {tiers}'
+            defaultMessage: '以下档位绑定无效（缺少可用 API Key、模型 ID 或连接测试失败）: {tiers}'
           },
           { tiers: invalidTiers.join(', ') }
         )
@@ -577,6 +607,18 @@ const ProviderConfigSection: React.FC = () => {
       )}
       {saveNotice && !isDirty && <SaveNoticeToast notice={saveNotice} />}
 
+      {shouldShowSetupGuide && (
+        <ModelSetupGuide
+          config={config}
+          isDirty={isDirty}
+          isSaving={isSaving}
+          onAddProvider={openAddProvider}
+          onEditProvider={openEditProvider}
+          onBindAllTiers={handleBindAllTiersToProvider}
+          onSave={() => void handleSave()}
+        />
+      )}
+
       <div className="mt-8">
         <h4 className="text-text-100 font-large mb-1">
           <FormattedMessage id="global_model_mapping" defaultMessage="模型映射" />
@@ -624,6 +666,133 @@ const ProviderConfigSection: React.FC = () => {
     </div>
   );
 };
+
+interface ModelSetupGuideProps {
+  config: ProviderConfig;
+  isDirty: boolean;
+  isSaving: boolean;
+  onAddProvider: () => void;
+  onEditProvider: (provider: AiProvider) => void;
+  onBindAllTiers: (providerId: string) => void;
+  onSave: () => void;
+}
+
+const ModelSetupGuide: React.FC<ModelSetupGuideProps> = ({
+  config,
+  isDirty,
+  isSaving,
+  onAddProvider,
+  onEditProvider,
+  onBindAllTiers,
+  onSave
+}) => {
+  const firstProvider = config.providers[0];
+  const firstReadyProvider = config.providers.find(isProviderReadyForSetup);
+  const hasProvider = config.providers.length > 0;
+  const hasReadyProvider = Boolean(firstReadyProvider);
+  const hasTierMapping = TIER_ORDER.every((tier) => isTierBoundToUsableProvider(config, tier));
+  const hasCurrentUsableConfig = isProviderConfigUsable(config);
+  const needsSave = hasCurrentUsableConfig && isDirty;
+
+  const action = (() => {
+    if (!hasProvider) {
+      return (
+        <Button size="sm" prepend={<PlusIcon size={14} />} onClick={onAddProvider}>
+          <FormattedMessage id="setup_guide_add_model" defaultMessage="添加模型" />
+        </Button>
+      );
+    }
+
+    if (!hasReadyProvider && firstProvider) {
+      return (
+        <Button size="sm" onClick={() => onEditProvider(firstProvider)}>
+          <FormattedMessage id="setup_guide_complete_model" defaultMessage="完善模型信息" />
+        </Button>
+      );
+    }
+
+    if (!hasTierMapping && firstReadyProvider) {
+      return (
+        <Button size="sm" onClick={() => onBindAllTiers(firstReadyProvider.id)}>
+          <FormattedMessage id="setup_guide_use_all_tiers" defaultMessage="用于全部档位" />
+        </Button>
+      );
+    }
+
+    if (needsSave) {
+      return (
+        <Button size="sm" loading={isSaving} onClick={onSave}>
+          <FormattedMessage id="setup_guide_save_config" defaultMessage="保存配置" />
+        </Button>
+      );
+    }
+
+    return null;
+  })();
+
+  return (
+    <div className="mt-6 rounded-xl border border-accent-main-100/25 bg-accent-main-100/[0.06] px-4 py-4 md:px-5 md:py-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-bg-000/80 px-2 py-0.5 text-text-300 font-base-sm">
+            <AlertCircleIcon size={14} className="text-accent-main-100" />
+            <FormattedMessage id="setup_required" defaultMessage="首次使用必需" />
+          </div>
+          <h4 className="text-text-100 font-large">
+            <FormattedMessage
+              id="setup_model_before_use"
+              defaultMessage="开始使用前，先连接一个大模型"
+            />
+          </h4>
+          <p className="mt-1 max-w-2xl text-text-300 font-base-sm">
+            <FormattedMessage
+              id="setup_model_guide_description"
+              defaultMessage="SuperDuck 需要一个可用模型来理解页面并执行任务。API Key 仅保存在 Chrome 本地。"
+            />
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>
+      </div>
+
+      <ol className="mt-4 grid gap-x-5 gap-y-2 sm:grid-cols-2">
+        <ModelSetupStep done={hasProvider}>
+          <FormattedMessage id="setup_step_add_provider" defaultMessage="添加模型供应商" />
+        </ModelSetupStep>
+        <ModelSetupStep done={hasReadyProvider}>
+          <FormattedMessage
+            id="setup_step_complete_provider"
+            defaultMessage="填写可用 API Key 和模型 ID"
+          />
+        </ModelSetupStep>
+        <ModelSetupStep done={hasTierMapping}>
+          <FormattedMessage
+            id="setup_step_bind_tiers"
+            defaultMessage="绑定 Deep / Smart / Flash 档位"
+          />
+        </ModelSetupStep>
+        <ModelSetupStep done={hasCurrentUsableConfig && !isDirty}>
+          <FormattedMessage id="setup_step_save" defaultMessage="保存配置" />
+        </ModelSetupStep>
+      </ol>
+    </div>
+  );
+};
+
+const ModelSetupStep: React.FC<{ done: boolean; children: React.ReactNode }> = ({
+  done,
+  children
+}) => (
+  <li className="flex min-w-0 items-center gap-2 text-sm">
+    {done ? (
+      <CheckCircleIcon size={16} className="shrink-0 text-success-100" />
+    ) : (
+      <span className="h-4 w-4 shrink-0 rounded-full border border-border-300 bg-bg-000" />
+    )}
+    <span className={done ? 'text-text-200 font-base-sm' : 'text-text-400 font-base-sm'}>
+      {children}
+    </span>
+  </li>
+);
 
 const SaveNoticeToast: React.FC<{ notice: SaveNotice }> = ({ notice }) => {
   const isWarning = notice.tone === 'warning';
