@@ -34,6 +34,8 @@ import {
   type LightningMessage,
   type ParsedCommand
 } from './lightningCommands';
+import { ConversationCompactor } from './conversationCompaction';
+import { calculateMessageLimitFromUsage, MAX_TOKENS } from './messageLimits';
 import {
   clearTimings,
   EMPTY_MESSAGE_HISTORY,
@@ -72,6 +74,8 @@ export interface UseLightningModeProps {
   permissionMode: string;
   onPermissionRequired?: (result: Record<string, unknown>) => Promise<boolean>;
   permissionManager: PermissionManager;
+  serverContextLengthRef: React.MutableRefObject<number>;
+  locale?: string;
   enabled?: boolean;
 }
 
@@ -86,10 +90,13 @@ export function useLightningMode({
   permissionMode,
   onPermissionRequired,
   permissionManager,
+  serverContextLengthRef,
+  locale,
   enabled = true
 }: UseLightningModeProps) {
   const [lnMessages, setLnMessages] = useState<LightningMessage[]>([]);
   const [lnIsLoading, setLnIsLoading] = useState(false);
+  const [lnIsCompacting, setLnIsCompacting] = useState(false);
   const [lnError, setLnError] = useState<string | null>(null);
   const [lnLastStopReason, setLnLastStopReason] = useState<{
     reason: string;
@@ -263,6 +270,44 @@ export function useLightningMode({
     [getEffectiveModel, isFastModel]
   );
 
+  const maybeCompactLightningMessages = useCallback(
+    async (messages: LightningMessage[]): Promise<LightningMessage[]> => {
+      const lastAssistant = [...messages]
+        .reverse()
+        .find((message) => message.role === 'assistant' && message.usage);
+      if (!lastAssistant?.usage) return messages;
+
+      const limitState = calculateMessageLimitFromUsage(
+        lastAssistant.usage,
+        serverContextLengthRef.current
+      );
+      if (limitState.type === 'within_limit') return messages;
+
+      setLnIsCompacting(true);
+      try {
+        const compactor = new ConversationCompactor(
+          async (params) =>
+            createApiMessage({
+              ...params,
+              maxTokens: params.maxTokens ?? params.max_tokens ?? MAX_TOKENS,
+              messages: params.messages as LightningMessage[]
+            }),
+          locale,
+          serverContextLengthRef.current
+        );
+        const compactInput = filterSyntheticMessages(messages);
+        const result = await compactor.compactConversation(compactInput, MAX_TOKENS, true);
+        return result.messagesAfterCompacting as LightningMessage[];
+      } catch (error) {
+        console.warn('[Lightning] Conversation compaction failed:', error);
+        return messages;
+      } finally {
+        setLnIsCompacting(false);
+      }
+    },
+    [createApiMessage, locale, serverContextLengthRef]
+  );
+
   /** Track analytics event — bundle's i function inside oe */
   const trackToolCall = useCallback(
     (toolName: string, success: boolean, extra?: Record<string, unknown>) => {
@@ -393,8 +438,14 @@ export function useLightningMode({
           });
         }
 
+        const compactedHistory = await maybeCompactLightningMessages(lnMessagesRef.current);
+        if (compactedHistory !== lnMessagesRef.current) {
+          lnMessagesRef.current = compactedHistory;
+          setLnMessages(compactedHistory);
+        }
+
         const allMessages: LightningMessage[] = [
-          ...lnMessagesRef.current,
+          ...compactedHistory,
           { role: 'user', content: userContent }
         ];
         if (tabId == null) {
@@ -535,7 +586,10 @@ export function useLightningMode({
             // Update the assistant message with final content
             allMessages[allMessages.length - 1] = {
               role: 'assistant',
-              content: finalMessage.content
+              content: finalMessage.content,
+              usage: finalMessage.usage,
+              id: finalMessage.id,
+              stop_reason: finalMessage.stop_reason
             };
             const lastAssistant = allMessages[allMessages.length - 1];
             if (
@@ -1263,6 +1317,14 @@ export function useLightningMode({
 
             // Continue if we executed commands (or switched tabs)
             if (commandCount > 0 || didSwitchTab) {
+              const compactedMessages = await maybeCompactLightningMessages(allMessages);
+              if (
+                compactedMessages.length !== allMessages.length ||
+                compactedMessages !== allMessages
+              ) {
+                allMessages.splice(0, allMessages.length, ...compactedMessages);
+                setLnMessages([...allMessages]);
+              }
               continueLoop = true;
             }
           });
@@ -1356,7 +1418,7 @@ export function useLightningMode({
     isLoading: lnIsLoading,
     isInitializing: false,
     hasInteractiveTools: false,
-    isCompacting: false,
+    isCompacting: lnIsCompacting,
     error: lnError,
     messageLimit: WITHIN_LIMIT_RESULT,
     setMessages: setLnMessages,

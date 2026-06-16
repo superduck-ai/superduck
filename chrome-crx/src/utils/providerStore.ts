@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { normalizeModelId } from '../constants/models';
 
 /**
  * Multi-provider AI configuration store.
@@ -26,6 +27,9 @@ export interface AiProvider {
   apiKey: string;
   baseURL: string;
   status: ProviderStatus;
+  // Max context window (tokens) captured from the gateway's /v1/models at
+  // save time. Runtime context-window resolution treats this as authoritative.
+  contextLength?: number;
   lastTestedAt?: number;
   errorMessage?: string;
 }
@@ -128,6 +132,8 @@ function parseProvider(value: unknown): AiProvider | null {
       const s = v.status;
       return s === 'active' || s === 'error' || s === 'testing' ? s : 'unknown';
     })(),
+    contextLength:
+      typeof v.contextLength === 'number' && v.contextLength > 0 ? v.contextLength : undefined,
     lastTestedAt: typeof v.lastTestedAt === 'number' ? v.lastTestedAt : undefined,
     errorMessage: isString(v.errorMessage) ? v.errorMessage : undefined
   };
@@ -402,14 +408,31 @@ function joinUrl(baseURL: string, path: string): string {
   return `${baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
-function getModelListUrl(kind: ProviderKind, baseURL: string, _apiKey: string): string {
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function getModelListUrls(kind: ProviderKind, baseURL: string, _apiKey: string): string[] {
   if (kind === 'anthropic') {
     const url = new URL(baseURL);
     const path = url.pathname.replace(/\/+$/, '');
-    return path.endsWith('/v1') ? joinUrl(baseURL, '/models') : joinUrl(baseURL, '/v1/models');
+    const urls = [
+      path.endsWith('/v1') ? joinUrl(baseURL, '/models') : joinUrl(baseURL, '/v1/models')
+    ];
+    for (const suffix of ['/anthropic/v1', '/anthropic']) {
+      if (path === suffix || path.endsWith(suffix)) {
+        const stripped = new URL(baseURL);
+        stripped.pathname = path.slice(0, -suffix.length) || '/';
+        stripped.search = '';
+        stripped.hash = '';
+        urls.push(joinUrl(stripped.toString().replace(/\/+$/, ''), '/v1/models'));
+        break;
+      }
+    }
+    return uniqueStrings(urls);
   }
 
-  return joinUrl(baseURL, '/models');
+  return [joinUrl(baseURL, '/models')];
 }
 
 function getModelListHeaders(kind: ProviderKind, apiKey: string): Record<string, string> {
@@ -451,6 +474,63 @@ function extractModelIds(payload: unknown): string[] {
   ).sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Build a `{ modelId: contextLength }` index from a /v1/models payload.
+ * Accepts a bare array, `{ data: [...] }`, or `{ models: [...] }`.
+ */
+export function extractModelContextLengths(payload: unknown): Record<string, number> {
+  let source: unknown = payload;
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const obj = payload as { data?: unknown; models?: unknown };
+    source = obj.data ?? obj.models ?? payload;
+  }
+
+  const lengths: Record<string, number> = {};
+  if (!Array.isArray(source)) return lengths;
+  for (const entry of source) {
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== 'string') continue;
+    const contextLength = [
+      record.context_length,
+      record.contextLength,
+      record.max_context_length,
+      record.maxContextLength,
+      record.max_input_tokens,
+      record.maxInputTokens,
+      record.input_token_limit,
+      record.inputTokenLimit
+    ].find((value): value is number => typeof value === 'number' && value > 0);
+    if (!contextLength) continue;
+    lengths[record.id] = contextLength;
+    lengths[normalizeModelId(record.id)] = contextLength;
+  }
+  return lengths;
+}
+
+export function lookupModelContextLength(
+  contextLengths: Record<string, number>,
+  modelId: string
+): number | undefined {
+  const trimmed = modelId.trim();
+  if (!trimmed) return undefined;
+
+  const normalized = normalizeModelId(trimmed);
+  for (const candidate of [trimmed, normalized]) {
+    const value = contextLengths[candidate];
+    if (typeof value === 'number' && value > 0) return value;
+  }
+
+  const trimmedLower = trimmed.toLowerCase();
+  const normalizedLower = normalized.toLowerCase();
+  for (const [id, value] of Object.entries(contextLengths)) {
+    if (typeof value !== 'number' || value <= 0) continue;
+    if (id.toLowerCase() === trimmedLower) return value;
+    if (normalizeModelId(id).toLowerCase() === normalizedLower) return value;
+  }
+  return undefined;
+}
+
 async function readProviderError(response: Response): Promise<string> {
   const text = await response.text().catch(() => '');
   if (!text) return '';
@@ -465,10 +545,10 @@ async function readProviderError(response: Response): Promise<string> {
   return text.slice(0, 160);
 }
 
-export async function fetchProviderModels(
+async function fetchRawModelList(
   provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
   timeoutMs = 10_000
-): Promise<string[]> {
+): Promise<unknown> {
   const baseURL = normalizeProviderBaseURL(
     provider.kind,
     provider.baseURL || DEFAULT_BASE_URL[provider.kind]
@@ -480,16 +560,23 @@ export async function fetchProviderModels(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(getModelListUrl(provider.kind, baseURL, provider.apiKey), {
-      method: 'GET',
-      headers: getModelListHeaders(provider.kind, provider.apiKey),
-      signal: controller.signal
-    });
-    if (!response.ok) {
-      const snippet = await readProviderError(response);
-      throw new Error(`HTTP ${response.status}${snippet ? ` - ${snippet}` : ''}`);
+    let lastError: Error | null = null;
+    for (const url of getModelListUrls(provider.kind, baseURL, provider.apiKey)) {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: getModelListHeaders(provider.kind, provider.apiKey),
+          signal: controller.signal
+        });
+        if (response.ok) return await response.json();
+        const snippet = await readProviderError(response);
+        lastError = new Error(`HTTP ${response.status}${snippet ? ` - ${snippet}` : ''}`);
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
     }
-    return extractModelIds(await response.json());
+    throw lastError ?? new Error('models endpoint unavailable');
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(`timeout after ${timeoutMs}ms`, { cause: error });
@@ -498,6 +585,35 @@ export async function fetchProviderModels(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function fetchProviderModels(
+  provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
+  timeoutMs = 10_000
+): Promise<string[]> {
+  return extractModelIds(await fetchRawModelList(provider, timeoutMs));
+}
+
+export interface ProviderModelCatalog {
+  models: string[];
+  contextLengths: Record<string, number>;
+}
+
+/**
+ * Fetch the gateway's /v1/models once and return both the id list (for the
+ * editor dropdown) and a `{ modelId: contextLength }` index. The index is
+ * captured at save time so runtime context-window resolution uses the real
+ * per-model limit instead of a hardcoded tier default.
+ */
+export async function fetchProviderModelCatalog(
+  provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
+  timeoutMs = 10_000
+): Promise<ProviderModelCatalog> {
+  const payload = await fetchRawModelList(provider, timeoutMs);
+  return {
+    models: extractModelIds(payload),
+    contextLengths: extractModelContextLengths(payload)
+  };
 }
 
 async function postProviderProbe(

@@ -1,24 +1,36 @@
 export interface ModelOption {
   value: string;
   label: string;
+  contextLength: number;
 }
 
 /**
  * 内置模型列表
  * 按优先级排序：Deep > (Standard) > Flash
  */
+export const DEFAULT_CONTEXT_LENGTH = 256_000;
+
+export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
+  'claude-opus-4-6': 1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
+  'claude-haiku-4-5-20251001': 200_000
+};
+
 export const BUILT_IN_MODELS: ModelOption[] = [
   {
     value: 'claude-opus-4-6',
-    label: 'Deep'
+    label: 'Deep',
+    contextLength: MODEL_CONTEXT_LENGTHS['claude-opus-4-6']
   },
   {
     value: 'claude-sonnet-4-6',
-    label: 'Smart'
+    label: 'Smart',
+    contextLength: MODEL_CONTEXT_LENGTHS['claude-sonnet-4-6']
   },
   {
     value: 'claude-haiku-4-5-20251001',
-    label: 'Flash'
+    label: 'Flash',
+    contextLength: MODEL_CONTEXT_LENGTHS['claude-haiku-4-5-20251001']
   }
 ];
 
@@ -67,6 +79,15 @@ export const MODEL_ALIASES: Record<string, string> = {
  */
 export function normalizeModelId(modelId: string): string {
   return MODEL_ALIASES[modelId] || modelId;
+}
+
+export function getConfiguredModelContextLength(modelId: string): number | undefined {
+  const normalized = normalizeModelId(modelId);
+  return MODEL_CONTEXT_LENGTHS[normalized];
+}
+
+export function getModelContextLength(modelId: string): number {
+  return getConfiguredModelContextLength(modelId) ?? DEFAULT_CONTEXT_LENGTH;
 }
 
 /**

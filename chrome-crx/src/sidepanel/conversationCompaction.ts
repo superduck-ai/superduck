@@ -1,5 +1,5 @@
 import { getCompactionPrompts, detectConversationLanguage } from './compactionPrompts';
-import { CONTEXT_WINDOW, MAX_TOKENS } from './messageLimits';
+import { calculateContextUsageMetrics, CONTEXT_WINDOW, MAX_TOKENS } from './messageLimits';
 import type {
   ApiConversationMessage,
   ApiResponseMessage,
@@ -119,9 +119,7 @@ export class ConversationCompactor {
 
     const text = response.content
       .filter(
-        (
-          item
-        ): item is Extract<ApiResponseMessage['content'][number], { type: 'text' }> =>
+        (item): item is Extract<ApiResponseMessage['content'][number], { type: 'text' }> =>
           item.type === 'text'
       )
       .map((item) => item.text || '')
@@ -180,17 +178,11 @@ export class ConversationCompactor {
   }
 
   private calculateMetricsFromUsage(usage: ApiUsage, maxTokens: number) {
-    const inputTokens = usage?.input_tokens || 0;
-    const outputTokens = usage?.output_tokens || 0;
-    const cacheCreationTokens = usage?.cache_creation_input_tokens || 0;
-    const cacheReadTokens = usage?.cache_read_input_tokens || 0;
-    const cachedTokens = cacheCreationTokens + cacheReadTokens;
-    const effectiveContextWindow = Math.max(1, this.contextWindow - maxTokens);
-    const totalTokens = inputTokens + outputTokens + cachedTokens;
+    const metrics = calculateContextUsageMetrics(usage, this.contextWindow);
     return {
-      totalTokens,
-      contextWindow: effectiveContextWindow,
-      percentUsed: Math.round((totalTokens / effectiveContextWindow) * 100)
+      totalTokens: metrics.totalUsed,
+      contextWindow: metrics.tokenBudget,
+      percentUsed: metrics.percentUsed
     };
   }
 }

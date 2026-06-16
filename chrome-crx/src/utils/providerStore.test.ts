@@ -1,7 +1,10 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
+  extractModelContextLengths,
+  fetchProviderModelCatalog,
   fetchProviderModels,
   isValidProviderBaseURL,
+  lookupModelContextLength,
   normalizeProviderBaseURL,
   OPENAI_RESPONSES_MIN_OUTPUT_TOKENS,
   testProviderConnection,
@@ -78,6 +81,147 @@ describe('fetchProviderModels', () => {
     );
 
     await expect(fetchProviderModels(baseProvider)).rejects.toThrow('HTTP 401 - bad key');
+  });
+
+  it('falls back to root /v1/models for Anthropic gateways mounted under /anthropic', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'mimo-v2.5', object: 'model', owned_by: 'xiaomi' }]
+          }),
+          { status: 200 }
+        )
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchProviderModels({
+        ...baseProvider,
+        kind: 'anthropic',
+        baseURL: 'https://api.xiaomimimo.com/anthropic'
+      })
+    ).resolves.toEqual(['mimo-v2.5']);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://api.xiaomimimo.com/anthropic/v1/models', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': 'sk-test'
+      },
+      signal: expect.any(AbortSignal)
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://api.xiaomimimo.com/v1/models', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': 'sk-test'
+      },
+      signal: expect.any(AbortSignal)
+    });
+  });
+});
+
+describe('extractModelContextLengths', () => {
+  it('indexes models by id and normalized id from a bare array', () => {
+    expect(
+      extractModelContextLengths([
+        { id: 'claude-opus-4.6', context_length: 900_000 },
+        { id: 'claude-haiku-4-5-20251001', context_length: 200_000 }
+      ])
+    ).toEqual({
+      'claude-opus-4.6': 900_000,
+      'claude-opus-4-6': 900_000,
+      'claude-haiku-4-5-20251001': 200_000
+    });
+  });
+
+  it('unwraps { data: [...] } payloads', () => {
+    expect(
+      extractModelContextLengths({ data: [{ id: 'gpt-4o', context_length: 128_000 }] })
+    ).toEqual({ 'gpt-4o': 128_000 });
+  });
+
+  it('uses max_input_tokens from Anthropic-compatible gateways', () => {
+    expect(
+      extractModelContextLengths({
+        data: [
+          { id: 'CVTE-AUTO', max_input_tokens: 1_000_000 },
+          { id: 'glm-5.1', max_input_tokens: 200_000 }
+        ]
+      })
+    ).toEqual({
+      'CVTE-AUTO': 1_000_000,
+      'glm-5.1': 200_000
+    });
+  });
+
+  it('skips entries without a usable context_length', () => {
+    expect(
+      extractModelContextLengths([
+        { id: 'no-ctx' },
+        { id: 'zero', context_length: 0 },
+        { id: 'neg', context_length: -1 },
+        { context_length: 1000 },
+        { id: 'ok', context_length: 64_000 }
+      ])
+    ).toEqual({ ok: 64_000 });
+  });
+
+  it('returns an empty map for non-list payloads', () => {
+    expect(extractModelContextLengths(null)).toEqual({});
+    expect(extractModelContextLengths({})).toEqual({});
+  });
+});
+
+describe('lookupModelContextLength', () => {
+  it('matches exact and normalized model ids', () => {
+    const lengths = {
+      'claude-opus-4.6': 900_000,
+      'claude-opus-4-6': 900_000
+    };
+
+    expect(lookupModelContextLength(lengths, 'claude-opus-4.6')).toBe(900_000);
+    expect(lookupModelContextLength(lengths, 'claude-opus-4-6')).toBe(900_000);
+  });
+
+  it('returns undefined when the catalog has no usable value for the model', () => {
+    expect(lookupModelContextLength({ other: 128_000 }, 'missing')).toBeUndefined();
+    expect(lookupModelContextLength({ missing: 0 }, 'missing')).toBeUndefined();
+  });
+});
+
+describe('fetchProviderModelCatalog', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns both model ids and the context-length index from one request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'gpt-4o', context_length: 128_000 },
+              { id: 'claude-opus-4.6', context_length: 1_000_000 }
+            ]
+          }),
+          { status: 200 }
+        )
+      )
+    );
+
+    const catalog = await fetchProviderModelCatalog(baseProvider);
+    expect(catalog.models).toEqual(['claude-opus-4.6', 'gpt-4o']);
+    expect(catalog.contextLengths).toEqual({
+      'gpt-4o': 128_000,
+      'claude-opus-4.6': 1_000_000,
+      'claude-opus-4-6': 1_000_000
+    });
   });
 });
 

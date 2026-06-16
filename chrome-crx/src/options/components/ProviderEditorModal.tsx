@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { Button, Modal, ModalFooter, SimpleSelect, TextInput } from '@/components/ui';
+import { DEFAULT_CONTEXT_LENGTH } from '@/constants/models';
 import {
   DEFAULT_BASE_URL,
   PROVIDER_KIND_LABEL,
-  fetchProviderModels,
+  fetchProviderModelCatalog,
   isValidProviderBaseURL,
+  lookupModelContextLength,
   newProviderId,
   normalizeProviderBaseURL,
   type AiProvider,
@@ -26,6 +28,8 @@ export interface ProviderEditorValue {
   modelId: string;
   apiKey: string;
   baseURL: string;
+  /** Max context window captured from /v1/models for this modelId. */
+  contextLength?: number;
 }
 
 interface ProviderEditorModalProps {
@@ -50,8 +54,10 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState('');
   const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelContextLengths, setModelContextLengths] = useState<Record<string, number>>({});
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [isResolvingContextLength, setIsResolvingContextLength] = useState(false);
   const modelInputContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,51 +68,54 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     setApiKey(provider?.apiKey ?? '');
     setBaseURL(provider?.baseURL ?? '');
     setModelOptions([]);
+    setModelContextLengths({});
     setModelDropdownOpen(false);
     setIsLoadingModels(false);
+    setIsResolvingContextLength(false);
   }, [isOpen, provider]);
 
   useEffect(() => {
     if (!isOpen) return;
 
+    const clearModels = () => {
+      setModelOptions([]);
+      setModelContextLengths({});
+      setModelDropdownOpen(false);
+      setIsLoadingModels(false);
+    };
+
     const trimmedApiKey = apiKey.trim();
     const trimmedBaseURL = baseURL.trim();
     if (!trimmedApiKey && !trimmedBaseURL) {
-      setModelOptions([]);
-      setModelDropdownOpen(false);
-      setIsLoadingModels(false);
+      clearModels();
       return;
     }
     if (trimmedBaseURL && !isValidProviderBaseURL(baseURL)) {
-      setModelOptions([]);
-      setModelDropdownOpen(false);
-      setIsLoadingModels(false);
+      clearModels();
       return;
     }
 
     let cancelled = false;
     setModelOptions([]);
+    setModelContextLengths({});
     setModelDropdownOpen(false);
     setIsLoadingModels(true);
 
     const timer = window.setTimeout(() => {
-      void fetchProviderModels({
+      void fetchProviderModelCatalog({
         kind,
         apiKey: trimmedApiKey,
         baseURL: normalizeProviderBaseURL(kind, baseURL)
       })
-        .then((models) => {
+        .then((catalog) => {
           if (!cancelled) {
-            setModelOptions(models);
+            setModelOptions(catalog.models);
+            setModelContextLengths(catalog.contextLengths);
             setIsLoadingModels(false);
           }
         })
         .catch(() => {
-          if (!cancelled) {
-            setModelOptions([]);
-            setModelDropdownOpen(false);
-            setIsLoadingModels(false);
-          }
+          if (!cancelled) clearModels();
         });
     }, 500);
 
@@ -159,15 +168,56 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     });
   };
 
-  const handleSubmit = () => {
+  const handleModelIdChange = (nextModelId: string) => {
+    setModelId(nextModelId);
+  };
+
+  const fetchContextLengthForModel = async (targetModelId: string): Promise<number | undefined> => {
+    const trimmedApiKey = apiKey.trim();
+    const normalizedBaseURL = normalizeProviderBaseURL(kind, baseURL);
+    if (!trimmedApiKey && !normalizedBaseURL) return undefined;
+    try {
+      const catalog = await fetchProviderModelCatalog({
+        kind,
+        apiKey: trimmedApiKey,
+        baseURL: normalizedBaseURL
+      });
+      return lookupModelContextLength(catalog.contextLengths, targetModelId);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const resolveContextLengthForSubmit = async (
+    trimmedModelId: string
+  ): Promise<number | undefined> => {
+    if (!trimmedModelId) return undefined;
+    const alreadyDetected = lookupModelContextLength(modelContextLengths, trimmedModelId);
+    if (alreadyDetected) return alreadyDetected;
+
+    setIsResolvingContextLength(true);
+    try {
+      const fetched = await fetchContextLengthForModel(trimmedModelId);
+      if (fetched) return fetched;
+      return DEFAULT_CONTEXT_LENGTH;
+    } finally {
+      setIsResolvingContextLength(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (isResolvingContextLength) return;
     if (!isValidProviderBaseURL(baseURL)) return;
+    const trimmedModelId = modelId.trim();
+    const contextLength = await resolveContextLengthForSubmit(trimmedModelId);
     onSave({
       id: provider?.id ?? newProviderId(),
       kind,
       name: name.trim() || PROVIDER_KIND_LABEL[kind],
-      modelId: modelId.trim(),
+      modelId: trimmedModelId,
       apiKey: apiKey.trim(),
-      baseURL: normalizeProviderBaseURL(kind, baseURL)
+      baseURL: normalizeProviderBaseURL(kind, baseURL),
+      contextLength
     });
   };
 
@@ -265,7 +315,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
               value={modelId}
               onFocus={() => setModelDropdownOpen(true)}
               onChange={(event) => {
-                setModelId(event.target.value);
+                handleModelIdChange(event.target.value);
                 setModelDropdownOpen(true);
               }}
               placeholder={intl.formatMessage({
@@ -287,7 +337,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
                       className="w-full rounded-md px-2 py-2 text-left text-text-100 transition-colors hover:bg-bg-200 font-base"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
-                        setModelId(model);
+                        handleModelIdChange(model);
                         setModelDropdownOpen(false);
                       }}
                     >
@@ -305,7 +355,10 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
         <Button variant="secondary" onClick={onCancel}>
           <FormattedMessage id="cancel" defaultMessage="取消" />
         </Button>
-        <Button onClick={handleSubmit} disabled={submitDisabled || hasInvalidBaseURL}>
+        <Button
+          onClick={() => void handleSubmit()}
+          disabled={submitDisabled || hasInvalidBaseURL || isResolvingContextLength}
+        >
           <FormattedMessage
             id={isEditing ? 'update' : 'add'}
             defaultMessage={isEditing ? '更新' : '添加'}

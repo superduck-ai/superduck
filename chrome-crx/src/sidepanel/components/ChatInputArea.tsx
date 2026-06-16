@@ -48,6 +48,7 @@ export interface ChatInputAreaProps {
     hasUsage: boolean;
     inputTokens: number;
     outputTokens: number;
+    cacheTokens: number;
   } | null;
 
   // Setters
@@ -559,6 +560,22 @@ export function ChatInputArea({
                                       }
                                     )}
                                   </span>
+                                  {contextDebugInfo.cacheTokens > 0 && (
+                                    <>
+                                      <span className="text-border-300/20">|</span>
+                                      <span>
+                                        {intl.formatMessage(
+                                          {
+                                            id: 'debug_cache_tokens',
+                                            defaultMessage: 'Cache: {count}'
+                                          },
+                                          {
+                                            count: contextDebugInfo.cacheTokens.toLocaleString()
+                                          }
+                                        )}
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </span>
