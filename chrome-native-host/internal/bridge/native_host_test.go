@@ -97,3 +97,100 @@ func TestMaxTimeout(t *testing.T) {
 		t.Errorf("MaxTimeout = %v, expected 5m", MaxTimeout)
 	}
 }
+
+func TestComputeRequestDeadlineUsesContextDeadline(t *testing.T) {
+	now := time.Now()
+	ctx, cancel := context.WithDeadline(context.Background(), now.Add(2*time.Minute))
+	defer cancel()
+
+	deadline, timeout, err := computeRequestDeadline(ctx, now)
+	if err != nil {
+		t.Fatalf("computeRequestDeadline() error = %v", err)
+	}
+	if deadline.Sub(now) != 2*time.Minute {
+		t.Fatalf("deadline delta = %v, want 2m", deadline.Sub(now))
+	}
+	if timeout != 2*time.Minute {
+		t.Fatalf("timeout = %v, want 2m", timeout)
+	}
+}
+
+func TestComputeRequestDeadlineClampsLongContextDeadline(t *testing.T) {
+	now := time.Now()
+	ctx, cancel := context.WithDeadline(context.Background(), now.Add(10*time.Minute))
+	defer cancel()
+
+	deadline, timeout, err := computeRequestDeadline(ctx, now)
+	if err != nil {
+		t.Fatalf("computeRequestDeadline() error = %v", err)
+	}
+	if deadline.Sub(now) != MaxTimeout {
+		t.Fatalf("deadline delta = %v, want %v", deadline.Sub(now), MaxTimeout)
+	}
+	if timeout != MaxTimeout {
+		t.Fatalf("timeout = %v, want %v", timeout, MaxTimeout)
+	}
+}
+
+func TestComputeRequestDeadlineUsesDefaultWithoutContextDeadline(t *testing.T) {
+	now := time.Now()
+
+	deadline, timeout, err := computeRequestDeadline(context.Background(), now)
+	if err != nil {
+		t.Fatalf("computeRequestDeadline() error = %v", err)
+	}
+	if deadline.Sub(now) != DefaultTimeout {
+		t.Fatalf("deadline delta = %v, want %v", deadline.Sub(now), DefaultTimeout)
+	}
+	if timeout != DefaultTimeout {
+		t.Fatalf("timeout = %v, want %v", timeout, DefaultTimeout)
+	}
+}
+
+func TestComputeRequestDeadlineRejectsExpiredDeadline(t *testing.T) {
+	now := time.Now()
+	ctx, cancel := context.WithDeadline(context.Background(), now.Add(-time.Second))
+	defer cancel()
+
+	if _, _, err := computeRequestDeadline(ctx, now); err == nil {
+		t.Fatal("computeRequestDeadline() error = nil, want error")
+	}
+}
+
+func TestBrowserBatchTimeoutScalesWithActionCount(t *testing.T) {
+	t.Parallel()
+
+	timeout := BrowserBatchTimeout(map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"tool": "computer"},
+			map[string]interface{}{"tool": "read_page"},
+			map[string]interface{}{"tool": "computer"},
+		},
+	}, DefaultTimeout)
+
+	if want := DefaultTimeout + 3*browserBatchChildActionTimeout; timeout != want {
+		t.Fatalf("BrowserBatchTimeout() = %v, want %v", timeout, want)
+	}
+}
+
+func TestBrowserBatchTimeoutClampsToMaxTimeout(t *testing.T) {
+	t.Parallel()
+
+	actions := make([]interface{}, 20)
+	timeout := BrowserBatchTimeout(map[string]interface{}{"actions": actions}, DefaultTimeout)
+
+	if timeout != MaxTimeout {
+		t.Fatalf("BrowserBatchTimeout() = %v, want %v", timeout, MaxTimeout)
+	}
+}
+
+func TestBrowserBatchTimeoutFallsBackWithoutActions(t *testing.T) {
+	t.Parallel()
+
+	fallback := 42 * time.Second
+	timeout := BrowserBatchTimeout(map[string]interface{}{"actions": "invalid"}, fallback)
+
+	if timeout != fallback {
+		t.Fatalf("BrowserBatchTimeout() = %v, want %v", timeout, fallback)
+	}
+}

@@ -106,6 +106,8 @@ type DispatchMouseEventParams = {
   deltaY?: number;
 };
 
+const DEBUGGER_API_TIMEOUT_MS = 10000;
+
 // --- ChromeDebuggerProtocol class (J) ---
 class ChromeDebuggerProtocol {
   static MAX_LOGS_PER_TAB: number = 10000;
@@ -365,7 +367,15 @@ class ChromeDebuggerProtocol {
     // banner on top of the existing one. Just attempt attach directly —
     // if it's already attached, Chrome reports the error and we ignore it.
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        settled = true;
+        reject(new Error('Timed out attaching debugger'));
+      }, DEBUGGER_API_TIMEOUT_MS);
       chrome.debugger.attach(target, '1.3', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if (chrome.runtime.lastError) {
           // Treat "already attached" as success — this is the desired
           // end-state and must NOT trigger a new banner.
@@ -432,7 +442,15 @@ class ChromeDebuggerProtocol {
 
   async isDebuggerAttached(tabId: number): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        settled = true;
+        resolve(false);
+      }, DEBUGGER_API_TIMEOUT_MS);
       chrome.debugger.getTargets((targets) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         const target = targets.find((t) => t.tabId === tabId);
         resolve(target?.attached ?? false);
       });

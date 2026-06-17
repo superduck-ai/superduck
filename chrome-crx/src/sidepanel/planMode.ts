@@ -37,15 +37,22 @@ export function checkToolAllowed(
   toolName: string,
   pageType: string,
   permMode: string,
-  hasApprovedPlan: boolean
+  hasApprovedPlan: boolean,
+  _toolInput?: unknown
 ): { allowed: boolean; errorMessage?: string; suggestedGuidance?: string } {
   if (pageType === 'system' || pageType === 'non-script') {
     const allowedTools = ['navigate', 'update_plan', 'TodoWrite', 'turn_answer_start'];
     if (!allowedTools.includes(toolName)) {
       return {
         allowed: false,
-        errorMessage: `Tool ${toolName} is not available on ${pageType} pages.`,
-        suggestedGuidance: `Available tools: ${allowedTools.join(', ')}. Use navigate to go to a regular webpage first.`
+        errorMessage:
+          toolName === 'browser_batch'
+            ? `browser_batch cannot run on ${pageType} pages.`
+            : `Tool ${toolName} is not available on ${pageType} pages.`,
+        suggestedGuidance:
+          toolName === 'browser_batch'
+            ? 'On system pages, use navigate by itself to go to a regular webpage. After navigation completes, observe with read_page/find before using browser_batch.'
+            : `Available tools: ${allowedTools.join(', ')}. Use navigate to go to a regular webpage first.`
       };
     }
   }

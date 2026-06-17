@@ -90,7 +90,7 @@ export function getLightningScreenshotReminder(width: number, height: number): s
 }
 
 export function normalizeToolResultContent(
-  content: ApiConversationMessage['content'] | undefined,
+  content: ApiToolResultBlock['content'] | undefined,
   fallback: string
 ): ApiToolResultBlock['content'] {
   if (typeof content === 'string') {

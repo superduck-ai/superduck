@@ -24,6 +24,7 @@ export const test = base.extend<ExtensionFixtures>({
         ...(headless ? ["--headless=new", "--disable-gpu"] : []),
         `--disable-extensions-except=${DIST_PATH}`,
         `--load-extension=${DIST_PATH}`,
+        "--silent-debugger-extension-api",
         "--no-first-run",
         "--disable-default-apps",
         "--disable-search-engine-choice-screen",

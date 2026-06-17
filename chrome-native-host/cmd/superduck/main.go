@@ -69,10 +69,13 @@ MOUSE / KEYBOARD (all require --tab <id>):
   zoom <x0> <y0> <x1> <y1> [--output PATH]
                              Capture a rectangular region as a PNG/JPEG (good for icon inspection).
 
-PAGE / DOM (require --tab <id>):
+PAGE / DOM (usually require --tab <id>):
   exec <js> | --file PATH | --stdin
                              Evaluate JS in the page context. The last expression's value is
                              returned (do NOT use 'return'). Use for assertions and debugging.
+  batch --file PATH | --stdin
+                             Execute browser_batch JSON. Input can be either an actions array
+                             or {"actions":[...]}; global --tab writes outer tabId.
   page_text                  Extract the main article text (skips chrome/nav, like Reader Mode).
   read_page [--filter interactive|all] [--depth N] [--ref R] [--max-chars N]
                              Accessibility-tree snapshot with stable ref ids. Filter to
@@ -126,6 +129,7 @@ EXAMPLES:
   superduck --tab $TAB type "hello"
   superduck --tab $TAB key "cmd+a"
   superduck --tab $TAB exec "document.title"
+  superduck --tab $TAB batch --file actions.json
 
   # observe
   superduck --tab $TAB console --pattern error --limit 20
@@ -150,6 +154,7 @@ type globalFlags struct {
 	Tab        int
 	SocketPath string
 	Timeout    time.Duration
+	TimeoutSet bool
 }
 
 var gflags = globalFlags{
@@ -235,6 +240,8 @@ func main() {
 		err = cmdScrollTo(rest)
 	case "exec":
 		err = cmdExec(rest)
+	case "batch":
+		err = cmdBatch(rest)
 	case "page_text":
 		err = cmdPageText(rest)
 	case "read_page":

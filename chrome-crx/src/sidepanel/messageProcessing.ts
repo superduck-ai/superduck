@@ -1,12 +1,16 @@
 import { compressBase64Image } from '../utils/imageCompressor';
 import type { ToolResult } from '../mcpRuntime/pageToolsSupport/types';
-import type { ApiConversationMessage, ApiInputContentBlock } from '../messageTypes';
+import type {
+  ApiConversationMessage,
+  ApiInputContentBlock,
+  ApiToolResultBlock
+} from '../messageTypes';
 import { isRecord } from '../messageTypes';
 
 type MessageForApi = ApiConversationMessage & { type?: string };
 
 interface ToolExecutionResult extends Partial<ToolResult> {
-  content?: ApiConversationMessage['content'];
+  content?: ApiToolResultBlock['content'];
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -94,9 +98,9 @@ export function prepareMessagesForApi(messages: MessageForApi[]): ApiConversatio
 
 export async function formatToolResult(
   result: ToolExecutionResult
-): Promise<ApiConversationMessage['content']> {
+): Promise<ApiToolResultBlock['content']> {
   if (result?.error) return result.error;
-  const parts: ApiInputContentBlock[] = [];
+  const parts: NonNullable<Exclude<ApiToolResultBlock['content'], string>> = [];
   if (result?.output) {
     parts.push({ type: 'text', text: result.output });
   }

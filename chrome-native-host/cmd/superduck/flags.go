@@ -34,6 +34,7 @@ func splitGlobalFlags(in []string) []string {
 				fatalUsage("invalid --timeout: %v", err)
 			}
 			gflags.Timeout = time.Duration(s) * time.Second
+			gflags.TimeoutSet = true
 			i += 2
 		default:
 			out = append(out, a)

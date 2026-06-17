@@ -77,7 +77,7 @@ func createToolHandler(nativeHost *bridge.NativeHostBridge, toolName string) fun
 		// Ensure context has a deadline so ExecuteTool never blocks indefinitely
 		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, defaultToolTimeout)
+			ctx, cancel = context.WithTimeout(ctx, defaultTimeoutForTool(toolName, input))
 			defer cancel()
 		}
 
@@ -88,6 +88,13 @@ func createToolHandler(nativeHost *bridge.NativeHostBridge, toolName string) fun
 
 		return buildCallToolResult(result), nil, nil
 	}
+}
+
+func defaultTimeoutForTool(toolName string, input map[string]interface{}) time.Duration {
+	if toolName == "browser_batch" {
+		return bridge.BrowserBatchTimeout(input, defaultToolTimeout)
+	}
+	return defaultToolTimeout
 }
 
 // registerTools registers all available tools with the MCP server
