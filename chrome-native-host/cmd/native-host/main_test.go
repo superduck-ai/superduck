@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"chrome-native-host/internal/protocol"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,6 +74,52 @@ func TestPrepareSocketPathKeepsLiveSocket(t *testing.T) {
 		t.Fatalf("live socket was removed or broken: %v", err)
 	}
 	conn.Close()
+}
+
+func TestForwardToChromeTimesOutWhenExtensionDoesNotRespond(t *testing.T) {
+	t.Parallel()
+
+	var chromeOut bytes.Buffer
+	var clientOut bytes.Buffer
+	server := &Server{
+		chromeCh:         make(chan []byte, 1),
+		chromeWriter:     &chromeOut,
+		chromeTimeout:    10 * time.Millisecond,
+		skipIdentitySync: true,
+		closed:           make(chan struct{}),
+	}
+
+	raw := []byte(`{"type":"tool_request","method":"execute_tool","params":{"tool":"superduck_list_tabs","args":{},"client_id":"superduck-cli"}}`)
+	server.forwardToChrome(raw, &clientOut)
+
+	forwarded, err := protocol.ReadMessage(&chromeOut)
+	if err != nil {
+		t.Fatalf("failed to read forwarded message: %v", err)
+	}
+	if string(forwarded) != string(raw) {
+		t.Fatalf("forwarded message mismatch: got %s want %s", forwarded, raw)
+	}
+
+	responseRaw, err := protocol.ReadMessage(&clientOut)
+	if err != nil {
+		t.Fatalf("failed to read timeout response: %v", err)
+	}
+	var response protocol.ToolResponseMsg
+	if err := json.Unmarshal(responseRaw, &response); err != nil {
+		t.Fatalf("failed to parse timeout response: %v", err)
+	}
+	if response.Error == nil {
+		t.Fatalf("expected error response, got %s", responseRaw)
+	}
+	content, ok := response.Error.Content.(string)
+	if !ok || !strings.Contains(content, "did not respond to tool request") {
+		t.Fatalf("unexpected timeout content: %#v", response.Error.Content)
+	}
+	select {
+	case <-server.closed:
+	case <-time.After(time.Second):
+		t.Fatal("server was not closed after Chrome response timeout")
+	}
 }
 
 // TestPrepareSocketPathRaceWithShutdown simulates the race where the old

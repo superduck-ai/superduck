@@ -20,6 +20,7 @@ const NATIVE_HOST_NAMES = [
 
 const HEARTBEAT_ALARM = 'native-host-heartbeat';
 const HEARTBEAT_TIMEOUT_MS = 3000;
+const TOOL_REQUEST_TIMEOUT_MS = 20_000;
 
 // Reconnect backoff schedule (ms). Stops retrying after the last entry.
 // First delay is 200ms — native host is a local process, reconnection is
@@ -32,9 +33,21 @@ type ToolRequestMessage = {
   params?: Record<string, unknown>;
   [key: string]: unknown;
 };
+type ToolRequestTimeout = { timedOut: true };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function withToolRequestTimeout<T>(promise: Promise<T>): Promise<T | ToolRequestTimeout> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<ToolRequestTimeout>((resolve) => {
+    timeoutId = setTimeout(() => resolve({ timedOut: true }), TOOL_REQUEST_TIMEOUT_MS);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 }
 
 export interface NativeHostStatus {
@@ -148,15 +161,26 @@ export function createNativeHostManager(): NativeHostManager {
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
 
-      const result = await executeTool({
-        toolName: params.tool,
-        args,
-        tabId: parseOptionalInt(args.tabId),
-        tabGroupId: parseOptionalInt(args.tabGroupId),
-        clientId,
-        source: 'native-messaging',
-        permissionMode: 'skip_all_permission_checks'
-      });
+      const result = await withToolRequestTimeout(
+        executeTool({
+          toolName: params.tool,
+          args,
+          tabId: parseOptionalInt(args.tabId),
+          tabGroupId: parseOptionalInt(args.tabGroupId),
+          clientId,
+          source: 'native-messaging',
+          permissionMode: 'skip_all_permission_checks'
+        })
+      );
+
+      if ('timedOut' in result) {
+        sendToolResponse(
+          createErrorResponse(
+            `Tool execution timed out after ${TOOL_REQUEST_TIMEOUT_MS / 1000}s: ${params.tool}`
+          )
+        );
+        return;
+      }
 
       sendToolResponse({
         content: result.content ?? '',
