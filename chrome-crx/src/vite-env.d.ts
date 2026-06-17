@@ -1,19 +1,21 @@
-declare module "*.svg" {
+declare module '*.svg' {
   const src: string;
   export default src;
 }
 
-declare module "*.svg?raw" {
+/* eslint-disable no-var */
+
+declare module '*.svg?raw' {
   const content: string;
   export default content;
 }
 
-declare module "*.png" {
+declare module '*.png' {
   const src: string;
   export default src;
 }
 
-declare module "*.ttf?url" {
+declare module '*.ttf?url' {
   const src: string;
   export default src;
 }
@@ -41,7 +43,7 @@ interface SpeechRecognitionErrorEvent extends Event {
   readonly message: string;
 }
 declare var SpeechRecognition: { new (): SpeechRecognition } | undefined;
-declare var webkitSpeechRecognition: { new (): SpeechRecognition } | undefined;
+declare let webkitSpeechRecognition: { new (): SpeechRecognition } | undefined;
 
 // CDP global state (initialized in src/mcpRuntime/cdp.ts)
 declare var __cdpDebuggerListenerRegistered: boolean;
