@@ -1,9 +1,10 @@
-import { test, expect } from "../fixtures/extension";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import { seedStorage } from "../fixtures/storage";
-import { openSidepanel } from "../helpers/sidepanel";
+import { test, expect } from '../fixtures/extension';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import type { BrowserContext, Worker } from '@playwright/test';
+import { seedStorage } from '../fixtures/storage';
+import { openSidepanel } from '../helpers/sidepanel';
 
 /**
  * Regression: chrome.sidePanel.setOptions must use a stable path.
@@ -26,22 +27,48 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function readServiceWorkerBundle(): string {
-  const assetsDir = path.resolve(__dirname, "../../dist/assets");
+  const assetsDir = path.resolve(__dirname, '../../dist/assets');
   const entries = fs.readdirSync(assetsDir);
-  const match = entries.find((name) =>
-    /^service-worker-loader\.js-[A-Za-z0-9_-]+\.js$/.test(name)
-  );
+  const match = entries.find((name) => /^service-worker-loader\.js-[A-Za-z0-9_-]+\.js$/.test(name));
   if (!match) {
     throw new Error(
       `Could not find service-worker bundle in ${assetsDir}. ` +
         `Run 'bun run build' before e2e tests.`
     );
   }
-  return fs.readFileSync(path.join(assetsDir, match), "utf8");
+  return fs.readFileSync(path.join(assetsDir, match), 'utf8');
 }
 
-test.describe("sidepanel setOptions stable path (PR #240)", () => {
-  test("static guard: setOptions path has no initialTabId query parameter", () => {
+async function requestExplicitSidePanelOpen(
+  context: BrowserContext,
+  extensionId: string,
+  tabId: number
+): Promise<void> {
+  const controlPage = await context.newPage();
+  await controlPage.goto(`chrome-extension://${extensionId}/options.html`);
+  await controlPage.evaluate(async (targetTabId) => {
+    await chrome.runtime.sendMessage({
+      type: 'open_side_panel',
+      tabId: targetTabId
+    });
+  }, tabId);
+  await controlPage.close();
+}
+
+async function getActiveTabId(serviceWorker: Worker): Promise<number> {
+  return await serviceWorker.evaluate(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [tab] = await (globalThis as any).chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true
+    });
+    if (!tab?.id) throw new Error('No active tab');
+    return tab.id as number;
+  });
+}
+
+test.describe('sidepanel setOptions stable path (PR #240)', () => {
+  test('static guard: setOptions path has no initialTabId query parameter', () => {
     const bundle = readServiceWorkerBundle();
 
     // setOptions is called with path: "sidepanel.html" — no ?initialTabId
@@ -56,39 +83,39 @@ test.describe("sidepanel setOptions stable path (PR #240)", () => {
     expect(bundle).not.toMatch(/initialTabId/);
   });
 
-  test("e2e: sidepanel loads without initialTabId and resolves active tab", async ({
+  test('e2e: sidepanel loads without initialTabId and resolves active tab', async ({
     context,
     extensionId,
-    serviceWorker,
+    serviceWorker
   }) => {
     await seedStorage(serviceWorker, {
       // Minimal config so the app doesn't crash on missing provider.
       aiProviderConfigVersion: 1,
-      browserControlPermissionAccepted: true,
+      browserControlPermissionAccepted: true
     });
 
     // Open a real tab so the sidepanel has an active tab to bind to.
     const targetPage = await context.newPage();
-    await targetPage.goto("https://example.com");
+    await targetPage.goto('https://example.com');
     await targetPage.bringToFront();
+
+    const targetTabId = await getActiveTabId(serviceWorker);
+    await requestExplicitSidePanelOpen(context, extensionId, targetTabId);
 
     // Open without initialTabId — mirrors how Chrome opens the real panel.
     const sidepanel = await openSidepanel(context, extensionId);
 
     // React tree mounted.
-    await expect(sidepanel.locator("#root")).toBeVisible();
+    await expect(sidepanel.locator('#root')).toBeVisible();
 
-    // PANEL_READY handler ran → active tab was tracked (same assertion as
-    // 03-sidepanel-open-flow). This proves useActiveTabId resolved the
-    // active tab via chrome.tabs.query, without the URL parameter.
+    // Explicit open_side_panel tracked the active tab. PANEL_READY must not
+    // be the path that claims unmanaged tabs.
     await expect
       .poll(
         async () => {
           return serviceWorker.evaluate(async () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const stored = await (globalThis as any).chrome.storage.local.get(
-              "tabGroups"
-            );
+            const stored = await (globalThis as any).chrome.storage.local.get('tabGroups');
             return stored.tabGroups ?? null;
           });
         },
@@ -100,55 +127,41 @@ test.describe("sidepanel setOptions stable path (PR #240)", () => {
     await targetPage.close();
   });
 
-  test("e2e: repeated open_side_panel messages do not reload sidepanel", async ({
+  test('e2e: repeated open_side_panel messages do not reload sidepanel', async ({
     context,
     extensionId,
-    serviceWorker,
+    serviceWorker
   }) => {
     await seedStorage(serviceWorker, {
       aiProviderConfigVersion: 1,
-      browserControlPermissionAccepted: true,
+      browserControlPermissionAccepted: true
     });
 
     const targetPage = await context.newPage();
-    await targetPage.goto("https://example.com");
+    await targetPage.goto('https://example.com');
     await targetPage.bringToFront();
+    const targetTabId = await getActiveTabId(serviceWorker);
 
     const sidepanel = await openSidepanel(context, extensionId);
-    await expect(sidepanel.locator("#root")).toBeVisible();
+    await expect(sidepanel.locator('#root')).toBeVisible();
 
     // Stamp a marker in sessionStorage — survives re-renders but NOT a
     // full iframe reload.
     await sidepanel.evaluate(() => {
-      sessionStorage.setItem("__reload_probe__", "alive");
+      sessionStorage.setItem('__reload_probe__', 'alive');
     });
 
     // Fire open_side_panel twice more through the service worker,
     // mimicking the user toggling the panel or a scheduled task.
     for (let i = 0; i < 2; i++) {
-      await serviceWorker.evaluate(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const [tab] = await (globalThis as any).chrome.tabs.query({
-          active: true,
-          lastFocusedWindow: true,
-        });
-        if (tab?.id) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (globalThis as any).chrome.runtime.sendMessage({
-            type: "open_side_panel",
-            tabId: tab.id,
-          });
-        }
-        await new Promise((r) => setTimeout(r, 500));
-      });
+      await requestExplicitSidePanelOpen(context, extensionId, targetTabId);
+      await new Promise((r) => setTimeout(r, 500));
     }
 
     // If Chrome had reloaded the iframe (because setOptions changed the
     // URL), sessionStorage would be wiped and the marker would be gone.
-    const probe = await sidepanel.evaluate(() =>
-      sessionStorage.getItem("__reload_probe__")
-    );
-    expect(probe).toBe("alive");
+    const probe = await sidepanel.evaluate(() => sessionStorage.getItem('__reload_probe__'));
+    expect(probe).toBe('alive');
 
     await sidepanel.close();
     await targetPage.close();
