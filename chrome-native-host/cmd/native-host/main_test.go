@@ -122,11 +122,17 @@ func TestForwardToChromeTimesOutWhenExtensionDoesNotRespond(t *testing.T) {
 	}
 }
 
-func TestDefaultChromeResponseTimeoutAllowsMaxComputerWait(t *testing.T) {
+func TestDefaultChromeResponseTimeoutExceedsExtensionToolRequestTimeout(t *testing.T) {
 	t.Parallel()
 
-	if defaultChromeResponseTimeout <= 30*time.Second {
-		t.Fatalf("defaultChromeResponseTimeout = %s, want more than 30s", defaultChromeResponseTimeout)
+	const minExtensionTimeout = 35 * time.Second
+
+	if defaultChromeResponseTimeout <= minExtensionTimeout {
+		t.Fatalf(
+			"defaultChromeResponseTimeout = %s, want more than %s to stay above extension timeout",
+			defaultChromeResponseTimeout,
+			minExtensionTimeout,
+		)
 	}
 }
 
