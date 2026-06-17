@@ -143,7 +143,7 @@ export const INTERACTIVE_ROLES = new Set([
   'spinbutton',
   'switch',
   'tab',
-  'treeitem',
+  'treeitem'
 ]);
 
 export const CONTENT_ROLES = new Set([
@@ -156,10 +156,10 @@ export const CONTENT_ROLES = new Set([
   'article',
   'region',
   'main',
-  'navigation',
+  'navigation'
 ]);
 
-const INVISIBLE_CHARS = /[\uFEFF\u200B\u200C\u200D\u2060\u00A0]/g;
+const INVISIBLE_CHARS = /\uFEFF|\u200B|\u200C|\u200D|\u2060|\u00A0/g;
 
 // ============================================================================
 // Helpers
@@ -239,7 +239,7 @@ function createEmptyNode(): TreeNode {
     refId: null,
     depth: 0,
     cursorInteractive: false,
-    url: null,
+    url: null
   };
 }
 
@@ -289,7 +289,7 @@ function buildTree(nodes: AXNode[]): { treeNodes: TreeNode[]; rootIndices: numbe
       refId: null,
       depth: 0,
       cursorInteractive: false,
-      url: null,
+      url: null
     });
   }
 
@@ -353,7 +353,10 @@ function aggregateStaticText(treeNodes: TreeNode[]): void {
       }
 
       let end = start + 1;
-      while (end < childrenIndices.length && treeNodes[childrenIndices[end]].role === 'StaticText') {
+      while (
+        end < childrenIndices.length &&
+        treeNodes[childrenIndices[end]].role === 'StaticText'
+      ) {
         end++;
       }
 
@@ -423,43 +426,67 @@ async function findCursorInteractiveElements(
 
   try {
     const scanFunc = (maxNodes: number) => {
-      var nativeTags: Record<string, number> = {A:1,BUTTON:1,INPUT:1,SELECT:1,TEXTAREA:1,DETAILS:1,SUMMARY:1};
-      var interactiveRoles: Record<string, number> = {button:1,link:1,textbox:1,checkbox:1,radio:1,combobox:1,
-        listbox:1,menuitem:1,menuitemcheckbox:1,menuitemradio:1,option:1,searchbox:1,
-        slider:1,spinbutton:1,switch:1,tab:1,treeitem:1};
-      var all = document.body ? document.body.querySelectorAll('*') : [];
+      const nativeTags: Record<string, number> = {
+        A: 1,
+        BUTTON: 1,
+        INPUT: 1,
+        SELECT: 1,
+        TEXTAREA: 1,
+        DETAILS: 1,
+        SUMMARY: 1
+      };
+      const interactiveRoles: Record<string, number> = {
+        button: 1,
+        link: 1,
+        textbox: 1,
+        checkbox: 1,
+        radio: 1,
+        combobox: 1,
+        listbox: 1,
+        menuitem: 1,
+        menuitemcheckbox: 1,
+        menuitemradio: 1,
+        option: 1,
+        searchbox: 1,
+        slider: 1,
+        spinbutton: 1,
+        switch: 1,
+        tab: 1,
+        treeitem: 1
+      };
+      const all = document.body ? document.body.querySelectorAll('*') : [];
       // 大页面跳过，避免 getComputedStyle N 次导致的 reflow/style 重算阻塞
       if (all.length > maxNodes) return { count: 0, skipped: true };
-      var count = 0;
-      var isInputHidden = function (inp: HTMLInputElement): boolean {
-        var cs = getComputedStyle(inp);
+      let count = 0;
+      const isInputHidden = function (inp: HTMLInputElement): boolean {
+        const cs = getComputedStyle(inp);
         if (cs.display === 'none' || cs.visibility === 'hidden') return true;
         if (inp.offsetWidth === 0 || inp.offsetHeight === 0) return true;
         return false;
       };
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i] as HTMLElement;
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i] as HTMLElement;
         if (el.closest('[hidden],[aria-hidden="true"]')) continue;
         if (nativeTags[el.tagName]) continue;
-        var role = el.getAttribute('role');
+        const role = el.getAttribute('role');
         if (role && interactiveRoles[role]) continue;
-        var cs = getComputedStyle(el);
-        var hasCursor = cs.cursor === 'pointer';
-        var hasOnClick = el.hasAttribute('onclick') || el.onclick !== null;
-        var ti = el.getAttribute('tabindex');
-        var hasTabIndex = ti !== null && ti !== '-1';
-        var ce = el.getAttribute('contenteditable');
-        var isEditable = ce === '' || ce === 'true';
+        const cs = getComputedStyle(el);
+        const hasCursor = cs.cursor === 'pointer';
+        const hasOnClick = el.hasAttribute('onclick') || el.onclick !== null;
+        const ti = el.getAttribute('tabindex');
+        const hasTabIndex = ti !== null && ti !== '-1';
+        const ce = el.getAttribute('contenteditable');
+        const isEditable = ce === '' || ce === 'true';
 
         // 自定义 radio/checkbox 检测：元素内含唯一一个 hidden 的 native input。
         // 多 input 容器（典型 radiogroup / checkbox-group 包装）必须跳过提升，
         // 否则整组会塌成一个节点，只继承第一项的 checked，其他选项的 ref 全丢。
         // 让外层放过，文档顺序后续会处理到每个内层 label/wrapper 各自提升。
-        var ihType: 'radio' | 'checkbox' | null = null;
-        var ihChecked = false;
-        var inputs = el.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+        let ihType: 'radio' | 'checkbox' | null = null;
+        let ihChecked = false;
+        const inputs = el.querySelectorAll('input[type="radio"], input[type="checkbox"]');
         if (inputs.length === 1) {
-          var inp = inputs[0] as HTMLInputElement;
+          const inp = inputs[0] as HTMLInputElement;
           if (isInputHidden(inp)) {
             // 嵌套包装去重：如 <label><span><input/></span></label>，
             // label 已被标记后跳过 span。文档顺序保证外层先被处理。
@@ -470,18 +497,18 @@ async function findCursorInteractiveElements(
           }
         }
 
-        var isInteractive = hasCursor || hasOnClick || hasTabIndex || isEditable;
+        const isInteractive = hasCursor || hasOnClick || hasTabIndex || isEditable;
         // 仅含 hidden input 但本身没有交互标志的元素也要标记，以便后续提升
         if (!isInteractive && !ihType) continue;
 
         // 仅有 cursor:pointer 且父元素也继承 pointer 时去重（原始逻辑），
         // 但如果自己是 hidden input 宿主，不能被去重，否则提升会失败。
         if (isInteractive && !ihType && hasCursor && !hasOnClick && !hasTabIndex && !isEditable) {
-          var parent = el.parentElement;
+          const parent = el.parentElement;
           if (parent && getComputedStyle(parent).cursor === 'pointer') continue;
         }
 
-        var rect = el.getBoundingClientRect();
+        const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) continue;
 
         el.setAttribute('data-__sd-ci', String(count));
@@ -501,13 +528,14 @@ async function findCursorInteractiveElements(
     const scanResults = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: scanFunc,
-      args: [MAX_SCAN_NODES],
+      args: [MAX_SCAN_NODES]
     });
 
-    const totalCount = scanResults?.reduce(
-      (sum, r) => sum + (((r.result as { count?: number } | undefined)?.count as number) || 0),
-      0
-    ) ?? 0;
+    const totalCount =
+      scanResults?.reduce(
+        (sum, r) => sum + (((r.result as { count?: number } | undefined)?.count as number) || 0),
+        0
+      ) ?? 0;
     if (totalCount === 0) return { cursorIds, hiddenInputs };
 
     // Step 2: 通过 DOM.getDocument (pierce iframes) + DOM.querySelectorAll 获取标记元素
@@ -597,7 +625,7 @@ async function findCursorInteractiveElements(
         if (r.ihType === 'radio' || r.ihType === 'checkbox') {
           hiddenInputs.set(r.backendNodeId, {
             type: r.ihType,
-            checked: r.ihChecked === '1',
+            checked: r.ihChecked === '1'
           });
         }
       }
@@ -611,14 +639,16 @@ async function findCursorInteractiveElements(
         await chrome.scripting.executeScript({
           target: { tabId, allFrames: true },
           func: () => {
-            var els = document.querySelectorAll('[data-__sd-ci],[data-__sd-ih-t],[data-__sd-ih-c],[data-__sd-ih-only]');
-            for (var i = 0; i < els.length; i++) {
+            const els = document.querySelectorAll(
+              '[data-__sd-ci],[data-__sd-ih-t],[data-__sd-ih-c],[data-__sd-ih-only]'
+            );
+            for (let i = 0; i < els.length; i++) {
               els[i].removeAttribute('data-__sd-ci');
               els[i].removeAttribute('data-__sd-ih-t');
               els[i].removeAttribute('data-__sd-ih-c');
               els[i].removeAttribute('data-__sd-ih-only');
             }
-          },
+          }
         });
       } catch {
         // 清理失败不影响主流程
@@ -656,7 +686,11 @@ class RoleNameTracker {
 // Ref Assignment
 // ============================================================================
 
-function assignRefs(treeNodes: TreeNode[], interactiveOnly: boolean, startRef: number = 1): RefMapping[] {
+function assignRefs(
+  treeNodes: TreeNode[],
+  interactiveOnly: boolean,
+  startRef: number = 1
+): RefMapping[] {
   const refMappings: RefMapping[] = [];
   const tracker = new RoleNameTracker();
   const nodesWithRefs: Array<{ idx: number; nth: number }> = [];
@@ -703,7 +737,7 @@ function assignRefs(treeNodes: TreeNode[], interactiveOnly: boolean, startRef: n
         name: node.name,
         nth: actualNth,
         isCursorInteractive: node.cursorInteractive,
-        interactiveOnly,
+        interactiveOnly
       });
     }
   }
@@ -853,7 +887,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 export async function withSnapshotLock<T>(tabId: number, fn: () => Promise<T>): Promise<T> {
   const prev = snapshotLocks.get(tabId) ?? Promise.resolve();
   let release!: () => void;
-  const gate = new Promise<void>((r) => { release = r; });
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
   const chained = prev.then(() => gate);
   snapshotLocks.set(tabId, chained);
   try {
@@ -918,7 +954,7 @@ async function fetchAXTree(tabId: number): Promise<AXNode[]> {
       }
       if (!frameId) return null;
 
-      let childResp: CdpAccessibilityTreeResult<AXNode> | null = null;
+      let childResp: CdpAccessibilityTreeResult<AXNode>;
       try {
         childResp = await cdpDebugger.sendCommand<CdpAccessibilityTreeResult<AXNode>>(
           tabId,
@@ -939,7 +975,7 @@ async function fetchAXTree(tabId: number): Promise<AXNode[]> {
       const prefixed: AXNode[] = childNodes.map((n) => ({
         ...n,
         nodeId: `${prefix}${n.nodeId}`,
-        childIds: n.childIds?.map((c) => `${prefix}${c}`),
+        childIds: n.childIds?.map((c) => `${prefix}${c}`)
       }));
 
       // 找子帧的 root（通常是 RootWebArea，且没有 parentId 的节点）
@@ -1052,7 +1088,7 @@ async function collectSubtreeBackendIds(tabId: number, selector: string): Promis
       selector
     });
   } catch (err) {
-    throw new Error(`Invalid selector '${selector}': ${getErrorMessage(err)}`);
+    throw new Error(`Invalid selector '${selector}': ${getErrorMessage(err)}`, { cause: err });
   }
   const matchedNodeId: number | undefined = qs?.nodeId;
   if (!matchedNodeId) {
@@ -1109,7 +1145,7 @@ export async function takeSnapshotUnlocked(
     findCursorInteractiveElements(tabId),
     options.selector
       ? collectSubtreeBackendIds(tabId, options.selector)
-      : Promise.resolve(null as Set<number> | null),
+      : Promise.resolve(null as Set<number> | null)
   ]);
   const cursorInteractiveIds = cursorScan.cursorIds;
   const hiddenInputs = cursorScan.hiddenInputs;
@@ -1174,7 +1210,11 @@ export async function takeSnapshotUnlocked(
     effectiveRoots = newRoots;
   }
 
-  const refMappings = assignRefs(treeNodes, options.filter === 'interactive', (options.startRef ?? 0) + 1);
+  const refMappings = assignRefs(
+    treeNodes,
+    options.filter === 'interactive',
+    (options.startRef ?? 0) + 1
+  );
 
   if (options.urls) {
     await resolveLinkUrls(tabId, treeNodes);

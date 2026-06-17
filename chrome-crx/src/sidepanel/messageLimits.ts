@@ -87,7 +87,7 @@ export function parseMessageLimit(value: unknown): MessageLimitState | null {
 }
 
 export function parseRateLimitFromError(error: unknown): MessageLimitState | null {
-  let raw = '';
+  let raw: string;
   if (typeof error === 'string') {
     raw = error;
   } else if (error instanceof Error) {
@@ -96,7 +96,7 @@ export function parseRateLimitFromError(error: unknown): MessageLimitState | nul
     try {
       raw = JSON.stringify(error);
     } catch {
-      raw = '';
+      return null;
     }
   }
   if (!raw) return null;

@@ -682,7 +682,9 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
           isKnowledgeContentBlock(item) && typeof item.title === 'string'
       );
       if (knowledge) return { title: knowledge.title };
-      const textPart = content.find((item): item is ApiTextContentBlock => isTextContentBlock(item));
+      const textPart = content.find((item): item is ApiTextContentBlock =>
+        isTextContentBlock(item)
+      );
       if (textPart?.text) {
         try {
           const parsed = JSON.parse(textPart.text);
@@ -694,7 +696,9 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
           ) {
             return { title: parsed[0].title };
           }
-        } catch {}
+        } catch {
+          return null;
+        }
       }
       return null;
     } catch {
