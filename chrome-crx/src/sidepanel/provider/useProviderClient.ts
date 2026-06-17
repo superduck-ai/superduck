@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, type MutableRefObject } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 import { DEFAULT_MODEL } from '../../constants/models';
 import { MessagesClient } from '../../mcpServersStore';
 import { resolveEffectiveContextWindow } from '../contextWindow';
@@ -12,6 +12,7 @@ import {
   lookupModelContextLength,
   resolveTier
 } from '../../utils/providerStore';
+import { resolveClientForTier } from '../../utils/providerClient';
 
 export interface UseProviderClientOptions {
   apiKey: string;
@@ -29,6 +30,7 @@ export interface UseProviderClientResult {
   hasProviderConfig: boolean;
   serverModelInfo: ServerModelInfo | null;
   serverContextLengthRef: MutableRefObject<number>;
+  refreshProviderConfig: () => void;
 }
 
 type ProviderContextInfo =
@@ -47,6 +49,10 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(
     null
   );
+  const [providerConfigRefreshVersion, setProviderConfigRefreshVersion] = useState(0);
+  const refreshProviderConfig = useCallback(() => {
+    setProviderConfigRefreshVersion((version) => version + 1);
+  }, []);
 
   const messagesClient = useMemo(() => {
     if (!apiKey || !apiBaseUrl) return null;
@@ -63,26 +69,55 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       return;
     }
     let cancelled = false;
-    (async () => {
-      const { resolveClientForTier } = await import('../../utils/providerClient');
-      const resolved = await resolveClientForTier('smart');
-      if (cancelled) return;
-      if (resolved) {
-        setProviderClient(
-          new MessagesClient({
-            baseURL: resolved.baseURL,
-            dangerouslyAllowBrowser: true,
-            apiKey: resolved.apiKey
-          })
-        );
-      } else {
+    let resolveVersion = 0;
+
+    const resolveProviderClient = async () => {
+      const version = ++resolveVersion;
+      const resolved = await resolveClientForTier('smart', true);
+      if (cancelled || version !== resolveVersion) return;
+      if (!resolved) {
         setProviderClient(null);
+        return;
       }
-    })();
+
+      setProviderClient(
+        new MessagesClient({
+          baseURL: resolved.baseURL,
+          dangerouslyAllowBrowser: true,
+          apiKey: resolved.apiKey
+        })
+      );
+    };
+
+    void resolveProviderClient();
+
+    const storageListener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string
+    ) => {
+      if (areaName !== 'local') return;
+      if (PROVIDER_STORAGE_KEYS.MAPPING in changes || PROVIDER_STORAGE_KEYS.PROVIDERS in changes) {
+        void resolveProviderClient();
+      }
+    };
+    const runtimeListener = (message: unknown) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        (message as { type?: string }).type === PROVIDER_CONFIG_BROADCAST
+      ) {
+        void resolveProviderClient();
+      }
+    };
+    chrome.storage.onChanged.addListener(storageListener);
+    chrome.runtime.onMessage.addListener(runtimeListener);
+
     return () => {
       cancelled = true;
+      chrome.storage.onChanged.removeListener(storageListener);
+      chrome.runtime.onMessage.removeListener(runtimeListener);
     };
-  }, [messagesClient, apiKey, apiBaseUrl]);
+  }, [messagesClient, providerConfigRefreshVersion]);
 
   const effectiveMessagesClient = messagesClient || providerClient;
   const hasProviderConfig = effectiveMessagesClient !== null;
@@ -188,6 +223,7 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
     effectiveMessagesClient,
     hasProviderConfig,
     serverModelInfo,
-    serverContextLengthRef
+    serverContextLengthRef,
+    refreshProviderConfig
   };
 }

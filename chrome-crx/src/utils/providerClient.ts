@@ -8,6 +8,7 @@ import {
   type AiProvider,
   type Tier
 } from './providerStore';
+import { isProviderReadyForSetup } from './providerConfigStatus';
 import {
   createAnthropicRuntime,
   createProviderRuntime,
@@ -42,10 +43,14 @@ function cacheKeyFor(kind: string, baseURL: string, apiKey: string): string {
  * bound, so the caller can fall back to the OAuth-authenticated default
  * Anthropic gateway (legacy behaviour) instead of refusing to send anything.
  */
-export async function resolveClientForTier(tier: Tier): Promise<ResolvedClientConfig | null> {
-  const config = await loadProviderConfig();
+export async function resolveClientForTier(
+  tier: Tier,
+  forceRefresh = false
+): Promise<ResolvedClientConfig | null> {
+  const config = await loadProviderConfig(forceRefresh);
   const resolved = resolveTier(config, tier);
   if (!resolved) return null;
+  if (!isProviderReadyForSetup(resolved.provider)) return null;
   const baseURL = normalizeProviderBaseURL(
     resolved.provider.kind,
     resolved.provider.baseURL || DEFAULT_BASE_URL[resolved.provider.kind]

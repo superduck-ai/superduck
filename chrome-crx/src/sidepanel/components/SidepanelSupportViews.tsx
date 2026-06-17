@@ -7,16 +7,24 @@ function BrowserPermissionGate({ onAccept }: { onAccept: () => Promise<void> }) 
   return (
     <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center p-4">
       <div className="max-w-lg rounded-xl border border-border-300 bg-bg-000 p-5">
-        <h2 className="text-lg font-medium mb-2">Enable browser control</h2>
+        <h2 className="text-lg font-medium mb-2">
+          <MemoizedFormattedMessage
+            defaultMessage="Enable browser control"
+            id="sidepanel_enable_browser_control"
+          />
+        </h2>
         <p className="text-sm text-text-300 mb-4">
-          SuperDuck needs browser control permission before running actions.
+          <MemoizedFormattedMessage
+            defaultMessage="SuperDuck needs browser control permission before running actions."
+            id="sidepanel_browser_control_permission_required"
+          />
         </p>
         <button
           type="button"
           className="px-4 py-2 rounded-lg bg-accent-main-100 text-oncolor-100"
           onClick={() => void onAccept()}
         >
-          Continue
+          <MemoizedFormattedMessage defaultMessage="Continue" id="continue" />
         </button>
       </div>
     </div>
@@ -35,9 +43,14 @@ function SetupGate({
   return (
     <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center p-4">
       <div className="max-w-lg rounded-xl border border-border-300 bg-bg-000 p-5">
-        <h2 className="text-lg font-medium mb-2">Setup required</h2>
+        <h2 className="text-lg font-medium mb-2">
+          <MemoizedFormattedMessage defaultMessage="Setup required" id="sidepanel_setup_required" />
+        </h2>
         <p className="text-sm text-text-300 mb-4">
-          Configure your API endpoint and key in extension settings before sending prompts.
+          <MemoizedFormattedMessage
+            defaultMessage="Configure your model provider and API key in settings before sending prompts."
+            id="sidepanel_configure_model_before_prompting"
+          />
         </p>
         {authError ? <p className="text-sm text-danger-000 mb-3">{authError}</p> : null}
         <div className="flex gap-2">
@@ -46,14 +59,14 @@ function SetupGate({
             className="px-4 py-2 rounded-lg bg-accent-main-100 text-oncolor-100"
             onClick={onOpenSettings}
           >
-            Open settings
+            <MemoizedFormattedMessage defaultMessage="Open settings" id="open_settings" />
           </button>
           <button
             type="button"
             className="px-4 py-2 rounded-lg border border-border-300 text-text-100"
             onClick={() => void onRetry()}
           >
-            Retry
+            <MemoizedFormattedMessage defaultMessage="Retry" id="retry" />
           </button>
         </div>
       </div>
