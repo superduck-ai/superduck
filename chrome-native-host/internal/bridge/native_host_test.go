@@ -92,13 +92,26 @@ func TestDefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestDefaultToolResponseTimeoutExceedsNativeHostBackstop(t *testing.T) {
+	const nativeHostChromeResponseTimeout = 40 * time.Second
+
+	defaultToolResponseTimeout := DefaultTimeout + toolResponseHeadroom
+	if defaultToolResponseTimeout <= nativeHostChromeResponseTimeout {
+		t.Fatalf(
+			"default tool response timeout = %s, want more than %s to stay above native-host backstop",
+			defaultToolResponseTimeout,
+			nativeHostChromeResponseTimeout,
+		)
+	}
+}
+
 func TestMaxTimeout(t *testing.T) {
 	if MaxTimeout != 5*time.Minute {
 		t.Errorf("MaxTimeout = %v, expected 5m", MaxTimeout)
 	}
 }
 
-func TestComputeRequestDeadlineUsesContextDeadline(t *testing.T) {
+func TestComputeRequestDeadlineAddsHeadroomToContextDeadline(t *testing.T) {
 	now := time.Now()
 	ctx, cancel := context.WithDeadline(context.Background(), now.Add(2*time.Minute))
 	defer cancel()
@@ -107,11 +120,12 @@ func TestComputeRequestDeadlineUsesContextDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("computeRequestDeadline() error = %v", err)
 	}
-	if deadline.Sub(now) != 2*time.Minute {
-		t.Fatalf("deadline delta = %v, want 2m", deadline.Sub(now))
+	want := 2*time.Minute + toolResponseHeadroom
+	if deadline.Sub(now) != want {
+		t.Fatalf("deadline delta = %v, want %v", deadline.Sub(now), want)
 	}
-	if timeout != 2*time.Minute {
-		t.Fatalf("timeout = %v, want 2m", timeout)
+	if timeout != want {
+		t.Fatalf("timeout = %v, want %v", timeout, want)
 	}
 }
 
@@ -139,11 +153,12 @@ func TestComputeRequestDeadlineUsesDefaultWithoutContextDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("computeRequestDeadline() error = %v", err)
 	}
-	if deadline.Sub(now) != DefaultTimeout {
-		t.Fatalf("deadline delta = %v, want %v", deadline.Sub(now), DefaultTimeout)
+	want := DefaultTimeout + toolResponseHeadroom
+	if deadline.Sub(now) != want {
+		t.Fatalf("deadline delta = %v, want %v", deadline.Sub(now), want)
 	}
-	if timeout != DefaultTimeout {
-		t.Fatalf("timeout = %v, want %v", timeout, DefaultTimeout)
+	if timeout != want {
+		t.Fatalf("timeout = %v, want %v", timeout, want)
 	}
 }
 

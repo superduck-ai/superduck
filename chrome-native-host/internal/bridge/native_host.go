@@ -21,6 +21,7 @@ const (
 	MaxTimeout     = 5 * time.Minute
 
 	browserBatchChildActionTimeout = 15 * time.Second
+	toolResponseHeadroom           = 15 * time.Second
 )
 
 // Options configures the NativeHostBridge.
@@ -243,7 +244,7 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	}
 	_ = b.conn.SetWriteDeadline(time.Time{})
 
-	// Wait for tool_response using the same deadline as the request context.
+	// Wait for tool_response using the request deadline plus forwarding headroom.
 	_ = b.conn.SetReadDeadline(requestDeadline)
 	response, err := protocol.ReadMessage(b.conn)
 	_ = b.conn.SetReadDeadline(time.Time{})
@@ -283,6 +284,7 @@ func isTimeoutError(err error) bool {
 }
 
 func computeRequestDeadline(ctx context.Context, now time.Time) (time.Time, time.Duration, error) {
+	maxDeadline := now.Add(MaxTimeout)
 	if deadline, ok := ctx.Deadline(); ok {
 		if !deadline.After(now) {
 			err := ctx.Err()
@@ -291,14 +293,18 @@ func computeRequestDeadline(ctx context.Context, now time.Time) (time.Time, time
 			}
 			return time.Time{}, 0, fmt.Errorf("context deadline exceeded before send: %w", err)
 		}
-		maxDeadline := now.Add(MaxTimeout)
+		deadline = deadline.Add(toolResponseHeadroom)
 		if deadline.After(maxDeadline) {
-			deadline = maxDeadline
+			return maxDeadline, MaxTimeout, nil
 		}
 		return deadline, deadline.Sub(now), nil
 	}
 
-	return now.Add(DefaultTimeout), DefaultTimeout, nil
+	timeout := DefaultTimeout + toolResponseHeadroom
+	if timeout > MaxTimeout {
+		timeout = MaxTimeout
+	}
+	return now.Add(timeout), timeout, nil
 }
 
 // BrowserBatchTimeout returns a request timeout large enough for the extension
