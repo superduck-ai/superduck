@@ -19,6 +19,8 @@ const (
 	ConnectRetries = 3
 	DefaultTimeout = 30 * time.Second
 	MaxTimeout     = 5 * time.Minute
+
+	toolResponseHeadroom = 15 * time.Second
 )
 
 // Options configures the NativeHostBridge.
@@ -188,15 +190,14 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	// Calculate timeout from context or use default.
 	// Add headroom for forwarding overhead (the extension itself may sleep
 	// up to `duration` seconds, so the bridge deadline must outlive that).
-	timeout := DefaultTimeout
-	headroom := 5 * time.Second
+	timeout := DefaultTimeout + toolResponseHeadroom
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return nil, fmt.Errorf("context deadline exceeded before send: %w", ctx.Err())
 		}
-		if remaining+headroom < MaxTimeout {
-			timeout = remaining + headroom
+		if remaining+toolResponseHeadroom < MaxTimeout {
+			timeout = remaining + toolResponseHeadroom
 		} else {
 			timeout = MaxTimeout
 		}
@@ -239,8 +240,6 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	}
 
 	// Bound each send/recv so a half-open UDS connection can't block forever.
-	// Use 35s read deadline to accommodate the schema-maximum 30s wait action
-	// plus 5s forwarding headroom.
 	_ = b.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	if err := protocol.SendMessage(b.conn, req); err != nil {
 		// Connection is broken; close it so reconnect() picks up a fresh one.
@@ -252,7 +251,7 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	_ = b.conn.SetWriteDeadline(time.Time{})
 
 	// Wait for tool_response
-	_ = b.conn.SetReadDeadline(time.Now().Add(35 * time.Second))
+	_ = b.conn.SetReadDeadline(time.Now().Add(timeout))
 	response, err := protocol.ReadMessage(b.conn)
 	_ = b.conn.SetReadDeadline(time.Time{})
 	if err != nil {

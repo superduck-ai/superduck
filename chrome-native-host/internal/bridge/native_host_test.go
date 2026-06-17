@@ -92,6 +92,19 @@ func TestDefaultTimeout(t *testing.T) {
 	}
 }
 
+func TestDefaultToolResponseTimeoutExceedsNativeHostBackstop(t *testing.T) {
+	const nativeHostChromeResponseTimeout = 40 * time.Second
+
+	defaultToolResponseTimeout := DefaultTimeout + toolResponseHeadroom
+	if defaultToolResponseTimeout <= nativeHostChromeResponseTimeout {
+		t.Fatalf(
+			"default tool response timeout = %s, want more than %s to stay above native-host backstop",
+			defaultToolResponseTimeout,
+			nativeHostChromeResponseTimeout,
+		)
+	}
+}
+
 func TestMaxTimeout(t *testing.T) {
 	if MaxTimeout != 5*time.Minute {
 		t.Errorf("MaxTimeout = %v, expected 5m", MaxTimeout)

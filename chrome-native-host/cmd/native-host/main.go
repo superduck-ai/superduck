@@ -22,7 +22,11 @@ const (
 	socketPath = "/tmp/chrome-native-host.sock"
 )
 
-const identitySyncWait = 2 * time.Second
+const defaultIdentitySyncWait = 2 * time.Second
+
+// Must be higher than the extension-side tool timeout and the documented
+// `computer.wait` maximum of 30s.
+const defaultChromeResponseTimeout = 40 * time.Second
 
 // maxUDSConnections caps concurrent UDS client connections to prevent
 // resource exhaustion from buggy or malicious local processes.
@@ -43,6 +47,9 @@ type Server struct {
 	// chromeMu serializes request-response pairs to Chrome.
 	chromeMu         sync.Mutex
 	chromeCh         chan []byte
+	chromeWriter     io.Writer
+	chromeTimeout    time.Duration
+	skipIdentitySync bool
 	identitySyncOnce sync.Once
 }
 
@@ -98,6 +105,8 @@ func NewServer() (*Server, error) {
 		udsListener:    listener,
 		udsConnections: make(map[net.Conn]bool),
 		chromeCh:       make(chan []byte, 1),
+		chromeWriter:   os.Stdout,
+		chromeTimeout:  defaultChromeResponseTimeout,
 		closed:         make(chan struct{}),
 	}, nil
 }
@@ -349,11 +358,13 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 }
 
 func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
-	s.identitySyncOnce.Do(func() {
-		if !waitForInstallIDConfirmed(identitySyncWait) {
-			slog.Warn("analytics identity not yet synced, forwarding anyway")
-		}
-	})
+	if !s.skipIdentitySync {
+		s.identitySyncOnce.Do(func() {
+			if !waitForInstallIDConfirmed(defaultIdentitySyncWait) {
+				slog.Warn("analytics identity not yet synced, forwarding anyway")
+			}
+		})
+	}
 
 	// Serialize: only one request-response pair in flight at a time
 	s.chromeMu.Lock()
@@ -365,24 +376,38 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 	}
 	slog.Debug("forwarding to Chrome", "message", logRaw)
 
-	// Send to Chrome via stdout
-	if err := protocol.SendMessage(os.Stdout, json.RawMessage(raw)); err != nil {
+	chromeWriter := s.chromeWriter
+	if chromeWriter == nil {
+		chromeWriter = os.Stdout
+	}
+	if err := protocol.SendMessage(chromeWriter, json.RawMessage(raw)); err != nil {
 		slog.Error("failed to forward to Chrome", "error", err)
 		sendToolError(responseWriter, fmt.Sprintf("forward error: %v", err))
 		return
 	}
 
-	// Wait for response from readChromeStdio via channel
-	response, ok := <-s.chromeCh
-	if !ok {
-		slog.Error("Chrome channel closed")
-		sendToolError(responseWriter, "chrome connection closed")
-		return
+	chromeTimeout := s.chromeTimeout
+	if chromeTimeout <= 0 {
+		chromeTimeout = defaultChromeResponseTimeout
 	}
 
-	// Send response back to MCP via UDS
-	if err := protocol.SendMessage(responseWriter, json.RawMessage(response)); err != nil {
-		slog.Error("failed to send response to MCP", "error", err)
+	timer := time.NewTimer(chromeTimeout)
+	defer timer.Stop()
+
+	select {
+	case response, ok := <-s.chromeCh:
+		if !ok {
+			slog.Error("Chrome channel closed")
+			sendToolError(responseWriter, "chrome connection closed")
+			return
+		}
+		if err := protocol.SendMessage(responseWriter, json.RawMessage(response)); err != nil {
+			slog.Error("failed to send response to MCP", "error", err)
+		}
+	case <-timer.C:
+		slog.Error("Chrome tool response timeout", "timeout", chromeTimeout)
+		sendToolError(responseWriter, fmt.Sprintf("chrome extension did not respond to tool request within %s; reload the extension if this repeats", chromeTimeout))
+		_ = s.Close()
 	}
 }
 

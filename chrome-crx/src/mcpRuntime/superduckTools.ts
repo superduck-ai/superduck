@@ -5,6 +5,8 @@
 import type { ToolDefinition } from './pageTools';
 import { cdpDebugger } from './cdp';
 
+const LIST_TABS_CHROME_API_TIMEOUT_MS = 5_000;
+
 interface ActiveContextArgs {
   tabId?: number;
   full?: boolean;
@@ -63,6 +65,21 @@ interface ToolScriptResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function withChromeApiTimeout<T>(stage: string, promise: Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () =>
+        reject(new Error(`${stage} timed out after ${LIST_TABS_CHROME_API_TIMEOUT_MS / 1000}s`)),
+      LIST_TABS_CHROME_API_TIMEOUT_MS
+    );
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 }
 
 function isActiveContextScriptResult(value: unknown): value is ActiveContextScriptResult {
@@ -313,8 +330,11 @@ export const superduckListTabsTool: ToolDefinition<Record<string, never>> = {
   execute: async () => {
     try {
       const [tabs, lastFocused] = await Promise.all([
-        chrome.tabs.query({}),
-        chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+        withChromeApiTimeout('chrome.tabs.query', chrome.tabs.query({})),
+        withChromeApiTimeout(
+          'chrome.windows.getLastFocused',
+          chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+        )
       ]);
       const out = tabs
         .filter((t) => t.id !== undefined)
