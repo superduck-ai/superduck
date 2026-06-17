@@ -960,11 +960,9 @@
   "saved_success": "已保存并立即生效。",
   "sidepanel_enable_browser_control": "启用浏览器控制",
   "sidepanel_browser_control_permission_required": "SuperDuck 需要浏览器控制权限后才能执行操作。",
-  "continue": "继续",
   "sidepanel_setup_required": "需要完成设置",
   "sidepanel_configure_model_before_prompting": "发送提示前，请先在设置中配置模型供应商和 API Key。",
   "open_settings": "打开设置",
-  "retry": "重试",
   "agent.noHistoryToCompact": "没有可清理的对话历史",
   "agent.shareNotImplemented": "分享功能尚未实现。"
 }

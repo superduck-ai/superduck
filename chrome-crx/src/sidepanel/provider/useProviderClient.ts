@@ -4,16 +4,15 @@ import { MessagesClient } from '../../mcpServersStore';
 import { resolveEffectiveContextWindow } from '../contextWindow';
 import { CONTEXT_WINDOW } from '../messageLimits';
 import {
-  DEFAULT_BASE_URL,
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
   classifyTier,
   fetchProviderModelCatalog,
   loadProviderConfig,
   lookupModelContextLength,
-  normalizeProviderBaseURL,
   resolveTier
 } from '../../utils/providerStore';
+import { resolveClientForTier } from '../../utils/providerClient';
 
 export interface UseProviderClientOptions {
   apiKey: string;
@@ -70,30 +69,22 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       return;
     }
     let cancelled = false;
+    let resolveVersion = 0;
 
     const resolveProviderClient = async () => {
-      const config = await loadProviderConfig(true);
-      const resolved = resolveTier(config, 'smart');
-      if (cancelled) return;
+      const version = ++resolveVersion;
+      const resolved = await resolveClientForTier('smart', true);
+      if (cancelled || version !== resolveVersion) return;
       if (!resolved) {
-        setProviderClient(null);
-        return;
-      }
-
-      const baseURL = normalizeProviderBaseURL(
-        resolved.provider.kind,
-        resolved.provider.baseURL || DEFAULT_BASE_URL[resolved.provider.kind]
-      );
-      if (!baseURL || !resolved.provider.apiKey) {
         setProviderClient(null);
         return;
       }
 
       setProviderClient(
         new MessagesClient({
-          baseURL,
+          baseURL: resolved.baseURL,
           dangerouslyAllowBrowser: true,
-          apiKey: resolved.provider.apiKey
+          apiKey: resolved.apiKey
         })
       );
     };
