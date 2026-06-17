@@ -116,7 +116,7 @@ describe('createNativeHostManager', () => {
       params: { tool: 'superduck_list_tabs', args: {}, client_id: 'superduck-cli' }
     });
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(35_000);
 
     expect(toolResponses()).toEqual([
       {
@@ -125,7 +125,7 @@ describe('createNativeHostManager', () => {
           content: [
             {
               type: 'text',
-              text: 'Tool execution timed out after 20s: superduck_list_tabs'
+              text: 'Tool execution timed out after 35s: superduck_list_tabs'
             }
           ]
         }
@@ -148,13 +148,41 @@ describe('createNativeHostManager', () => {
       params: { tool: 'superduck_list_tabs', args: {}, client_id: 'superduck-cli' }
     });
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(35_000);
     resolveTool({ content: 'late success' });
     await Promise.resolve();
 
     expect(toolResponses()).toHaveLength(1);
     expect(toolResponses()[0].error.content[0].text).toBe(
-      'Tool execution timed out after 20s: superduck_list_tabs'
+      'Tool execution timed out after 35s: superduck_list_tabs'
     );
+  });
+
+  it('allows valid 30-second wait tools to complete before the timeout', async () => {
+    await connectManager();
+    mcpRuntimeMocks.executeTool.mockReturnValue(
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ content: 'Waited for 30 seconds' }), 30_000);
+      })
+    );
+
+    messageEvent.emit({
+      type: 'tool_request',
+      method: 'execute_tool',
+      params: {
+        tool: 'computer',
+        args: { action: 'wait', duration: 30 },
+        client_id: 'superduck-cli'
+      }
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(toolResponses()).toEqual([
+      {
+        type: 'tool_response',
+        result: { content: 'Waited for 30 seconds' }
+      }
+    ]);
   });
 });

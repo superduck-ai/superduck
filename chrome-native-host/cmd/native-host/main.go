@@ -23,7 +23,10 @@ const (
 )
 
 const defaultIdentitySyncWait = 2 * time.Second
-const defaultChromeResponseTimeout = 25 * time.Second
+
+// Must be higher than the extension-side tool timeout and the documented
+// `computer.wait` maximum of 30s.
+const defaultChromeResponseTimeout = 40 * time.Second
 
 // maxUDSConnections caps concurrent UDS client connections to prevent
 // resource exhaustion from buggy or malicious local processes.

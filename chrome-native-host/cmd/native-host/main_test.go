@@ -122,6 +122,14 @@ func TestForwardToChromeTimesOutWhenExtensionDoesNotRespond(t *testing.T) {
 	}
 }
 
+func TestDefaultChromeResponseTimeoutAllowsMaxComputerWait(t *testing.T) {
+	t.Parallel()
+
+	if defaultChromeResponseTimeout <= 30*time.Second {
+		t.Fatalf("defaultChromeResponseTimeout = %s, want more than 30s", defaultChromeResponseTimeout)
+	}
+}
+
 // TestPrepareSocketPathRaceWithShutdown simulates the race where the old
 // process is shutting down: first dial succeeds (old process still listening),
 // but by the time prepareSocketPath retries (after 500ms), the old process

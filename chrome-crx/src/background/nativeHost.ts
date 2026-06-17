@@ -20,7 +20,9 @@ const NATIVE_HOST_NAMES = [
 
 const HEARTBEAT_ALARM = 'native-host-heartbeat';
 const HEARTBEAT_TIMEOUT_MS = 3000;
-const TOOL_REQUEST_TIMEOUT_MS = 20_000;
+// Must exceed the documented `computer.wait` maximum of 30s, with headroom
+// for native-message routing and result serialization.
+const TOOL_REQUEST_TIMEOUT_MS = 35_000;
 
 // Reconnect backoff schedule (ms). Stops retrying after the last entry.
 // First delay is 200ms — native host is a local process, reconnection is
