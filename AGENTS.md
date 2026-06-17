@@ -222,40 +222,18 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
 
 ## PR / 提交
 
-- 提交信息使用 conventional commits(`feat:`/`fix:`/`refactor:` 等)。
-- 常用 scope:`cli`、`crx`、`scroll`、`sidepanel` 等。
-- 通过 `gh pr create` 开 PR,不要在未经用户确认时直接 merge / force push。PR 默认直接打开为 ready-for-review 供审阅,不要默认创建 draft;只有用户明确要求草稿、维护者要求先草稿或变更尚未完成时,才使用 draft PR。
-- **PR 默认应关联 Issue**:在 PR body 中用关闭关键字引用对应 issue,合并到 `main` 时 GitHub 自动关闭。约定用法:
-  - `Fixes #N` — 修复 bug（对应 `type: bug` issue）
-  - `Closes #N` — 完成 feature / chore / docs / perf（非 bug 类 issue）
-  - `Resolves #N` — 解决讨论性质的 issue / question
-  - 一个 PR 可关联多个 issue,每行一个。大小写不敏感。提交 PR 前默认必须检查是否已关联。
-  - 以下情况可以不关联 issue,但必须在 PR body 中说明原因:
-    - typo / formatting / comments-only
-    - narrowly scoped test-only or refactor-only changes
-    - emergency one-line fixes where the PR body fully captures context
-    - maintainer explicitly approves skipping issue
-  - Bug fixes、features、security、release、CI、agent-task 类型 PR 仍必须关联 Issue。
-- PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md); Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/),涵盖 bug / feature / chore / docs / performance / agent-task,空白 issue 已禁用,问题走 Discussions,安全漏洞走 [GitHub Security Advisories](https://github.com/superduck-ai/superduck/security/advisories/new)。
-- **AI 协助填写 issue**:唯一信息源是 [`.github/AGENT_SKILLS/issue-fill.md`](.github/AGENT_SKILLS/issue-fill.md) —— 规则只写一次,所有 agent 都按它执行。共同行为:匹配最合适的 `.github/ISSUE_TEMPLATE/*.yml`,补全 `required` 字段,加对应 `type:` / `status:` label,原始正文以 blockquote 保留在顶部,缺失字段以 `_Not provided — please add._` 占位,**不编造数据**,安全漏洞改走 GitHub Security Advisories。两条触发路径:
-  - **Factory Droid**(GitHub 上):在 issue 标题/正文/评论里写 `@droid fill` 即触发 [`.github/workflows/droid.yml`](.github/workflows/droid.yml);Droid 自动加载入库的薄壳 [`.factory/skills/issue-fill/SKILL.md`](.factory/skills/issue-fill/SKILL.md),壳里只一句话:去读 canonical。
-  - **本地 agent**(Claude Code / Codex / Cursor / Amp / Aider 等):对它说"填一下 issue #N" / "整理 issue #N" / "open an issue for: ..."。它们都原生读 AGENTS.md(Claude Code 通过 [`CLAUDE.md`](CLAUDE.md) → AGENTS.md 间接读),看到本节后再读 canonical,按同样流程跑 `gh issue view/edit/create/comment`。**仓库不放 `.claude/` / `.cursor/` 这类 per-agent 私人配置**;需要 fuzzy 触发短语的本地用户自行在 `~/.<agent>/...` 里安装即可。
-- **AI 协助填写 PR 描述**:在 PR 上 `@droid fill` 按 [`pull_request_template.md`](.github/pull_request_template.md) 重写;其他 `@droid` 命令(review / security 等)见 [`droid.yml`](.github/workflows/droid.yml) 头部注释。
-- **PR 审阅意见闭环**:收到 CodeRabbit / Codex / Factory Droid 等 inline review 后,先对照当前代码核实是否仍成立;**已修复**的须在对应 thread 回复说明(引用 commit SHA)并用 GitHub **Resolve conversation** 关闭 thread;**不采纳**的须简短说明理由再 resolve,避免悬而未决。推送修复提交后复查是否还有新 comment 或 CI 失败;全部处理完再给人类审阅者总结。
+- 提交信息使用 conventional commits,例如 `feat:` / `fix:` / `refactor:`;scope 用小写短名,例如 `cli`、`crx`、`scroll`、`sidepanel`。
+- 通过 `gh pr create` 开 PR;未经用户确认不要 merge 或 force push。PR 默认 ready-for-review,只有用户明确要求、维护者要求或变更尚未完成时才创建 draft。
+- PR 应关联清晰的工作上下文。有对应 Issue 时必须引用;bug、feature、security、release、CI、agent-task 等可追踪工作默认关联 Issue。不要为了满足流程创建空洞 Issue。
+- 合并后应关闭 Issue 时,使用 `Fixes #N` / `Closes #N` / `Resolves #N`;仅相关或部分处理时,使用 `Refs #N` / `Related to #N`。
+- 小型 typo、formatting、comments-only、docs、test-only、refactor-only 或维护修复可以不关联 Issue,但 PR body 要说明清楚上下文。
+- PR 模板见 [`.github/pull_request_template.md`](.github/pull_request_template.md),Issue 模板见 [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)。安全漏洞不要开普通 issue,走 [GitHub Security Advisories](https://github.com/superduck-ai/superduck/security/advisories/new)。
+- AI 协助填写 issue 时,唯一规则来源是 [`.github/AGENT_SKILLS/issue-fill.md`](.github/AGENT_SKILLS/issue-fill.md);缺失信息用占位符,不要编造。
+- 处理review comment 时,先核实当前代码是否仍有问题;已修复或不采纳都要回复原因并 resolve conversation。推送修复后复查新 comment 和 CI 状态。
 
-## Issue / PR 标签体系 (Labeling System)
+## Issue / PR 标签
 
-仓库的 label 列表是**源代码化**的:唯一来源是 [`.github/labels.yml`](.github/labels.yml),由 [`.github/workflows/labels-sync.yml`](.github/workflows/labels-sync.yml) 在 push 到 `main` 时自动同步到 GitHub(也支持手动触发)。修改 label 必须改 `labels.yml`,不要在 GitHub UI 里直接改。
-
-label 命名规则统一为 `<group>: <slug>`(全小写、kebab-case),分为以下几组,Issue / PR 模板已预填合理默认值:
-
-| Group | 用途 | 示例 |
-|---|---|---|
-| `type:` | 工作类型(每个 issue 必填一个) | `type: bug`、`type: feature`、`type: chore`、`type: docs`、`type: test`、`type: perf`、`type: security`、`type: agent-task`、`type: question`、`type: enhancement` |
-| `priority:` | 优先级(bug / agent-task 必填) | `priority: P0` 紧急、`priority: P1` 高、`priority: P2` 中、`priority: P3` 低 |
-| `area:` | 影响的子项目,对齐仓库概览 | `area: chrome-crx`、`area: chrome-native-host`、`area: coworkd`、`area: desktop`、`area: mac-native-addon`、`area: npm`、`area: ci`、`area: docs`、`area: testing`、`area: tooling` |
-| `status:` | 工作流状态,triager / 机器人维护 | `status: triage`、`status: ready`、`status: in-progress`、`status: blocked`、`status: needs-review`、`status: stale`、`status: wontfix`、`status: duplicate` |
-| `needs:` | 当前阻塞点 | `needs: repro`、`needs: design`、`needs: tests`、`needs: docs` |
-| 其他 | 可发现性 / 元信息 | `good first issue`、`help wanted`、`agent: ready`、`breaking-change`、`dependencies` |
-
-**给代理 (agent) 的提示**:挑取任务时优先看 `agent: ready` + `status: ready`;按 `priority:` 和 `area:` 过滤。新建 issue 时至少打上 `type:` + 一个 `area:`,用 `priority:` 表达紧急程度。
+- Label 列表是源码化配置,唯一来源是 [`.github/labels.yml`](.github/labels.yml);不要直接在 GitHub UI 修改 label。
+- Label 命名使用 `<group>: <slug>`,例如 `type: bug`、`area: chrome-crx`、`priority: P1`、`status: ready`。
+- 新建 issue 至少添加一个 `type:` 和一个 `area:`;bug / agent-task 还应添加 `priority:`。
+- 代理挑任务时优先看 `agent: ready` + `status: ready`,再按 `priority:` 和 `area:` 过滤。

@@ -11,10 +11,8 @@ name: Droid Tag
 #                              with the report at
 #                              .factory/security/reports/security-report-*.md
 #
-# Differs from droid-review.yml: that workflow runs automatically on every
-# non-draft PR. This one only fires when a human (or bot) explicitly tags
-# `@droid`, which makes it cheap to re-run a review on demand or ask for a
-# PR description rewrite without re-pushing commits.
+# This workflow only fires when a human (or bot) explicitly tags `@droid`,
+# which keeps Factory Droid usage opt-in and avoids mandatory PR checks.
 #
 # Requires the `FACTORY_API_KEY` repo / org secret and the Factory Droid
 # GitHub App installed on this repository.
