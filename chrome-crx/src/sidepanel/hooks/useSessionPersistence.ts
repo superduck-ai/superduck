@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { getStorageValue, removeStorageValues, setStorageValue } from '../../extensionServices';
 import { type ApiConversationMessage } from '../../messageTypes';
+import { ensureToolResultPairs } from '../../utils/conversationProtocol';
 import {
   extractTextFromContent,
   getConversationStorageKey,
@@ -72,6 +73,13 @@ async function removeEmptySessionArtifacts(sessionId: string, snapshot: SessionS
       await setStorageValue(SESSION_CONVERSATION_MAP_KEY, nextMap);
     }
   }
+}
+
+function withValidApiMessages(snapshot: SessionSnapshot): SessionSnapshot {
+  return {
+    ...snapshot,
+    apiMessages: ensureToolResultPairs(snapshot.apiMessages)
+  };
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -156,7 +164,7 @@ export function useSessionPersistence({
   //      the correct snapshot for the current render.
   const snapshotRef = useRef<SessionSnapshot>({
     uiMessages: messages,
-    apiMessages,
+    apiMessages: ensureToolResultPairs(apiMessages),
     selectedModel,
     permissionMode,
     createdAt: sessionCreatedAtRef.current,
@@ -165,7 +173,7 @@ export function useSessionPersistence({
   });
   snapshotRef.current = {
     uiMessages: messages,
-    apiMessages,
+    apiMessages: ensureToolResultPairs(apiMessages),
     selectedModel,
     permissionMode,
     createdAt: sessionCreatedAtRef.current,
@@ -182,7 +190,7 @@ export function useSessionPersistence({
     ): Promise<SessionSnapshot | undefined> => {
       const sessionSnapshot = await getStorageValue(getHistoryStorageKey(sessionId));
       if (isSessionSnapshot(sessionSnapshot) && hasPersistableSessionContent(sessionSnapshot)) {
-        return sessionSnapshot;
+        return withValidApiMessages(sessionSnapshot);
       }
       if (!conversationUuid) return undefined;
       const conversationSnapshot = await getStorageValue(
@@ -192,7 +200,7 @@ export function useSessionPersistence({
         isSessionSnapshot(conversationSnapshot) &&
         hasPersistableSessionContent(conversationSnapshot)
       ) {
-        return conversationSnapshot;
+        return withValidApiMessages(conversationSnapshot);
       }
       return undefined;
     },
@@ -273,7 +281,7 @@ export function useSessionPersistence({
 
         return {
           uiMessages,
-          apiMessages,
+          apiMessages: ensureToolResultPairs(apiMessages),
           selectedModel: restoredModel,
           permissionMode: permissionModeRef.current,
           createdAt: Date.now(),

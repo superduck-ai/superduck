@@ -1,4 +1,5 @@
 import { compressBase64Image } from '../utils/imageCompressor';
+import { ensureToolResultPairs } from '../utils/conversationProtocol';
 import type { ToolResult } from '../mcpRuntime/pageToolsSupport/types';
 import type { ApiConversationMessage, ApiInputContentBlock } from '../messageTypes';
 import { isRecord } from '../messageTypes';
@@ -60,7 +61,9 @@ export function compareVersions(left: string, right: string): number {
 }
 
 export function prepareMessagesForApi(messages: MessageForApi[]): ApiConversationMessage[] {
-  const filtered = messages.filter((msg) => !msg.isLocalOnlyMessage && msg.type !== 'result');
+  const filtered = ensureToolResultPairs(
+    messages.filter((msg) => !msg.isLocalOnlyMessage && msg.type !== 'result')
+  );
   let lastAssistantIdx = -1;
   for (let i = filtered.length - 1; i >= 0; i -= 1) {
     if (filtered[i].role === 'assistant') {
