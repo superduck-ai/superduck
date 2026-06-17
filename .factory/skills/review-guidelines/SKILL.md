@@ -1,7 +1,7 @@
 # SuperDuck PR review guidelines
 
 These guidelines are auto-loaded by the `Factory-AI/droid-action` workflow
-(`.github/workflows/droid-review.yml`) and injected into every code review
+(`.github/workflows/droid.yml`) and injected into every requested code review
 and security review prompt. Edit this file to tune what the automated
 reviewer focuses on.
 
