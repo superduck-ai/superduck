@@ -31,7 +31,12 @@ import {
 } from './icons';
 
 type FormatMessageValues = Record<string, string | number | boolean | null | undefined>;
-type ToolDisplayInput = Record<string, unknown>;
+export type ToolDisplayInput = Record<string, unknown>;
+
+export interface BrowserBatchAction {
+  toolName: string;
+  input: ToolDisplayInput;
+}
 
 interface ToolDisplayResult {
   content?: string | unknown[];
@@ -55,6 +60,59 @@ function getPrimitiveField(
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
     ? value
     : undefined;
+}
+
+function isToolDisplayInput(value: unknown): value is ToolDisplayInput {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function getBrowserBatchActions(input?: ToolDisplayInput): BrowserBatchAction[] {
+  const rawActions = input?.actions;
+  if (!Array.isArray(rawActions)) return [];
+
+  return rawActions.flatMap((action): BrowserBatchAction[] => {
+    if (!isToolDisplayInput(action)) return [];
+    const toolName =
+      typeof action.tool === 'string'
+        ? action.tool
+        : typeof action.name === 'string'
+          ? action.name
+          : undefined;
+    if (!toolName) return [];
+    return [
+      {
+        toolName,
+        input: isToolDisplayInput(action.input) ? action.input : {}
+      }
+    ];
+  });
+}
+
+export function getBrowserBatchFailureIndex(resultText: string): number | null {
+  try {
+    const parsed = JSON.parse(resultText) as { failedIndex?: unknown };
+    if (
+      typeof parsed.failedIndex === 'number' &&
+      Number.isInteger(parsed.failedIndex) &&
+      parsed.failedIndex >= 0
+    ) {
+      return parsed.failedIndex;
+    }
+  } catch {
+    // Fall back to legacy/plain-text result formats below.
+  }
+
+  const actionMatch = resultText.match(/\bactions\[(\d+)\]/);
+  if (actionMatch) {
+    const index = Number.parseInt(actionMatch[1], 10);
+    return Number.isInteger(index) && index >= 0 ? index : null;
+  }
+
+  const stoppedMatch = resultText.match(/\bBatch stopped at action\s+(\d+)\/\d+/i);
+  if (!stoppedMatch) return null;
+
+  const index = Number.parseInt(stoppedMatch[1], 10) - 1;
+  return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
 function isTextResultBlock(block: unknown): block is { type: 'text'; text: string } {
@@ -284,6 +342,16 @@ export function getToolDisplayInfo(
       return { text: t('resize_window', 'Resize window'), icon: 'resize' };
     case 'gif_creator':
       return { text: t('create_gif', 'Create GIF'), icon: 'gif' };
+    case 'browser_batch': {
+      const count = getBrowserBatchActions(o).length;
+      if (count > 0) {
+        return {
+          text: t('run_browser_action_count', 'Run {count} browser actions', { count }),
+          icon: 'batch'
+        };
+      }
+      return { text: t('run_browser_batch', 'Run browser action sequence'), icon: 'batch' };
+    }
     case 'update_plan': {
       const resultText = Array.isArray(toolResult?.content)
         ? toolResult.content
@@ -370,6 +438,7 @@ export const BROWSER_TOOLS = new Set([
   'read_network_requests',
   'resize_window',
   'gif_creator',
+  'browser_batch',
   'execute_js',
   'execute_javascript',
   'javascript_tool',
@@ -426,6 +495,7 @@ export function resolveToolIcon(iconName: string, size: number = 12): React.Reac
     case 'network':
       return <TerminalPromptIcon size={size} className="text-text-300" />;
     case 'plan':
+    case 'batch':
       return <ChecklistIcon size={size} className="text-text-300" />;
     case 'resize':
       return <VerticalResizeIcon size={size} className="text-text-300" />;

@@ -287,6 +287,39 @@ var toolDefinitions = []toolDefinition{
 		}, "action", "tabId"),
 	},
 	{
+		name:        "browser_batch",
+		description: "Execute 2-20 browser tool calls in one round trip. After read_page/find has returned fresh refs, browser_batch is the preferred tool for a short run of deterministic browser actions that do not require inspecting intermediate results. Think in two phases: discover, then act. For new pages, system pages, about:blank, or unknown state, call navigate/read_page/find separately first; once refs are fresh, batch the next safe action sequence. Batch the safe prefix: if the first 2+ actions are predictable but the whole workflow is not, batch those actions and stop before uncertainty. High-value patterns: form_input(ref, value) -> computer.key(Enter); computer.left_click(ref) -> computer.type(text) -> computer.key(Enter); multi-field form_input fills followed by a known submit click/key; click(ref) -> screenshot/read_page when that observation is only final confirmation; scroll/scroll_to -> screenshot/read_page. For search boxes, command palettes, chat inputs, and native form fields, prefer form_input(ref, text) -> computer.key(Enter) when a fresh input ref exists; use left_click/type/key for custom controls. Keep Enter/Return as the last action in the batch. Do not use browser_batch for single actions, navigation, observation-first discovery, read_page/find -> click/type/form_input, Enter/Return -> anything else, nested batches, or actions whose input depends on a result produced earlier in the same batch. If a batch fails, observe or run the failed action separately before batching the next deterministic actions.",
+		inputSchema: objectSchema(map[string]any{
+			"actions": arraySchema(
+				"Array of {tool, input} actions to execute sequentially.",
+				objectProperty("", map[string]any{
+					"id": stringSchema("Optional caller label used in the per-step result."),
+					"tool": stringSchema(
+						"Allowed browser tool name. Navigation must run as a separate navigate tool call. Observation tools may end a batch but their results cannot be used by later actions in the same batch. Control-flow, shortcut, superduck_* and JavaScript tools are intentionally excluded.",
+						withEnum(
+							"computer",
+							"form_input",
+							"read_page",
+							"find",
+							"get_page_text",
+							"read_console_messages",
+							"read_network_requests",
+							"resize_window",
+						),
+					),
+					"input":     objectProperty("Input parameters for the tool, same as calling it directly.", map[string]any{}),
+					"waitAfter": stringSchema("Optional per-action wait override. Default: auto.", withEnum("auto", "load", "none")),
+				}, "tool", "input"),
+				withMinItems(2),
+				withMaxItems(20),
+			),
+			"tabId":      numberSchema("Default tab ID applied to every action. All actions in one batch must target this same tab."),
+			"onError":    stringSchema("Failure policy. Default stop. Continue is only honored for read-only actions.", withEnum("stop", "continue")),
+			"resultMode": stringSchema("summary returns concise step lines; detailed appends per-step JSON.", withEnum("summary", "detailed")),
+			"screenshot": stringSchema("Return the last child screenshot image, or none. Default last. Returned images are batch results and are not available as planning input for later actions in the same batch.", withEnum("last", "none")),
+		}, "actions"),
+	},
+	{
 		name:        "tabs_context_mcp",
 		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.",
 		inputSchema: objectSchema(map[string]any{

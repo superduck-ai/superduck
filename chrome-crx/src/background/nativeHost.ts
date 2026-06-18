@@ -22,7 +22,9 @@ const HEARTBEAT_ALARM = 'native-host-heartbeat';
 const HEARTBEAT_TIMEOUT_MS = 3000;
 // Must exceed the documented `computer.wait` maximum of 30s, with headroom
 // for native-message routing and result serialization.
-const TOOL_REQUEST_TIMEOUT_MS = 35_000;
+const DEFAULT_TOOL_REQUEST_TIMEOUT_MS = 35_000;
+const BROWSER_BATCH_CHILD_ACTION_TIMEOUT_MS = 15_000;
+const MAX_TOOL_REQUEST_TIMEOUT_MS = 5 * 60_000;
 
 // Reconnect backoff schedule (ms). Stops retrying after the last entry.
 // First delay is 200ms — native host is a local process, reconnection is
@@ -41,10 +43,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function withToolRequestTimeout<T>(promise: Promise<T>): Promise<T | ToolRequestTimeout> {
+function getBrowserBatchActionCount(args: Record<string, unknown>): number {
+  return Array.isArray(args.actions) ? args.actions.length : 0;
+}
+
+function getToolRequestTimeoutMs(toolName: string, args: Record<string, unknown>): number {
+  if (toolName !== 'browser_batch') return DEFAULT_TOOL_REQUEST_TIMEOUT_MS;
+  const actionCount = getBrowserBatchActionCount(args);
+  if (actionCount === 0) return DEFAULT_TOOL_REQUEST_TIMEOUT_MS;
+  return Math.min(
+    DEFAULT_TOOL_REQUEST_TIMEOUT_MS + actionCount * BROWSER_BATCH_CHILD_ACTION_TIMEOUT_MS,
+    MAX_TOOL_REQUEST_TIMEOUT_MS
+  );
+}
+
+function withToolRequestTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T | ToolRequestTimeout> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<ToolRequestTimeout>((resolve) => {
-    timeoutId = setTimeout(() => resolve({ timedOut: true }), TOOL_REQUEST_TIMEOUT_MS);
+    timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
   });
 
   return Promise.race([promise, timeout]).finally(() => {
@@ -163,6 +182,7 @@ export function createNativeHostManager(): NativeHostManager {
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
 
+      const timeoutMs = getToolRequestTimeoutMs(params.tool, args);
       const result = await withToolRequestTimeout(
         executeTool({
           toolName: params.tool,
@@ -172,14 +192,13 @@ export function createNativeHostManager(): NativeHostManager {
           clientId,
           source: 'native-messaging',
           permissionMode: 'skip_all_permission_checks'
-        })
+        }),
+        timeoutMs
       );
 
       if ('timedOut' in result) {
         sendToolResponse(
-          createErrorResponse(
-            `Tool execution timed out after ${TOOL_REQUEST_TIMEOUT_MS / 1000}s: ${params.tool}`
-          )
+          createErrorResponse(`Tool execution timed out after ${timeoutMs / 1000}s: ${params.tool}`)
         );
         return;
       }

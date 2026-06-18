@@ -158,6 +158,37 @@ describe('createNativeHostManager', () => {
     );
   });
 
+  it('extends native-messaging tool timeouts for browser_batch action count', async () => {
+    await connectManager();
+    mcpRuntimeMocks.executeTool.mockReturnValue(new Promise(() => undefined));
+
+    messageEvent.emit({
+      type: 'tool_request',
+      method: 'execute_tool',
+      params: {
+        tool: 'browser_batch',
+        args: {
+          actions: [
+            { tool: 'computer', input: { action: 'wait', duration: 14 } },
+            { tool: 'computer', input: { action: 'wait', duration: 14 } },
+            { tool: 'computer', input: { action: 'wait', duration: 14 } }
+          ]
+        },
+        client_id: 'superduck-cli'
+      }
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(35_000);
+
+    expect(toolResponses()).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(toolResponses()[0].error.content[0].text).toBe(
+      'Tool execution timed out after 80s: browser_batch'
+    );
+  });
+
   it('allows valid 30-second wait tools to complete before the timeout', async () => {
     await connectManager();
     mcpRuntimeMocks.executeTool.mockReturnValue(

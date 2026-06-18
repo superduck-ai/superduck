@@ -89,6 +89,7 @@ import {
   type MessageLimitState
 } from './messageLimits';
 import { compareVersions, formatToolResult, getErrorMessage } from './messageProcessing';
+import { getBrowserBatchActions } from './toolDisplay';
 import { resolveShortcutMarkersInMessages } from './shortcutMarkers';
 import {
   createId,
@@ -744,6 +745,18 @@ export function SidepanelApp() {
           'NEVER use screenshot coordinates for clicking. ALWAYS use ref from read_page.',
           'Only use coordinate as absolute last resort for canvas/image-map elements that have no ref.',
           '',
+          'BROWSER BATCHING (IMPORTANT):',
+          'Use browser_batch proactively after the page has been observed. It is the preferred tool for a short run of 2-5 deterministic browser actions that can be planned from the latest read_page/find refs without needing to inspect intermediate results.',
+          'Think in two phases: discover, then act. For a new URL/site/page, about:blank, chrome:// page, or any task that starts by opening a page, call navigate by itself, then call read_page or find by itself. Once that observation returns fresh refs, batch the next safe action sequence instead of calling each browser action separately.',
+          'Batch the safe prefix. If you can confidently do the first 2+ actions but not the whole workflow, use browser_batch for those actions, stop before the uncertain step, then observe again.',
+          'High-value browser_batch patterns: form_input(ref, value) -> computer.key(Enter); computer.left_click(ref) -> computer.type(text) -> computer.key(Enter); multi-field forms using several form_input refs followed by a known submit click/key; click(ref) -> screenshot/read_page when the read is the final confirmation step; scroll/scroll_to -> screenshot/read_page for predictable visual checks.',
+          'For search boxes, command palettes, chat inputs, and native form fields, prefer browser_batch with form_input(ref, text) -> computer.key(Enter) when a fresh input ref is available. If form_input is not suitable for a custom control, use computer.left_click(ref) -> computer.type(text) -> computer.key(Enter). Keep Enter/Return as the last action in that batch.',
+          'Do not use browser_batch for single actions, navigation, observation-first discovery, or any step whose input depends on seeing an earlier result from the same batch. Never batch navigate; read_page/find -> click/type/form_input; or Enter/Return -> anything else.',
+          'If browser_batch fails, do not replay the same batch unchanged. Continue from the current browser state: observe with read_page/find, refresh refs, or run only the failed action separately, then batch the next deterministic 2+ actions.',
+          'Screenshots/images returned by browser_batch are results, not inputs for later actions in the same batch. Coordinates used inside a batch must come from the latest screenshot available before the batch call.',
+          'Never nest browser_batch. Do not put update_plan, turn_answer_start, shortcuts, tabs_create, superduck_* tools, or JavaScript tools inside browser_batch.',
+          'Keep each batch focused and under 20 actions.',
+          '',
           'Before your final natural-language response, call turn_answer_start once for that turn.'
         ].join('\n')
       }
@@ -924,10 +937,20 @@ export function SidepanelApp() {
           content: result.content
         });
         const hasError = isRecord(result) && result.is_error === true;
+        const batchActions =
+          toolUse.name === 'browser_batch' && isRecord(toolUse.input)
+            ? getBrowserBatchActions(toolUse.input)
+            : [];
         void trackEvent('superduck.sidebar.tool_executed', {
           tool_name: toolUse.name,
           success: !hasError,
-          duration_ms: Date.now() - toolStart
+          duration_ms: Date.now() - toolStart,
+          ...(batchActions.length > 0
+            ? {
+                sub_action_count: batchActions.length,
+                sub_actions: batchActions.map((action) => action.toolName)
+              }
+            : {})
         });
         return {
           type: 'tool_result',

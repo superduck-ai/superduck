@@ -136,6 +136,33 @@ func TestDefaultChromeResponseTimeoutExceedsExtensionToolRequestTimeout(t *testi
 	}
 }
 
+func TestChromeResponseTimeoutForBrowserBatchScalesWithActionCount(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"type":"tool_request","method":"execute_tool","params":{"tool":"browser_batch","args":{"actions":[{"tool":"computer"},{"tool":"computer"},{"tool":"computer"}]}}}`)
+
+	timeout := chromeResponseTimeoutForRequest(raw, defaultChromeResponseTimeout)
+	want := defaultChromeResponseTimeout + 45*time.Second
+	if timeout != want {
+		t.Fatalf("chromeResponseTimeoutForRequest() = %s, want %s", timeout, want)
+	}
+}
+
+func TestChromeResponseTimeoutForNonBatchUsesFallback(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"type":"tool_request","method":"execute_tool","params":{"tool":"computer","args":{"action":"wait","duration":30}}}`)
+
+	timeout := chromeResponseTimeoutForRequest(raw, defaultChromeResponseTimeout)
+	if timeout != defaultChromeResponseTimeout {
+		t.Fatalf(
+			"chromeResponseTimeoutForRequest() = %s, want %s",
+			timeout,
+			defaultChromeResponseTimeout,
+		)
+	}
+}
+
 // TestPrepareSocketPathRaceWithShutdown simulates the race where the old
 // process is shutting down: first dial succeeds (old process still listening),
 // but by the time prepareSocketPath retries (after 500ms), the old process

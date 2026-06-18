@@ -33,7 +33,7 @@ interface KnowledgeContentBlock {
 type ToolResultContentBlock = ApiTextContentBlock | ApiImageContentBlock | KnowledgeContentBlock;
 
 interface ToolResultLike {
-  content?: string | ToolResultContentBlock[];
+  content?: string | readonly unknown[];
   is_error?: boolean;
 }
 

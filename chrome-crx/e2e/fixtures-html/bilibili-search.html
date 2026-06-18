@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bilibili Search Fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        background: #f6f7f8;
+        color: #18191c;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        height: 64px;
+        padding: 0 32px;
+        background: #fff;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+      }
+      .brand {
+        font-weight: 700;
+        color: #00aeec;
+      }
+      form[role='search'] {
+        display: flex;
+        flex: 1;
+        max-width: 640px;
+        border: 1px solid #e3e5e7;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #f1f2f3;
+      }
+      input[type='search'] {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        background: transparent;
+        padding: 11px 12px;
+        font-size: 15px;
+        outline: none;
+      }
+      button[type='submit'] {
+        border: 0;
+        padding: 0 18px;
+        color: #fff;
+        background: #00aeec;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .decoy {
+        position: absolute;
+        left: -9999px;
+        top: -9999px;
+      }
+      main {
+        max-width: 960px;
+        margin: 32px auto;
+        padding: 0 24px;
+      }
+      .result {
+        padding: 18px 0;
+        border-bottom: 1px solid #e3e5e7;
+      }
+      .result h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+      .empty {
+        color: #61666d;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">bilibili</div>
+      <form id="nav-searchform" role="search" aria-label="站内搜索">
+        <input
+          id="nav-search-keyword"
+          type="search"
+          name="keyword"
+          aria-label="搜索关键词"
+          placeholder="搜索视频、番剧、影视、UP主或直播"
+          autocomplete="off"
+        />
+        <button id="nav-search-submit" type="submit" aria-label="搜索">搜索</button>
+      </form>
+      <input class="decoy" aria-label="隐藏搜索框" disabled />
+    </header>
+    <main>
+      <section data-testid="search-results" aria-live="polite">
+        <p class="empty">输入关键词后查看搜索结果</p>
+      </section>
+    </main>
+    <script>
+      const events = [];
+      const form = document.getElementById('nav-searchform');
+      const input = document.getElementById('nav-search-keyword');
+      const results = document.querySelector('[data-testid="search-results"]');
+
+      function escapeHtml(value) {
+        return value.replace(
+          /[&<>"']/g,
+          (char) =>
+            ({
+              '&': '&amp;',
+              '<': '&lt;',
+              '>': '&gt;',
+              '"': '&quot;',
+              "'": '&#39;'
+            })[char]
+        );
+      }
+
+      function renderResults(keyword) {
+        if (!keyword) {
+          results.innerHTML = '<p class="empty">输入关键词后查看搜索结果</p>';
+          document.body.dataset.searchSubmitted = 'false';
+          return;
+        }
+        const escapedKeyword = escapeHtml(keyword);
+        results.innerHTML = [
+          '<article class="result"><h2>' +
+            escapedKeyword +
+            ' 最新视频</h2><p>本地搜索结果 1</p></article>',
+          '<article class="result"><h2>' +
+            escapedKeyword +
+            ' 深度解析</h2><p>本地搜索结果 2</p></article>'
+        ].join('');
+        document.body.dataset.searchSubmitted = 'true';
+      }
+
+      function updateUrl(keyword) {
+        const url = new URL(window.location.href);
+        if (keyword) url.searchParams.set('keyword', keyword);
+        else url.searchParams.delete('keyword');
+        history.pushState(null, '', url);
+      }
+
+      input.addEventListener('input', (event) => {
+        const keyword = event.target.value.trim();
+        events.push({ type: 'input', value: event.target.value });
+        updateUrl(keyword);
+        renderResults(keyword);
+      });
+      input.addEventListener('change', (event) => {
+        events.push({ type: 'change', value: event.target.value });
+      });
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const keyword = input.value.trim();
+        events.push({ type: 'submit', keyword });
+        updateUrl(keyword);
+        renderResults(keyword);
+      });
+
+      window.__searchEvents = events;
+    </script>
+  </body>
+</html>

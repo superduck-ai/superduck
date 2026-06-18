@@ -8,12 +8,7 @@ import {
   getOrCreateAnonymousId,
   PermissionDuration as PermissionDurationEnum
 } from '../extensionServices';
-import {
-  isRecord,
-  type ApiInputContentBlock,
-  type ApiToolResultBlock,
-  type ApiToolResultContentBlock
-} from '../messageTypes';
+import { isRecord, type ApiToolResultBlock, type ApiToolResultContentBlock } from '../messageTypes';
 import { MessagesClient } from '../mcpServersStore';
 import { withTracing, PermissionManager as PermissionManagerClass } from '../PermissionManager';
 import {
@@ -89,13 +84,13 @@ type PermissionPromptHandler = (
 ) => Promise<boolean>;
 type RuntimeCreateApiMessage = NonNullable<ToolContext['createApiMessage']>;
 type ErrorResponse = {
-  content: ApiInputContentBlock[];
+  content: NonNullable<ApiToolResultBlock['content']>;
   is_error: boolean;
 };
 type ExecuteToolResponse = {
   actionData?: Record<string, unknown>;
   base64Image?: string;
-  content?: string | ApiInputContentBlock[];
+  content?: ApiToolResultBlock['content'];
   error?: string;
   imageFormat?: string;
   is_error?: boolean;
@@ -140,6 +135,15 @@ type NavigatorWithUserAgentData = Navigator & {
   userAgentData?: { platform?: string };
 };
 
+const TOOLS_WITH_INTERNAL_DEBUGGER_MANAGEMENT = new Set(['browser_batch']);
+const DEBUGGER_ATTACH_TIMEOUT_MS = 10000;
+const TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE = new Set([
+  'read_page',
+  'find',
+  'get_page_text',
+  'form_input'
+]);
+
 interface ToolInputRecord extends Record<string, unknown> {
   action?: string;
   coordinate?: unknown;
@@ -152,6 +156,18 @@ interface ToolInputRecord extends Record<string, unknown> {
 
 function coerceToolInput(toolName: string, input: unknown, tools: ToolDefinition[]): unknown {
   return coerceToolInputTypes(toolName, input, tools);
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
 }
 
 function validateInput(
@@ -708,17 +724,20 @@ class ToolExecutor {
             );
           }
           const result = await tool.execute(coercedInput, executionContext);
+          const failed =
+            result.type === 'permission_required' || !!result.error || result.is_error === true;
 
           if (result.type === 'permission_required') {
             trackData.success = false;
             span.setAttribute('success', false);
             span.setAttribute('failure_reason', 'needs_permission');
           } else {
-            trackData.success = !result.error;
-            span.setAttribute('success', !result.error);
+            trackData.success = !failed;
+            span.setAttribute('success', !failed);
+            if (failed) span.setAttribute('failure_reason', 'tool_error');
           }
 
-          if (result.type !== 'permission_required' && !result.error && executionContext.tabId) {
+          if (!failed && executionContext.tabId) {
             await recordToolAction(toolName, coercedInput, executionContext.tabId);
           }
 
@@ -784,6 +803,11 @@ class ToolExecutor {
       if (result.output) {
         content.push({ type: 'text', text: result.output });
       }
+      if (typeof result.content === 'string') {
+        content.push({ type: 'text', text: result.content });
+      } else if (Array.isArray(result.content)) {
+        content.push(...(result.content as ApiToolResultContentBlock[]));
+      }
       if (result.tabContext) {
         const availableTabs = result.tabContext.availableTabs ?? [];
         const tabContextText = `\n\nTab Context:${result.tabContext.executedOnTabId ? `\n- Executed on tabId: ${result.tabContext.executedOnTabId}` : ''}\n- Available tabs:\n${availableTabs.map((tab: ToolTabSummary) => `  \u2022 tabId ${tab.id}: "${tab.title}" (${tab.url})`).join('\n')}`;
@@ -815,7 +839,7 @@ class ToolExecutor {
       toolUseId: string,
       result: ToolResult
     ): Promise<ApiToolResultBlock> => {
-      const isError = !!result.error;
+      const isError = !!result.error || result.is_error === true;
       return {
         type: 'tool_result',
         tool_use_id: toolUseId,
@@ -1255,10 +1279,27 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     );
   }
 
-  if (tabId !== undefined) {
+  if (
+    tabId !== undefined &&
+    !TOOLS_WITH_INTERNAL_DEBUGGER_MANAGEMENT.has(options.toolName) &&
+    !TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE.has(options.toolName)
+  ) {
     try {
-      const wasAttached = await cdpDebugger.isDebuggerAttached(tabId);
-      await cdpDebugger.attachDebugger(tabId);
+      let wasAttached = false;
+      try {
+        wasAttached = await withTimeout(
+          cdpDebugger.isDebuggerAttached(tabId),
+          DEBUGGER_ATTACH_TIMEOUT_MS,
+          'Timed out checking debugger attachment'
+        );
+      } catch {
+        wasAttached = false;
+      }
+      await withTimeout(
+        cdpDebugger.attachDebugger(tabId),
+        DEBUGGER_ATTACH_TIMEOUT_MS,
+        'Timed out attaching debugger'
+      );
       if (!wasAttached) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
@@ -1275,7 +1316,10 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
         url?.startsWith('edge://') ||
         url?.startsWith('brave://') ||
         url?.startsWith('about:');
-      if (!isInternalPage) {
+      if (
+        !isInternalPage &&
+        !TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE.has(options.toolName)
+      ) {
         trackEvent('superduck.mcp.tool_called', {
           tool_name: options.toolName,
           client_id: options.clientId,
@@ -1288,6 +1332,10 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
           `Failed to attach debugger to tab: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}. The user may have declined the Chrome debugger prompt, or the tab may have been closed. Please try again or use a different tab.`
         );
       }
+      console.warn(
+        `[executeTool] continuing ${options.toolName} without debugger after attach failure:`,
+        attachErr
+      );
     }
   }
 

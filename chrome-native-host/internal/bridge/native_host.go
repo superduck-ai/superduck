@@ -20,7 +20,8 @@ const (
 	DefaultTimeout = 30 * time.Second
 	MaxTimeout     = 5 * time.Minute
 
-	toolResponseHeadroom = 15 * time.Second
+	browserBatchChildActionTimeout = 15 * time.Second
+	toolResponseHeadroom           = 15 * time.Second
 )
 
 // Options configures the NativeHostBridge.
@@ -187,20 +188,9 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 
 	slog.Debug("forwarding to native host", "tool", toolName, "args", args)
 
-	// Calculate timeout from context or use default.
-	// Add headroom for forwarding overhead (the extension itself may sleep
-	// up to `duration` seconds, so the bridge deadline must outlive that).
-	timeout := DefaultTimeout + toolResponseHeadroom
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, fmt.Errorf("context deadline exceeded before send: %w", ctx.Err())
-		}
-		if remaining+toolResponseHeadroom < MaxTimeout {
-			timeout = remaining + toolResponseHeadroom
-		} else {
-			timeout = MaxTimeout
-		}
+	requestDeadline, timeout, deadlineErr := computeRequestDeadline(ctx, time.Now())
+	if deadlineErr != nil {
+		return nil, deadlineErr
 	}
 
 	b.connMu.Lock()
@@ -218,9 +208,8 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 		return nil, fmt.Errorf("connection closed while waiting for bridge lock")
 	}
 
-	// Set deadline on the connection and ensure it's cleared on all paths
-	deadline := time.Now().Add(timeout)
-	if err := b.conn.SetDeadline(deadline); err != nil {
+	// Set deadline on the connection and ensure it's cleared on all paths.
+	if err := b.conn.SetDeadline(requestDeadline); err != nil {
 		return nil, fmt.Errorf("failed to set deadline: %w", err)
 	}
 	defer func() {
@@ -239,8 +228,13 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 		},
 	}
 
-	// Bound each send/recv so a half-open UDS connection can't block forever.
-	_ = b.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	// Bound each send so a half-open UDS connection can't block forever while
+	// preserving the request-level read deadline derived from ctx.
+	writeDeadline := time.Now().Add(30 * time.Second)
+	if requestDeadline.Before(writeDeadline) {
+		writeDeadline = requestDeadline
+	}
+	_ = b.conn.SetWriteDeadline(writeDeadline)
 	if err := protocol.SendMessage(b.conn, req); err != nil {
 		// Connection is broken; close it so reconnect() picks up a fresh one.
 		_ = b.conn.SetWriteDeadline(time.Time{})
@@ -250,8 +244,8 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	}
 	_ = b.conn.SetWriteDeadline(time.Time{})
 
-	// Wait for tool_response
-	_ = b.conn.SetReadDeadline(time.Now().Add(timeout))
+	// Wait for tool_response using the request deadline plus forwarding headroom.
+	_ = b.conn.SetReadDeadline(requestDeadline)
 	response, err := protocol.ReadMessage(b.conn)
 	_ = b.conn.SetReadDeadline(time.Time{})
 	if err != nil {
@@ -287,6 +281,64 @@ func isTimeoutError(err error) bool {
 		return true
 	}
 	return false
+}
+
+func computeRequestDeadline(ctx context.Context, now time.Time) (time.Time, time.Duration, error) {
+	maxDeadline := now.Add(MaxTimeout)
+	if deadline, ok := ctx.Deadline(); ok {
+		if !deadline.After(now) {
+			err := ctx.Err()
+			if err == nil {
+				err = context.DeadlineExceeded
+			}
+			return time.Time{}, 0, fmt.Errorf("context deadline exceeded before send: %w", err)
+		}
+		deadline = deadline.Add(toolResponseHeadroom)
+		if deadline.After(maxDeadline) {
+			return maxDeadline, MaxTimeout, nil
+		}
+		return deadline, deadline.Sub(now), nil
+	}
+
+	timeout := DefaultTimeout + toolResponseHeadroom
+	if timeout > MaxTimeout {
+		timeout = MaxTimeout
+	}
+	return now.Add(timeout), timeout, nil
+}
+
+// BrowserBatchTimeout returns a request timeout large enough for the extension
+// runtime's per-child action timeout while still respecting MaxTimeout.
+func BrowserBatchTimeout(args map[string]interface{}, fallback time.Duration) time.Duration {
+	if fallback <= 0 {
+		fallback = DefaultTimeout
+	}
+	if fallback > MaxTimeout {
+		fallback = MaxTimeout
+	}
+	actionCount := browserBatchActionCount(args)
+	if actionCount == 0 {
+		return fallback
+	}
+	timeout := fallback + time.Duration(actionCount)*browserBatchChildActionTimeout
+	if timeout > MaxTimeout {
+		return MaxTimeout
+	}
+	return timeout
+}
+
+func browserBatchActionCount(args map[string]interface{}) int {
+	if args == nil {
+		return 0
+	}
+	switch actions := args["actions"].(type) {
+	case []interface{}:
+		return len(actions)
+	case []map[string]interface{}:
+		return len(actions)
+	default:
+		return 0
+	}
 }
 
 // normalizeArgs normalizes tool arguments to match Chrome extension expectations.

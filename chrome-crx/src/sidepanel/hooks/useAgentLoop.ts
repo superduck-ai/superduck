@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { DEFAULT_MODEL } from '../../constants/models';
 import { type SupportedLocale, useIntlSafe } from '../../index-react-dom-intl';
 import {
@@ -146,6 +146,95 @@ export interface UseAgentLoopReturn {
   ) => Promise<void>;
 }
 
+const BATCH_REMINDER_ELIGIBLE_TOOLS = new Set(['form_input', 'read_page', 'find', 'resize_window']);
+
+const BATCH_REMINDER_ELIGIBLE_COMPUTER_ACTIONS = new Set([
+  'left_click',
+  'right_click',
+  'double_click',
+  'triple_click',
+  'type',
+  'key',
+  'wait',
+  'screenshot',
+  'zoom',
+  'scroll',
+  'scroll_to',
+  'left_click_drag'
+]);
+
+const BROWSER_BATCH_SYSTEM_REMINDER =
+  '<system-reminder>You now have current browser context. If read_page/find returned fresh refs and the next 2-5 browser actions are predictable, prefer browser_batch now. Batch the safe prefix instead of calling those actions one by one. Good patterns: form_input(ref, text) -> computer.key(Enter); computer.left_click(ref) -> computer.type(text) -> computer.key(Enter); multiple form_input refs; click(ref) -> screenshot/read_page as final confirmation. Do not batch single actions, navigation, observation-first discovery, or anything after Enter/Return.</system-reminder>';
+
+const NAVIGATION_OBSERVE_SYSTEM_REMINDER =
+  '<system-reminder>Navigation changed the page. Discover before acting: call read_page with filter:"interactive" or use find as a separate tool call to observe the loaded page and get fresh refs. After that observation, prefer browser_batch for the next 2-5 deterministic actions using those refs.</system-reminder>';
+
+const BROWSER_BATCH_FAILURE_SYSTEM_REMINDER =
+  '<system-reminder>The previous browser_batch failed. Do not retry it unchanged; completed actions may already have run. Recover by observing the current page with read_page/find or by running only the failed action separately. Once refs/state are fresh again, prefer browser_batch for the next deterministic 2-5 action prefix.</system-reminder>';
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isBrowserBatchReminderEligible(toolUse: ToolUseBlock): boolean {
+  if (BATCH_REMINDER_ELIGIBLE_TOOLS.has(toolUse.name)) return true;
+  if (toolUse.name !== 'computer' || !isRecordValue(toolUse.input)) return false;
+  const action = toolUse.input.action;
+  return typeof action === 'string' && BATCH_REMINDER_ELIGIBLE_COMPUTER_ACTIONS.has(action);
+}
+
+function appendBrowserBatchReminder(
+  result: ApiToolResultBlock,
+  reminder: string
+): ApiToolResultBlock {
+  if (result.is_error) return result;
+  return appendToolResultText(result, reminder);
+}
+
+function appendToolResultText(result: ApiToolResultBlock, text: string): ApiToolResultBlock {
+  if (typeof result.content === 'string') {
+    return {
+      ...result,
+      content: result.content
+        ? [
+            { type: 'text', text: result.content },
+            { type: 'text', text }
+          ]
+        : text
+    };
+  }
+  if (Array.isArray(result.content)) {
+    return {
+      ...result,
+      content: [...result.content, { type: 'text', text }]
+    };
+  }
+  return {
+    ...result,
+    content: text
+  };
+}
+
+function normalizeForSignature(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeForSignature);
+  if (!isRecordValue(value)) return value;
+  return Object.keys(value)
+    .sort()
+    .reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = normalizeForSignature(value[key]);
+      return acc;
+    }, {});
+}
+
+function getBrowserBatchSignature(toolUse: ToolUseBlock): string | null {
+  if (toolUse.name !== 'browser_batch' || !isRecordValue(toolUse.input)) return null;
+  try {
+    return JSON.stringify(normalizeForSignature(toolUse.input));
+  } catch {
+    return null;
+  }
+}
+
 // ─── Hook implementation ─────────────────────────────────────────────────────
 
 export function useAgentLoop({
@@ -195,6 +284,8 @@ export function useAgentLoop({
   queryTabId,
   intl
 }: UseAgentLoopProps): UseAgentLoopReturn {
+  const lastFailedBrowserBatchSignatureRef = useRef<string | null>(null);
+
   // ─── Compact conversation ─────────────────────────────────────────────────
 
   const compactConversation = useCallback(
@@ -376,6 +467,10 @@ export function useAgentLoop({
         setRuntimeError('API not configured. Please set up your provider in Settings.');
         return;
       }
+      lastFailedBrowserBatchSignatureRef.current = null;
+      let browserBatchReminderInjected = false;
+      let navigationObserveReminderInjected = false;
+      let browserBatchFailureReminderInjected = false;
 
       // Capture the tab ID at the start of execution so that switching tabs
       // doesn't redirect tool calls or indicator messages to a different tab.
@@ -770,7 +865,8 @@ export function useAgentLoop({
                       toolUse.name,
                       currentPageType,
                       permissionModeRef.current,
-                      hasApprovedPlanRef.current
+                      hasApprovedPlanRef.current,
+                      toolUse.input
                     );
                     if (!toolCheck.allowed) {
                       toolResults.push({
@@ -842,8 +938,90 @@ export function useAgentLoop({
                       continue;
                     }
 
-                    toolResults.push(await executeToolUse(toolUse));
+                    const batchSignature = getBrowserBatchSignature(toolUse);
+                    if (
+                      batchSignature &&
+                      batchSignature === lastFailedBrowserBatchSignatureRef.current
+                    ) {
+                      const content = browserBatchFailureReminderInjected
+                        ? 'The previous browser_batch already failed. Observe the current page or run only the failed action separately before retrying.'
+                        : BROWSER_BATCH_FAILURE_SYSTEM_REMINDER;
+                      browserBatchFailureReminderInjected = true;
+                      toolResults.push({
+                        type: 'tool_result',
+                        tool_use_id: toolUse.id,
+                        content,
+                        is_error: true
+                      });
+                      continue;
+                    }
+
+                    const result = await executeToolUse(toolUse);
+                    if (batchSignature) {
+                      if (result.is_error) {
+                        lastFailedBrowserBatchSignatureRef.current = batchSignature;
+                        if (!browserBatchFailureReminderInjected) {
+                          browserBatchFailureReminderInjected = true;
+                          toolResults.push(
+                            appendToolResultText(result, BROWSER_BATCH_FAILURE_SYSTEM_REMINDER)
+                          );
+                        } else {
+                          toolResults.push(result);
+                        }
+                      } else {
+                        lastFailedBrowserBatchSignatureRef.current = null;
+                        toolResults.push(result);
+                      }
+                      continue;
+                    }
+
+                    if (
+                      (toolUse.name === 'read_page' ||
+                        toolUse.name === 'find' ||
+                        toolUse.name === 'navigate') &&
+                      !result.is_error
+                    ) {
+                      lastFailedBrowserBatchSignatureRef.current = null;
+                    }
+                    toolResults.push(result);
                   }
+                }
+              }
+
+              if (realToolUses.length === 1 && realToolUses[0].name === 'navigate') {
+                const toolUseId = realToolUses[0].id;
+                const resultIndex = toolResults.findIndex(
+                  (result) => result.tool_use_id === toolUseId
+                );
+                if (
+                  resultIndex >= 0 &&
+                  !toolResults[resultIndex].is_error &&
+                  !navigationObserveReminderInjected
+                ) {
+                  navigationObserveReminderInjected = true;
+                  toolResults[resultIndex] = appendToolResultText(
+                    toolResults[resultIndex],
+                    NAVIGATION_OBSERVE_SYSTEM_REMINDER
+                  );
+                }
+              } else if (
+                realToolUses.length === 1 &&
+                isBrowserBatchReminderEligible(realToolUses[0])
+              ) {
+                const toolUseId = realToolUses[0].id;
+                const resultIndex = toolResults.findIndex(
+                  (result) => result.tool_use_id === toolUseId
+                );
+                if (
+                  resultIndex >= 0 &&
+                  !toolResults[resultIndex].is_error &&
+                  !browserBatchReminderInjected
+                ) {
+                  browserBatchReminderInjected = true;
+                  toolResults[resultIndex] = appendBrowserBatchReminder(
+                    toolResults[resultIndex],
+                    BROWSER_BATCH_SYSTEM_REMINDER
+                  );
                 }
               }
 
