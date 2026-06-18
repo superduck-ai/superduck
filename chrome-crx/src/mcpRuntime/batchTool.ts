@@ -154,7 +154,7 @@ function isSubmitBoundaryAction(toolName: string, input: Record<string, unknown>
     return false;
   }
   return input.text
-    .split(/\s+/)
+    .split(/[\s+]+/)
     .some((key) => key.toLowerCase() === 'enter' || key.toLowerCase() === 'return');
 }
 
