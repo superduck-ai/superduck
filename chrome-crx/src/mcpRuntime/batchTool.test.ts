@@ -912,6 +912,29 @@ describe('browser_batch runtime contract', () => {
     expect(String(result.output)).toContain('actions after Enter/Return should not run');
   });
 
+  it('rejects key tokens after Enter inside the same key action', async () => {
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
+          { tool: 'computer', input: { action: 'key', text: 'Enter Tab' } }
+        ]
+      },
+      context
+    );
+
+    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
+    expect(fixtures.executeComputer).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      completed: 0,
+      failedIndex: 1,
+      stoppedReason: 'unsafe_batch',
+      is_error: true
+    });
+    expect(String(result.output)).toContain('key tokens after Enter/Return should not run');
+  });
+
   it('rejects cross-tab child actions before execution', async () => {
     const result = await batchTool.execute(
       {

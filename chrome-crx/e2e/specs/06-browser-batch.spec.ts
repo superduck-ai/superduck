@@ -378,7 +378,7 @@ test.describe('browser_batch sidepanel execution', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'input', value: 'DeepSeek' }));
     await expect(sidepanel.getByText('完成')).toBeVisible();
     await expect(sidepanel.locator('body')).not.toContainText(
-      /Browser batch failed|批量浏览器操作失败/
+      /Browser batch failed|批量浏览器操作失败|浏览器操作序列失败/
     );
 
     await sidepanel.close();

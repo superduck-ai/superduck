@@ -153,9 +153,25 @@ function isSubmitBoundaryAction(toolName: string, input: Record<string, unknown>
   if (toolName !== 'computer' || input.action !== 'key' || typeof input.text !== 'string') {
     return false;
   }
-  return input.text
-    .split(/[\s+]+/)
-    .some((key) => key.toLowerCase() === 'enter' || key.toLowerCase() === 'return');
+  return getKeyTokens(input.text).some(isSubmitBoundaryKey);
+}
+
+function hasKeyAfterSubmitBoundary(toolName: string, input: Record<string, unknown>): boolean {
+  if (toolName !== 'computer' || input.action !== 'key' || typeof input.text !== 'string') {
+    return false;
+  }
+  const tokens = getKeyTokens(input.text);
+  const submitIndex = tokens.findIndex(isSubmitBoundaryKey);
+  return submitIndex >= 0 && submitIndex < tokens.length - 1;
+}
+
+function getKeyTokens(text: string): string[] {
+  return text.split(/[\s+]+/).filter(Boolean);
+}
+
+function isSubmitBoundaryKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized === 'enter' || normalized === 'return';
 }
 
 function summarizeStepOutput(output: string): string {
@@ -230,6 +246,15 @@ function validateBatchSafety(
         errorCode: 'unsafe_observation_first',
         error:
           'browser_batch should not start with read_page/find/get_page_text. Run the observation as a separate tool call first, then start a new deterministic batch with fresh refs.'
+      };
+    }
+
+    if (hasKeyAfterSubmitBoundary(toolName, input)) {
+      return {
+        index: i,
+        errorCode: 'unsafe_after_submit',
+        error:
+          'key tokens after Enter/Return should not run inside the same computer.key action because Enter/Return may submit a form, navigate, or change SPA state. End the key action at Enter/Return, then observe the page with read_page/find before continuing.'
       };
     }
 
