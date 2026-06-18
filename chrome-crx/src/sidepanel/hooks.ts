@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
-import { getTabEventManager } from '../mcpRuntime';
+import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
+import { getTabEventManager, tabGroupManager } from '../mcpRuntime';
 import { normalizeApiBaseUrl, parseTabId } from './sidepanelUtils';
 
 type TabChangeInfo = chrome.tabs.OnUpdatedInfo & {
@@ -22,6 +23,16 @@ const tabManager: TabManager = {
     getTabEventManager().subscribe(tabId, properties, callback),
   unsubscribe: (subscriptionId) => getTabEventManager().unsubscribe(subscriptionId)
 };
+
+async function isManagedSuperDuckTab(tabId: number): Promise<boolean> {
+  try {
+    await tabGroupManager.initialize(true);
+    const group = await tabGroupManager.findGroupByTab(tabId);
+    return Boolean(group && !group.isUnmanaged);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Subscribe to tab change events for a specific tab.
@@ -89,14 +100,52 @@ export function useActiveTabId(initialTabId: number | undefined): number | undef
     // windowId of the initial tab on the URL when not (e.g. some test
     // harnesses don't implement getCurrent).
     let myWindowId: number | undefined;
+    let disposed = false;
+    let activationSequence = 0;
 
-    void chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const real = tabs.find((t) => !t.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`));
-      if (real?.id != null) {
-        setActiveTabId(real.id);
-        myWindowId = real.windowId;
+    async function getCurrentWindowId(): Promise<number | undefined> {
+      try {
+        if (typeof chrome.windows?.getCurrent !== 'function') return undefined;
+        const currentWindow = await chrome.windows.getCurrent();
+        return currentWindow.id;
+      } catch {
+        return undefined;
       }
-    });
+    }
+
+    async function ensureCurrentWindowId(): Promise<number | undefined> {
+      if (typeof myWindowId !== 'number') {
+        myWindowId = await getCurrentWindowId();
+      }
+      return myWindowId;
+    }
+
+    function getActiveRealTab(): Promise<chrome.tabs.Tab | undefined> {
+      return new Promise((resolve) => {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          resolve(
+            tabs.find((tab) => !tab.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`))
+          );
+        });
+      });
+    }
+
+    async function syncActiveRealTab(): Promise<void> {
+      await ensureCurrentWindowId();
+      const real = await getActiveRealTab();
+      if (disposed || real?.id == null) return;
+
+      if (typeof myWindowId === 'number' && real.windowId !== myWindowId) {
+        return;
+      }
+      myWindowId = real.windowId;
+
+      if (await isManagedSuperDuckTab(real.id)) {
+        if (!disposed) setActiveTabId(real.id);
+      }
+    }
+
+    void syncActiveRealTab();
 
     if (typeof initialTabId === 'number') {
       void chrome.tabs
@@ -111,6 +160,45 @@ export function useActiveTabId(initialTabId: number | undefined): number | undef
         });
     }
 
+    const onRuntimeMessage = (message: unknown) => {
+      if (typeof message !== 'object' || message === null) return;
+      if ((message as { type?: unknown }).type !== SIDE_PANEL_SET_ACTIVE_TAB) return;
+
+      const tabId = (message as { tabId?: unknown }).tabId;
+      if (typeof tabId !== 'number') return;
+
+      const sequence = ++activationSequence;
+      void (async () => {
+        const currentWindowId = await ensureCurrentWindowId();
+        const messageWindowId = (message as { windowId?: unknown }).windowId;
+        let targetWindowId = typeof messageWindowId === 'number' ? messageWindowId : undefined;
+
+        if (typeof targetWindowId !== 'number') {
+          try {
+            targetWindowId = (await chrome.tabs.get(tabId)).windowId;
+          } catch {
+            return;
+          }
+        }
+
+        if (
+          disposed ||
+          sequence !== activationSequence ||
+          (typeof currentWindowId === 'number' && targetWindowId !== currentWindowId)
+        ) {
+          return;
+        }
+
+        if (typeof myWindowId !== 'number') {
+          myWindowId = targetWindowId;
+        }
+
+        const shouldTrackTab = await isManagedSuperDuckTab(tabId);
+        if (!shouldTrackTab || disposed || sequence !== activationSequence) return;
+        setActiveTabId(tabId);
+      })();
+    };
+
     // Listen for tab activation changes to track which tab is active.
     // Inlined the listener shape because `chrome.tabs.TabActiveInfo` is
     // not exported in the @types/chrome version this project pins to.
@@ -119,11 +207,20 @@ export function useActiveTabId(initialTabId: number | undefined): number | undef
       if (typeof myWindowId === 'number' && info.windowId !== myWindowId) {
         return;
       }
-      setActiveTabId(info.tabId);
+
+      const sequence = ++activationSequence;
+      void (async () => {
+        const shouldTrackTab = await isManagedSuperDuckTab(info.tabId);
+        if (!shouldTrackTab || disposed || sequence !== activationSequence) return;
+        setActiveTabId(info.tabId);
+      })();
     };
 
+    chrome.runtime.onMessage.addListener(onRuntimeMessage);
     chrome.tabs.onActivated.addListener(onActivated);
     return () => {
+      disposed = true;
+      chrome.runtime.onMessage.removeListener(onRuntimeMessage);
       chrome.tabs.onActivated.removeListener(onActivated);
     };
   }, [initialTabId]);

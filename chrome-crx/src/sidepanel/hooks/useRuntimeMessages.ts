@@ -13,7 +13,6 @@ import type { PairingPromptState, PendingPromptPayload, SendPromptOptions } from
 
 const TARGET_SESSION_READY_TIMEOUT_MS = 2000;
 const TARGET_SESSION_READY_POLL_MS = 50;
-
 export interface UseRuntimeMessagesProps {
   queryTabId: number | undefined;
   runtimeTabId: number | undefined;

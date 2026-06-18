@@ -1,10 +1,10 @@
 import {
   isBridgeConnected,
-  migrateGroupFinalizationState,
   sendMcpNotificationViaBridge,
   tabGroupManager,
   trackEvent
 } from '../mcpRuntime';
+import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
 import type { NativeHostStatus } from './nativeHost';
 import type { OpenSidePanelRequest } from './sidePanel';
 import { incrementPanelAlive, decrementPanelAlive } from './sidePanel';
@@ -75,6 +75,24 @@ export interface RuntimeMessageListenerDeps {
 }
 
 export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps) {
+  function notifySidePanelTargetTab(tabId: number, windowId: number): void {
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: SIDE_PANEL_SET_ACTIVE_TAB,
+          tabId,
+          windowId
+        },
+        () => {
+          // Touch lastError so Chrome does not report an unchecked runtime error.
+          void chrome.runtime.lastError;
+        }
+      );
+    } catch {
+      // No live sidepanel is a valid state.
+    }
+  }
+
   async function ensureOffscreenDocument() {
     if (!chrome.offscreen) return;
 
@@ -319,45 +337,21 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       if (message.type === 'PANEL_READY') {
         await incrementPanelAlive();
 
-        // Sidepanel just (re)opened and is asking us to make sure the active
-        // tab belongs to a SuperDuck group. The tabId comes from the user's
-        // currently active tab — for a window-bound sidepanel this is *not*
-        // the sender's tab, so we have to query for it.
+        // PANEL_READY is only a mount/liveness signal. Group creation,
+        // adoption, and promotion are explicit-open side effects handled by
+        // openSidePanel(); a panel mount can happen while Chrome is switching
+        // tabs, including on user workspace tabs that SuperDuck must not
+        // claim.
         try {
           const [activeTab] = await chrome.tabs.query({
             active: true,
             lastFocusedWindow: true
           });
-          if (activeTab?.id !== undefined) {
+          if (activeTab?.id !== undefined && typeof activeTab.windowId === 'number') {
             await tabGroupManager.initialize(true);
             const existing = await tabGroupManager.findGroupByTab(activeTab.id);
-            if (!existing) {
-              // Active tab isn't in any SuperDuck group — create one with
-              // this tab as the main.
-              try {
-                await tabGroupManager.createGroup(activeTab.id);
-              } catch (err) {
-                console.error('[superduck:panel-ready] createGroup failed', err);
-              }
-            } else if (existing.isUnmanaged) {
-              try {
-                await tabGroupManager.adoptOrphanedGroup(activeTab.id, existing.chromeGroupId);
-              } catch (err) {
-                console.error('[superduck:panel-ready] adoptOrphanedGroup failed', err);
-              }
-            } else if (existing.mainTabId !== activeTab.id) {
-              // Active tab is inside a SuperDuck group but isn't its main
-              // tab. The user explicitly opened the sidepanel from this
-              // tab, so it should become the new main — matching the
-              // pre-setPanelBehavior flow, which called
-              // createGroup(activeTabId) unconditionally and made the
-              // clicked tab the main.
-              try {
-                await tabGroupManager.promoteToMainTab(existing.mainTabId, activeTab.id);
-                migrateGroupFinalizationState(existing.mainTabId, activeTab.id);
-              } catch (err) {
-                console.error('[superduck:panel-ready] promoteToMainTab failed', err);
-              }
+            if (existing && !existing.isUnmanaged) {
+              notifySidePanelTargetTab(activeTab.id, activeTab.windowId);
             }
           }
           sendResponse({ success: true });

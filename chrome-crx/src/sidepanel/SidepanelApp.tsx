@@ -169,14 +169,27 @@ export function SidepanelApp() {
     console.debug(`[PERF] SidepanelApp rendered ${renderCountRef.current} times`);
   }
 
+  const _query = useQueryState();
+
+  // Dynamically track managed SuperDuck tabs as Chrome switches between tabs.
+  // Workspace tabs are intentionally ignored so the current transcript remains
+  // pinned to the last managed tab while the sidepanel is hidden.
+  const dynamicTabId = useActiveTabId(_query.tabId);
+  const [preservedTranscriptTabId, setPreservedTranscriptTabId] = useState<number | undefined>();
+  const [preservedTranscriptActiveTabId, setPreservedTranscriptActiveTabId] = useState<
+    number | undefined
+  >();
+  const sessionTabId = preservedTranscriptTabId ?? dynamicTabId;
+  const query = useMemo(
+    () => ({ ..._query, tabId: dynamicTabId ?? _query.tabId }),
+    [_query, dynamicTabId]
+  );
+
   useEffect(() => {
     void trackEvent('superduck.sidebar.opened', {});
-    // Ask the service worker to make sure the active tab is in a SuperDuck
-    // group. Runs once per sidepanel open; tabGroupManager.createGroup() is
-    // idempotent (skips when the tab is already in a group), so this is
-    // safe to call on every open. This is the new home of group creation
-    // since chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
-    // bypasses our chrome.action.onClicked handler.
+    // Report that this sidepanel instance is alive. The service worker may
+    // retarget it to an already-managed SuperDuck tab, but group creation and
+    // adoption are reserved for explicit open actions.
     panelReadyPromiseRef.current = chrome.runtime.sendMessage({ type: 'PANEL_READY' }).catch(() => {
       // PANEL_READY is best-effort: if the service worker isn't ready or the
       // user closes the sidepanel before the message roundtrips, that's fine.
@@ -193,23 +206,6 @@ export function SidepanelApp() {
       window.removeEventListener('beforeunload', onUnload);
     };
   }, []);
-
-  const _query = useQueryState();
-
-  // Dynamically track the active tab so the sidepanel survives tab switches.
-  // When the sidepanel is opened as a window-bound panel (not tab-bound),
-  // the iframe is NOT destroyed on tab switch — it stays open and this hook
-  // updates the target tabId to match the user's active tab.
-  const dynamicTabId = useActiveTabId(_query.tabId);
-  const [preservedTranscriptTabId, setPreservedTranscriptTabId] = useState<number | undefined>();
-  const [preservedTranscriptActiveTabId, setPreservedTranscriptActiveTabId] = useState<
-    number | undefined
-  >();
-  const sessionTabId = preservedTranscriptTabId ?? dynamicTabId;
-  const query = useMemo(
-    () => ({ ..._query, tabId: dynamicTabId ?? _query.tabId }),
-    [_query, dynamicTabId]
-  );
 
   // Feature flags removed — all values are defaults (empty)
   const versionInfoRaw = null;
@@ -1400,10 +1396,10 @@ export function SidepanelApp() {
   // preserved state, `sessionTabId` remains pinned to the transcript's tab so
   // any follow-up prompt, session mapping, and tool execution stay consistent.
   //
-  // We also re-resolve when the user switches tabs while the sidepanel
-  // is window-bound: `sessionTabId` changes, the previous `activeSessionId`
-  // belongs to the old tab, and reading `getTabSessionKey(newTabId)` is
-  // the only way to surface the new tab's prior conversation. The
+  // We also re-resolve when the user switches between managed SuperDuck tabs:
+  // `sessionTabId` changes, the previous `activeSessionId` belongs to the old
+  // tab, and reading `getTabSessionKey(newTabId)` is the only way to surface
+  // the new tab's prior conversation. The
   // `sessionResolvedForTabRef` ref records which tab the active session
   // was last resolved for so we only re-resolve on an actual tab change.
   useEffect(() => {

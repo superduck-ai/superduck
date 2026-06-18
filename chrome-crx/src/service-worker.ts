@@ -38,21 +38,21 @@ void connectBridge();
 void nativeHostManager.connect();
 initModelMappingListener();
 
-// Let Chrome own the action click → sidepanel open handshake. Calling
-// chrome.sidePanel.open() from chrome.action.onClicked runs into a
-// "may only be called in response to a user gesture" rejection on
-// Chrome 127+ — service-worker callbacks don't keep the gesture chain
-// alive across awaits reliably, and any setOptions/open ordering hiccup
-// also rejects. setPanelBehavior(openPanelOnActionClick: true) makes
-// the click open the panel entirely inside Chrome, sidestepping the
-// API restriction. We still keep chrome.commands.onCommand wired to
-// openSidePanel() for the keyboard shortcut — that path *does* have a
-// user gesture.
+// The manifest declares a default sidepanel path, but the product only wants
+// SuperDuck-managed tabs to show it. Keep the default panel disabled and open
+// tab-specific panels from explicit user gestures (toolbar click / Ctrl+E).
+// Otherwise Chrome can switch from a managed tab-specific instance to the
+// default instance on a workspace tab, which remounts the UI and can claim the
+// user's workspace.
 chrome.sidePanel
-  .setPanelBehavior({ openPanelOnActionClick: true })
+  .setPanelBehavior({ openPanelOnActionClick: false })
   .catch((err) =>
     console.error("[superduck] setPanelBehavior failed", err)
   );
+
+chrome.sidePanel
+  .setOptions({ enabled: false })
+  .catch((err) => console.error("[superduck] disable default sidepanel failed", err));
 
 async function handleNotificationClick(notificationId: string) {
   await chrome.notifications.clear(notificationId);
@@ -140,6 +140,14 @@ chrome.permissions.onRemoved.addListener((permissions) => {
 
 chrome.notifications.onClicked.addListener((notificationId) => {
   void handleNotificationClick(notificationId);
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  void sidePanelController.handleActionClick(tab);
+});
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  void sidePanelController.handleTabActivated(activeInfo);
 });
 
 chrome.commands.onCommand.addListener((command) => {

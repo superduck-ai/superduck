@@ -1,10 +1,10 @@
+import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
 import { setStorageValue, StorageKeys } from '../extensionServices';
 import { migrateGroupFinalizationState, tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
 
 // Count of alive sidepanel iframes, persisted to session storage to survive
-// SW restarts. When > 0, openSidePanel skips setOptions to avoid reloading
-// any live iframe and killing a running agent.
+// SW restarts.
 const PANEL_ALIVE_COUNT_KEY = 'panelAliveCount';
 let alivePanelCount = 0;
 let initialized = false;
@@ -33,11 +33,6 @@ export async function decrementPanelAlive(): Promise<void> {
   await persistPanelAliveCount();
 }
 
-export async function isPanelAlive(): Promise<boolean> {
-  await initPanelAliveCount();
-  return alivePanelCount > 0;
-}
-
 export interface OpenSidePanelRequest {
   tabId: number;
   prompt?: string;
@@ -52,6 +47,81 @@ export interface SidePanelControllerDeps {
 }
 
 export function createSidePanelController({ connectNativeHost }: SidePanelControllerDeps) {
+  function setSidePanelOptions(
+    options: Parameters<typeof chrome.sidePanel.setOptions>[0]
+  ): Promise<void> {
+    try {
+      return chrome.sidePanel.setOptions(options).catch((err) => {
+        console.error('[superduck:sidepanel] setOptions FAILED', err);
+      });
+    } catch (err) {
+      console.error('[superduck:sidepanel] setOptions FAILED', err);
+      return Promise.resolve();
+    }
+  }
+
+  function enableSidePanelForTab(tabId: number): Promise<void> {
+    return setSidePanelOptions({
+      tabId,
+      path: 'sidepanel.html',
+      enabled: true
+    });
+  }
+
+  async function getWorkspaceSidePanelDisableTargets(tabId: number): Promise<number[]> {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (typeof tab.groupId === 'number' && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+        const groupTabs = await chrome.tabs.query({ groupId: tab.groupId });
+        const groupTabIds = groupTabs.flatMap((groupTab) =>
+          typeof groupTab.id === 'number' ? [groupTab.id] : []
+        );
+        if (groupTabIds.length > 0) return groupTabIds;
+      }
+    } catch {
+      // Fall back to the active tab.
+    }
+    return [tabId];
+  }
+
+  async function hideSidePanelForWorkspaceTab(tabId: number): Promise<void> {
+    const targetTabIds = await getWorkspaceSidePanelDisableTargets(tabId);
+    await Promise.all(
+      targetTabIds.map((targetTabId) =>
+        setSidePanelOptions({
+          tabId: targetTabId,
+          enabled: false
+        })
+      )
+    );
+  }
+
+  async function notifySidePanelTargetTab(tabId: number): Promise<void> {
+    let windowId: number;
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      windowId = tab.windowId;
+    } catch {
+      return;
+    }
+
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: SIDE_PANEL_SET_ACTIVE_TAB,
+          tabId,
+          windowId
+        },
+        () => {
+          // Touch lastError so Chrome does not report an unchecked runtime error.
+          void chrome.runtime.lastError;
+        }
+      );
+    } catch {
+      // No live sidepanel is a valid state.
+    }
+  }
+
   function didHandleRuntimeMessage(response: unknown): boolean {
     return (
       typeof response === 'object' &&
@@ -84,57 +154,16 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
     }
   }
 
-  async function openSidePanel(tabId: number, windowId?: number, gestureCapable = false) {
-    // Use window-bound opening instead of tab-bound to allow the sidepanel to
-    // survive tab switches. The sidepanel will track the active tab dynamically
-    // via chrome.tabs.onActivated.
-    //
+  async function openSidePanel(tabId: number, gestureCapable = false) {
     // IMPORTANT: chrome.sidePanel.open() must run inside the user-gesture chain
-    // that triggered it (Chrome 127+). The `await` in chrome.tabs.get() below
-    // would break that chain and cause open() to reject with "may only be
-    // called in response to a user gesture". When the caller already has a
-    // `chrome.tabs.Tab` (e.g. from chrome.action.onClicked), we accept its
-    // `windowId` and call open() synchronously so the gesture chain stays
-    // intact. The `await tabs.get(tabId)` fallback only runs for non-gesture
-    // callers (runtime messages) — those paths can't open the panel anyway
-    // because they have no user gesture, so the await is harmless there.
-    //
-    // gestureCapable: only call chrome.sidePanel.open() when the caller is
-    // inside a user-gesture chain (e.g. chrome.action.onClicked,
-    // chrome.commands.onCommand). Runtime message handlers and STOP_AGENT
-    // fallbacks have no gesture and open() would always reject — skip it
-    // and rely on setOptions so the panel opens on the next user click.
-    let resolvedWindowId = windowId;
-    if (typeof resolvedWindowId !== 'number') {
-      const tab = await chrome.tabs.get(tabId);
-      resolvedWindowId = tab.windowId;
-    }
-
-    // Use a stable path (no initialTabId) so that repeated setOptions calls
-    // don't change the URL and trigger an iframe reload — which would kill
-    // a running agent. The sidepanel's useActiveTabId hook already resolves
-    // the active tab via chrome.tabs.query + chrome.tabs.onActivated, so
-    // the query parameter is unnecessary.
-    try {
-      chrome.sidePanel.setOptions({
-        path: 'sidepanel.html',
-        enabled: true
-      });
-    } catch (err) {
-      console.error('[superduck:sidepanel] setOptions FAILED', err);
-    }
+    // that triggered it (Chrome 127+). Do not await before open(). We first
+    // enqueue the tab-specific enable call, then open that same tab-specific
+    // panel so workspace tabs never fall back to the manifest default panel.
+    void enableSidePanelForTab(tabId);
 
     if (gestureCapable) {
       try {
-        // Fire-and-forget: do NOT await. chrome.sidePanel.open() must run
-        // inside the user gesture chain that triggered it, and the gesture
-        // expires across an await. Awaiting here would reject open() with
-        // "may only be called in response to a user gesture" on the
-        // chrome.commands.onCommand path (Ctrl+E) — where the gesture is
-        // real but any await between the callback and open() breaks the
-        // chain. The follow-up tabGroupManager calls below don't need a
-        // user gesture, so they're free to await.
-        chrome.sidePanel.open({ windowId: resolvedWindowId }).catch((err) => {
+        chrome.sidePanel.open({ tabId }).catch((err) => {
           console.error('[superduck:sidepanel] open() FAILED', err);
         });
       } catch (err) {
@@ -164,16 +193,35 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
           // ignore
         }
       }
+      await notifySidePanelTargetTab(tabId);
       return;
     }
 
     try {
       await tabGroupManager.createGroup(tabId);
+      await notifySidePanelTargetTab(tabId);
     } catch {
       // ignore
     }
 
     void connectNativeHost();
+  }
+
+  async function handleTabActivated(activeInfo: { tabId: number; windowId: number }) {
+    try {
+      await tabGroupManager.initialize(true);
+      const group = await tabGroupManager.findGroupByTab(activeInfo.tabId);
+
+      // `isUnmanaged` means a regular Chrome group that can be adopted only
+      // after an explicit open action; activation alone is not consent.
+      if (group && !group.isUnmanaged) {
+        await enableSidePanelForTab(activeInfo.tabId);
+        return;
+      }
+      await hideSidePanelForWorkspaceTab(activeInfo.tabId);
+    } catch {
+      await hideSidePanelForWorkspaceTab(activeInfo.tabId);
+    }
   }
 
   async function openSidePanelRequest(request: OpenSidePanelRequest) {
@@ -199,10 +247,8 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
   }
 
   async function handleActionClick(tab: chrome.tabs.Tab) {
-    if (tab.id !== undefined && tab.windowId !== undefined) {
-      await openSidePanel(tab.id, tab.windowId, true);
-    } else if (tab.id !== undefined) {
-      await openSidePanel(tab.id, undefined, true);
+    if (tab.id !== undefined) {
+      await openSidePanel(tab.id, true);
     }
   }
 
@@ -251,6 +297,7 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
     openSidePanel,
     openSidePanelRequest,
     handleActionClick,
+    handleTabActivated,
     openOptionsForSetup,
     openOptionsWithTask
   };
