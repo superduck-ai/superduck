@@ -4,6 +4,7 @@ import {
   tabGroupManager,
   trackEvent
 } from '../mcpRuntime';
+import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
 import type { NativeHostStatus } from './nativeHost';
 import type { OpenSidePanelRequest } from './sidePanel';
 import { incrementPanelAlive, decrementPanelAlive } from './sidePanel';
@@ -56,8 +57,6 @@ const HANDLED_MESSAGE_TYPES = new Set([
   'PANEL_READY',
   'PANEL_CLOSED'
 ]);
-
-const SIDE_PANEL_SET_ACTIVE_TAB = 'SIDE_PANEL_SET_ACTIVE_TAB';
 
 export interface RuntimeMessageListenerDeps {
   openSidePanelRequest: (request: OpenSidePanelRequest) => Promise<void>;

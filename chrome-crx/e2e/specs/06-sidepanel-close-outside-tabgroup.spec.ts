@@ -1,6 +1,7 @@
 import type { BrowserContext, Page, Worker } from '@playwright/test';
 import { test, expect } from '../fixtures/extension';
 import { seedStorage } from '../fixtures/storage';
+import { requestExplicitSidePanelOpen } from '../helpers/sidepanel';
 
 async function getTabForPage(serviceWorker: Worker, page: Page) {
   const url = page.url();
@@ -13,18 +14,6 @@ async function getTabForPage(serviceWorker: Worker, page: Page) {
     }
     return { id: tab.id, windowId: tab.windowId };
   }, url);
-}
-
-async function openSidePanelForTab(context: BrowserContext, extensionId: string, tabId: number) {
-  const controlPage = await context.newPage();
-  await controlPage.goto(`chrome-extension://${extensionId}/options.html`);
-  await controlPage.evaluate(async (targetTabId) => {
-    await chrome.runtime.sendMessage({
-      type: 'open_side_panel',
-      tabId: targetTabId
-    });
-  }, tabId);
-  await controlPage.close();
 }
 
 async function openRealSidePanelForTab(
@@ -138,6 +127,8 @@ async function installSidePanelProbe(serviceWorker: Worker): Promise<void> {
     };
 
     const closeProbe = async (options?: unknown) => {
+      // Intentionally record only: this spec verifies whether production
+      // code calls close(), without actually closing the panel under test.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (globalThis as any).__sidePanelCloseCalls.push(options ?? null);
     };
@@ -305,7 +296,7 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
     const workspaceSiblingTab = await getTabForPage(serviceWorker, workspaceSiblingPage);
     await createUnmanagedChromeTabGroup(serviceWorker, [workspaceTab.id, workspaceSiblingTab.id]);
 
-    await openSidePanelForTab(context, extensionId, managedTab.id);
+    await requestExplicitSidePanelOpen(context, extensionId, managedTab.id);
     await expect
       .poll(
         async () => {
@@ -401,7 +392,7 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
     ]);
 
     await installRuntimeProbe(serviceWorker);
-    await openSidePanelForTab(context, extensionId, managedTab.id);
+    await requestExplicitSidePanelOpen(context, extensionId, managedTab.id);
     await expect
       .poll(
         async () => {
@@ -439,6 +430,8 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
       .toBe(1);
 
     await workspacePage.bringToFront();
+    // No positive event is expected here; give Chrome time to dispatch any
+    // erroneous PANEL_READY or retarget messages before asserting absence.
     await workspacePage.waitForTimeout(3000);
 
     await expect
@@ -467,6 +460,8 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
     ).toBe(false);
 
     await managedPage.bringToFront();
+    // The managed tab should restore the existing panel document without a new
+    // PANEL_READY, so this bounded pause checks that no late reload arrives.
     await managedPage.waitForTimeout(1500);
 
     expect(await getTabSessionId(serviceWorker, managedTab.id)).toBe(managedSessionId);

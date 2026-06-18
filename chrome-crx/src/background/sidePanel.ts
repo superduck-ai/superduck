@@ -1,3 +1,4 @@
+import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
 import { setStorageValue, StorageKeys } from '../extensionServices';
 import { migrateGroupFinalizationState, tabGroupManager } from '../mcpRuntime';
 import type { ScheduledTask } from './types';
@@ -44,8 +45,6 @@ export interface OpenSidePanelRequest {
 export interface SidePanelControllerDeps {
   connectNativeHost: () => Promise<boolean>;
 }
-
-const SIDE_PANEL_SET_ACTIVE_TAB = 'SIDE_PANEL_SET_ACTIVE_TAB';
 
 export function createSidePanelController({ connectNativeHost }: SidePanelControllerDeps) {
   function setSidePanelOptions(

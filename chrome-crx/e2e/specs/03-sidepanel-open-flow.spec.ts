@@ -2,9 +2,8 @@ import { test, expect } from '../fixtures/extension';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { BrowserContext, Worker } from '@playwright/test';
 import { seedStorage, getDefaultProviderConfig } from '../fixtures/storage';
-import { openSidepanel } from '../helpers/sidepanel';
+import { getActiveTabId, openSidepanel, requestExplicitSidePanelOpen } from '../helpers/sidepanel';
 
 /**
  * Regression for: "chrome.sidePanel.open() may only be called in response
@@ -57,34 +56,6 @@ function findServiceWorkerBundle(): string {
     );
   }
   return path.join(assetsDir, match);
-}
-
-async function requestExplicitSidePanelOpen(
-  context: BrowserContext,
-  extensionId: string,
-  tabId: number
-): Promise<void> {
-  const controlPage = await context.newPage();
-  await controlPage.goto(`chrome-extension://${extensionId}/options.html`);
-  await controlPage.evaluate(async (targetTabId) => {
-    await chrome.runtime.sendMessage({
-      type: 'open_side_panel',
-      tabId: targetTabId
-    });
-  }, tabId);
-  await controlPage.close();
-}
-
-async function getActiveTabId(serviceWorker: Worker): Promise<number> {
-  return await serviceWorker.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [tab] = await (globalThis as any).chrome.tabs.query({
-      active: true,
-      lastFocusedWindow: true
-    });
-    if (!tab?.id) throw new Error('No active tab');
-    return tab.id as number;
-  });
 }
 
 test.describe('Regressions for fix(crx) make sidePanel.open() fire-and-forget', () => {

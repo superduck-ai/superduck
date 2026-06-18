@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
+import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
 import { getTabEventManager, tabGroupManager } from '../mcpRuntime';
 import { normalizeApiBaseUrl, parseTabId } from './sidepanelUtils';
 
@@ -22,8 +23,6 @@ const tabManager: TabManager = {
     getTabEventManager().subscribe(tabId, properties, callback),
   unsubscribe: (subscriptionId) => getTabEventManager().unsubscribe(subscriptionId)
 };
-
-const SIDE_PANEL_SET_ACTIVE_TAB = 'SIDE_PANEL_SET_ACTIVE_TAB';
 
 async function isManagedSuperDuckTab(tabId: number): Promise<boolean> {
   try {
@@ -171,7 +170,8 @@ export function useActiveTabId(initialTabId: number | undefined): number | undef
       const sequence = ++activationSequence;
       void (async () => {
         const currentWindowId = await ensureCurrentWindowId();
-        let targetWindowId = (message as { windowId?: unknown }).windowId;
+        const messageWindowId = (message as { windowId?: unknown }).windowId;
+        let targetWindowId = typeof messageWindowId === 'number' ? messageWindowId : undefined;
 
         if (typeof targetWindowId !== 'number') {
           try {
