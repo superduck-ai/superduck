@@ -108,14 +108,6 @@ function getBrowserBatchResultText(toolResult?: ApiToolResultBlock): string {
   return getTextFromBlockContent(content, '\n');
 }
 
-function getCompactBrowserBatchError(error: string): string {
-  return error
-    .replace(/^actions\[\d+\]\s+\([^)]+\)\s+failed:\s*/i, '')
-    .replace(/^actions\[\d+\]\s+invalid input for [^:]+:\s*/i, '')
-    .replace(/^actions\[\d+\]:\s*/i, '')
-    .trim();
-}
-
 function parseBrowserBatchResult(resultText: string): BrowserBatchParsedResult {
   try {
     const parsed = JSON.parse(resultText) as {
@@ -133,7 +125,7 @@ function parseBrowserBatchResult(resultText: string): BrowserBatchParsedResult {
         if (!isRecord(step) || typeof step.index !== 'number') continue;
         stepStatuses.set(step.index, step.ok === true ? 'complete' : 'failed');
         if (typeof step.error === 'string') {
-          stepErrors.set(step.index, getCompactBrowserBatchError(step.error));
+          stepErrors.set(step.index, step.error);
         }
         if (typeof step.errorCode === 'string') {
           stepErrorCodes.set(step.index, step.errorCode);

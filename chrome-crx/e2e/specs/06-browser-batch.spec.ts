@@ -284,7 +284,7 @@ test.describe('browser_batch sidepanel execution', () => {
     serviceWorker
   }) => {
     const targetPage = await context.newPage();
-    await targetPage.goto(fixtureUrl('simple-form.html'));
+    await targetPage.goto('chrome://version/');
     const { sidepanel, tabId } = await prepareSidepanel(targetPage, serviceWorker, extensionId);
 
     await mockBatchLLM(sidepanel, {
@@ -302,8 +302,8 @@ test.describe('browser_batch sidepanel execution', () => {
     await sendMessage(sidepanel, '打开表单并查找名称输入框');
     await waitForReplyDone(sidepanel, 60_000);
 
-    expect(await getTabUrl(serviceWorker, tabId)).toContain(fixtureUrl('simple-form.html'));
-    await expect(sidepanel.getByText('操作序列在第 1/2 步停止')).toBeVisible();
+    expect(await getTabUrl(serviceWorker, tabId)).toMatch(/^chrome:\/\//);
+    await expect(sidepanel.getByText('浏览器操作序列失败')).toBeVisible();
     await expect(sidepanel.locator('body')).not.toContainText('Browser batch failed');
 
     await sidepanel.close();
@@ -377,7 +377,9 @@ test.describe('browser_batch sidepanel execution', () => {
     const events = await targetPage.evaluate(() => (window as any).__searchEvents);
     expect(events).toContainEqual(expect.objectContaining({ type: 'input', value: 'DeepSeek' }));
     await expect(sidepanel.getByText('完成')).toBeVisible();
-    await expect(sidepanel.locator('body')).not.toContainText(/Browser batch failed|批量浏览器操作失败/);
+    await expect(sidepanel.locator('body')).not.toContainText(
+      /Browser batch failed|批量浏览器操作失败/
+    );
 
     await sidepanel.close();
     await targetPage.close();

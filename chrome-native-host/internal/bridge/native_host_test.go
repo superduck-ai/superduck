@@ -209,3 +209,13 @@ func TestBrowserBatchTimeoutFallsBackWithoutActions(t *testing.T) {
 		t.Fatalf("BrowserBatchTimeout() = %v, want %v", timeout, fallback)
 	}
 }
+
+func TestBrowserBatchTimeoutClampsFallbackWithoutActions(t *testing.T) {
+	t.Parallel()
+
+	timeout := BrowserBatchTimeout(map[string]interface{}{"actions": "invalid"}, MaxTimeout+time.Minute)
+
+	if timeout != MaxTimeout {
+		t.Fatalf("BrowserBatchTimeout() = %v, want %v", timeout, MaxTimeout)
+	}
+}

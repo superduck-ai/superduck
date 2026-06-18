@@ -313,6 +313,9 @@ func BrowserBatchTimeout(args map[string]interface{}, fallback time.Duration) ti
 	if fallback <= 0 {
 		fallback = DefaultTimeout
 	}
+	if fallback > MaxTimeout {
+		fallback = MaxTimeout
+	}
 	actionCount := browserBatchActionCount(args)
 	if actionCount == 0 {
 		return fallback

@@ -2,6 +2,7 @@ package main
 
 import (
 	"chrome-native-host/internal/analytics"
+	"chrome-native-host/internal/bridge"
 	"chrome-native-host/internal/protocol"
 	"chrome-native-host/internal/udsauth"
 	"encoding/json"
@@ -390,6 +391,7 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 	if chromeTimeout <= 0 {
 		chromeTimeout = defaultChromeResponseTimeout
 	}
+	chromeTimeout = chromeResponseTimeoutForRequest(raw, chromeTimeout)
 
 	timer := time.NewTimer(chromeTimeout)
 	defer timer.Stop()
@@ -409,6 +411,24 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 		sendToolError(responseWriter, fmt.Sprintf("chrome extension did not respond to tool request within %s; reload the extension if this repeats", chromeTimeout))
 		_ = s.Close()
 	}
+}
+
+func chromeResponseTimeoutForRequest(raw []byte, fallback time.Duration) time.Duration {
+	if fallback <= 0 {
+		fallback = defaultChromeResponseTimeout
+	}
+
+	var req protocol.ToolRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return fallback
+	}
+	if req.Type != "tool_request" || req.Method != "execute_tool" {
+		return fallback
+	}
+	if req.Params.Tool != "browser_batch" {
+		return fallback
+	}
+	return bridge.BrowserBatchTimeout(req.Params.Args, fallback)
 }
 
 func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {

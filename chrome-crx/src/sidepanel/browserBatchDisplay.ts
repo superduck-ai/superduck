@@ -28,7 +28,7 @@ export function getLocalizedBrowserBatchError(
   stoppedReason: string | undefined,
   intl: BrowserBatchIntl
 ): string {
-  const code = errorCode || inferBrowserBatchErrorCode(error) || stoppedReason;
+  const code = errorCode || stoppedReason || inferBrowserBatchErrorCode(error);
   switch (code) {
     case 'unsafe_after_navigate':
       return intl.formatMessage({

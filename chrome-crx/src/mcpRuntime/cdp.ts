@@ -451,6 +451,10 @@ class ChromeDebuggerProtocol {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (chrome.runtime.lastError || !Array.isArray(targets)) {
+          resolve(false);
+          return;
+        }
         const target = targets.find((t) => t.tabId === tabId);
         resolve(target?.attached ?? false);
       });

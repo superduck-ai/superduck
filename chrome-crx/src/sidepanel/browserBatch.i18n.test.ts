@@ -93,4 +93,15 @@ describe('browser batch localized error text', () => {
     expect(text).toBe(zhCN.browser_batch_error_generic);
     expect(text).not.toMatch(/Tool execution failed|Browser batch|internal error/i);
   });
+
+  it('prefers structured stoppedReason over raw error inference', () => {
+    const text = getLocalizedBrowserBatchError(
+      'actions after navigate should not run',
+      undefined,
+      'unsafe_after_submit',
+      zhIntl
+    );
+
+    expect(text).toBe(zhCN.browser_batch_error_unsafe_after_submit);
+  });
 });

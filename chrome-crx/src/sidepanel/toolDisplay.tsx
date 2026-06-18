@@ -91,7 +91,11 @@ export function getBrowserBatchActions(input?: ToolDisplayInput): BrowserBatchAc
 export function getBrowserBatchFailureIndex(resultText: string): number | null {
   try {
     const parsed = JSON.parse(resultText) as { failedIndex?: unknown };
-    if (typeof parsed.failedIndex === 'number' && Number.isFinite(parsed.failedIndex)) {
+    if (
+      typeof parsed.failedIndex === 'number' &&
+      Number.isInteger(parsed.failedIndex) &&
+      parsed.failedIndex >= 0
+    ) {
       return parsed.failedIndex;
     }
   } catch {
@@ -101,14 +105,14 @@ export function getBrowserBatchFailureIndex(resultText: string): number | null {
   const actionMatch = resultText.match(/\bactions\[(\d+)\]/);
   if (actionMatch) {
     const index = Number.parseInt(actionMatch[1], 10);
-    return Number.isFinite(index) ? index : null;
+    return Number.isInteger(index) && index >= 0 ? index : null;
   }
 
   const stoppedMatch = resultText.match(/\bBatch stopped at action\s+(\d+)\/\d+/i);
   if (!stoppedMatch) return null;
 
   const index = Number.parseInt(stoppedMatch[1], 10) - 1;
-  return Number.isFinite(index) ? index : null;
+  return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
 function isTextResultBlock(block: unknown): block is { type: 'text'; text: string } {

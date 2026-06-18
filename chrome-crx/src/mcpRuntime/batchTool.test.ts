@@ -268,7 +268,7 @@ describe('browser_batch runtime contract', () => {
     expect(result).toMatchObject({
       completed: 0,
       failedIndex: 1,
-      remaining: 1,
+      remaining: 0,
       stoppedReason: 'validation_error'
     });
     expect(result.is_error).toBe(true);
@@ -311,6 +311,28 @@ describe('browser_batch runtime contract', () => {
       remaining: 0,
       stoppedReason: 'completed'
     });
+  });
+
+  it('keeps summary mode child outputs concise', async () => {
+    fixtures.executeComputer.mockResolvedValue({ output: 'screenshot captured' });
+    fixtures.executeReadPage.mockResolvedValue({ output: 'x'.repeat(500) });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        resultMode: 'summary',
+        actions: [
+          { tool: 'computer', input: { action: 'screenshot' } },
+          { tool: 'read_page', input: { max_chars: 1000 } }
+        ]
+      },
+      context
+    );
+
+    const output = parseOutput(result);
+    const steps = output.steps as Array<{ output?: string }>;
+    expect(steps[1].output).toHaveLength(160);
+    expect(output.summary).not.toContain('x'.repeat(300));
   });
 
   it('ensures debugger attach before CDP-dependent child actions', async () => {
@@ -511,6 +533,7 @@ describe('browser_batch runtime contract', () => {
     expect(result).toMatchObject({
       completed: 0,
       failedIndex: 2,
+      remaining: 1,
       stoppedReason: 'unsafe_batch',
       is_error: true
     });
@@ -746,6 +769,99 @@ describe('browser_batch runtime contract', () => {
       failedIndex: null,
       stoppedReason: 'completed'
     });
+    expect(fixtures.waitForTabLoading).toHaveBeenCalledWith(7);
+  });
+
+  it('clears child action timeout timers after successful batch actions', async () => {
+    vi.useFakeTimers();
+    try {
+      fixtures.executeComputer.mockResolvedValue({ output: 'screenshot' });
+      fixtures.executeReadPage.mockResolvedValue({ output: 'read page' });
+
+      const resultPromise = batchTool.execute(
+        {
+          tabId: 7,
+          actions: [
+            { tool: 'computer', input: { action: 'screenshot' } },
+            { tool: 'read_page', input: { max_chars: 1000 } }
+          ]
+        },
+        context
+      );
+
+      await expect(resultPromise).resolves.toMatchObject({
+        completed: 2,
+        failedIndex: null,
+        stoppedReason: 'completed'
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preflights page permission before executing child actions', async () => {
+    const permissionManager = {
+      checkPermission: vi.fn().mockResolvedValue({ allowed: false, needsPrompt: true }),
+      getTurnApprovedDomains: vi.fn(() => []),
+      setTurnApprovedDomains: vi.fn()
+    };
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
+          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
+        ]
+      },
+      {
+        ...context,
+        toolUseId: 'batch-tool-use',
+        permissionManager: permissionManager as ToolContext['permissionManager']
+      }
+    );
+
+    expect(result).toMatchObject({
+      type: 'permission_required',
+      tool: 'browser_batch',
+      url: 'https://example.com',
+      toolUseId: 'batch-tool-use'
+    });
+    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
+    expect(fixtures.executeComputer).not.toHaveBeenCalled();
+  });
+
+  it('turn-approves the preflighted domain after batch permission succeeds', async () => {
+    const permissionManager = {
+      checkPermission: vi.fn().mockResolvedValue({ allowed: true }),
+      getTurnApprovedDomains: vi.fn(() => ['existing.test']),
+      setTurnApprovedDomains: vi.fn()
+    };
+    fixtures.executeFormInput.mockResolvedValue({ output: 'set value' });
+    fixtures.executeComputer.mockResolvedValue({ output: 'pressed Enter' });
+
+    await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
+          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
+        ]
+      },
+      {
+        ...context,
+        toolUseId: 'batch-tool-use',
+        permissionManager: permissionManager as ToolContext['permissionManager']
+      }
+    );
+
+    expect(permissionManager.setTurnApprovedDomains).toHaveBeenCalledWith([
+      'existing.test',
+      'example.com'
+    ]);
+    expect(fixtures.executeFormInput).toHaveBeenCalled();
+    expect(fixtures.executeComputer).toHaveBeenCalled();
   });
 
   it('rejects actions after Enter because submit may change page state', async () => {

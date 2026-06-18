@@ -468,6 +468,9 @@ export function useAgentLoop({
         return;
       }
       lastFailedBrowserBatchSignatureRef.current = null;
+      let browserBatchReminderInjected = false;
+      let navigationObserveReminderInjected = false;
+      let browserBatchFailureReminderInjected = false;
 
       // Capture the tab ID at the start of execution so that switching tabs
       // doesn't redirect tool calls or indicator messages to a different tab.
@@ -940,10 +943,14 @@ export function useAgentLoop({
                       batchSignature &&
                       batchSignature === lastFailedBrowserBatchSignatureRef.current
                     ) {
+                      const content = browserBatchFailureReminderInjected
+                        ? 'The previous browser_batch already failed. Observe the current page or run only the failed action separately before retrying.'
+                        : BROWSER_BATCH_FAILURE_SYSTEM_REMINDER;
+                      browserBatchFailureReminderInjected = true;
                       toolResults.push({
                         type: 'tool_result',
                         tool_use_id: toolUse.id,
-                        content: BROWSER_BATCH_FAILURE_SYSTEM_REMINDER,
+                        content,
                         is_error: true
                       });
                       continue;
@@ -953,9 +960,14 @@ export function useAgentLoop({
                     if (batchSignature) {
                       if (result.is_error) {
                         lastFailedBrowserBatchSignatureRef.current = batchSignature;
-                        toolResults.push(
-                          appendToolResultText(result, BROWSER_BATCH_FAILURE_SYSTEM_REMINDER)
-                        );
+                        if (!browserBatchFailureReminderInjected) {
+                          browserBatchFailureReminderInjected = true;
+                          toolResults.push(
+                            appendToolResultText(result, BROWSER_BATCH_FAILURE_SYSTEM_REMINDER)
+                          );
+                        } else {
+                          toolResults.push(result);
+                        }
                       } else {
                         lastFailedBrowserBatchSignatureRef.current = null;
                         toolResults.push(result);
@@ -981,7 +993,12 @@ export function useAgentLoop({
                 const resultIndex = toolResults.findIndex(
                   (result) => result.tool_use_id === toolUseId
                 );
-                if (resultIndex >= 0 && !toolResults[resultIndex].is_error) {
+                if (
+                  resultIndex >= 0 &&
+                  !toolResults[resultIndex].is_error &&
+                  !navigationObserveReminderInjected
+                ) {
+                  navigationObserveReminderInjected = true;
                   toolResults[resultIndex] = appendToolResultText(
                     toolResults[resultIndex],
                     NAVIGATION_OBSERVE_SYSTEM_REMINDER
@@ -995,7 +1012,12 @@ export function useAgentLoop({
                 const resultIndex = toolResults.findIndex(
                   (result) => result.tool_use_id === toolUseId
                 );
-                if (resultIndex >= 0 && !toolResults[resultIndex].is_error) {
+                if (
+                  resultIndex >= 0 &&
+                  !toolResults[resultIndex].is_error &&
+                  !browserBatchReminderInjected
+                ) {
+                  browserBatchReminderInjected = true;
                   toolResults[resultIndex] = appendBrowserBatchReminder(
                     toolResults[resultIndex],
                     BROWSER_BATCH_SYSTEM_REMINDER

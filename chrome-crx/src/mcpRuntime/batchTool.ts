@@ -80,6 +80,7 @@ const MAX_BATCH_ACTIONS = 20;
 const MIN_BATCH_ACTIONS = 2;
 const CHILD_ACTION_TIMEOUT_MS = 15000;
 const FORM_INPUT_SETTLE_MS = 100;
+const SUMMARY_STEP_OUTPUT_MAX_CHARS = 160;
 const REF_ID_PATTERN = /^ref_\d+$/;
 const BROWSER_BATCH_RETRY_GUIDANCE =
   'Do not retry this same browser_batch unchanged. First observe the current page with read_page/find, refresh refs, or run only the failed action separately before starting a new deterministic batch.';
@@ -155,6 +156,12 @@ function isSubmitBoundaryAction(toolName: string, input: Record<string, unknown>
   return input.text
     .split(/\s+/)
     .some((key) => key.toLowerCase() === 'enter' || key.toLowerCase() === 'return');
+}
+
+function summarizeStepOutput(output: string): string {
+  const compact = output.replace(/\s+/g, ' ').trim();
+  if (compact.length <= SUMMARY_STEP_OUTPUT_MAX_CHARS) return compact;
+  return `${compact.slice(0, SUMMARY_STEP_OUTPUT_MAX_CHARS - 3)}...`;
 }
 
 function validateBatchActionInput(
@@ -277,6 +284,53 @@ async function validateBatchPageReady(
   };
 }
 
+async function preflightBatchPermission(
+  batchTabId: number | undefined,
+  context: ToolContext
+): Promise<ToolResult | null> {
+  if (batchTabId === undefined || !context.permissionManager) return null;
+  const permissionManager = context.permissionManager as {
+    checkPermission?: (
+      url: string,
+      toolUseId?: string
+    ) => Promise<{ allowed: boolean; needsPrompt?: boolean }>;
+    getTurnApprovedDomains?: () => string[];
+    setTurnApprovedDomains?: (domains: string[]) => void;
+  };
+  if (typeof permissionManager.checkPermission !== 'function') return null;
+
+  let tab: chrome.tabs.Tab;
+  try {
+    tab = await chrome.tabs.get(batchTabId);
+  } catch {
+    return null;
+  }
+  if (!tab.url || isSystemUrl(tab.url)) return null;
+
+  const permission = await permissionManager.checkPermission(tab.url, context.toolUseId);
+  if (!permission.allowed) {
+    return permission.needsPrompt
+      ? {
+          type: 'permission_required',
+          tool: 'browser_batch',
+          url: tab.url,
+          toolUseId: context.toolUseId
+        }
+      : { error: 'Permission denied by user' };
+  }
+
+  if (
+    typeof permissionManager.getTurnApprovedDomains === 'function' &&
+    typeof permissionManager.setTurnApprovedDomains === 'function'
+  ) {
+    const host = new URL(tab.url).host;
+    permissionManager.setTurnApprovedDomains([
+      ...new Set([...permissionManager.getTurnApprovedDomains(), host])
+    ]);
+  }
+  return null;
+}
+
 function enhanceChildFailureMessage(toolName: string, error: string): string {
   if (/No element found with reference/i.test(error)) {
     return `${error} The ref is stale or was not registered on the current page. Run read_page/find again to get fresh refs. For fragile search boxes, use computer left_click with the fresh ref, then computer type/key.`;
@@ -349,24 +403,19 @@ async function ensureDebuggerAttachedForBatchStep(
   try {
     let wasAttached = false;
     try {
-      wasAttached = await Promise.race([
+      wasAttached = await withTimeout(
         cdpDebugger.isDebuggerAttached(targetTabId),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Timed out checking debugger attachment')),
-            attachTimeoutMs
-          )
-        )
-      ]);
+        attachTimeoutMs,
+        'Timed out checking debugger attachment'
+      );
     } catch {
       wasAttached = false;
     }
-    await Promise.race([
+    await withTimeout(
       cdpDebugger.attachDebugger(targetTabId),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timed out attaching debugger')), attachTimeoutMs)
-      )
-    ]);
+      attachTimeoutMs,
+      'Timed out attaching debugger'
+    );
     if (!wasAttached) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
@@ -375,21 +424,29 @@ async function ensureDebuggerAttachedForBatchStep(
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  return await Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
+}
+
 async function runChildActionWithTimeout(
   tool: ToolDefinition,
   input: Record<string, unknown>,
   context: ToolContext,
   toolName: string
 ): Promise<ToolResult> {
-  return await Promise.race([
+  return await withTimeout(
     tool.execute(input, context),
-    new Promise<ToolResult>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`${toolName} timed out after ${CHILD_ACTION_TIMEOUT_MS}ms`)),
-        CHILD_ACTION_TIMEOUT_MS
-      )
-    )
-  ]);
+    CHILD_ACTION_TIMEOUT_MS,
+    `${toolName} timed out after ${CHILD_ACTION_TIMEOUT_MS}ms`
+  );
 }
 
 function buildOutput(params: {
@@ -410,14 +467,21 @@ function buildOutput(params: {
   } = params;
   const completed = steps.filter((step) => step.ok).length;
   const remaining =
-    remainingOverride ?? (failedIndex === undefined ? 0 : Math.max(0, actionCount - completed - 1));
+    remainingOverride ??
+    (failedIndex === undefined ? 0 : Math.max(0, actionCount - failedIndex - 1));
   const header =
     failedIndex === undefined
       ? `Batch completed: ${completed}/${actionCount} actions`
       : `Batch stopped at action ${failedIndex + 1}/${actionCount}: ${stoppedReason || 'failed'}`;
   const lines = steps.map((step) => {
     const marker = step.ok ? 'OK' : 'FAILED';
-    const detail = step.error || step.output || summarizeStepInput(step.tool, {});
+    const detail =
+      step.error ||
+      (step.output
+        ? resultMode === 'summary'
+          ? summarizeStepOutput(step.output)
+          : step.output
+        : summarizeStepInput(step.tool, {}));
     return `${step.index + 1}. [${marker}] ${step.tool}${step.id ? ` (${step.id})` : ''}${detail ? ` - ${detail}` : ''}`;
   });
   return JSON.stringify(
@@ -429,7 +493,7 @@ function buildOutput(params: {
               ...(step.id ? { id: step.id } : {}),
               tool: step.tool,
               ok: step.ok,
-              ...(step.output ? { output: step.output } : {}),
+              ...(step.output ? { output: summarizeStepOutput(step.output) } : {}),
               ...(step.error ? { error: step.error } : {}),
               ...(step.errorCode ? { errorCode: step.errorCode } : {}),
               ...(step.imageId ? { imageId: step.imageId } : {}),
@@ -476,7 +540,7 @@ function buildPartialResult(params: {
     resultMode
   } = params;
   const completed = steps.filter((step) => step.ok).length;
-  const remaining = remainingOverride ?? Math.max(0, actionCount - completed - 1);
+  const remaining = remainingOverride ?? Math.max(0, actionCount - failedIndex - 1);
   const output = buildOutput({
     steps,
     actionCount,
@@ -899,6 +963,31 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       });
     }
 
+    const permissionPreflight = await preflightBatchPermission(batchTabId, context);
+    if (permissionPreflight?.type === 'permission_required') {
+      return permissionPreflight;
+    }
+    if (permissionPreflight?.error) {
+      return buildPartialResult({
+        steps: [
+          {
+            index: 0,
+            id: preparedActions[0]?.action.id,
+            tool: preparedActions[0]?.toolName || 'browser_batch',
+            ok: false,
+            error: permissionPreflight.error,
+            errorCode: 'permission_required',
+            stoppedReason: 'permission_required'
+          }
+        ],
+        actionCount: preparedActions.length,
+        failedIndex: 0,
+        error: permissionPreflight.error,
+        stoppedReason: 'permission_required',
+        resultMode
+      });
+    }
+
     const steps: BatchStepResult[] = [];
     let lastImage: { base64Image: string; imageFormat: string } | undefined;
     let lastTabContext: ToolResult['tabContext'] | undefined;
@@ -1030,16 +1119,17 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       }
       if (result.tabContext) lastTabContext = result.tabContext;
 
-      if (i < preparedActions.length - 1 && shouldWaitAfter(toolName, action, input)) {
+      const hasNextAction = i < preparedActions.length - 1;
+      const shouldWaitForLoad =
+        shouldWaitAfter(toolName, action, input) &&
+        (hasNextAction || action.waitAfter === 'load' || isSubmitBoundaryAction(toolName, input));
+      if (shouldWaitForLoad) {
         const tabId = (input.tabId as number) ?? context.tabId;
         if (tabId != null) {
           await waitForTabLoading(tabId);
         }
       }
-      if (
-        i < preparedActions.length - 1 &&
-        shouldSettleAfter(toolName, action, preparedActions[i + 1])
-      ) {
+      if (hasNextAction && shouldSettleAfter(toolName, action, preparedActions[i + 1])) {
         await new Promise((resolve) => setTimeout(resolve, FORM_INPUT_SETTLE_MS));
       }
     }

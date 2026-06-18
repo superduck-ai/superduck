@@ -43,6 +43,12 @@ describe('browser batch display helpers', () => {
     expect(getBrowserBatchFailureIndex('Batch stopped at action 4/10: tool_error')).toBe(3);
   });
 
+  it('ignores invalid browser batch failure indexes', () => {
+    expect(getBrowserBatchFailureIndex(JSON.stringify({ failedIndex: -1 }))).toBeNull();
+    expect(getBrowserBatchFailureIndex(JSON.stringify({ failedIndex: 1.5 }))).toBeNull();
+    expect(getBrowserBatchFailureIndex('Batch stopped at action 0/10: tool_error')).toBeNull();
+  });
+
   it('formats browser batch display names with action counts', () => {
     expect(
       getToolDisplayInfo('browser_batch', {
