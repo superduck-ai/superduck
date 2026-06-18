@@ -173,7 +173,8 @@ describe('createSidePanelController', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       {
         type: 'SIDE_PANEL_SET_ACTIVE_TAB',
-        tabId: 42
+        tabId: 42,
+        windowId: 7
       },
       expect.any(Function)
     );

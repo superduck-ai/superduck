@@ -49,7 +49,7 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     messageListener = undefined;
-    tabsQuery.mockResolvedValue([{ id: 99 }]);
+    tabsQuery.mockResolvedValue([{ id: 99, windowId: 11 }]);
     runtimeSendMessage.mockImplementation(
       (_message: unknown, callback?: (response?: unknown) => void) => {
         callback?.({ success: true });
@@ -106,7 +106,8 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     expect(runtimeSendMessage).not.toHaveBeenCalledWith(
       {
         type: 'SIDE_PANEL_SET_ACTIVE_TAB',
-        tabId: 99
+        tabId: 99,
+        windowId: 11
       },
       expect.any(Function)
     );
@@ -142,7 +143,8 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     expect(runtimeSendMessage).toHaveBeenCalledWith(
       {
         type: 'SIDE_PANEL_SET_ACTIVE_TAB',
-        tabId: 99
+        tabId: 99,
+        windowId: 11
       },
       expect.any(Function)
     );

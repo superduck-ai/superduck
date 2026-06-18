@@ -97,12 +97,21 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
     );
   }
 
-  function notifySidePanelTargetTab(tabId: number): void {
+  async function notifySidePanelTargetTab(tabId: number): Promise<void> {
+    let windowId: number;
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      windowId = tab.windowId;
+    } catch {
+      return;
+    }
+
     try {
       chrome.runtime.sendMessage(
         {
           type: SIDE_PANEL_SET_ACTIVE_TAB,
-          tabId
+          tabId,
+          windowId
         },
         () => {
           // Touch lastError so Chrome does not report an unchecked runtime error.
@@ -185,13 +194,13 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
           // ignore
         }
       }
-      notifySidePanelTargetTab(tabId);
+      await notifySidePanelTargetTab(tabId);
       return;
     }
 
     try {
       await tabGroupManager.createGroup(tabId);
-      notifySidePanelTargetTab(tabId);
+      await notifySidePanelTargetTab(tabId);
     } catch {
       // ignore
     }

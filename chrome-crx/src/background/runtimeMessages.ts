@@ -76,12 +76,13 @@ export interface RuntimeMessageListenerDeps {
 }
 
 export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps) {
-  function notifySidePanelTargetTab(tabId: number): void {
+  function notifySidePanelTargetTab(tabId: number, windowId: number): void {
     try {
       chrome.runtime.sendMessage(
         {
           type: SIDE_PANEL_SET_ACTIVE_TAB,
-          tabId
+          tabId,
+          windowId
         },
         () => {
           // Touch lastError so Chrome does not report an unchecked runtime error.
@@ -347,11 +348,11 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
             active: true,
             lastFocusedWindow: true
           });
-          if (activeTab?.id !== undefined) {
+          if (activeTab?.id !== undefined && typeof activeTab.windowId === 'number') {
             await tabGroupManager.initialize(true);
             const existing = await tabGroupManager.findGroupByTab(activeTab.id);
             if (existing && !existing.isUnmanaged) {
-              notifySidePanelTargetTab(activeTab.id);
+              notifySidePanelTargetTab(activeTab.id, activeTab.windowId);
             }
           }
           sendResponse({ success: true });

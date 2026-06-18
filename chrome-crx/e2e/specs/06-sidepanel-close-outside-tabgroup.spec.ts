@@ -459,10 +459,12 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
     ]);
     const workspaceProbe = await getRuntimeProbe(serviceWorker);
     expect(workspaceProbe.panelReadyRecords).toHaveLength(1);
-    expect(workspaceProbe.outgoingMessages).not.toContainEqual({
-      type: 'SIDE_PANEL_SET_ACTIVE_TAB',
-      tabId: workspaceTab.id
-    });
+    expect(
+      workspaceProbe.outgoingMessages.some(
+        (message) =>
+          message?.type === 'SIDE_PANEL_SET_ACTIVE_TAB' && message.tabId === workspaceTab.id
+      )
+    ).toBe(false);
 
     await managedPage.bringToFront();
     await managedPage.waitForTimeout(1500);
