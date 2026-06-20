@@ -1685,19 +1685,12 @@ async function finalizeGroup(mainTabId: number): Promise<void> {
     return;
   }
 
-  const resultTabId = state.lastActiveTabId;
-
   await tabGroupManager.clearIndicatorsForGroup(mainTabId).catch(() => {});
   await tabGroupManager.addCompletionPrefix(mainTabId).catch(() => {});
   await tabGroupManager.setGroupColor(mainTabId, chrome.tabGroups.Color.GREEN).catch(() => {});
 
   for (const tabId of memberIds) {
     await cdpDebugger.detachDebugger(tabId).catch(() => {});
-  }
-
-  const tabsToClose = memberIds.filter((id) => id !== resultTabId);
-  if (tabsToClose.length > 0) {
-    await chrome.tabs.remove(tabsToClose).catch(() => {});
   }
 
   groupFinalizationState.delete(mainTabId);
