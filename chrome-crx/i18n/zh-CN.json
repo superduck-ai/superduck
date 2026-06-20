@@ -683,6 +683,7 @@
   "ignore": "忽略",
   "november": "十一月",
   "superduck_is_done": "SuperDuck 已完成",
+  "superduck_completion_no_answer": "SuperDuck 已完成，但没有返回文本答案。",
   "decline": "拒绝",
   "explore_examples": "探索示例",
   "stop": "停止",
