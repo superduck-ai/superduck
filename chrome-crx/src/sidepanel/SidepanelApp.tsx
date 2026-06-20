@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BorderBeam } from 'border-beam';
-import { BUILT_IN_MODELS, DEFAULT_MODEL } from '../constants/models';
 import { AnimatePresence } from 'framer-motion';
 import { SuperDuckAvatar } from './SuperDuckAvatar';
 // Radix Tooltip import removed — replaced with CSS-only tooltip to avoid React 19 crash
@@ -26,6 +25,7 @@ import {
 } from 'lucide-react';
 import {
   StorageKeys,
+  type ModelFallbackConfig,
   type ModelsConfigFeatureValue,
   PermissionDuration,
   PromptService,
@@ -53,8 +53,15 @@ import {
   trackEvent
 } from '../mcpRuntime';
 import { generateShortcutName, type ModelRequest } from './sessionPool';
-import { getMappedModelName } from '../utils/modelMapping';
 import { dispatchMessagesClient } from '../utils/providerClient';
+import { getFirstUsableProvider } from '../utils/providerConfigStatus';
+import {
+  findProvider,
+  loadProviderConfig,
+  PROVIDER_CONFIG_BROADCAST,
+  PROVIDER_STORAGE_KEYS,
+  type ProviderConfig
+} from '../utils/providerStore';
 import { useProviderClient } from './provider';
 import { EmptyState } from './EmptyState';
 import { useQueryState, useTabEvent, useActiveTabId } from './hooks';
@@ -243,13 +250,24 @@ export function SidepanelApp() {
     selectedModel,
     selectedModelRef,
     setSelectedModel,
-    modelMapping,
     handleModelChange: _rawHandleModelChange
   } = useModelConfig();
+
+  // A scheduled task may pass a preferred model via the `?model=` query param
+  // (a provider id). Seed it into the selected model on mount so the spawned
+  // panel dispatches to that provider.
+  useEffect(() => {
+    if (!query.model) return;
+    setSelectedModel(query.model);
+    void setStorageValue(StorageKeys.SELECTED_MODEL, query.model);
+  }, [query.model, setSelectedModel]);
 
   // Lightning (Quick/Purl) mode toggle state — persisted to chrome.storage
   const [purlModeToggle, setPurlModeToggle] = useState(false);
   const isPurlMode = !!purlModeFeatureEnabled && purlModeToggle;
+  const [providerConfig, setProviderConfig] = useState<ProviderConfig>(() => ({
+    providers: []
+  }));
   useEffect(() => {
     if (purlModeFeatureEnabled) {
       chrome.storage.local.get('purlMode').then((result) => {
@@ -463,14 +481,14 @@ export function SidepanelApp() {
   const createApiMessageRef = useRef<
     ((params: CreateApiMessageParams) => Promise<ApiResponseMessage>) | null
   >(null);
-  const stableCreateMessage = useCallback(async ({ modelClass, ...request }: ModelRequest) => {
-    const fn = createApiMessageRef.current;
-    if (!fn) throw new Error('Client not initialized');
-    return fn({
-      ...request,
-      ...(modelClass === 'small_fast' ? { modelClass } : {})
-    });
-  }, []);
+  const stableCreateMessage = useCallback(
+    async ({ modelClass: _modelClass, ...request }: ModelRequest) => {
+      const fn = createApiMessageRef.current;
+      if (!fn) throw new Error('Client not initialized');
+      return fn(request);
+    },
+    []
+  );
 
   // Workflow recording hook
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -719,6 +737,39 @@ export function SidepanelApp() {
     refreshProviderConfig
   } = useProviderClient({ apiKey, apiBaseUrl, selectedModel });
 
+  // Load provider config (drives the flat model picker) and keep it fresh.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const config = await loadProviderConfig();
+      if (!cancelled) setProviderConfig(config);
+    };
+    void load();
+    const storageListener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string
+    ) => {
+      if (areaName !== 'local') return;
+      if (PROVIDER_STORAGE_KEYS.PROVIDERS in changes) void load();
+    };
+    const runtimeListener = (message: unknown) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        (message as { type?: string }).type === PROVIDER_CONFIG_BROADCAST
+      ) {
+        void load();
+      }
+    };
+    chrome.storage.onChanged.addListener(storageListener);
+    chrome.runtime.onMessage.addListener(runtimeListener);
+    return () => {
+      cancelled = true;
+      chrome.storage.onChanged.removeListener(storageListener);
+      chrome.runtime.onMessage.removeListener(runtimeListener);
+    };
+  }, []);
+
   const handleSetupRetry = useCallback(async () => {
     await refreshAuth();
     refreshProviderConfig();
@@ -769,10 +820,10 @@ export function SidepanelApp() {
 
       // Destructure fields that need special handling (matching compiled Ze)
       const {
-        modelClass,
+        modelClass: _modelClass,
         maxTokens,
         max_tokens: maxTokensSnake,
-        model: paramModel,
+        model: _paramModel,
         messages: rawMessages,
         ...rest
       } = params;
@@ -780,16 +831,8 @@ export function SidepanelApp() {
       // Use camelCase maxTokens (from sessionPool functions) or snake_case max_tokens (from direct callers)
       const effectiveMaxTokens = maxTokens ?? maxTokensSnake ?? MAX_TOKENS;
 
-      // Resolve model: explicit model > modelClass > selectedModel
-      let resolvedModel = selectedModel || DEFAULT_MODEL;
-      if (paramModel) {
-        resolvedModel = paramModel;
-      } else if (modelClass === 'small_fast') {
-        resolvedModel = modelConfig.small_fast_model || 'claude-haiku-4-5-20251001';
-      }
-
-      // Dispatch to per-tier provider (falls back to effectiveMessagesClient).
-      const dispatched = await dispatchMessagesClient(resolvedModel, effectiveMessagesClient);
+      // Dispatch to the selected provider (falls back to effectiveMessagesClient).
+      const dispatched = await dispatchMessagesClient(selectedModel, effectiveMessagesClient);
 
       // Resolve [[shortcut:id:name]] markers in messages (matching compiled mi)
       const messages = rawMessages
@@ -806,18 +849,14 @@ export function SidepanelApp() {
         undefined
       );
     },
-    [effectiveMessagesClient, selectedModel, modelConfig]
+    [effectiveMessagesClient, selectedModel]
   );
 
   // Keep the ref in sync so the stable wrapper always calls the latest version
   createApiMessageRef.current = createApiMessage;
 
   const invokeSessionModel = useCallback(
-    async ({ modelClass, ...request }: ModelRequest) =>
-      createApiMessage({
-        ...request,
-        ...(modelClass === 'small_fast' ? { modelClass } : {})
-      }),
+    async ({ modelClass: _modelClass, ...request }: ModelRequest) => createApiMessage(request),
     [createApiMessage]
   );
 
@@ -1201,21 +1240,16 @@ export function SidepanelApp() {
   }, [effectiveIsAgentRunning]);
 
   const retryWithFallback = useCallback(async () => {
-    const fallback = modelConfig.modelFallbacks?.[selectedModel];
-    const fallbackModel = fallback?.fallbackModelName;
+    // Fallback chain is a feature-flag-driven concept that no longer applies
+    // (tier abstraction removed; each provider is its own model). Kept as a
+    // no-op stub so existing UI/wiring that references it remains stable.
     const payload = lastSentPayloadRef.current;
-    if (!fallbackModel || !payload) return;
-    void trackEvent('superduck.sidebar.model_fallback', {
-      from: selectedModel,
-      to: fallbackModel
-    });
-    setSelectedModel(fallbackModel);
-    await setStorageValue(StorageKeys.SELECTED_MODEL, fallbackModel);
+    if (!payload) return;
     void effectiveSendPrompt(payload.text, {
       attachments: payload.attachments,
       isAnnotated: payload.isAnnotated
     });
-  }, [modelConfig, selectedModel, effectiveSendPrompt]);
+  }, [effectiveSendPrompt]);
 
   const ensureCurrentTabIsMainInGroup = useCallback(async () => {
     if (typeof query.tabId !== 'number') return;
@@ -2103,76 +2137,36 @@ export function SidepanelApp() {
   );
 
   const normalizedModelOptions = useMemo(() => {
-    const rawOptions = modelConfig.options;
     const seen = new Set<string>();
     const options: Array<{ value: string; label: string }> = [];
 
-    const pushOption = (value: string, label?: string) => {
-      const trimmedValue = value.trim();
-      if (!trimmedValue || seen.has(trimmedValue)) return;
-      seen.add(trimmedValue);
-
-      // Get base label
-      const baseLabel =
-        label && label.trim() ? label : getModelDisplayName(trimmedValue, modelConfig);
-
-      // Add mapped model name if configured
-      const mappedModelName = getMappedModelName(trimmedValue, modelMapping);
-
-      // If model has a branded label (Deep/Flash), show "Brand (mapped)"
-      // If model has no branded label (Sonnet), show just the mapped name
-      let finalLabel: string;
-      if (mappedModelName) {
-        finalLabel = label && label.trim() ? `${baseLabel} (${mappedModelName})` : mappedModelName;
-      } else {
-        finalLabel = baseLabel;
-      }
-
-      options.push({
-        value: trimmedValue,
-        label: finalLabel
-      });
+    const pushProvider = (provider: { id: string; name: string; modelId: string }) => {
+      const id = provider.id.trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      const trimmedName = provider.name.trim();
+      const label = trimmedName || provider.modelId.trim() || id;
+      options.push({ value: id, label });
     };
 
-    // 先添加内置的三个模型（Deep, Sonnet, Flash）
-    for (const model of BUILT_IN_MODELS) {
-      pushOption(model.value, model.label);
-    }
-
-    // 然后添加配置中的模型
-    if (Array.isArray(rawOptions)) {
-      for (const option of rawOptions) {
-        if (typeof option === 'string') {
-          pushOption(option);
-          continue;
-        }
-        if (option && typeof option === 'object' && typeof option.model === 'string') {
-          pushOption(option.model, typeof option.name === 'string' ? option.name : '');
-        }
-      }
-    }
-
-    const defaultModel = typeof modelConfig.default === 'string' ? modelConfig.default : '';
-    if (defaultModel) {
-      pushOption(defaultModel);
-    }
-    if (selectedModel) {
-      pushOption(selectedModel);
+    for (const provider of providerConfig.providers) {
+      pushProvider(provider);
     }
 
     return options;
-  }, [modelConfig, selectedModel, modelMapping]);
+  }, [providerConfig]);
 
+  // selectedModel now stores a provider id. If the stored value no longer
+  // matches any configured provider (e.g. a legacy canonical model id left
+  // over from the tier era, or the provider was deleted), fall back to the
+  // first usable provider so dispatch always reaches a real provider.
+  const selectedProviderExists = Boolean(findProvider(providerConfig, selectedModel));
   const effectiveSelectedModel =
-    selectedModel ||
-    (typeof modelConfig.default === 'string' ? modelConfig.default : '') ||
-    normalizedModelOptions[0]?.value ||
-    DEFAULT_MODEL;
+    (selectedProviderExists && selectedModel) || getFirstUsableProvider(providerConfig)?.id || '';
 
   useEffect(() => {
-    if (selectedModel || !effectiveSelectedModel) {
-      return;
-    }
+    if (!effectiveSelectedModel) return;
+    if (selectedModel === effectiveSelectedModel) return;
 
     setSelectedModel(effectiveSelectedModel);
     void setStorageValue(StorageKeys.SELECTED_MODEL, effectiveSelectedModel);
@@ -2350,7 +2344,9 @@ export function SidepanelApp() {
         item.category === 'category_org_blocked')
   );
 
-  const fallbackConfig = selectedModel ? modelConfig.modelFallbacks?.[selectedModel] : undefined;
+  const fallbackConfig: ModelFallbackConfig | undefined = undefined as
+    | ModelFallbackConfig
+    | undefined;
   const announcementText = announcementConfig.text || '';
   const messageLimitBanner = useMemo(
     () => getMessageLimitBannerState(messageLimit, selectedModel),
@@ -2372,7 +2368,7 @@ export function SidepanelApp() {
         sentiment: 'negative',
         sessionId: activeSessionId,
         currentModel: selectedModel,
-        fallbackModel: fallbackConfig?.fallbackModelName
+        fallbackModel: fallbackConfig?.fallbackModelName ?? undefined
       });
     } catch {
       // swallow missing listeners
@@ -2456,9 +2452,10 @@ export function SidepanelApp() {
   const selectedModelLabel = useMemo(() => {
     return (
       normalizedModelOptions.find((option) => option.value === effectiveSelectedModel)?.label ||
-      getModelDisplayName(effectiveSelectedModel, modelConfig)
+      findProvider(providerConfig, effectiveSelectedModel)?.name ||
+      ''
     );
-  }, [normalizedModelOptions, effectiveSelectedModel, modelConfig]);
+  }, [normalizedModelOptions, effectiveSelectedModel, providerConfig]);
   const hasChatMessages = effectiveMessages.length > 0;
 
   if (query.mcpPermissionOnly) {

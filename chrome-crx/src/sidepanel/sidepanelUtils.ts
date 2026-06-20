@@ -76,14 +76,6 @@ export function getModelDisplayName(
     return fallback.currentModelName;
   }
 
-  const match = model.match(/claude-(sonnet|opus|haiku)-(\d+(?:\.\d+)?)/i);
-  if (match) {
-    const family = match[1].toLowerCase();
-    if (family === 'opus') return `Deep (${match[2]})`;
-    if (family === 'haiku') return `Flash (${match[2]})`;
-    return `Smart (${match[2]})`;
-  }
-
   return model;
 }
 

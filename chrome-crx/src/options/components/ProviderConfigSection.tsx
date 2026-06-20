@@ -1,66 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { createLucideIcon } from 'lucide-react';
-import { Button, SimpleSelect } from '@/components/ui';
+import { Button } from '@/components/ui';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_KIND_LABEL,
-  TIER_DESCRIPTION,
-  TIER_LABEL,
   emptyConfigSnapshot,
   isProviderComplete,
   loadProviderConfig,
   saveProviderConfig,
   testProviderConnection,
   type AiProvider,
-  type ModelMappingV2,
   type ProviderConfig,
-  type ProviderKind,
-  type Tier
+  type ProviderKind
 } from '@/utils/providerStore';
 import {
-  PROVIDER_SETUP_TIER_ORDER,
-  getUpdatedMappingForProviderSave,
+  getFirstUsableProvider,
   isProviderConfigUsable,
   isProviderReadyForSetup,
-  isTierBoundToUsableProvider,
   parseProviderConfigSnapshot
 } from '@/utils/providerConfigStatus';
 import { ProviderEditorModal, type ProviderEditorValue } from './ProviderEditorModal';
-
-const TIER_ORDER = PROVIDER_SETUP_TIER_ORDER;
-
-const DeepIcon = createLucideIcon('layers', [
-  [
-    'path',
-    {
-      d: 'M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z',
-      key: 'zw3jo'
-    }
-  ],
-  ['path', { d: 'm22 12.18-9.17 4.16a2 2 0 0 1-1.66 0L2 12.18', key: 'cx5j5d' }],
-  ['path', { d: 'm22 17.18-9.17 4.16a2 2 0 0 1-1.66 0L2 17.18', key: 'g8sj7r' }]
-]);
-
-const SmartIcon = createLucideIcon('sparkles', [
-  [
-    'path',
-    {
-      d: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z',
-      key: '4pj2yx'
-    }
-  ]
-]);
-
-const FlashIcon = createLucideIcon('zap', [
-  [
-    'path',
-    {
-      d: 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z',
-      key: 'wphs9q'
-    }
-  ]
-]);
 
 const PlusIcon = createLucideIcon('plus', [
   ['path', { d: 'M5 12h14', key: '1ays0h' }],
@@ -70,7 +30,7 @@ const PlusIcon = createLucideIcon('plus', [
 const TrashIcon = createLucideIcon('trash', [
   ['path', { d: 'M3 6h18', key: 'd0wm0j' }],
   ['path', { d: 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', key: '4alrt4' }],
-  ['path', { d: 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2', key: 'v07s0e' }]
+  ['path', { d: 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2', key: 'v07s9e' }]
 ]);
 
 const PencilIcon = createLucideIcon('pencil', [
@@ -105,12 +65,6 @@ const SpinnerIcon = createLucideIcon('loader', [
   ['path', { d: 'M2 12h4', key: 'j09sii' }],
   ['path', { d: 'm4.9 4.9 2.9 2.9', key: 'giyufr' }]
 ]);
-
-const TIER_ICON: Record<Tier, React.ComponentType<{ className?: string; size?: number }>> = {
-  deep: DeepIcon,
-  smart: SmartIcon,
-  flash: FlashIcon
-};
 
 const PROVIDER_KIND_COLOR: Record<ProviderKind, string> = {
   anthropic: 'bg-[#d97757] text-white',
@@ -195,11 +149,6 @@ const ProviderConfigSection: React.FC = () => {
     }
   }, []);
 
-  const providerOptions = useMemo(
-    () => config.providers.map((provider) => ({ value: provider.id, label: provider.name })),
-    [config.providers]
-  );
-
   const openAddProvider = () => {
     setEditingProvider(null);
     setEditorOpen(true);
@@ -240,8 +189,7 @@ const ProviderConfigSection: React.FC = () => {
               index === existingIndex ? nextProvider : entry
             )
           : [...previous.providers, nextProvider];
-      const nextMapping = getUpdatedMappingForProviderSave(previous, nextProvider, existingIndex);
-      return { ...previous, providers: nextProviders, mapping: nextMapping };
+      return { ...previous, providers: nextProviders };
     });
     markDirty(value.id);
     setEditorOpen(false);
@@ -249,17 +197,10 @@ const ProviderConfigSection: React.FC = () => {
   };
 
   const handleDeleteProvider = (providerId: string) => {
-    setConfig((previous) => {
-      const nextMapping = { ...previous.mapping } as ModelMappingV2;
-      TIER_ORDER.forEach((tier) => {
-        if (nextMapping[tier]?.providerId === providerId) nextMapping[tier] = null;
-      });
-      return {
-        ...previous,
-        providers: previous.providers.filter((entry) => entry.id !== providerId),
-        mapping: nextMapping
-      };
-    });
+    setConfig((previous) => ({
+      ...previous,
+      providers: previous.providers.filter((entry) => entry.id !== providerId)
+    }));
   };
 
   const handleTestProvider = useCallback(
@@ -307,34 +248,6 @@ const ProviderConfigSection: React.FC = () => {
     [isDirty]
   );
 
-  const handleTierProviderChange = (tier: Tier, providerId: string) => {
-    setConfig((previous) => {
-      const provider = previous.providers.find((p) => p.id === providerId);
-      return {
-        ...previous,
-        mapping: {
-          ...previous.mapping,
-          [tier]: providerId && provider ? { providerId, modelId: provider.modelId } : null
-        }
-      };
-    });
-  };
-
-  const handleBindAllTiersToProvider = useCallback((providerId: string) => {
-    setConfig((previous) => {
-      const provider = previous.providers.find((entry) => entry.id === providerId);
-      if (!provider || !isProviderReadyForSetup(provider)) return previous;
-      return {
-        ...previous,
-        mapping: {
-          deep: { providerId: provider.id, modelId: provider.modelId },
-          smart: { providerId: provider.id, modelId: provider.modelId },
-          flash: { providerId: provider.id, modelId: provider.modelId }
-        }
-      };
-    });
-  }, []);
-
   const handleDiscard = useCallback(async () => {
     try {
       const loaded = await loadProviderConfig(true);
@@ -355,46 +268,13 @@ const ProviderConfigSection: React.FC = () => {
     setSaveError(null);
     setSaveNotice(null);
 
-    const missingTiers: string[] = [];
-    const invalidTiers: string[] = [];
-    for (const tier of TIER_ORDER) {
-      const binding = config.mapping[tier];
-      if (!binding) {
-        missingTiers.push(TIER_LABEL[tier]);
-        continue;
-      }
-      const provider = config.providers.find((p) => p.id === binding.providerId);
-      if (
-        !provider ||
-        !isProviderReadyForSetup(provider) ||
-        !(binding.modelId || provider.modelId).trim()
-      ) {
-        invalidTiers.push(TIER_LABEL[tier]);
-      }
-    }
-
-    if (missingTiers.length > 0) {
+    const readyProviders = config.providers.filter(isProviderReadyForSetup);
+    if (readyProviders.length === 0) {
       setSaveError(
-        intl.formatMessage(
-          {
-            id: 'save_validation_missing_tiers',
-            defaultMessage: '保存前请绑定以下档位: {tiers}'
-          },
-          { tiers: missingTiers.join(', ') }
-        )
-      );
-      return;
-    }
-
-    if (invalidTiers.length > 0) {
-      setSaveError(
-        intl.formatMessage(
-          {
-            id: 'save_validation_invalid_tiers',
-            defaultMessage: '以下档位绑定无效（缺少可用 API Key、模型 ID 或连接测试失败）: {tiers}'
-          },
-          { tiers: invalidTiers.join(', ') }
-        )
+        intl.formatMessage({
+          id: 'save_validation_no_usable_provider',
+          defaultMessage: '保存前请至少添加一个可用的模型（含 API Key、模型 ID 且测试通过）'
+        })
       );
       return;
     }
@@ -464,44 +344,6 @@ const ProviderConfigSection: React.FC = () => {
       setIsSaving(false);
     }
   }, [config, dirtyProviderIds, intl]);
-
-  const renderTierRow = (tier: Tier) => {
-    const Icon = TIER_ICON[tier];
-    const binding = config.mapping[tier];
-    return (
-      <div
-        key={tier}
-        className="flex items-center justify-between py-4 border-b border-border-300 last:border-b-0"
-      >
-        <div className="flex items-center gap-4 min-w-0 pr-4">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-200 text-text-200">
-            <Icon size={20} />
-          </span>
-          <div className="min-w-0 flex items-baseline gap-2">
-            <span className="font-large text-text-100 truncate">{TIER_LABEL[tier]}</span>
-            <span className="text-text-400 font-base-sm">·</span>
-            <span className="text-text-400 font-base-sm truncate">{TIER_DESCRIPTION[tier]}</span>
-          </div>
-        </div>
-        <div className="w-56 shrink-0">
-          <SimpleSelect
-            value={binding?.providerId ?? ''}
-            onChange={(value) => handleTierProviderChange(tier, value)}
-            options={[
-              {
-                value: '',
-                label: intl.formatMessage({
-                  id: 'select_custom_model',
-                  defaultMessage: '— 选择模型 —'
-                })
-              },
-              ...providerOptions
-            ]}
-          />
-        </div>
-      </div>
-    );
-  };
 
   const renderProviderCard = (provider: AiProvider) => {
     const overlay = statusOverlay[provider.id];
@@ -614,19 +456,9 @@ const ProviderConfigSection: React.FC = () => {
           isSaving={isSaving}
           onAddProvider={openAddProvider}
           onEditProvider={openEditProvider}
-          onBindAllTiers={handleBindAllTiersToProvider}
           onSave={() => void handleSave()}
         />
       )}
-
-      <div className="mt-8">
-        <h4 className="text-text-100 font-large mb-1">
-          <FormattedMessage id="global_model_mapping" defaultMessage="模型映射" />
-        </h4>
-        <div className="mt-4 bg-bg-000 rounded-xl border border-border-300 px-4">
-          {TIER_ORDER.map(renderTierRow)}
-        </div>
-      </div>
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-4">
@@ -673,7 +505,6 @@ interface ModelSetupGuideProps {
   isSaving: boolean;
   onAddProvider: () => void;
   onEditProvider: (provider: AiProvider) => void;
-  onBindAllTiers: (providerId: string) => void;
   onSave: () => void;
 }
 
@@ -683,14 +514,12 @@ const ModelSetupGuide: React.FC<ModelSetupGuideProps> = ({
   isSaving,
   onAddProvider,
   onEditProvider,
-  onBindAllTiers,
   onSave
 }) => {
   const firstProvider = config.providers[0];
-  const firstReadyProvider = config.providers.find(isProviderReadyForSetup);
+  const firstReadyProvider = getFirstUsableProvider(config);
   const hasProvider = config.providers.length > 0;
   const hasReadyProvider = Boolean(firstReadyProvider);
-  const hasTierMapping = TIER_ORDER.every((tier) => isTierBoundToUsableProvider(config, tier));
   const hasCurrentUsableConfig = isProviderConfigUsable(config);
   const needsSave = hasCurrentUsableConfig && isDirty;
 
@@ -707,14 +536,6 @@ const ModelSetupGuide: React.FC<ModelSetupGuideProps> = ({
       return (
         <Button size="sm" onClick={() => onEditProvider(firstProvider)}>
           <FormattedMessage id="setup_guide_complete_model" defaultMessage="完善模型信息" />
-        </Button>
-      );
-    }
-
-    if (!hasTierMapping && firstReadyProvider) {
-      return (
-        <Button size="sm" onClick={() => onBindAllTiers(firstReadyProvider.id)}>
-          <FormattedMessage id="setup_guide_use_all_tiers" defaultMessage="用于全部档位" />
         </Button>
       );
     }
@@ -754,7 +575,7 @@ const ModelSetupGuide: React.FC<ModelSetupGuideProps> = ({
         <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>
       </div>
 
-      <ol className="mt-4 grid gap-x-5 gap-y-2 sm:grid-cols-2">
+      <ol className="mt-4 flex flex-col gap-2">
         <ModelSetupStep done={hasProvider}>
           <FormattedMessage id="setup_step_add_provider" defaultMessage="添加模型供应商" />
         </ModelSetupStep>
@@ -762,12 +583,6 @@ const ModelSetupGuide: React.FC<ModelSetupGuideProps> = ({
           <FormattedMessage
             id="setup_step_complete_provider"
             defaultMessage="填写可用 API Key 和模型 ID"
-          />
-        </ModelSetupStep>
-        <ModelSetupStep done={hasTierMapping}>
-          <FormattedMessage
-            id="setup_step_bind_tiers"
-            defaultMessage="绑定 Deep / Smart / Flash 档位"
           />
         </ModelSetupStep>
         <ModelSetupStep done={hasCurrentUsableConfig && !isDirty}>

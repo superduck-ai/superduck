@@ -1,12 +1,16 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
+  clearProviderCache,
   extractModelContextLengths,
   fetchProviderModelCatalog,
   fetchProviderModels,
   isValidProviderBaseURL,
+  loadProviderConfig,
   lookupModelContextLength,
   normalizeProviderBaseURL,
   OPENAI_RESPONSES_MIN_OUTPUT_TOKENS,
+  PROVIDER_CONFIG_VERSION,
+  PROVIDER_STORAGE_KEYS,
   testProviderConnection,
   type AiProvider
 } from './providerStore';
@@ -39,6 +43,70 @@ const baseProvider: AiProvider = {
   baseURL: 'https://example.com/v1',
   status: 'unknown'
 };
+
+function configuredProvider(overrides: Partial<AiProvider> = {}): AiProvider {
+  return {
+    id: 'provider-1',
+    kind: 'openai-compatible',
+    name: 'Gateway',
+    modelId: 'gpt-4o',
+    apiKey: 'sk-test',
+    baseURL: 'https://example.com/v1',
+    status: 'active',
+    ...overrides
+  };
+}
+
+describe('loadProviderConfig migration', () => {
+  afterEach(() => {
+    clearProviderCache();
+    vi.unstubAllGlobals();
+  });
+
+  it('translates a legacy selected Claude model into the mapped provider id', async () => {
+    const deepProvider = configuredProvider({
+      id: 'provider-deep',
+      modelId: 'claude-opus-provider'
+    });
+    const smartProvider = configuredProvider({
+      id: 'provider-smart',
+      modelId: 'gpt-4o'
+    });
+    const storageValues: Record<string, unknown> = {
+      [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: 1,
+      [PROVIDER_STORAGE_KEYS.PROVIDERS]: [deepProvider, smartProvider],
+      [PROVIDER_STORAGE_KEYS.MAPPING]: {
+        deep: { providerId: deepProvider.id, modelId: deepProvider.modelId },
+        smart: { providerId: smartProvider.id, modelId: smartProvider.modelId },
+        flash: null
+      },
+      selectedModel: 'claude-sonnet-4-6'
+    };
+    const setMock = vi.fn(async (values: Record<string, unknown>) => {
+      Object.assign(storageValues, values);
+    });
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => storageValues),
+          set: setMock
+        }
+      }
+    });
+
+    await expect(loadProviderConfig(true)).resolves.toEqual({
+      providers: [deepProvider, smartProvider]
+    });
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION,
+        [PROVIDER_STORAGE_KEYS.MAPPING]: null,
+        selectedModel: smartProvider.id
+      })
+    );
+    expect(storageValues.selectedModel).toBe(smartProvider.id);
+  });
+});
 
 describe('fetchProviderModels', () => {
   afterEach(() => {

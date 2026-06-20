@@ -4,20 +4,15 @@ import { normalizeModelId } from '../constants/models';
 /**
  * Multi-provider AI configuration store.
  *
- * Stores a flexible mapping of providers (Anthropic / OpenAI / Gemini /
- * OpenAI-Compatible gateways) and binds three usage tiers (deep / smart /
- * flash) to a `{ providerId, modelId }` pair.
- *
- * Runtime callers should use {@link resolveTier} / {@link resolveModelForRequest}
- * to translate a generic Claude-style model id (or an explicit tier) into the
- * concrete provider + model the user picked in Options.
+ * Stores a flat list of providers (Anthropic / OpenAI / Gemini /
+ * OpenAI-Compatible gateways), each carrying its own model id. The sidebar
+ * model picker enumerates these providers directly — selecting one dispatches
+ * to that provider + model. There is no tier/mapping layer.
  */
 
 export type ProviderKind = 'anthropic' | 'openai' | 'gemini' | 'openai-compatible';
 
 export type ProviderStatus = 'unknown' | 'active' | 'error' | 'testing';
-
-export type Tier = 'deep' | 'smart' | 'flash';
 
 export interface AiProvider {
   id: string;
@@ -34,27 +29,33 @@ export interface AiProvider {
   errorMessage?: string;
 }
 
-export interface TierBinding {
-  providerId: string;
-  modelId: string;
-}
-
-export type ModelMappingV2 = Record<Tier, TierBinding | null>;
-
 export interface ProviderConfig {
   providers: AiProvider[];
-  mapping: ModelMappingV2;
 }
 
 export const PROVIDER_STORAGE_KEYS = {
   PROVIDERS: 'aiProviders',
+  // Kept only so legacy storage listeners and the v1→v2 migration can read
+  // the old tier mapping; runtime code never writes it.
   MAPPING: 'aiModelMapping',
   CONFIG_VERSION: 'aiProviderConfigVersion'
 } as const;
 
-export const PROVIDER_CONFIG_VERSION = 1;
+export const PROVIDER_CONFIG_VERSION = 2;
 export const PROVIDER_CONFIG_BROADCAST = 'superduck.providerConfigUpdated';
 export const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
+const LEGACY_SELECTED_MODEL_KEY = 'selectedModel';
+const LEGACY_DEFAULT_MODEL = 'claude-opus-4-6';
+const LEGACY_TIER_ORDER = ['deep', 'smart', 'flash'] as const;
+
+type LegacyTier = (typeof LEGACY_TIER_ORDER)[number];
+
+interface LegacyTierBinding {
+  providerId: string;
+  modelId: string;
+}
+
+type LegacyModelMapping = Record<LegacyTier, LegacyTierBinding | null>;
 
 /**
  * Default base URL hints rendered as placeholders / first-time defaults.
@@ -75,28 +76,9 @@ export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
   'openai-compatible': 'OpenAI Responses'
 };
 
-export const TIER_LABEL: Record<Tier, string> = {
-  deep: 'Deep',
-  smart: 'Smart',
-  flash: 'Flash'
-};
-
-export const TIER_DESCRIPTION: Record<Tier, string> = {
-  deep: '复杂推理',
-  smart: '默认对话',
-  flash: '快速任务'
-};
-
-const EMPTY_MAPPING: ModelMappingV2 = {
-  deep: null,
-  smart: null,
-  flash: null
-};
-
 function emptyConfig(): ProviderConfig {
   return {
-    providers: [],
-    mapping: { ...EMPTY_MAPPING }
+    providers: []
   };
 }
 
@@ -139,7 +121,7 @@ function parseProvider(value: unknown): AiProvider | null {
   };
 }
 
-function parseBinding(value: unknown): TierBinding | null {
+function parseLegacyBinding(value: unknown): LegacyTierBinding | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
   if (!isString(v.providerId) || !isString(v.modelId)) return null;
@@ -147,22 +129,77 @@ function parseBinding(value: unknown): TierBinding | null {
   return { providerId: v.providerId, modelId: v.modelId };
 }
 
-function parseMapping(value: unknown): ModelMappingV2 {
-  if (!value || typeof value !== 'object') return { ...EMPTY_MAPPING };
+function parseLegacyMapping(value: unknown): LegacyModelMapping {
+  const empty = {
+    deep: null,
+    smart: null,
+    flash: null
+  };
+  if (!value || typeof value !== 'object') return empty;
   const v = value as Record<string, unknown>;
   return {
-    deep: parseBinding(v.deep),
-    smart: parseBinding(v.smart),
-    flash: parseBinding(v.flash)
+    deep: parseLegacyBinding(v.deep),
+    smart: parseLegacyBinding(v.smart),
+    flash: parseLegacyBinding(v.flash)
   };
+}
+
+function classifyLegacyTier(modelId: string): LegacyTier {
+  const normalized = normalizeModelId(modelId).toLowerCase();
+  if (normalized.includes('opus')) return 'deep';
+  if (normalized.includes('haiku')) return 'flash';
+  return 'smart';
+}
+
+function resolveLegacySelectedProviderId(
+  providers: AiProvider[],
+  mapping: LegacyModelMapping,
+  storedSelectedModel: string
+): string | undefined {
+  const providerIds = new Set(providers.map((provider) => provider.id));
+  const providerExists = (providerId: string | undefined) =>
+    Boolean(providerId && providerIds.has(providerId));
+  const selectedModel = storedSelectedModel.trim();
+
+  if (providerExists(selectedModel)) return selectedModel;
+
+  if (selectedModel) {
+    const normalizedSelectedModel = normalizeModelId(selectedModel);
+    for (const tier of LEGACY_TIER_ORDER) {
+      const binding = mapping[tier];
+      if (
+        providerExists(binding?.providerId) &&
+        normalizeModelId(binding?.modelId ?? '') === normalizedSelectedModel
+      ) {
+        return binding?.providerId;
+      }
+    }
+
+    const mappedTierProvider = mapping[classifyLegacyTier(selectedModel)]?.providerId;
+    if (providerExists(mappedTierProvider)) return mappedTierProvider;
+
+    return providers.find(
+      (provider) => normalizeModelId(provider.modelId) === normalizedSelectedModel
+    )?.id;
+  }
+
+  const defaultProviderId = mapping[classifyLegacyTier(LEGACY_DEFAULT_MODEL)]?.providerId;
+  if (providerExists(defaultProviderId)) return defaultProviderId;
+
+  return providers.length === 1 ? providers[0].id : undefined;
 }
 
 let cachedConfig: ProviderConfig | null = null;
 let migrated = false;
 
 /**
- * Legacy migration: lift the old {customApiUrl, customApiKey, defaultOpus/Sonnet/HaikuModel}
- * fields into the new provider model on first read.
+ * Migration:
+ *  - v1 stored a `{ deep, smart, flash }` tier→provider mapping alongside the
+ *    providers list. v2 drops the mapping entirely, but first translates the
+ *    stored selected model into the mapped provider id so existing users keep
+ *    the provider/model they had selected.
+ *  - Legacy single-gateway fields (`customApiUrl`/`customApiKey`/
+ *    `defaultOpus|Sonnet|HaikuModel`) are lifted into one provider, same as v1.
  */
 async function migrateLegacyIfNeeded(): Promise<ProviderConfig | null> {
   if (migrated) return null;
@@ -176,57 +213,76 @@ async function migrateLegacyIfNeeded(): Promise<ProviderConfig | null> {
     'customApiKey',
     'defaultOpusModel',
     'defaultSonnetModel',
-    'defaultHaikuModel'
+    'defaultHaikuModel',
+    LEGACY_SELECTED_MODEL_KEY
   ]);
 
   if (legacy[PROVIDER_STORAGE_KEYS.CONFIG_VERSION] === PROVIDER_CONFIG_VERSION) return null;
 
-  const hasNewProviders = Array.isArray(legacy[PROVIDER_STORAGE_KEYS.PROVIDERS])
-    ? (legacy[PROVIDER_STORAGE_KEYS.PROVIDERS] as unknown[]).length > 0
-    : false;
+  const existingProviders = Array.isArray(legacy[PROVIDER_STORAGE_KEYS.PROVIDERS])
+    ? ((legacy[PROVIDER_STORAGE_KEYS.PROVIDERS] as unknown[])
+        .map(parseProvider)
+        .filter(Boolean) as AiProvider[])
+    : [];
 
   const customApiUrl = isString(legacy.customApiUrl) ? legacy.customApiUrl.trim() : '';
   const customApiKey = isString(legacy.customApiKey) ? legacy.customApiKey.trim() : '';
   const opusModel = isString(legacy.defaultOpusModel) ? legacy.defaultOpusModel.trim() : '';
   const sonnetModel = isString(legacy.defaultSonnetModel) ? legacy.defaultSonnetModel.trim() : '';
   const haikuModel = isString(legacy.defaultHaikuModel) ? legacy.defaultHaikuModel.trim() : '';
+  const legacyMapping = parseLegacyMapping(legacy[PROVIDER_STORAGE_KEYS.MAPPING]);
+  const legacySelectedModel = isString(legacy[LEGACY_SELECTED_MODEL_KEY])
+    ? legacy[LEGACY_SELECTED_MODEL_KEY].trim()
+    : '';
 
+  // No providers and no legacy gateway fields: just stamp the version.
   if (
-    hasNewProviders ||
-    (!customApiUrl && !customApiKey && !opusModel && !sonnetModel && !haikuModel)
+    existingProviders.length === 0 &&
+    !customApiUrl &&
+    !customApiKey &&
+    !opusModel &&
+    !sonnetModel &&
+    !haikuModel
   ) {
     await chrome.storage.local.set({
-      [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION
+      [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION,
+      [PROVIDER_STORAGE_KEYS.MAPPING]: null
     });
     return null;
   }
 
-  const provider: AiProvider = {
-    id: newProviderId(),
-    kind: 'openai-compatible',
-    name: 'Imported Gateway',
-    modelId: opusModel || sonnetModel || haikuModel || '',
-    apiKey: customApiKey,
-    baseURL: normalizeProviderBaseURL('openai-compatible', customApiUrl),
-    status: 'unknown'
-  };
+  let providers = existingProviders;
+  if (
+    existingProviders.length === 0 &&
+    (customApiUrl || customApiKey || opusModel || sonnetModel || haikuModel)
+  ) {
+    const provider: AiProvider = {
+      id: newProviderId(),
+      kind: 'openai-compatible',
+      name: 'Imported Gateway',
+      modelId: opusModel || sonnetModel || haikuModel || '',
+      apiKey: customApiKey,
+      baseURL: normalizeProviderBaseURL('openai-compatible', customApiUrl),
+      status: 'unknown'
+    };
+    providers = [provider];
+  }
 
-  const mapping: ModelMappingV2 = {
-    deep: opusModel ? { providerId: provider.id, modelId: opusModel } : null,
-    smart: sonnetModel ? { providerId: provider.id, modelId: sonnetModel } : null,
-    flash: haikuModel ? { providerId: provider.id, modelId: haikuModel } : null
+  const selectedProviderId = resolveLegacySelectedProviderId(
+    providers,
+    legacyMapping,
+    legacySelectedModel
+  );
+  const nextStorage: Record<string, unknown> = {
+    [PROVIDER_STORAGE_KEYS.PROVIDERS]: providers,
+    [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION,
+    [PROVIDER_STORAGE_KEYS.MAPPING]: null
   };
+  if (selectedProviderId) nextStorage[LEGACY_SELECTED_MODEL_KEY] = selectedProviderId;
 
-  await chrome.storage.local.set({
-    [PROVIDER_STORAGE_KEYS.PROVIDERS]: [provider],
-    [PROVIDER_STORAGE_KEYS.MAPPING]: mapping,
-    [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION
-  });
+  await chrome.storage.local.set(nextStorage);
 
-  return {
-    providers: [provider],
-    mapping
-  };
+  return { providers };
 }
 
 export async function loadProviderConfig(force = false): Promise<ProviderConfig> {
@@ -238,20 +294,14 @@ export async function loadProviderConfig(force = false): Promise<ProviderConfig>
     return migratedConfig;
   }
 
-  const raw = await chrome.storage.local.get([
-    PROVIDER_STORAGE_KEYS.PROVIDERS,
-    PROVIDER_STORAGE_KEYS.MAPPING
-  ]);
+  const raw = await chrome.storage.local.get([PROVIDER_STORAGE_KEYS.PROVIDERS]);
 
   const providersRaw = raw[PROVIDER_STORAGE_KEYS.PROVIDERS];
   const providers = Array.isArray(providersRaw)
     ? (providersRaw.map(parseProvider).filter(Boolean) as AiProvider[])
     : [];
 
-  const config: ProviderConfig = {
-    providers,
-    mapping: parseMapping(raw[PROVIDER_STORAGE_KEYS.MAPPING])
-  };
+  const config: ProviderConfig = { providers };
 
   cachedConfig = config;
   return config;
@@ -259,7 +309,6 @@ export async function loadProviderConfig(force = false): Promise<ProviderConfig>
 
 export async function saveProviderConfig(config: ProviderConfig): Promise<void> {
   const normalizedConfig: ProviderConfig = {
-    ...config,
     providers: config.providers.map((provider) => ({
       ...provider,
       baseURL: normalizeProviderBaseURL(provider.kind, provider.baseURL)
@@ -268,7 +317,6 @@ export async function saveProviderConfig(config: ProviderConfig): Promise<void> 
   cachedConfig = normalizedConfig;
   await chrome.storage.local.set({
     [PROVIDER_STORAGE_KEYS.PROVIDERS]: normalizedConfig.providers,
-    [PROVIDER_STORAGE_KEYS.MAPPING]: normalizedConfig.mapping,
     [PROVIDER_STORAGE_KEYS.CONFIG_VERSION]: PROVIDER_CONFIG_VERSION
   });
   try {
@@ -283,13 +331,6 @@ export function emptyConfigSnapshot(): ProviderConfig {
   return emptyConfig();
 }
 
-export function classifyTier(modelId: string): Tier {
-  const lower = modelId.toLowerCase();
-  if (lower.includes('opus')) return 'deep';
-  if (lower.includes('haiku')) return 'flash';
-  return 'smart';
-}
-
 export function findProvider(
   config: ProviderConfig,
   providerId: string | undefined
@@ -299,32 +340,16 @@ export function findProvider(
 }
 
 /**
- * Resolve a tier into the concrete provider + model id the user has bound.
+ * Resolve a configured provider by id into the concrete provider + model id
+ * the user picked in Options. Returns null when the provider is unknown.
  */
-export function resolveTier(
+export function resolveProviderById(
   config: ProviderConfig,
-  tier: Tier
-): { tier: Tier; provider: AiProvider; modelId: string } | null {
-  const binding = config.mapping[tier];
-  if (binding) {
-    const provider = findProvider(config, binding.providerId);
-    if (provider) {
-      return { tier, provider, modelId: binding.modelId || provider.modelId };
-    }
-  }
-  return null;
-}
-
-/**
- * Resolve a generic upstream model id (e.g. `claude-opus-4-6`) using the
- * tier-based mapping. Returns null if the user has not configured any
- * matching tier and no fallback exists.
- */
-export function resolveModelForRequest(
-  config: ProviderConfig,
-  originalModelId: string
-): { tier: Tier; provider: AiProvider; modelId: string } | null {
-  return resolveTier(config, classifyTier(originalModelId));
+  providerId: string | undefined
+): { provider: AiProvider; modelId: string } | null {
+  const provider = findProvider(config, providerId);
+  if (!provider) return null;
+  return { provider, modelId: provider.modelId };
 }
 
 export function isProviderComplete(provider: AiProvider): boolean {

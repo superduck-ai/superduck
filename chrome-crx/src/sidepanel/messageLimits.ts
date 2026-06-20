@@ -256,6 +256,9 @@ function formatResetTime(resetSeconds: number, windowName?: string | null) {
 
 function pickLimitWindow(messageLimit: MessageLimitState, currentModel: string) {
   const windows = messageLimit.windows || {};
+  // currentModel is now a provider id; the legacy opus-specific window no
+  // longer maps cleanly, so treat any opus-styled model id heuristically only
+  // when the id itself looks like a canonical claude id.
   const isOpus = currentModel.startsWith('claude-opus');
   const is5hExceeded = windows['5h']?.status === 'exceeded_limit';
   const is7dExceeded = windows['7d']?.status === 'exceeded_limit';

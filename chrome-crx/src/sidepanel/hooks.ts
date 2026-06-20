@@ -237,6 +237,7 @@ export interface SidepanelQueryState {
   skipPermissions: boolean;
   apiUrl: string;
   apiKey: string;
+  model: string;
 }
 
 export function useQueryState(): SidepanelQueryState {
@@ -245,6 +246,7 @@ export function useQueryState(): SidepanelQueryState {
     const apiUrl =
       normalizeApiBaseUrl(params.get('api_url')) || normalizeApiBaseUrl(params.get('apiUrl')) || '';
     const apiKey = (params.get('api_key') || params.get('apiKey') || '').trim();
+    const model = (params.get('model') || '').trim();
 
     return {
       // Support both old "tabId" and new "initialTabId" query params
@@ -255,7 +257,8 @@ export function useQueryState(): SidepanelQueryState {
       requestId: params.get('requestId') || '',
       skipPermissions: params.get('skipPermissions') === 'true',
       apiUrl,
-      apiKey
+      apiKey,
+      model
     };
   }, []);
 }

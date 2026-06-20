@@ -662,7 +662,7 @@ test.describe('Session history: conversation snapshot fallback', () => {
         const emptySnapshot = {
           uiMessages: [],
           apiMessages: [],
-          selectedModel: 'claude-sonnet-4-6',
+          selectedModel: 'prov_mock',
           permissionMode: 'skip_all_permission_checks',
           createdAt: now,
           conversationUuid

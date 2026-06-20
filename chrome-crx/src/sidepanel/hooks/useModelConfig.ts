@@ -5,52 +5,32 @@ import {
   PROVIDER_STORAGE_KEYS,
   loadProviderConfig
 } from '../../utils/providerStore';
-import { loadModelMapping, MODEL_MAPPING_KEYS } from '../../utils/modelMapping';
 
 export interface UseModelConfigReturn {
+  // providerId of the selected provider (empty string = nothing selected).
   selectedModel: string;
   selectedModelRef: React.MutableRefObject<string>;
   setSelectedModel: (model: string) => void;
-  modelMapping: {
-    haiku?: string;
-    sonnet?: string;
-    opus?: string;
-  };
   handleModelChange: (nextModel: string) => void;
 }
 
 export function useModelConfig(): UseModelConfigReturn {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const selectedModelRef = useRef(selectedModel);
-  const [modelMapping, setModelMapping] = useState<{
-    haiku?: string;
-    sonnet?: string;
-    opus?: string;
-  }>({});
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
 
-  // Load model mapping on mount
+  // Keep the provider config cache fresh when Options saves a new config.
   useEffect(() => {
-    loadModelMapping().then(setModelMapping);
-
-    // Listen for storage changes (legacy + new provider config).
     const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== 'local') return;
-      const mappingKeys = Object.values(MODEL_MAPPING_KEYS);
-      const touched =
-        mappingKeys.some((key) => key in changes) ||
-        PROVIDER_STORAGE_KEYS.PROVIDERS in changes ||
-        PROVIDER_STORAGE_KEYS.MAPPING in changes;
-      if (touched) {
+      if (PROVIDER_STORAGE_KEYS.PROVIDERS in changes || PROVIDER_STORAGE_KEYS.MAPPING in changes) {
         void loadProviderConfig(true);
-        loadModelMapping().then(setModelMapping);
       }
     };
     chrome.storage.onChanged.addListener(listener);
-    // Cross-context broadcast (sent by Options on Save).
     const runtimeListener = (message: unknown) => {
       if (
         message &&
@@ -58,7 +38,6 @@ export function useModelConfig(): UseModelConfigReturn {
         (message as { type?: string }).type === PROVIDER_CONFIG_BROADCAST
       ) {
         void loadProviderConfig(true);
-        loadModelMapping().then(setModelMapping);
       }
     };
     chrome.runtime.onMessage.addListener(runtimeListener);
@@ -68,7 +47,7 @@ export function useModelConfig(): UseModelConfigReturn {
     };
   }, []);
 
-  // Load selected model from storage on mount
+  // Load selected provider id from storage on mount
   useEffect(() => {
     (async () => {
       const model = await getStorageValue(StorageKeys.SELECTED_MODEL, '');
@@ -92,7 +71,6 @@ export function useModelConfig(): UseModelConfigReturn {
     selectedModel,
     selectedModelRef,
     setSelectedModel,
-    modelMapping,
     handleModelChange
   };
 }

@@ -3,6 +3,11 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { X, MoreHorizontal, Trash2 } from 'lucide-react';
 import { Button, ErrorMessage, Label, TextArea, TextInput } from '../components/ui';
 import { SchedulingFields } from '../components/scheduling/SchedulingFields';
+import {
+  ensureSelectedSchedulingProviderOption,
+  loadSchedulingProviderChoices,
+  type SchedulingProviderOption
+} from '../components/scheduling/providerModelOptions';
 import { getTodayLocalDateString } from '../utils/date';
 import type {
   NewSavedPrompt,
@@ -96,7 +101,8 @@ export function CreateShortcutModal({
     return date >= getTodayLocalDateString() ? date : '';
   });
   const [url, setUrl] = useState(existingPrompt?.url || '');
-  const model = existingPrompt?.model || currentModel || 'claude-sonnet-4-6';
+  const [model, setModel] = useState(existingPrompt?.model || currentModel || '');
+  const [providerModelOptions, setProviderModelOptions] = useState<SchedulingProviderOption[]>([]);
   const monthLabels = useMemo(
     () =>
       Array.from({ length: 12 }, (_, index) =>
@@ -142,6 +148,23 @@ export function CreateShortcutModal({
 
     return '';
   }, [intl, promptType, url]);
+  useEffect(() => {
+    let cancelled = false;
+    void loadSchedulingProviderChoices().then(({ defaultProviderId, options }) => {
+      if (cancelled) return;
+      setProviderModelOptions(options);
+      setModel((current) => current || currentModel || defaultProviderId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentModel]);
+
+  const schedulingModelOptions = useMemo(
+    () => ensureSelectedSchedulingProviderOption(providerModelOptions, model),
+    [providerModelOptions, model]
+  );
+
   const urlFieldLabel =
     promptType === 'module'
       ? intl.formatMessage({
@@ -610,6 +633,9 @@ export function CreateShortcutModal({
                   url={url}
                   setUrl={setUrl}
                   urlError=""
+                  model={model}
+                  setModel={setModel}
+                  availableModels={schedulingModelOptions}
                   compact
                 />
               )}

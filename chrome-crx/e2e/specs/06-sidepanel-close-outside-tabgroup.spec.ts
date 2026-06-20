@@ -279,7 +279,7 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
     serviceWorker
   }) => {
     await seedStorage(serviceWorker, {
-      aiProviderConfigVersion: 1,
+      aiProviderConfigVersion: 2,
       browserControlPermissionAccepted: true
     });
 
@@ -375,7 +375,7 @@ test.describe('sidepanel hides outside and restores inside the SuperDuck tab gro
       await (globalThis as any).chrome.storage.local.clear();
     });
     await seedStorage(serviceWorker, {
-      aiProviderConfigVersion: 1,
+      aiProviderConfigVersion: 2,
       browserControlPermissionAccepted: true
     });
 

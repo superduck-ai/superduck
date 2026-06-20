@@ -61,7 +61,7 @@ test.describe('sidepanel setOptions stable path (PR #240)', () => {
   }) => {
     await seedStorage(serviceWorker, {
       // Minimal config so the app doesn't crash on missing provider.
-      aiProviderConfigVersion: 1,
+      aiProviderConfigVersion: 2,
       browserControlPermissionAccepted: true
     });
 
@@ -104,7 +104,7 @@ test.describe('sidepanel setOptions stable path (PR #240)', () => {
     serviceWorker
   }) => {
     await seedStorage(serviceWorker, {
-      aiProviderConfigVersion: 1,
+      aiProviderConfigVersion: 2,
       browserControlPermissionAccepted: true
     });
 
