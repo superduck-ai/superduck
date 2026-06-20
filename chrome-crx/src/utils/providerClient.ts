@@ -1,12 +1,11 @@
 import { MessagesClient } from '../mcpServersStore';
+import { OAUTH_FALLBACK_MODEL } from '../constants/models';
 import {
   DEFAULT_BASE_URL,
-  classifyTier,
+  findProvider,
   loadProviderConfig,
   normalizeProviderBaseURL,
-  resolveTier,
-  type AiProvider,
-  type Tier
+  type AiProvider
 } from './providerStore';
 import { isProviderReadyForSetup } from './providerConfigStatus';
 import {
@@ -19,7 +18,6 @@ export interface ResolvedClientConfig {
   baseURL: string;
   apiKey: string;
   modelId: string;
-  tier: Tier;
   provider: AiProvider;
 }
 
@@ -37,64 +35,64 @@ function cacheKeyFor(kind: string, baseURL: string, apiKey: string): string {
 }
 
 /**
- * Resolve which provider + model id should serve a request for the given tier.
+ * Resolve which provider + model id should serve a request for the given
+ * provider id (the value the user picked in the sidebar).
  *
- * Returns `null` when neither the requested tier nor any fallback tier is
- * bound, so the caller can fall back to the OAuth-authenticated default
+ * Returns `null` when the provider is unknown / not ready / missing base URL
+ * or API key, so the caller can fall back to the OAuth-authenticated default
  * Anthropic gateway (legacy behaviour) instead of refusing to send anything.
  */
-export async function resolveClientForTier(
-  tier: Tier,
+export async function resolveClientForProvider(
+  providerId: string | undefined,
   forceRefresh = false
 ): Promise<ResolvedClientConfig | null> {
   const config = await loadProviderConfig(forceRefresh);
-  const resolved = resolveTier(config, tier);
-  if (!resolved) return null;
-  if (!isProviderReadyForSetup(resolved.provider)) return null;
+  const provider = findProvider(config, providerId);
+  if (!provider) return null;
+  if (!isProviderReadyForSetup(provider)) return null;
   const baseURL = normalizeProviderBaseURL(
-    resolved.provider.kind,
-    resolved.provider.baseURL || DEFAULT_BASE_URL[resolved.provider.kind]
+    provider.kind,
+    provider.baseURL || DEFAULT_BASE_URL[provider.kind]
   );
-  if (!baseURL || !resolved.provider.apiKey) return null;
+  if (!baseURL || !provider.apiKey) return null;
   return {
     baseURL,
-    apiKey: resolved.provider.apiKey,
-    modelId: resolved.modelId,
-    tier: resolved.tier,
-    provider: resolved.provider
+    apiKey: provider.apiKey,
+    modelId: provider.modelId,
+    provider
   };
-}
-
-export async function resolveClientForModel(
-  originalModelId: string
-): Promise<ResolvedClientConfig | null> {
-  return resolveClientForTier(classifyTier(originalModelId));
 }
 
 /**
  * Resolve a `(client, modelId)` pair for one outgoing request.
  *
  * Sidepanel and MCP runtime use this right before calling
- * `messages.create / stream`. If the user has configured a provider for this
- * model's tier we return a kind-specific `MessagesClient`; otherwise we fall
- * back to the OAuth-authenticated client the caller passed in so behaviour
- * matches the pre-multi-provider era.
+ * `messages.create / stream`. If the user has configured the selected
+ * provider we return a kind-specific runtime; otherwise we fall back to the
+ * OAuth-authenticated client the caller passed in so behaviour matches the
+ * pre-multi-provider era.
+ *
+ * `fallbackModelId` is the model id placed on the wire when no provider
+ * resolves (default {@link OAUTH_FALLBACK_MODEL}). It must never be empty —
+ * sending `model: ""` breaks the OAuth / default-gateway request path that
+ * callers fall back to.
  */
 export async function dispatchMessagesClient(
-  originalModelId: string,
-  fallback: AnthropicSdkClient
+  providerId: string | undefined,
+  fallback: AnthropicSdkClient,
+  fallbackModelId: string = OAUTH_FALLBACK_MODEL
 ): Promise<{
   client: AnthropicSdkClient;
   runtime: ProviderRuntime;
   modelId: string;
   provider?: AiProvider;
 }> {
-  const resolved = await resolveClientForModel(originalModelId);
+  const resolved = await resolveClientForProvider(providerId);
   if (!resolved) {
     return {
       client: fallback,
       runtime: createAnthropicRuntime(fallback),
-      modelId: originalModelId
+      modelId: fallbackModelId || OAUTH_FALLBACK_MODEL
     };
   }
 

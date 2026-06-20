@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  getUpdatedMappingForProviderSave,
+  getFirstUsableProvider,
   isProviderConfigUsable,
   parseProviderConfigSnapshot
 } from './providerConfigStatus';
-import type { AiProvider, ModelMappingV2, ProviderConfig } from './providerStore';
-
-const EMPTY_MAPPING: ModelMappingV2 = {
-  deep: null,
-  smart: null,
-  flash: null
-};
+import type { AiProvider, ProviderConfig } from './providerStore';
 
 function provider(overrides: Partial<AiProvider> = {}): AiProvider {
   return {
@@ -25,22 +19,8 @@ function provider(overrides: Partial<AiProvider> = {}): AiProvider {
   };
 }
 
-function bindAll(providerId: string, modelId = 'gpt-4o'): ModelMappingV2 {
-  return {
-    deep: { providerId, modelId },
-    smart: { providerId, modelId },
-    flash: { providerId, modelId }
-  };
-}
-
-function config(
-  providers: AiProvider[] = [],
-  mapping: ModelMappingV2 = EMPTY_MAPPING
-): ProviderConfig {
-  return {
-    providers,
-    mapping
-  };
+function config(providers: AiProvider[] = []): ProviderConfig {
+  return { providers };
 }
 
 describe('provider config setup status', () => {
@@ -48,79 +28,43 @@ describe('provider config setup status', () => {
     expect(isProviderConfigUsable(config())).toBe(false);
   });
 
-  it('treats a complete non-error provider mapped to all tiers as usable', () => {
+  it('treats a config with one complete non-error provider as usable', () => {
     const configuredProvider = provider({ status: 'active' });
-
-    expect(
-      isProviderConfigUsable(config([configuredProvider], bindAll(configuredProvider.id)))
-    ).toBe(true);
+    expect(isProviderConfigUsable(config([configuredProvider]))).toBe(true);
   });
 
-  it('keeps setup incomplete when a mapped provider is in error status', () => {
+  it('keeps setup incomplete when the only provider is in error status', () => {
     const configuredProvider = provider({ status: 'error' });
-
-    expect(
-      isProviderConfigUsable(config([configuredProvider], bindAll(configuredProvider.id)))
-    ).toBe(false);
+    expect(isProviderConfigUsable(config([configuredProvider]))).toBe(false);
   });
 
-  it('keeps setup incomplete when any tier is missing', () => {
-    const configuredProvider = provider();
-
-    expect(
-      isProviderConfigUsable(
-        config([configuredProvider], {
-          deep: { providerId: configuredProvider.id, modelId: configuredProvider.modelId },
-          smart: { providerId: configuredProvider.id, modelId: configuredProvider.modelId },
-          flash: null
-        })
-      )
-    ).toBe(false);
+  it('is usable when at least one provider is ready even if others are not', () => {
+    const ready = provider({ id: 'ready', status: 'active' });
+    const broken = provider({ id: 'broken', status: 'error', apiKey: '' });
+    expect(isProviderConfigUsable(config([broken, ready]))).toBe(true);
   });
 
-  it('keeps setup incomplete when the mapped provider lacks required fields', () => {
+  it('keeps setup incomplete when the provider lacks required fields', () => {
     const configuredProvider = provider({ apiKey: '' });
+    expect(isProviderConfigUsable(config([configuredProvider]))).toBe(false);
+  });
 
-    expect(
-      isProviderConfigUsable(config([configuredProvider], bindAll(configuredProvider.id)))
-    ).toBe(false);
+  it('returns the first ready provider from getFirstUsableProvider', () => {
+    const broken = provider({ id: 'broken', status: 'error' });
+    const ready = provider({ id: 'ready', status: 'active' });
+    expect(getFirstUsableProvider(config([broken, ready]))?.id).toBe('ready');
+  });
+
+  it('returns undefined when no provider is ready', () => {
+    expect(getFirstUsableProvider(config())).toBeUndefined();
   });
 
   it('parses valid saved snapshots and rejects malformed snapshots', () => {
     const configuredProvider = provider();
-    const snapshot = config([configuredProvider], bindAll(configuredProvider.id));
+    const snapshot = config([configuredProvider]);
 
     expect(parseProviderConfigSnapshot(JSON.stringify(snapshot))).toEqual(snapshot);
     expect(parseProviderConfigSnapshot('not json')).toBeNull();
-    expect(parseProviderConfigSnapshot(JSON.stringify({ providers: [] }))).toBeNull();
-  });
-
-  it('auto-binds the first ready provider to every tier when no usable config exists', () => {
-    const nextProvider = provider();
-
-    expect(getUpdatedMappingForProviderSave(config(), nextProvider, -1)).toEqual(
-      bindAll(nextProvider.id, nextProvider.modelId)
-    );
-  });
-
-  it('does not auto-bind a new provider over an existing usable config', () => {
-    const existingProvider = provider({ id: 'provider-existing', status: 'active' });
-    const nextProvider = provider({ id: 'provider-new', modelId: 'gpt-5' });
-    const previous = config([existingProvider], bindAll(existingProvider.id));
-
-    expect(getUpdatedMappingForProviderSave(previous, nextProvider, -1)).toEqual(previous.mapping);
-  });
-
-  it('updates tier bindings when an existing provider model changes', () => {
-    const previousProvider = provider({ id: 'provider-existing', modelId: 'gpt-4o' });
-    const nextProvider = provider({ id: previousProvider.id, modelId: 'gpt-5' });
-
-    expect(
-      getUpdatedMappingForProviderSave(
-        config([previousProvider], bindAll(previousProvider.id, previousProvider.modelId)),
-        nextProvider,
-        0
-      )
-    ).toEqual(bindAll(nextProvider.id, nextProvider.modelId));
+    expect(parseProviderConfigSnapshot(JSON.stringify({ mapping: {} }))).toBeNull();
   });
 });

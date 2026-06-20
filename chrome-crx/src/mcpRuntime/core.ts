@@ -1,6 +1,5 @@
 import type { Span } from '@opentelemetry/api';
 import { compressBase64Image } from '../utils/imageCompressor';
-import { DEFAULT_MODEL, FAST_MODEL } from '../constants/models';
 import {
   StorageKeys,
   getStorageValue,
@@ -14,13 +13,14 @@ import { withTracing, PermissionManager as PermissionManagerClass } from '../Per
 import {
   dispatchMessagesClient,
   clearDispatchClientCache,
-  resolveClientForTier
+  resolveClientForProvider
 } from '../utils/providerClient';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
   loadProviderConfig
 } from '../utils/providerStore';
+import { getFirstUsableProvider } from '../utils/providerConfigStatus';
 import {
   MCP_NATIVE_SESSION_ID,
   PermissionType,
@@ -766,16 +766,10 @@ class ToolExecutor {
         if (!this.context.messagesClient) {
           throw new Error('API client not available');
         }
-        const { modelClass, maxTokens, max_tokens: legacyMaxTokens, ...rest } = params;
-        let model = this.context.model;
-        if ('small_fast' === modelClass) {
-          const modelConfig = await getFeatureValue('chrome_ext_models');
-          model =
-            typeof modelConfig.small_fast_model === 'string'
-              ? modelConfig.small_fast_model
-              : FAST_MODEL;
-        }
-        // Dispatch to per-tier provider (falls back to context.messagesClient).
+        const { modelClass: _modelClass, maxTokens, max_tokens: legacyMaxTokens, ...rest } = params;
+        // model is now the selected provider id; tier/fast-model switching removed.
+        const model = this.context.model;
+        // Dispatch to the selected provider (falls back to context.messagesClient).
         const dispatched = await dispatchMessagesClient(model, this.context.messagesClient);
         const requestedMaxTokens = maxTokens ?? legacyMaxTokens;
         if (typeof requestedMaxTokens !== 'number') {
@@ -1072,15 +1066,9 @@ export function setOnAgentBecameIdle(cb: (() => void) | null): void {
 }
 
 async function getSelectedModel(): Promise<string> {
-  const [storedModel, modelConfig] = await Promise.all([
-    getStorageValue<string>(StorageKeys.SELECTED_MODEL),
-    getFeatureValue('chrome_ext_models')
-  ]);
-  return (
-    storedModel ||
-    (typeof modelConfig.default === 'string' ? modelConfig.default : '') ||
-    DEFAULT_MODEL
-  );
+  // selectedModel now stores a provider id (empty string = nothing selected).
+  const storedModel = await getStorageValue<string>(StorageKeys.SELECTED_MODEL);
+  return typeof storedModel === 'string' ? storedModel : '';
 }
 
 async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Promise<ToolExecutor> {
@@ -1139,7 +1127,19 @@ async function refreshMessagesClient(): Promise<MessagesClient | undefined> {
     });
     return cachedMessagesClient;
   }
-  const resolved = await resolveClientForTier('smart');
+  // Fall back to the provider the user selected; if the stored selection is
+  // empty / stale (e.g. a legacy canonical model id, or the provider was
+  // deleted), try any ready provider so background tool calls still reach a
+  // model instead of silently getting no client.
+  const selectedModel = await getSelectedModel();
+  let resolved = await resolveClientForProvider(selectedModel || undefined);
+  if (!resolved) {
+    const config = await loadProviderConfig();
+    const fallbackProvider = getFirstUsableProvider(config);
+    if (fallbackProvider) {
+      resolved = await resolveClientForProvider(fallbackProvider.id);
+    }
+  }
   if (resolved) {
     cachedMessagesClient = new MessagesClient({
       baseURL: resolved.baseURL,

@@ -17,7 +17,6 @@ import { createScheduledTaskManager } from "./background/scheduledTasks";
 import { createSidePanelController } from "./background/sidePanel";
 import { createStaticIndicatorController } from "./background/staticIndicator";
 import { createDownloadTracker } from "./background/downloadTracker";
-import { initModelMappingListener } from "./utils/modelMapping";
 
 const nativeHostManager = createNativeHostManager();
 const sidePanelController = createSidePanelController({
@@ -36,7 +35,6 @@ const downloadTracker = createDownloadTracker({
 
 void connectBridge();
 void nativeHostManager.connect();
-initModelMappingListener();
 
 // The manifest declares a default sidepanel path, but the product only wants
 // SuperDuck-managed tabs to show it. Keep the default panel disabled and open

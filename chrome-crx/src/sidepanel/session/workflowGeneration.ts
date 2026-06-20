@@ -1,4 +1,3 @@
-import { DEFAULT_MODEL } from '../../constants/models';
 import type { ApiInputContentBlock } from '../../messageTypes';
 import { PROMPT_TEMPLATES, WORKFLOW_INPUT_PREFIX, type SupportedLocale } from '../prompts';
 
@@ -331,9 +330,7 @@ export async function generateWorkflowSummary(
       .join(' ');
 
     const templates = PROMPT_TEMPLATES[locale].workflowSummary;
-    const narrationSection = spokenNarration
-      ? templates.fragments.narration(spokenNarration)
-      : '';
+    const narrationSection = spokenNarration ? templates.fragments.narration(spokenNarration) : '';
 
     const detailHint = includeHighlyDetailedFallback
       ? templates.fragments.detailHint
@@ -369,8 +366,7 @@ export async function generateWorkflowSummary(
           content: templates.assistant
         }
       ],
-      system: templates.system,
-      model: DEFAULT_MODEL
+      system: templates.system
     });
 
     const text = readTextBlocks(result);
@@ -380,7 +376,10 @@ export async function generateWorkflowSummary(
     const promptBlock =
       text.match(/<prompt>([\s\S]*?)<\/prompt>/)?.[1]?.trim() ||
       text.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim() ||
-      text.replace(/<inputs>[\s\S]*?<\/inputs>/g, '').replace(/<\/?prompt>/g, '').trim();
+      text
+        .replace(/<inputs>[\s\S]*?<\/inputs>/g, '')
+        .replace(/<\/?prompt>/g, '')
+        .trim();
 
     const inputs = inputsBlock
       .split('\n')

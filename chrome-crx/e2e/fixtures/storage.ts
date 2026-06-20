@@ -25,12 +25,8 @@ export function getDefaultProviderConfig() {
         status: "active",
       },
     ],
-    aiModelMapping: {
-      deep: { providerId: "prov_mock", modelId: "claude-sonnet-4-6" },
-      smart: { providerId: "prov_mock", modelId: "claude-sonnet-4-6" },
-      flash: { providerId: "prov_mock", modelId: "claude-sonnet-4-6" },
-    },
-    aiProviderConfigVersion: 1,
+    aiProviderConfigVersion: 2,
+    selectedModel: "prov_mock",
     anthropicApiKey: "test-fake-key-not-real",
     browserControlPermissionAccepted: true,
   };

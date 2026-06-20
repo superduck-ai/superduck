@@ -1,5 +1,4 @@
 import { useCallback, useRef } from 'react';
-import { DEFAULT_MODEL } from '../../constants/models';
 import { type SupportedLocale, useIntlSafe } from '../../index-react-dom-intl';
 import {
   tabGroupManager,
@@ -414,8 +413,7 @@ export function useAgentLoop({
             }
           ],
           max_tokens: 128,
-          system: `Generate ultra-concise status updates describing the current high-level task or goal.\nYour status should describe WHAT SuperDuck is trying to accomplish, not the specific action.\n\nREQUIREMENTS:\n- Maximum 7 words\n- Describe the goal/task, not the action\n- Be high-level and task-oriented\n- No punctuation at the end\n- ${localeInstruction}\n\nExamples of GOOD statuses (goal-oriented):\n- Researching company information\n- Looking up flight options\n- Completing checkout process\n- Finding product details\n- Setting up account\n- Analyzing search results\n- Gathering page content\n\nExamples of BAD statuses (too action-specific):\n- Clicking submit button\n- Reading page content\n- Taking screenshot\n- Typing into form field`,
-          model: 'claude-haiku-4-5-20251001'
+          system: `Generate ultra-concise status updates describing the current high-level task or goal.\nYour status should describe WHAT SuperDuck is trying to accomplish, not the specific action.\n\nREQUIREMENTS:\n- Maximum 7 words\n- Describe the goal/task, not the action\n- Be high-level and task-oriented\n- No punctuation at the end\n- ${localeInstruction}\n\nExamples of GOOD statuses (goal-oriented):\n- Researching company information\n- Looking up flight options\n- Completing checkout process\n- Finding product details\n- Setting up account\n- Analyzing search results\n- Gathering page content\n\nExamples of BAD statuses (too action-specific):\n- Clicking submit button\n- Reading page content\n- Taking screenshot\n- Typing into form field`
         });
         if (response?.content) {
           const fullText = getTextFromBlockContent(response.content);
@@ -670,9 +668,9 @@ export function useAgentLoop({
                 );
               }
 
-              // Dispatch to per-tier provider (falls back to effectiveMessagesClient).
+              // Dispatch to the selected provider (falls back to effectiveMessagesClient).
               const dispatched = await dispatchMessagesClient(
-                selectedModel || DEFAULT_MODEL,
+                selectedModel,
                 effectiveMessagesClient
               );
 

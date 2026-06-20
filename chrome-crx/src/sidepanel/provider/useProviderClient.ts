@@ -1,18 +1,16 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type MutableRefObject } from 'react';
-import { DEFAULT_MODEL } from '../../constants/models';
 import { MessagesClient } from '../../mcpServersStore';
 import { resolveEffectiveContextWindow } from '../contextWindow';
 import { CONTEXT_WINDOW } from '../messageLimits';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
-  classifyTier,
   fetchProviderModelCatalog,
+  findProvider,
   loadProviderConfig,
-  lookupModelContextLength,
-  resolveTier
+  lookupModelContextLength
 } from '../../utils/providerStore';
-import { resolveClientForTier } from '../../utils/providerClient';
+import { resolveClientForProvider } from '../../utils/providerClient';
 
 export interface UseProviderClientOptions {
   apiKey: string;
@@ -44,7 +42,8 @@ type ProviderContextInfo =
 
 export function useProviderClient(options: UseProviderClientOptions): UseProviderClientResult {
   const { apiKey, apiBaseUrl, selectedModel } = options;
-  const activeModel = selectedModel || DEFAULT_MODEL;
+  // selectedModel is now a provider id (empty string = nothing selected).
+  const activeModel = selectedModel || '';
 
   const [providerClient, setProviderClient] = useState<InstanceType<typeof MessagesClient> | null>(
     null
@@ -73,7 +72,7 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
 
     const resolveProviderClient = async () => {
       const version = ++resolveVersion;
-      const resolved = await resolveClientForTier('smart', true);
+      const resolved = await resolveClientForProvider(activeModel, true);
       if (cancelled || version !== resolveVersion) return;
       if (!resolved) {
         setProviderClient(null);
@@ -117,13 +116,13 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       chrome.storage.onChanged.removeListener(storageListener);
       chrome.runtime.onMessage.removeListener(runtimeListener);
     };
-  }, [messagesClient, providerConfigRefreshVersion]);
+  }, [messagesClient, providerConfigRefreshVersion, activeModel]);
 
   const effectiveMessagesClient = messagesClient || providerClient;
   const hasProviderConfig = effectiveMessagesClient !== null;
 
   const [serverModelInfo, setServerModelInfo] = useState<ServerModelInfo | null>(null);
-  // Actual provider model bound to the active tier, plus its saved context
+  // Actual provider bound to the active selection, plus its saved context
   // length captured at config time. Pending state intentionally falls back to
   // the conservative 256k default while provider config resolves.
   const [providerContextInfo, setProviderContextInfo] = useState<ProviderContextInfo>({
@@ -132,7 +131,7 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
   });
   const serverContextLengthRef = useRef<number>(CONTEXT_WINDOW);
 
-  // Resolve the context length for the active tier. Saved provider mappings use
+  // Resolve the context length for the active provider. Saved providers use
   // their config-time value; direct apiKey/apiBaseUrl clients fetch their
   // catalog at runtime because they have no saved provider record.
   useEffect(() => {
@@ -143,9 +142,8 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       setProviderContextInfo({ status: 'pending', sourceModelId: activeModel });
       const config = await loadProviderConfig(true);
       if (cancelled || version !== resolveVersion) return;
-      const tier = classifyTier(activeModel);
-      const resolved = resolveTier(config, tier);
-      if (!resolved && apiKey && apiBaseUrl) {
+      const provider = findProvider(config, activeModel);
+      if (!provider && apiKey && apiBaseUrl) {
         let contextLength: number | undefined;
         try {
           const catalog = await fetchProviderModelCatalog({
@@ -169,8 +167,8 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
       setProviderContextInfo({
         status: 'resolved',
         sourceModelId: activeModel,
-        modelId: resolved?.modelId ?? activeModel,
-        contextLength: resolved?.provider.contextLength
+        modelId: provider?.modelId ?? activeModel,
+        contextLength: provider?.contextLength
       });
     };
     void resolve();

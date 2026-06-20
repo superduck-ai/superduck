@@ -23,7 +23,8 @@ import {
 } from '../mcpRuntime/pageToolsSupport/helpers';
 import { MessagesClient } from '../mcpServersStore';
 import { parseModelTag, getBaseModel } from './sessionPool';
-import { dispatchMessagesClient, resolveClientForModel } from '../utils/providerClient';
+import { dispatchMessagesClient, resolveClientForProvider } from '../utils/providerClient';
+import { findProvider, loadProviderConfig } from '../utils/providerStore';
 import { getModelsConfig } from '../components/providers/AppProviders';
 import {
   commandTypeToToolName,
@@ -147,6 +148,26 @@ export function useLightningMode({
     return parseModelTag(model).hasFastTag;
   }, [getEffectiveModel]);
 
+  /**
+   * Resolve a model string (explicit param, override, or main) into a real
+   * provider id. `modelOverride` historically held a canonical model id (e.g.
+   * `claude-sonnet-4-6`) or a `[fast]`-tagged variant; after the tier removal
+   * the dispatch path expects a provider id. If the candidate doesn't resolve
+   * to a configured provider, fall back to the main selected provider id so
+   * stale overrides don't produce an unresolved dispatch.
+   */
+  const resolveProviderIdFor = useCallback(
+    async (model: string): Promise<string> => {
+      const candidate = getBaseModel(model);
+      if (candidate) {
+        const config = await loadProviderConfig();
+        if (findProvider(config, candidate)) return candidate;
+      }
+      return getBaseModel(modelRef.current);
+    },
+    [modelRef]
+  );
+
   // Initialize client and load config from storage
   useEffect(() => {
     if (!enabled || !apiKey) return;
@@ -255,8 +276,8 @@ export function useLightningMode({
       const fast = isFastModel();
       const betas = [];
       if (fast) betas.push('fast-mode-2026-02-01');
-      const model = params.model || getEffectiveModel();
-      const dispatched = await dispatchMessagesClient(getBaseModel(model), clientRef.current);
+      const providerId = await resolveProviderIdFor(params.model || getEffectiveModel());
+      const dispatched = await dispatchMessagesClient(providerId, clientRef.current);
       const requestBody = {
         model: dispatched.modelId,
         max_tokens: params.maxTokens,
@@ -267,21 +288,21 @@ export function useLightningMode({
       };
       return await dispatched.runtime.create(requestBody);
     },
-    [getEffectiveModel, isFastModel]
+    [getEffectiveModel, isFastModel, resolveProviderIdFor]
   );
 
   const resolveLightningContextWindow = useCallback(async (): Promise<number> => {
-    const modelId = getBaseModel(getEffectiveModel());
+    const providerId = await resolveProviderIdFor(getEffectiveModel());
     try {
-      const resolved = await resolveClientForModel(modelId);
+      const resolved = await resolveClientForProvider(providerId);
       return resolveEffectiveContextWindow({
-        modelId: resolved?.modelId ?? modelId,
+        modelId: resolved?.modelId ?? providerId,
         providerContextLength: resolved?.provider.contextLength
       });
     } catch {
-      return resolveEffectiveContextWindow({ modelId });
+      return resolveEffectiveContextWindow({ modelId: providerId });
     }
-  }, [getEffectiveModel]);
+  }, [getEffectiveModel, resolveProviderIdFor]);
 
   const maybeCompactLightningMessages = useCallback(
     async (messages: LightningMessage[]): Promise<LightningMessage[]> => {
@@ -522,7 +543,8 @@ export function useLightningMode({
             const model = getEffectiveModel();
             const effort = resolveEffortLevel(effortRef.current, model, modelsConfigRef.current);
             const fast = isFastModel();
-            const dispatched = await dispatchMessagesClient(getBaseModel(model), client);
+            const providerId = await resolveProviderIdFor(model);
+            const dispatched = await dispatchMessagesClient(providerId, client);
             const requestBody = {
               messages: apiMessages,
               model: dispatched.modelId,
@@ -1382,6 +1404,7 @@ export function useLightningMode({
       onShareRequested,
       getEffectiveModel,
       isFastModel,
+      resolveProviderIdFor,
       permissionMode,
       onPermissionRequired,
       permissionManager,

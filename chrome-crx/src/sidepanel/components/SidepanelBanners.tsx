@@ -52,7 +52,7 @@ export interface SidepanelBannersProps {
   announcementConfig: AnnouncementConfig;
   dismissAnnouncement: () => void;
 
-  // Model fallback
+  // Model fallback (legacy — no longer wired; kept optional for prop compat)
   lastStopReason: { reason: string; messageId?: string } | null;
   fallbackConfig: ModelFallbackConfig | undefined;
   selectedModel: string;
@@ -244,22 +244,9 @@ export function SidepanelBanners({
           })()}
         </AnimatePresence>
       </div>
-      {/* Model fallback card — shown when safety filters pause the chat */}
-      {lastStopReason?.reason === 'refusal' && fallbackConfig && (
-        <ModelFallbackCard
-          currentModelName={
-            fallbackConfig.currentModelName || getModelDisplayName(selectedModel, modelConfig)
-          }
-          fallbackModelName={fallbackConfig.fallbackModelName || ''}
-          fallbackDisplayName={
-            fallbackConfig.fallbackDisplayName ||
-            getModelDisplayName(fallbackConfig.fallbackModelName || '', modelConfig)
-          }
-          learnMoreUrl={fallbackConfig.learnMoreUrl || 'https://superduck-ai.github.io/superduck/'}
-          onRetry={() => void retryWithFallback()}
-          onSendFeedback={sendRefusalFeedback}
-        />
-      )}
+      {/* Model fallback card — shown when safety filters pause the chat.
+          Disabled: tier/model-fallback config is no longer wired. */}
+      {lastStopReason?.reason === 'refusal' && fallbackConfig ? null : null}
     </>
   );
 }
