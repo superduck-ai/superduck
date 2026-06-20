@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useIntl, FormattedMessage } from 'react-intl';
 import runShortcutSvg from '../assets/IconRunShortcut.svg?raw';
 import {
@@ -20,6 +20,11 @@ import {
   TextArea
 } from './ui';
 import { SchedulingFields } from './scheduling/SchedulingFields';
+import {
+  ensureSelectedSchedulingProviderOption,
+  loadSchedulingProviderChoices,
+  type SchedulingProviderOption
+} from './scheduling/providerModelOptions';
 import { getTodayLocalDateString } from '../utils/date';
 import {
   PromptService,
@@ -399,6 +404,24 @@ function EditPromptModal({
   const [specificDate, setSpecificDate] = useState(editingPrompt?.specificDate || '');
   const [url, setUrl] = useState(editingPrompt?.url || '');
   const [model, setModel] = useState(editingPrompt?.model || '');
+  const [providerModelOptions, setProviderModelOptions] = useState<SchedulingProviderOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSchedulingProviderChoices().then(({ defaultProviderId, options }) => {
+      if (cancelled) return;
+      setProviderModelOptions(options);
+      if (defaultProviderId) setModel((currentModel) => currentModel || defaultProviderId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const schedulingModelOptions = useMemo(
+    () => ensureSelectedSchedulingProviderOption(providerModelOptions, model),
+    [providerModelOptions, model]
+  );
 
   useEffect(() => {
     setTimeout(() => {
@@ -635,6 +658,7 @@ function EditPromptModal({
           compact={false}
           model={model}
           setModel={setModel}
+          availableModels={schedulingModelOptions}
         />
         {error && !error.includes('already in use') && (
           <div className="text-danger-000 text-sm">{error}</div>
