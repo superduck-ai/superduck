@@ -23,6 +23,7 @@ import {
 } from '../mcpRuntime/pageToolsSupport/helpers';
 import { MessagesClient } from '../mcpServersStore';
 import { parseModelTag, getBaseModel } from './sessionPool';
+import { OAUTH_FALLBACK_MODEL } from '../constants/models';
 import { dispatchMessagesClient, resolveClientForProvider } from '../utils/providerClient';
 import { findProvider, loadProviderConfig } from '../utils/providerStore';
 import { getModelsConfig } from '../components/providers/AppProviders';
@@ -295,12 +296,13 @@ export function useLightningMode({
     const providerId = await resolveProviderIdFor(getEffectiveModel());
     try {
       const resolved = await resolveClientForProvider(providerId);
+      const contextModelId = resolved?.modelId || OAUTH_FALLBACK_MODEL;
       return resolveEffectiveContextWindow({
-        modelId: resolved?.modelId ?? providerId,
+        modelId: contextModelId,
         providerContextLength: resolved?.provider.contextLength
       });
     } catch {
-      return resolveEffectiveContextWindow({ modelId: providerId });
+      return resolveEffectiveContextWindow({ modelId: OAUTH_FALLBACK_MODEL });
     }
   }, [getEffectiveModel, resolveProviderIdFor]);
 

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { normalizeModelId } from '../constants/models';
+import { getModelIdLookupCandidates, normalizeModelId } from '../constants/models';
 
 /**
  * Multi-provider AI configuration store.
@@ -44,6 +44,7 @@ export const PROVIDER_STORAGE_KEYS = {
 export const PROVIDER_CONFIG_VERSION = 2;
 export const PROVIDER_CONFIG_BROADCAST = 'superduck.providerConfigUpdated';
 export const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
+export const MODEL_METADATA_CACHE_STORAGE_KEY = 'modelMetadata';
 const LEGACY_SELECTED_MODEL_KEY = 'selectedModel';
 const LEGACY_DEFAULT_MODEL = 'claude-opus-4-6';
 const LEGACY_TIER_ORDER = ['deep', 'smart', 'flash'] as const;
@@ -56,6 +57,26 @@ interface LegacyTierBinding {
 }
 
 type LegacyModelMapping = Record<LegacyTier, LegacyTierBinding | null>;
+
+export interface ProviderModelMetadata {
+  id: string;
+  canonicalSlug?: string;
+  name?: string;
+  contextLength?: number;
+  maxCompletionTokens?: number;
+  isModerated?: boolean;
+  modality?: string;
+  inputModalities?: string[];
+  outputModalities?: string[];
+  tokenizer?: string;
+  pricing?: Record<string, string>;
+  supportedParameters?: string[];
+}
+
+interface ModelMetadataCache {
+  fetchedAt: number;
+  models: Record<string, ProviderModelMetadata>;
+}
 
 /**
  * Default base URL hints rendered as placeholders / first-time defaults.
@@ -142,6 +163,81 @@ function parseLegacyMapping(value: unknown): LegacyModelMapping {
     smart: parseLegacyBinding(v.smart),
     flash: parseLegacyBinding(v.flash)
   };
+}
+
+function parseStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter(
+    (entry): entry is string => isString(entry) && entry.trim().length > 0
+  );
+  return strings.length > 0 ? strings : undefined;
+}
+
+function parseStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => isString(entry[0]) && isString(entry[1])
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function parsePositiveNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function parseProviderModelMetadata(value: unknown): ProviderModelMetadata | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = isString(record.id) ? record.id.trim() : '';
+  if (!id) return null;
+  return {
+    id,
+    canonicalSlug: isString(record.canonicalSlug) ? record.canonicalSlug : undefined,
+    name: isString(record.name) ? record.name : undefined,
+    contextLength: parsePositiveNumber(record.contextLength),
+    maxCompletionTokens: parsePositiveNumber(record.maxCompletionTokens),
+    isModerated: typeof record.isModerated === 'boolean' ? record.isModerated : undefined,
+    modality: isString(record.modality) ? record.modality : undefined,
+    inputModalities: parseStringArray(record.inputModalities),
+    outputModalities: parseStringArray(record.outputModalities),
+    tokenizer: isString(record.tokenizer) ? record.tokenizer : undefined,
+    pricing: parseStringRecord(record.pricing),
+    supportedParameters: parseStringArray(record.supportedParameters)
+  };
+}
+
+function parseModelMetadataMap(value: unknown): Record<string, ProviderModelMetadata> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const parsed: Record<string, ProviderModelMetadata> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const metadata = parseProviderModelMetadata(entry);
+    if (metadata && key.trim()) parsed[key] = metadata;
+  }
+  return parsed;
+}
+
+function parseModelMetadataCache(value: unknown): ModelMetadataCache | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const fetchedAt = typeof record.fetchedAt === 'number' ? record.fetchedAt : 0;
+  const models = parseModelMetadataMap(record.models);
+  if (!fetchedAt || Object.keys(models).length === 0) return null;
+  return { fetchedAt, models };
+}
+
+function indexProviderModelMetadata(
+  models: Record<string, ProviderModelMetadata>,
+  metadata: ProviderModelMetadata
+): void {
+  const candidates = [
+    ...getModelIdLookupCandidates(metadata.id),
+    ...(metadata.canonicalSlug ? getModelIdLookupCandidates(metadata.canonicalSlug) : [])
+  ];
+  for (const [index, candidate] of Array.from(new Set(candidates)).entries()) {
+    if (index === 0 || !models[candidate]) {
+      models[candidate] = metadata;
+    }
+  }
 }
 
 function classifyLegacyTier(modelId: string): LegacyTier {
@@ -500,18 +596,18 @@ function extractModelIds(payload: unknown): string[] {
 }
 
 /**
- * Build a `{ modelId: contextLength }` index from a /v1/models payload.
+ * Build a `{ modelId: metadata }` index from a /v1/models payload.
  * Accepts a bare array, `{ data: [...] }`, or `{ models: [...] }`.
  */
-export function extractModelContextLengths(payload: unknown): Record<string, number> {
+export function extractModelMetadata(payload: unknown): Record<string, ProviderModelMetadata> {
   let source: unknown = payload;
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const obj = payload as { data?: unknown; models?: unknown };
     source = obj.data ?? obj.models ?? payload;
   }
 
-  const lengths: Record<string, number> = {};
-  if (!Array.isArray(source)) return lengths;
+  const models: Record<string, ProviderModelMetadata> = {};
+  if (!Array.isArray(source)) return models;
   for (const entry of source) {
     if (!entry || typeof entry !== 'object') continue;
     const record = entry as Record<string, unknown>;
@@ -525,6 +621,19 @@ export function extractModelContextLengths(payload: unknown): Record<string, num
     const modelId = rawModelId.startsWith('models/')
       ? rawModelId.slice('models/'.length)
       : rawModelId;
+    const name = isString(record.name) && record.name !== rawModelId ? record.name : undefined;
+    const canonicalSlug =
+      typeof record.canonical_slug === 'string'
+        ? record.canonical_slug
+        : typeof record.canonicalSlug === 'string'
+          ? record.canonicalSlug
+          : '';
+    const topProvider =
+      record.top_provider &&
+      typeof record.top_provider === 'object' &&
+      !Array.isArray(record.top_provider)
+        ? (record.top_provider as Record<string, unknown>)
+        : {};
     const contextLength = [
       record.context_length,
       record.contextLength,
@@ -533,36 +642,105 @@ export function extractModelContextLengths(payload: unknown): Record<string, num
       record.max_input_tokens,
       record.maxInputTokens,
       record.input_token_limit,
-      record.inputTokenLimit
+      record.inputTokenLimit,
+      topProvider.context_length,
+      topProvider.contextLength,
+      topProvider.max_context_length,
+      topProvider.maxContextLength,
+      topProvider.max_input_tokens,
+      topProvider.maxInputTokens
     ].find((value): value is number => typeof value === 'number' && value > 0);
-    if (!contextLength) continue;
-    lengths[modelId] = contextLength;
-    lengths[normalizeModelId(modelId)] = contextLength;
+    const architecture =
+      record.architecture &&
+      typeof record.architecture === 'object' &&
+      !Array.isArray(record.architecture)
+        ? (record.architecture as Record<string, unknown>)
+        : {};
+    indexProviderModelMetadata(models, {
+      id: modelId,
+      canonicalSlug: canonicalSlug || undefined,
+      name,
+      contextLength,
+      maxCompletionTokens:
+        parsePositiveNumber(topProvider.max_completion_tokens) ??
+        parsePositiveNumber(topProvider.maxCompletionTokens) ??
+        parsePositiveNumber(record.max_completion_tokens) ??
+        parsePositiveNumber(record.maxCompletionTokens),
+      isModerated:
+        typeof topProvider.is_moderated === 'boolean' ? topProvider.is_moderated : undefined,
+      modality: isString(architecture.modality) ? architecture.modality : undefined,
+      inputModalities: parseStringArray(architecture.input_modalities),
+      outputModalities: parseStringArray(architecture.output_modalities),
+      tokenizer: isString(architecture.tokenizer) ? architecture.tokenizer : undefined,
+      pricing: parseStringRecord(record.pricing),
+      supportedParameters: parseStringArray(record.supported_parameters)
+    });
   }
-  return lengths;
+  return models;
 }
 
-export function lookupModelContextLength(
-  contextLengths: Record<string, number>,
+export function lookupModelMetadata(
+  models: Record<string, ProviderModelMetadata>,
   modelId: string
-): number | undefined {
+): ProviderModelMetadata | undefined {
   const trimmed = modelId.trim();
   if (!trimmed) return undefined;
 
-  const normalized = normalizeModelId(trimmed);
-  for (const candidate of [trimmed, normalized]) {
-    const value = contextLengths[candidate];
-    if (typeof value === 'number' && value > 0) return value;
+  const candidates = getModelIdLookupCandidates(trimmed);
+  for (const candidate of candidates) {
+    const value = models[candidate];
+    if (value) return value;
   }
 
-  const trimmedLower = trimmed.toLowerCase();
-  const normalizedLower = normalized.toLowerCase();
-  for (const [id, value] of Object.entries(contextLengths)) {
-    if (typeof value !== 'number' || value <= 0) continue;
-    if (id.toLowerCase() === trimmedLower) return value;
-    if (normalizeModelId(id).toLowerCase() === normalizedLower) return value;
+  const lowerCandidates = new Set(candidates.map((candidate) => candidate.toLowerCase()));
+  for (const [id, value] of Object.entries(models)) {
+    if (
+      getModelIdLookupCandidates(id).some((candidate) =>
+        lowerCandidates.has(candidate.toLowerCase())
+      )
+    ) {
+      return value;
+    }
   }
   return undefined;
+}
+
+async function readModelMetadataCache(): Promise<ModelMetadataCache | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return null;
+    const raw = await chrome.storage.local.get(MODEL_METADATA_CACHE_STORAGE_KEY);
+    return parseModelMetadataCache(raw[MODEL_METADATA_CACHE_STORAGE_KEY]);
+  } catch {
+    return null;
+  }
+}
+
+async function writeModelMetadataCache(
+  models: Record<string, ProviderModelMetadata>
+): Promise<void> {
+  if (Object.keys(models).length === 0) return;
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+    const existing = await readModelMetadataCache();
+    await chrome.storage.local.set({
+      [MODEL_METADATA_CACHE_STORAGE_KEY]: {
+        fetchedAt: Date.now(),
+        models: {
+          ...(existing?.models ?? {}),
+          ...models
+        }
+      }
+    });
+  } catch {
+    // Metadata caching is opportunistic; provider model loading must not fail.
+  }
+}
+
+export async function lookupCachedModelMetadata(
+  modelId: string
+): Promise<ProviderModelMetadata | undefined> {
+  const cache = await readModelMetadataCache();
+  return cache ? lookupModelMetadata(cache.models, modelId) : undefined;
 }
 
 async function readProviderError(response: Response): Promise<string> {
@@ -630,23 +808,24 @@ export async function fetchProviderModels(
 
 export interface ProviderModelCatalog {
   models: string[];
-  contextLengths: Record<string, number>;
+  metadata: Record<string, ProviderModelMetadata>;
 }
 
 /**
  * Fetch the gateway's /v1/models once and return both the id list (for the
- * editor dropdown) and a `{ modelId: contextLength }` index. The index is
- * captured at save time so runtime context-window resolution uses the real
- * per-model limit instead of a hardcoded tier default.
+ * editor dropdown) and the reusable model metadata. The selected model's
+ * context window is captured at save time from that metadata.
  */
 export async function fetchProviderModelCatalog(
   provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
   timeoutMs = 10_000
 ): Promise<ProviderModelCatalog> {
   const payload = await fetchRawModelList(provider, timeoutMs);
+  const metadata = extractModelMetadata(payload);
+  await writeModelMetadataCache(metadata);
   return {
     models: extractModelIds(payload),
-    contextLengths: extractModelContextLengths(payload)
+    metadata
   };
 }
 

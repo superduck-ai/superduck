@@ -1,4 +1,7 @@
-import { getModelContextLength } from '../constants/models';
+import {
+  DEFAULT_CONTEXT_LENGTH,
+  getPreferredConfiguredModelContextLength
+} from '../constants/models';
 
 export interface ResolveContextWindowOptions {
   modelId: string;
@@ -14,14 +17,15 @@ export interface ResolveContextWindowOptions {
  * Resolve the context window for the active model.
  *
  * Priority:
- * 1. `providerContextLength` — saved at config time from /v1/models.
- * 2. Built-in per-model defaults for canonical Anthropic ids.
- * 3. Global fallback (256k), via {@link getModelContextLength}.
+ * 1. Non-default `providerContextLength` saved at config time.
+ * 2. Bundled per-model metadata for known model ids.
+ * 3. Saved default-sized provider context length.
+ * 4. Global fallback (256k).
  */
 export function resolveEffectiveContextWindow(options: ResolveContextWindowOptions): number {
   const { modelId, providerContextLength } = options;
-  if (typeof providerContextLength === 'number' && providerContextLength > 0) {
-    return providerContextLength;
-  }
-  return getModelContextLength(modelId);
+  return (
+    getPreferredConfiguredModelContextLength(modelId, providerContextLength) ??
+    DEFAULT_CONTEXT_LENGTH
+  );
 }

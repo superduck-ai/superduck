@@ -1,16 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { Button, Modal, ModalFooter, SimpleSelect, TextInput } from '@/components/ui';
-import { DEFAULT_CONTEXT_LENGTH, getConfiguredModelContextLength } from '@/constants/models';
+import {
+  DEFAULT_CONTEXT_LENGTH,
+  getPreferredConfiguredModelContextLength
+} from '@/constants/models';
 import {
   DEFAULT_BASE_URL,
   PROVIDER_KIND_LABEL,
   fetchProviderModelCatalog,
   isValidProviderBaseURL,
-  lookupModelContextLength,
+  lookupCachedModelMetadata,
+  lookupModelMetadata,
   newProviderId,
   normalizeProviderBaseURL,
   type AiProvider,
+  type ProviderModelMetadata,
   type ProviderKind
 } from '@/utils/providerStore';
 
@@ -21,6 +26,29 @@ const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: 'openai-compatible', label: 'OpenAI Responses' }
 ];
 const DEFAULT_PROVIDER_KIND: ProviderKind = 'anthropic';
+const CONTEXT_LENGTH_DETECT_DELAY_MS = 350;
+
+type ContextLengthSource =
+  | 'none'
+  | 'saved'
+  | 'provider'
+  | 'cache'
+  | 'builtin'
+  | 'default'
+  | 'manual';
+
+function formatContextLengthInput(value: number | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '';
+  return String(Math.floor(value));
+}
+
+function parseContextLengthInput(value: string): number | undefined {
+  const normalized = value.replace(/[,_\s]/g, '');
+  if (!normalized) return undefined;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
 
 export interface ProviderEditorValue {
   id: string;
@@ -55,8 +83,11 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState('');
   const [modelOptions, setModelOptions] = useState<string[]>([]);
-  const [modelContextLengths, setModelContextLengths] = useState<Record<string, number>>({});
+  const [modelMetadata, setModelMetadata] = useState<Record<string, ProviderModelMetadata>>({});
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [contextLengthInput, setContextLengthInput] = useState('');
+  const [contextLengthSource, setContextLengthSource] = useState<ContextLengthSource>('none');
+  const [contextLengthTouched, setContextLengthTouched] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isResolvingContextLength, setIsResolvingContextLength] = useState(false);
   const modelInputContainerRef = useRef<HTMLDivElement>(null);
@@ -72,8 +103,11 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     setModelId(provider?.modelId ?? '');
     setApiKey(provider?.apiKey ?? '');
     setBaseURL(provider?.baseURL ?? '');
+    setContextLengthInput(formatContextLengthInput(provider?.contextLength));
+    setContextLengthSource(provider?.contextLength ? 'saved' : 'none');
+    setContextLengthTouched(false);
     setModelOptions([]);
-    setModelContextLengths({});
+    setModelMetadata({});
     setModelDropdownOpen(false);
     setIsLoadingModels(false);
     setIsResolvingContextLength(false);
@@ -84,7 +118,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
     const clearModels = () => {
       setModelOptions([]);
-      setModelContextLengths({});
+      setModelMetadata({});
       setModelDropdownOpen(false);
       setIsLoadingModels(false);
     };
@@ -102,7 +136,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
     let cancelled = false;
     setModelOptions([]);
-    setModelContextLengths({});
+    setModelMetadata({});
     setModelDropdownOpen(false);
     setIsLoadingModels(true);
 
@@ -115,7 +149,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
         .then((catalog) => {
           if (!cancelled) {
             setModelOptions(catalog.models);
-            setModelContextLengths(catalog.contextLengths);
+            setModelMetadata(catalog.metadata);
             setIsLoadingModels(false);
           }
         })
@@ -163,6 +197,100 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     );
     return filtered.length > 0 ? filtered : modelOptions;
   }, [modelId, modelOptions]);
+  const parsedContextLength = parseContextLengthInput(contextLengthInput);
+  const hasInvalidContextLength = Boolean(contextLengthInput.trim()) && !parsedContextLength;
+
+  useEffect(() => {
+    if (!isOpen || contextLengthTouched) return;
+
+    const trimmedModelId = modelId.trim();
+    if (!trimmedModelId) {
+      setContextLengthInput('');
+      setContextLengthSource('none');
+      setIsResolvingContextLength(false);
+      return;
+    }
+
+    let cancelled = false;
+    const applyContextLength = (value: number, source: ContextLengthSource) => {
+      if (cancelled) return;
+      setContextLengthInput(formatContextLengthInput(value));
+      setContextLengthSource(source);
+    };
+
+    const existingContextLength =
+      provider?.modelId?.trim() === trimmedModelId &&
+      typeof provider?.contextLength === 'number' &&
+      provider.contextLength > 0
+        ? provider.contextLength
+        : undefined;
+    if (existingContextLength) {
+      const preferredContextLength = getPreferredConfiguredModelContextLength(
+        trimmedModelId,
+        existingContextLength
+      );
+      applyContextLength(
+        preferredContextLength ?? existingContextLength,
+        preferredContextLength === existingContextLength ? 'saved' : 'builtin'
+      );
+      setIsResolvingContextLength(false);
+      return;
+    }
+
+    const detectedContextLength = lookupModelMetadata(modelMetadata, trimmedModelId)?.contextLength;
+    if (detectedContextLength) {
+      const preferredContextLength = getPreferredConfiguredModelContextLength(
+        trimmedModelId,
+        detectedContextLength
+      );
+      applyContextLength(
+        preferredContextLength ?? detectedContextLength,
+        preferredContextLength === detectedContextLength ? 'provider' : 'builtin'
+      );
+      setIsResolvingContextLength(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsResolvingContextLength(true);
+      void lookupCachedModelMetadata(trimmedModelId)
+        .then((cachedMetadata) => {
+          if (cancelled) return;
+          if (cachedMetadata?.contextLength) {
+            const preferredContextLength = getPreferredConfiguredModelContextLength(
+              trimmedModelId,
+              cachedMetadata.contextLength
+            );
+            applyContextLength(
+              preferredContextLength ?? cachedMetadata.contextLength,
+              preferredContextLength === cachedMetadata.contextLength ? 'cache' : 'builtin'
+            );
+            return;
+          }
+          const builtInContextLength = getPreferredConfiguredModelContextLength(trimmedModelId);
+          if (builtInContextLength) {
+            applyContextLength(builtInContextLength, 'builtin');
+            return;
+          }
+          applyContextLength(DEFAULT_CONTEXT_LENGTH, 'default');
+        })
+        .finally(() => {
+          if (!cancelled) setIsResolvingContextLength(false);
+        });
+    }, CONTEXT_LENGTH_DETECT_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    contextLengthTouched,
+    isOpen,
+    modelMetadata,
+    modelId,
+    provider?.contextLength,
+    provider?.modelId
+  ]);
 
   const handleBaseURLBlur = () => {
     setBaseURL((current) => {
@@ -175,6 +303,13 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
   const handleModelIdChange = (nextModelId: string) => {
     setModelId(nextModelId);
+    setContextLengthTouched(false);
+  };
+
+  const handleContextLengthChange = (nextContextLength: string) => {
+    setContextLengthInput(nextContextLength);
+    setContextLengthSource('manual');
+    setContextLengthTouched(true);
   };
 
   const fetchContextLengthForModel = async (targetModelId: string): Promise<number | undefined> => {
@@ -187,7 +322,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
         apiKey: trimmedApiKey,
         baseURL: normalizedBaseURL
       });
-      return lookupModelContextLength(catalog.contextLengths, targetModelId);
+      return lookupModelMetadata(catalog.metadata, targetModelId)?.contextLength;
     } catch {
       return undefined;
     }
@@ -198,27 +333,29 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     submitToken: number
   ): Promise<number | undefined> => {
     if (!trimmedModelId) return undefined;
-    const alreadyDetected = lookupModelContextLength(modelContextLengths, trimmedModelId);
-    if (alreadyDetected) return alreadyDetected;
+    const alreadyDetected = lookupModelMetadata(modelMetadata, trimmedModelId)?.contextLength;
+    if (alreadyDetected) {
+      return getPreferredConfiguredModelContextLength(trimmedModelId, alreadyDetected);
+    }
 
     setIsResolvingContextLength(true);
     try {
+      const cached = await lookupCachedModelMetadata(trimmedModelId);
+      if (cached?.contextLength) {
+        return getPreferredConfiguredModelContextLength(trimmedModelId, cached.contextLength);
+      }
+      const builtInContextLength = getPreferredConfiguredModelContextLength(trimmedModelId);
+      if (builtInContextLength) return builtInContextLength;
       const fetched = await fetchContextLengthForModel(trimmedModelId);
-      if (fetched) return fetched;
-      const builtInContextLength = getConfiguredModelContextLength(trimmedModelId);
+      if (fetched) return getPreferredConfiguredModelContextLength(trimmedModelId, fetched);
       const isSameModelAsExisting = provider?.modelId?.trim() === trimmedModelId;
       const existingContextLength =
         typeof provider?.contextLength === 'number' && provider.contextLength > 0
           ? provider.contextLength
           : undefined;
-      if (
-        isSameModelAsExisting &&
-        existingContextLength &&
-        (!builtInContextLength || existingContextLength !== DEFAULT_CONTEXT_LENGTH)
-      ) {
-        return existingContextLength;
+      if (isSameModelAsExisting && existingContextLength) {
+        return getPreferredConfiguredModelContextLength(trimmedModelId, existingContextLength);
       }
-      if (builtInContextLength) return undefined;
       return DEFAULT_CONTEXT_LENGTH;
     } finally {
       if (submitTokenRef.current === submitToken && isOpenRef.current) {
@@ -237,6 +374,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const handleSubmit = async () => {
     if (isResolvingContextLength) return;
     if (!isValidProviderBaseURL(baseURL)) return;
+    if (hasInvalidContextLength) return;
     const submitToken = submitTokenRef.current + 1;
     submitTokenRef.current = submitToken;
     const trimmedModelId = modelId.trim();
@@ -248,7 +386,8 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
       apiKey: apiKey.trim(),
       baseURL: normalizeProviderBaseURL(kind, baseURL)
     };
-    const contextLength = await resolveContextLengthForSubmit(trimmedModelId, submitToken);
+    const contextLength =
+      parsedContextLength ?? (await resolveContextLengthForSubmit(trimmedModelId, submitToken));
     if (submitTokenRef.current !== submitToken || !isOpenRef.current) return;
     onSave({
       ...value,
@@ -285,6 +424,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
                 return normalizeProviderBaseURL(next, trimmed);
               });
               setModelOptions([]);
+              setModelMetadata({});
               setModelDropdownOpen(false);
               setIsLoadingModels(false);
               if (!baseURL && !isEditing) {
@@ -384,6 +524,74 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
             )}
           </div>
         </div>
+
+        <div className="border-t border-border-300 pt-4">
+          <h3 className="mb-3 text-text-100 font-base-bold">
+            <FormattedMessage id="advanced_settings" defaultMessage="高级设置" />
+          </h3>
+          <label className="block text-text-200 font-base-sm mb-1.5">
+            <FormattedMessage id="context_length_label" defaultMessage="上下文长度" />
+          </label>
+          <TextInput
+            type="number"
+            min={1}
+            step={1}
+            value={contextLengthInput}
+            onChange={(event) => handleContextLengthChange(event.target.value)}
+            placeholder={String(DEFAULT_CONTEXT_LENGTH)}
+            append={
+              <span className="whitespace-nowrap text-text-400 font-base-sm">
+                <FormattedMessage id="context_length_tokens" defaultMessage="tokens" />
+              </span>
+            }
+            secondaryLabel={
+              isResolvingContextLength ? (
+                <FormattedMessage
+                  id="context_length_detecting"
+                  defaultMessage="正在检测上下文长度..."
+                />
+              ) : contextLengthSource === 'manual' ? (
+                <FormattedMessage
+                  id="context_length_hint_manual"
+                  defaultMessage="手动填写的上下文长度会随该模型保存。"
+                />
+              ) : contextLengthSource === 'saved' ? (
+                <FormattedMessage
+                  id="context_length_hint_saved"
+                  defaultMessage="使用此模型已保存的上下文长度。"
+                />
+              ) : contextLengthSource === 'provider' ? (
+                <FormattedMessage
+                  id="context_length_hint_provider"
+                  defaultMessage="从当前供应商的模型列表检测到。"
+                />
+              ) : contextLengthSource === 'cache' ? (
+                <FormattedMessage
+                  id="context_length_hint_cache"
+                  defaultMessage="从本地模型元数据缓存读取。"
+                />
+              ) : contextLengthSource === 'builtin' ? (
+                <FormattedMessage
+                  id="context_length_hint_builtin"
+                  defaultMessage="使用 SuperDuck 内置的模型上下文长度。"
+                />
+              ) : (
+                <FormattedMessage
+                  id="context_length_hint_default"
+                  defaultMessage="没有找到模型元数据时使用默认值，可手动覆盖。"
+                />
+              )
+            }
+          />
+          {hasInvalidContextLength && (
+            <p className="mt-1 text-xs text-danger-000">
+              <FormattedMessage
+                id="context_length_invalid"
+                defaultMessage="请输入大于 0 的上下文 token 数。"
+              />
+            </p>
+          )}
+        </div>
       </div>
 
       <ModalFooter>
@@ -392,7 +600,12 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
         </Button>
         <Button
           onClick={() => void handleSubmit()}
-          disabled={submitDisabled || hasInvalidBaseURL || isResolvingContextLength}
+          disabled={
+            submitDisabled ||
+            hasInvalidBaseURL ||
+            hasInvalidContextLength ||
+            isResolvingContextLength
+          }
         >
           <FormattedMessage
             id={isEditing ? 'update' : 'add'}
