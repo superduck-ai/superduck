@@ -1,12 +1,14 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   clearProviderCache,
-  extractModelContextLengths,
+  extractModelMetadata,
   fetchProviderModelCatalog,
   fetchProviderModels,
+  getModelMetadataCacheStorageKey,
   isValidProviderBaseURL,
   loadProviderConfig,
-  lookupModelContextLength,
+  lookupCachedModelMetadata,
+  lookupModelMetadata,
   normalizeProviderBaseURL,
   OPENAI_RESPONSES_MIN_OUTPUT_TOKENS,
   PROVIDER_CONFIG_VERSION,
@@ -193,82 +195,314 @@ describe('fetchProviderModels', () => {
   });
 });
 
-describe('extractModelContextLengths', () => {
+describe('extractModelMetadata', () => {
   it('indexes models by id and normalized id from a bare array', () => {
-    expect(
-      extractModelContextLengths([
-        { id: 'claude-opus-4.6', context_length: 900_000 },
-        { id: 'claude-haiku-4-5-20251001', context_length: 200_000 }
-      ])
-    ).toEqual({
-      'claude-opus-4.6': 900_000,
-      'claude-opus-4-6': 900_000,
-      'claude-haiku-4-5-20251001': 200_000
+    const metadata = extractModelMetadata([
+      { id: 'claude-opus-4.6', context_length: 900_000 },
+      { id: 'claude-haiku-4-5-20251001', context_length: 200_000 }
+    ]);
+
+    expect(metadata['claude-opus-4.6']).toMatchObject({
+      id: 'claude-opus-4.6',
+      contextLength: 900_000
+    });
+    expect(metadata['claude-opus-4-6']).toBe(metadata['claude-opus-4.6']);
+    expect(metadata['claude-haiku-4-5-20251001']).toMatchObject({
+      id: 'claude-haiku-4-5-20251001',
+      contextLength: 200_000
     });
   });
 
   it('unwraps { data: [...] } payloads', () => {
-    expect(
-      extractModelContextLengths({ data: [{ id: 'gpt-4o', context_length: 128_000 }] })
-    ).toEqual({ 'gpt-4o': 128_000 });
+    const metadata = extractModelMetadata({
+      data: [{ id: 'gpt-4o', context_length: 128_000 }]
+    });
+
+    expect(metadata['gpt-4o']).toMatchObject({
+      id: 'gpt-4o',
+      contextLength: 128_000
+    });
   });
 
   it('uses max_input_tokens from Anthropic-compatible gateways', () => {
-    expect(
-      extractModelContextLengths({
-        data: [
-          { id: 'CVTE-AUTO', max_input_tokens: 1_000_000 },
-          { id: 'glm-5.1', max_input_tokens: 200_000 }
-        ]
-      })
-    ).toEqual({
-      'CVTE-AUTO': 1_000_000,
-      'glm-5.1': 200_000
+    const metadata = extractModelMetadata({
+      data: [
+        { id: 'CVTE-AUTO', max_input_tokens: 1_000_000 },
+        { id: 'glm-5.1', max_input_tokens: 200_000 }
+      ]
+    });
+
+    expect(metadata['CVTE-AUTO']).toMatchObject({
+      id: 'CVTE-AUTO',
+      contextLength: 1_000_000
+    });
+    expect(metadata['glm-5.1']).toMatchObject({
+      id: 'glm-5.1',
+      contextLength: 200_000
     });
   });
 
   it('uses name as the model id when id is not present', () => {
-    expect(
-      extractModelContextLengths({
-        data: [{ name: 'models/gemini-2.5-pro', max_input_tokens: 1_048_576 }]
-      })
-    ).toEqual({
-      'gemini-2.5-pro': 1_048_576
+    const metadata = extractModelMetadata({
+      data: [{ name: 'models/gemini-2.5-pro', max_input_tokens: 1_048_576 }]
+    });
+
+    expect(metadata['gemini-2.5-pro']).toMatchObject({
+      id: 'gemini-2.5-pro',
+      contextLength: 1_048_576
     });
   });
 
-  it('skips entries without a usable context_length', () => {
-    expect(
-      extractModelContextLengths([
-        { id: 'no-ctx' },
-        { id: 'zero', context_length: 0 },
-        { id: 'neg', context_length: -1 },
-        { context_length: 1000 },
-        { id: 'ok', context_length: 64_000 }
-      ])
-    ).toEqual({ ok: 64_000 });
+  it('uses OpenRouter top_provider context length when present', () => {
+    const metadata = extractModelMetadata({
+      data: [
+        {
+          id: 'openai/gpt-4o',
+          top_provider: { context_length: 128_000 }
+        }
+      ]
+    });
+
+    expect(metadata['openai/gpt-4o']).toMatchObject({
+      id: 'openai/gpt-4o',
+      contextLength: 128_000
+    });
+    expect(metadata['gpt-4o']).toBe(metadata['openai/gpt-4o']);
+  });
+
+  it('indexes OpenRouter provider-prefixed ids, short ids, and canonical slugs', () => {
+    const metadata = extractModelMetadata({
+      data: [
+        {
+          id: 'moonshotai/kimi-k2.5',
+          canonical_slug: 'moonshotai/kimi-k2.5-0127',
+          context_length: 262_144,
+          top_provider: { context_length: 256_000 }
+        }
+      ]
+    });
+
+    expect(metadata['moonshotai/kimi-k2.5']).toMatchObject({
+      id: 'moonshotai/kimi-k2.5',
+      canonicalSlug: 'moonshotai/kimi-k2.5-0127',
+      contextLength: 262_144
+    });
+    expect(metadata['kimi-k2.5']).toBe(metadata['moonshotai/kimi-k2.5']);
+    expect(metadata['moonshotai/kimi-k2.5-0127']).toBe(metadata['moonshotai/kimi-k2.5']);
+    expect(metadata['kimi-k2.5-0127']).toBe(metadata['moonshotai/kimi-k2.5']);
+  });
+
+  it('keeps models without context length while skipping invalid model ids', () => {
+    const metadata = extractModelMetadata([
+      { id: 'no-ctx' },
+      { id: 'zero', context_length: 0 },
+      { id: 'neg', context_length: -1 },
+      { context_length: 1000 },
+      { id: 'ok', context_length: 64_000 }
+    ]);
+
+    expect(metadata['no-ctx']).toMatchObject({ id: 'no-ctx' });
+    expect(metadata.zero).toMatchObject({ id: 'zero' });
+    expect(metadata.neg).toMatchObject({ id: 'neg' });
+    expect(metadata.ok).toMatchObject({ id: 'ok', contextLength: 64_000 });
+    expect(Object.values(metadata).some((model) => model.id === '')).toBe(false);
   });
 
   it('returns an empty map for non-list payloads', () => {
-    expect(extractModelContextLengths(null)).toEqual({});
-    expect(extractModelContextLengths({})).toEqual({});
+    expect(extractModelMetadata(null)).toEqual({});
+    expect(extractModelMetadata({})).toEqual({});
+  });
+
+  it('indexes reusable metadata fields from OpenRouter-style payloads', () => {
+    const metadata = extractModelMetadata({
+      data: [
+        {
+          id: 'aion-labs/aion-2.0',
+          canonical_slug: 'aion-labs/aion-2.0-20260223',
+          name: 'AionLabs: Aion-2.0',
+          context_length: 131_072,
+          architecture: {
+            modality: 'text->text',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+            tokenizer: 'Other'
+          },
+          pricing: { prompt: '0.0000002', completion: '0.0000008' },
+          supported_parameters: ['temperature', 'top_p'],
+          top_provider: {
+            max_completion_tokens: 32_768,
+            is_moderated: false
+          }
+        }
+      ]
+    });
+
+    expect(metadata['aion-2.0']).toMatchObject({
+      id: 'aion-labs/aion-2.0',
+      canonicalSlug: 'aion-labs/aion-2.0-20260223',
+      name: 'AionLabs: Aion-2.0',
+      contextLength: 131_072,
+      maxCompletionTokens: 32_768,
+      isModerated: false,
+      modality: 'text->text',
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      tokenizer: 'Other',
+      pricing: { prompt: '0.0000002', completion: '0.0000008' },
+      supportedParameters: ['temperature', 'top_p']
+    });
+    expect(metadata['aion-labs/aion-2.0-20260223']).toBe(metadata['aion-2.0']);
   });
 });
 
-describe('lookupModelContextLength', () => {
+describe('lookupCachedModelMetadata', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('uses the local metadata cache without fetching remote metadata', async () => {
+    const cacheKey = getModelMetadataCacheStorageKey(baseProvider);
+    const get = vi.fn().mockResolvedValue({
+      [cacheKey]: {
+        fetchedAt: Date.now(),
+        models: {
+          'aion-labs/aion-2.0': {
+            id: 'aion-labs/aion-2.0',
+            canonicalSlug: 'aion-labs/aion-2.0-20260223',
+            name: 'AionLabs: Aion-2.0',
+            contextLength: 131_072,
+            inputModalities: ['text', 'image']
+          }
+        }
+      }
+    });
+    const set = vi.fn();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('chrome', { storage: { local: { get, set } } });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(lookupCachedModelMetadata(baseProvider, 'aion-2.0')).resolves.toMatchObject({
+      id: 'aion-labs/aion-2.0',
+      contextLength: 131_072,
+      inputModalities: ['text', 'image']
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('matches short ids against provider-prefixed local metadata entries', async () => {
+    const cacheKey = getModelMetadataCacheStorageKey(baseProvider);
+    const get = vi.fn().mockResolvedValue({
+      [cacheKey]: {
+        fetchedAt: Date.now(),
+        models: {
+          'moonshotai/kimi-k2.5': {
+            id: 'moonshotai/kimi-k2.5',
+            contextLength: 262_144
+          }
+        }
+      }
+    });
+    vi.stubGlobal('chrome', { storage: { local: { get } } });
+
+    await expect(lookupCachedModelMetadata(baseProvider, 'kimi-k2.5')).resolves.toMatchObject({
+      id: 'moonshotai/kimi-k2.5',
+      contextLength: 262_144
+    });
+  });
+
+  it('does not reuse cached metadata from another provider scope', async () => {
+    const otherProvider = {
+      ...baseProvider,
+      baseURL: 'https://other.example.com/v1'
+    };
+    const get = vi.fn().mockResolvedValue({
+      [getModelMetadataCacheStorageKey(otherProvider)]: {
+        fetchedAt: Date.now(),
+        models: {
+          'gpt-4o': {
+            id: 'gpt-4o',
+            contextLength: 1_000
+          }
+        }
+      }
+    });
+    vi.stubGlobal('chrome', { storage: { local: { get } } });
+
+    await expect(lookupCachedModelMetadata(baseProvider, 'gpt-4o')).resolves.toBeUndefined();
+  });
+
+  it('returns undefined on cache miss without fetching remote metadata', async () => {
+    const get = vi.fn().mockResolvedValue({});
+    const set = vi.fn();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('chrome', { storage: { local: { get, set } } });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      lookupCachedModelMetadata(baseProvider, 'anthropic/claude-sonnet-4.5')
+    ).resolves.toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
+});
+
+describe('lookupModelMetadata', () => {
   it('matches exact and normalized model ids', () => {
-    const lengths = {
-      'claude-opus-4.6': 900_000,
-      'claude-opus-4-6': 900_000
+    const metadata = {
+      'claude-opus-4.6': {
+        id: 'claude-opus-4.6',
+        contextLength: 900_000
+      },
+      'claude-opus-4-6': {
+        id: 'claude-opus-4.6',
+        contextLength: 900_000
+      }
     };
 
-    expect(lookupModelContextLength(lengths, 'claude-opus-4.6')).toBe(900_000);
-    expect(lookupModelContextLength(lengths, 'claude-opus-4-6')).toBe(900_000);
+    expect(lookupModelMetadata(metadata, 'claude-opus-4.6')).toMatchObject({
+      id: 'claude-opus-4.6',
+      contextLength: 900_000
+    });
+    expect(lookupModelMetadata(metadata, 'claude-opus-4-6')).toMatchObject({
+      id: 'claude-opus-4.6',
+      contextLength: 900_000
+    });
+  });
+
+  it('matches short ids against provider-prefixed metadata entries', () => {
+    const metadata = {
+      'aion-labs/aion-2.0': {
+        id: 'aion-labs/aion-2.0',
+        contextLength: 131_072
+      }
+    };
+
+    expect(lookupModelMetadata(metadata, 'aion-2.0')).toMatchObject({
+      id: 'aion-labs/aion-2.0',
+      contextLength: 131_072
+    });
+  });
+
+  it('matches provider-prefixed catalog entries from short model ids', () => {
+    const metadata = {
+      'moonshotai/kimi-k2.5': {
+        id: 'moonshotai/kimi-k2.5',
+        contextLength: 262_144
+      }
+    };
+
+    expect(lookupModelMetadata(metadata, 'kimi-k2.5')).toMatchObject({
+      id: 'moonshotai/kimi-k2.5',
+      contextLength: 262_144
+    });
   });
 
   it('returns undefined when the catalog has no usable value for the model', () => {
-    expect(lookupModelContextLength({ other: 128_000 }, 'missing')).toBeUndefined();
-    expect(lookupModelContextLength({ missing: 0 }, 'missing')).toBeUndefined();
+    expect(
+      lookupModelMetadata({ other: { id: 'other', contextLength: 128_000 } }, 'missing')
+    ).toBeUndefined();
+    expect(lookupModelMetadata({}, 'missing')).toBeUndefined();
   });
 });
 
@@ -277,7 +511,16 @@ describe('fetchProviderModelCatalog', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns both model ids and the context-length index from one request', async () => {
+  it('returns model ids and metadata, then caches metadata from one request', async () => {
+    const set = vi.fn();
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn().mockResolvedValue({}),
+          set
+        }
+      }
+    });
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -295,10 +538,22 @@ describe('fetchProviderModelCatalog', () => {
 
     const catalog = await fetchProviderModelCatalog(baseProvider);
     expect(catalog.models).toEqual(['claude-opus-4.6', 'gpt-4o']);
-    expect(catalog.contextLengths).toEqual({
-      'gpt-4o': 128_000,
-      'claude-opus-4.6': 1_000_000,
-      'claude-opus-4-6': 1_000_000
+    expect(catalog.metadata['gpt-4o']).toMatchObject({
+      id: 'gpt-4o',
+      contextLength: 128_000
+    });
+    expect(catalog.metadata['claude-opus-4-6']).toBe(catalog.metadata['claude-opus-4.6']);
+    const cacheKey = getModelMetadataCacheStorageKey(baseProvider);
+    expect(set).toHaveBeenCalledWith({
+      [cacheKey]: expect.objectContaining({
+        fetchedAt: expect.any(Number),
+        models: expect.objectContaining({
+          'gpt-4o': expect.objectContaining({
+            id: 'gpt-4o',
+            contextLength: 128_000
+          })
+        })
+      })
     });
   });
 });

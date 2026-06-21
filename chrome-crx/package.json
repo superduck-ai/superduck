@@ -21,6 +21,7 @@
     "test:perf:report": "node scripts/test-perf-report.mjs test-results.junit.xml",
     "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "npx playwright test --config e2e/playwright.config.ts --ui",
+    "models:refresh": "bun scripts/update-openrouter-models.mjs",
     "docs": "typedoc --options typedoc.json",
     "docs:check": "typedoc --options typedoc.json --emit none"
   },

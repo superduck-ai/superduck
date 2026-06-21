@@ -8,7 +8,7 @@ import {
   fetchProviderModelCatalog,
   findProvider,
   loadProviderConfig,
-  lookupModelContextLength
+  lookupModelMetadata
 } from '../../utils/providerStore';
 import { resolveClientForProvider } from '../../utils/providerClient';
 
@@ -152,7 +152,7 @@ export function useProviderClient(options: UseProviderClientOptions): UseProvide
             baseURL: apiBaseUrl
           });
           if (cancelled || version !== resolveVersion) return;
-          contextLength = lookupModelContextLength(catalog.contextLengths, activeModel);
+          contextLength = lookupModelMetadata(catalog.metadata, activeModel)?.contextLength;
         } catch {
           if (cancelled || version !== resolveVersion) return;
         }

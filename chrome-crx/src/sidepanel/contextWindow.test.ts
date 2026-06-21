@@ -21,6 +21,15 @@ describe('resolveEffectiveContextWindow', () => {
     ).toBe(200_000);
   });
 
+  it('uses bundled metadata when a saved provider value is only the default fallback', () => {
+    expect(
+      resolveEffectiveContextWindow({
+        modelId: 'kimi-k2.5',
+        providerContextLength: DEFAULT_CONTEXT_LENGTH
+      })
+    ).toBe(262_144);
+  });
+
   it('ignores non-positive provider context length and falls back to built-in', () => {
     expect(
       resolveEffectiveContextWindow({

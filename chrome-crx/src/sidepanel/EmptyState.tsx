@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { StorageKeys, getStorageValue, setStorageValue } from '../extensionServices';
 import { useTabEvent } from './hooks';
 import { HandwritingAnimation } from './HandwritingAnimation';
+import superduckIconUrl from '../../icon-128.png';
 
 // =============================================================================
 // DomainPrompts (lines 729-748)
@@ -72,7 +73,7 @@ export function FeatureCard({ lightImage, darkImage, title, subtitle }: FeatureC
       <img
         src={isDark ? darkImage : lightImage}
         alt={title}
-        className="w-[212px] h-[122px] rounded-[14px]"
+        className="w-[212px] h-[122px] rounded-[14px] border border-border-300 bg-bg-100 p-6 object-contain"
       />
       <div className="mt-4 flex flex-col items-center gap-1 w-[188px]">
         <p className="font-small-bold text-text-300 text-center">{title}</p>
@@ -234,15 +235,15 @@ export function EmptyState({ tabId, onPromptClick }: EmptyStateProps) {
       <MountEffect onMount={tipDisplay.markAsShown}>
         <SuperDuckHeader>
           <FeatureCard
-            lightImage="/assets/extension-light-min-CwWd0kAK.svg"
-            darkImage="/assets/extension-dark-min-Ctxo0Z8w.svg"
+            lightImage={superduckIconUrl}
+            darkImage={superduckIconUrl}
             title={intl.formatMessage({
               defaultMessage: 'Pin SuperDuck for quick access',
-              id: '9qJKQKXInl'
+              id: 'pin_superduck_for_quick_access'
             })}
             subtitle={intl.formatMessage({
               defaultMessage: 'Click the pin icon in the top right corner of the extension window',
-              id: 'PqHH2BNESm'
+              id: 'click_the_pin_icon_in_the_top_right'
             })}
           />
         </SuperDuckHeader>

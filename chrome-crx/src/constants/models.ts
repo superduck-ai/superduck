@@ -1,3 +1,11 @@
+import {
+  OPENROUTER_MODEL_INDEX,
+  OPENROUTER_MODELS,
+  type OpenRouterModelMetadata
+} from './openRouterModels';
+
+export type { OpenRouterModelMetadata } from './openRouterModels';
+
 /**
  * 模型上下文窗口表与别名规范化。
  *
@@ -14,7 +22,7 @@ export const DEFAULT_CONTEXT_LENGTH = 256_000;
  */
 export const OAUTH_FALLBACK_MODEL = 'claude-sonnet-4-6';
 
-export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
+const MODEL_CONTEXT_LENGTH_OVERRIDES: Record<string, number> = {
   'claude-opus-4-6': 1_000_000,
   'claude-sonnet-4-6': 1_000_000,
   'claude-haiku-4-5-20251001': 200_000,
@@ -28,8 +36,15 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'anthropic.claude-opus-4-1-20250805-v1:0': 200_000,
   'claude-sonnet-4-5-20250929': 200_000,
   'claude-3-5-sonnet-20241022': 200_000,
-  'claude-3-sonnet-20240229': 200_000
+  'claude-3-sonnet-20240229': 200_000,
+  'kimi-k2.5': 262_144
 };
+
+export interface ConfiguredModelMetadata extends Partial<OpenRouterModelMetadata> {
+  id: string;
+  contextLength: number;
+  source: 'openrouter' | 'builtin';
+}
 
 /**
  * 模型别名映射
@@ -54,7 +69,9 @@ export const MODEL_ALIASES: Record<string, string> = {
 
   'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
   'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
-  'claude-3-sonnet-20240229': 'claude-sonnet-4-6'
+  'claude-3-sonnet-20240229': 'claude-sonnet-4-6',
+
+  'kimi-k2.5-0127': 'kimi-k2.5'
 };
 
 /**
@@ -64,11 +81,80 @@ export function normalizeModelId(modelId: string): string {
   return MODEL_ALIASES[modelId] || modelId;
 }
 
+export function getModelIdLookupCandidates(modelId: string): string[] {
+  const trimmed = modelId.trim();
+  if (!trimmed) return [];
+  const withoutModelsPrefix = trimmed.startsWith('models/')
+    ? trimmed.slice('models/'.length)
+    : trimmed;
+  const providerless = withoutModelsPrefix.includes('/')
+    ? withoutModelsPrefix.split('/').pop() || ''
+    : '';
+  return Array.from(
+    new Set(
+      [
+        withoutModelsPrefix,
+        normalizeModelId(withoutModelsPrefix),
+        providerless,
+        providerless ? normalizeModelId(providerless) : ''
+      ].filter(Boolean)
+    )
+  );
+}
+
+function getContextLengthOverride(modelId: string): number | undefined {
+  for (const candidate of getModelIdLookupCandidates(modelId)) {
+    const contextLength = MODEL_CONTEXT_LENGTH_OVERRIDES[candidate];
+    if (contextLength) return contextLength;
+  }
+  return undefined;
+}
+
+export function getOpenRouterModelMetadata(modelId: string): OpenRouterModelMetadata | undefined {
+  for (const candidate of getModelIdLookupCandidates(modelId)) {
+    const index =
+      OPENROUTER_MODEL_INDEX[candidate] ?? OPENROUTER_MODEL_INDEX[candidate.toLowerCase()];
+    if (typeof index === 'number') return OPENROUTER_MODELS[index];
+  }
+  return undefined;
+}
+
+export function getConfiguredModelMetadata(modelId: string): ConfiguredModelMetadata | undefined {
+  const openRouterModel = getOpenRouterModelMetadata(modelId);
+  const contextLengthOverride = getContextLengthOverride(modelId);
+  if (openRouterModel) {
+    return {
+      ...openRouterModel,
+      contextLength: contextLengthOverride ?? openRouterModel.contextLength,
+      source: 'openrouter'
+    };
+  }
+  if (contextLengthOverride) {
+    return {
+      id: modelId.trim(),
+      contextLength: contextLengthOverride,
+      source: 'builtin'
+    };
+  }
+  return undefined;
+}
+
 export function getConfiguredModelContextLength(modelId: string): number | undefined {
-  const direct = MODEL_CONTEXT_LENGTHS[modelId];
-  if (direct) return direct;
-  const normalized = normalizeModelId(modelId);
-  return MODEL_CONTEXT_LENGTHS[normalized];
+  return getConfiguredModelMetadata(modelId)?.contextLength;
+}
+
+export function getPreferredConfiguredModelContextLength(
+  modelId: string,
+  detectedContextLength?: number
+): number | undefined {
+  const detected =
+    typeof detectedContextLength === 'number' &&
+    Number.isFinite(detectedContextLength) &&
+    detectedContextLength > 0
+      ? Math.floor(detectedContextLength)
+      : undefined;
+  if (detected && detected !== DEFAULT_CONTEXT_LENGTH) return detected;
+  return getConfiguredModelContextLength(modelId) ?? detected;
 }
 
 export function getModelContextLength(modelId: string): number {

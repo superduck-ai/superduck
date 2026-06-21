@@ -36,6 +36,7 @@ cd chrome-crx
 bun install          # 安装依赖
 bun run build        # 生产构建 → dist/
 bun run dev          # 监听模式
+bun run models:refresh # 从 OpenRouter 刷新内置模型元数据快照
 bun run typecheck    # tsc --noEmit
 bun run lint         # eslint
 bun run format       # prettier
