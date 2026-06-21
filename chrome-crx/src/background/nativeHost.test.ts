@@ -100,6 +100,42 @@ describe('createNativeHostManager', () => {
     return manager;
   }
 
+  function createNativePort({
+    autoPong = true,
+    disconnectOnPing = false
+  }: { autoPong?: boolean; disconnectOnPing?: boolean } = {}) {
+    const portMessageEvent = createEvent<(message: Record<string, unknown>) => void>();
+    const portDisconnectEvent = createEvent<() => void>();
+    const portPostMessage = vi.fn((message: Record<string, unknown>) => {
+      if (disconnectOnPing && message.type === 'ping') {
+        queueMicrotask(() => {
+          Object.assign(chrome.runtime, {
+            lastError: { message: 'Specified native messaging host not found.' }
+          });
+          portDisconnectEvent.emit();
+        });
+        return;
+      }
+      if (autoPong && message.type === 'ping') {
+        queueMicrotask(() => portMessageEvent.emit({ type: 'pong' }));
+      }
+    });
+    const portDisconnect = vi.fn();
+
+    return {
+      postMessage: portPostMessage,
+      disconnect: portDisconnect,
+      onMessage: portMessageEvent,
+      onDisconnect: portDisconnectEvent
+    };
+  }
+
+  async function flushMicrotasks(times = 3) {
+    for (let index = 0; index < times; index++) {
+      await Promise.resolve();
+    }
+  }
+
   function toolResponses() {
     return postMessage.mock.calls
       .map(([message]) => message)
@@ -215,5 +251,159 @@ describe('createNativeHostManager', () => {
         result: { content: 'Waited for 30 seconds' }
       }
     ]);
+  });
+
+  it('shares one in-flight native-host status request across concurrent callers', async () => {
+    const manager = await connectManager();
+
+    const first = manager.getStatus();
+    const second = manager.getStatus();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith({ type: 'get_status' });
+
+    messageEvent.emit({ type: 'status_response' });
+
+    await expect(first).resolves.toEqual({ nativeHostInstalled: true, mcpConnected: false });
+    await expect(second).resolves.toEqual({ nativeHostInstalled: true, mcpConnected: false });
+  });
+
+  it('uses status_response payload for native-host MCP connection state', async () => {
+    const manager = await connectManager();
+
+    const status = manager.getStatus();
+    messageEvent.emit({ type: 'status_response', mcpConnected: true });
+
+    await expect(status).resolves.toEqual({ nativeHostInstalled: true, mcpConnected: true });
+    expect(mcpRuntimeMocks.tabGroupManager.initialize).toHaveBeenCalled();
+    expect(mcpRuntimeMocks.tabGroupManager.startTabGroupChangeListener).toHaveBeenCalled();
+  });
+
+  it('returns cached status when status probing a stale native port throws', async () => {
+    const manager = await connectManager();
+    postMessage.mockImplementationOnce(() => {
+      throw new Error('disconnected');
+    });
+
+    await expect(manager.getStatus()).resolves.toEqual({
+      nativeHostInstalled: true,
+      mcpConnected: false
+    });
+  });
+
+  it('returns false when notification posting fails on a stale native port', async () => {
+    const manager = await connectManager();
+    postMessage.mockImplementationOnce(() => {
+      throw new Error('disconnected');
+    });
+
+    expect(manager.sendMcpNotification('notifications/test')).toBe(false);
+  });
+
+  it('reports connecting while a native-host handshake is still in progress', async () => {
+    const pendingPort = createNativePort({ autoPong: false });
+    vi.mocked(chrome.runtime.connectNative)
+      .mockReset()
+      .mockReturnValue(pendingPort as unknown as chrome.runtime.Port);
+
+    const manager = createNativeHostManager();
+    const connect = manager.connect();
+    await flushMicrotasks();
+
+    await expect(manager.getStatus()).resolves.toEqual({
+      nativeHostInstalled: false,
+      mcpConnected: false,
+      connecting: true
+    });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(connect).resolves.toBe(false);
+  });
+
+  it('resets the native-host port without removing nativeMessaging permission', async () => {
+    const firstPort = createNativePort();
+    const secondPort = createNativePort();
+    vi.mocked(chrome.runtime.connectNative)
+      .mockReset()
+      .mockReturnValueOnce(firstPort as unknown as chrome.runtime.Port)
+      .mockReturnValueOnce(secondPort as unknown as chrome.runtime.Port);
+
+    const manager = createNativeHostManager();
+    await expect(manager.connect()).resolves.toBe(true);
+
+    const reset = manager.reset();
+    await flushMicrotasks();
+
+    await expect(reset).resolves.toEqual({
+      success: true,
+      reconnecting: true,
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false
+      }
+    });
+    expect(chrome.permissions.remove).not.toHaveBeenCalled();
+    expect(firstPort.disconnect).toHaveBeenCalledTimes(1);
+    expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(2);
+    expect(mcpRuntimeMocks.reconnectMcp).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the native host as uninstalled when reset cannot find either host name', async () => {
+    const healthyPort = createNativePort();
+    const missingPrimaryPort = createNativePort({ disconnectOnPing: true });
+    const missingFallbackPort = createNativePort({ disconnectOnPing: true });
+    vi.mocked(chrome.runtime.connectNative)
+      .mockReset()
+      .mockReturnValueOnce(healthyPort as unknown as chrome.runtime.Port)
+      .mockReturnValueOnce(missingPrimaryPort as unknown as chrome.runtime.Port)
+      .mockReturnValueOnce(missingFallbackPort as unknown as chrome.runtime.Port);
+
+    const manager = createNativeHostManager();
+    await expect(manager.connect()).resolves.toBe(true);
+
+    const reset = manager.reset();
+    await flushMicrotasks();
+
+    await expect(reset).resolves.toEqual({
+      success: false,
+      status: {
+        nativeHostInstalled: false,
+        mcpConnected: false
+      }
+    });
+  });
+
+  it('ignores old port disconnect events after reset installs a new port', async () => {
+    const firstPort = createNativePort();
+    const secondPort = createNativePort();
+    vi.mocked(chrome.runtime.connectNative)
+      .mockReset()
+      .mockReturnValueOnce(firstPort as unknown as chrome.runtime.Port)
+      .mockReturnValueOnce(secondPort as unknown as chrome.runtime.Port);
+
+    const manager = createNativeHostManager();
+    await expect(manager.connect()).resolves.toBe(true);
+
+    const reset = manager.reset();
+    await flushMicrotasks();
+    await expect(reset).resolves.toEqual({
+      success: true,
+      reconnecting: true,
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false
+      }
+    });
+
+    mcpRuntimeMocks.reconnectMcp.mockClear();
+    firstPort.onDisconnect.emit();
+
+    expect(mcpRuntimeMocks.reconnectMcp).not.toHaveBeenCalled();
+    expect(manager.sendMcpNotification('notifications/test')).toBe(true);
+    expect(secondPort.postMessage).toHaveBeenLastCalledWith({
+      type: 'notification',
+      jsonrpc: '2.0',
+      method: 'notifications/test',
+      params: {}
+    });
   });
 });

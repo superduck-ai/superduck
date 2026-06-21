@@ -37,7 +37,7 @@ func TestAuthenticateUDSClient_InvalidToken(t *testing.T) {
 	respCh := make(chan map[string]string, 1)
 	go clientAuthWithResponse(clientConn, map[string]string{"type": "auth", "token": "wrong-token"}, respCh)
 
-	err := server.authenticateUDSClient(serverConn)
+	_, err := server.authenticateUDSClient(serverConn)
 	if err == nil {
 		t.Fatal("expected authentication to fail with invalid token")
 	}
@@ -69,7 +69,7 @@ func TestAuthenticateUDSClient_MalformedJSON(t *testing.T) {
 		_ = protocol.SendMessage(clientConn, "this is not a json object")
 	}()
 
-	err := server.authenticateUDSClient(serverConn)
+	_, err := server.authenticateUDSClient(serverConn)
 	if err == nil {
 		t.Fatal("expected authentication to fail with malformed JSON")
 	}
@@ -86,7 +86,7 @@ func TestAuthenticateUDSClient_MissingType(t *testing.T) {
 	respCh := make(chan map[string]string, 1)
 	go clientAuthWithResponse(clientConn, map[string]string{"token": "valid-token"}, respCh)
 
-	err := server.authenticateUDSClient(serverConn)
+	_, err := server.authenticateUDSClient(serverConn)
 	if err == nil {
 		t.Fatal("expected authentication to fail without type field")
 	}
@@ -103,7 +103,7 @@ func TestAuthenticateUDSClient_WrongType(t *testing.T) {
 	respCh := make(chan map[string]string, 1)
 	go clientAuthWithResponse(clientConn, map[string]string{"type": "tool_request", "token": "valid-token"}, respCh)
 
-	err := server.authenticateUDSClient(serverConn)
+	_, err := server.authenticateUDSClient(serverConn)
 	if err == nil {
 		t.Fatal("expected authentication to fail with wrong type")
 	}
@@ -120,12 +120,48 @@ func TestAuthenticateUDSClient_ValidToken(t *testing.T) {
 	respCh := make(chan map[string]string, 1)
 	go clientAuthWithResponse(clientConn, map[string]string{"type": "auth", "token": validToken}, respCh)
 
-	err := server.authenticateUDSClient(serverConn)
+	purpose, err := server.authenticateUDSClient(serverConn)
 	if err != nil {
 		t.Fatalf("expected authentication to succeed, got: %v", err)
 	}
+	if purpose != "" {
+		t.Fatalf("purpose = %q, want empty default", purpose)
+	}
 
 	// Verify client received ok response
+	select {
+	case resp := <-respCh:
+		if resp["ok"] != "true" {
+			t.Errorf("expected ok=true, got: %v", resp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for client response")
+	}
+}
+
+func TestAuthenticateUDSClient_ControlPurpose(t *testing.T) {
+	validToken := "valid-token-control"
+	server := &Server{udsAuth: validToken}
+
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	respCh := make(chan map[string]string, 1)
+	go clientAuthWithResponse(clientConn, map[string]string{
+		"type":    "auth",
+		"token":   validToken,
+		"purpose": "control",
+	}, respCh)
+
+	purpose, err := server.authenticateUDSClient(serverConn)
+	if err != nil {
+		t.Fatalf("expected authentication to succeed, got: %v", err)
+	}
+	if purpose != "control" {
+		t.Fatalf("purpose = %q, want control", purpose)
+	}
+
 	select {
 	case resp := <-respCh:
 		if resp["ok"] != "true" {
@@ -145,7 +181,7 @@ func TestAuthenticateUDSClient_ClientDisconnects(t *testing.T) {
 	// Client disconnects immediately without sending anything
 	clientConn.Close()
 
-	err := server.authenticateUDSClient(serverConn)
+	_, err := server.authenticateUDSClient(serverConn)
 	if err == nil {
 		t.Fatal("expected authentication to fail when client disconnects")
 	}
@@ -162,7 +198,7 @@ func TestAuthenticateUDSClient_EmptyMessage(t *testing.T) {
 	respCh := make(chan map[string]string, 1)
 	go clientAuthWithResponse(clientConn, map[string]string{}, respCh)
 
-	err := server.authenticateUDSClient(serverConn)
+	_, err := server.authenticateUDSClient(serverConn)
 	if err == nil {
 		t.Fatal("expected authentication to fail with empty message")
 	}
@@ -196,7 +232,8 @@ func TestServerAuthFlow_Integration(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		serverDone <- server.authenticateUDSClient(conn)
+		_, authErr := server.authenticateUDSClient(conn)
+		serverDone <- authErr
 	}()
 
 	// Client connects and authenticates

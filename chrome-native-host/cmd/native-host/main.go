@@ -42,6 +42,11 @@ type Server struct {
 	connMu         sync.Mutex
 	closed         chan struct{}
 	closeOnce      sync.Once
+	startedAt      time.Time
+	stateMu        sync.Mutex
+	chromeReady    bool
+	lastChromeAt   time.Time
+	lastChromeErr  string
 
 	// Chrome stdio is single-threaded: one goroutine reads stdin,
 	// responses are routed back via chromeCh.
@@ -109,6 +114,8 @@ func NewServer() (*Server, error) {
 		chromeWriter:   os.Stdout,
 		chromeTimeout:  defaultChromeResponseTimeout,
 		closed:         make(chan struct{}),
+		startedAt:      time.Now(),
+		chromeReady:    true,
 	}, nil
 }
 
@@ -249,36 +256,37 @@ func (s *Server) Run() error {
 			_ = conn.Close()
 			continue
 		}
-		s.udsConnections[conn] = true
+		s.udsConnections[conn] = false
 		s.connMu.Unlock()
 
 		go s.handleUDSConnection(conn)
 	}
 }
 
-func (s *Server) authenticateUDSClient(conn net.Conn) error {
+func (s *Server) authenticateUDSClient(conn net.Conn) (string, error) {
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	raw, err := protocol.ReadMessage(conn)
 	if err != nil {
-		return fmt.Errorf("auth read: %w", err)
+		return "", fmt.Errorf("auth read: %w", err)
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	var auth struct {
-		Type  string `json:"type"`
-		Token string `json:"token"`
+		Type    string `json:"type"`
+		Token   string `json:"token"`
+		Purpose string `json:"purpose"`
 	}
 	if err := json.Unmarshal(raw, &auth); err != nil {
-		return fmt.Errorf("auth parse: %w", err)
+		return "", fmt.Errorf("auth parse: %w", err)
 	}
 	if auth.Type != "auth" || auth.Token != s.udsAuth {
 		_ = protocol.SendMessage(conn, map[string]string{
 			"type":  "auth_response",
 			"error": "authentication failed",
 		})
-		return errors.New("invalid auth token")
+		return "", errors.New("invalid auth token")
 	}
 	_ = protocol.SendMessage(conn, map[string]string{"type": "auth_response", "ok": "true"})
-	return nil
+	return auth.Purpose, nil
 }
 
 // readChromeStdio is the ONLY goroutine that reads os.Stdin.
@@ -294,10 +302,12 @@ func (s *Server) readChromeStdio() {
 			} else {
 				slog.Error("Chrome read error", "error", err)
 			}
+			s.markChromeDisconnected(err)
 			close(s.chromeCh)
 			s.Close()
 			return
 		}
+		s.markChromeMessage()
 
 		var msg protocol.Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
@@ -316,19 +326,22 @@ func (s *Server) readChromeStdio() {
 
 func (s *Server) handleUDSConnection(conn net.Conn) {
 	defer func() {
-		s.connMu.Lock()
-		delete(s.udsConnections, conn)
-		s.connMu.Unlock()
+		s.removeUDSConnection(conn)
 		conn.Close()
 	}()
 
 	slog.Debug("new UDS connection from MCP server")
 
-	if err := s.authenticateUDSClient(conn); err != nil {
+	purpose, err := s.authenticateUDSClient(conn)
+	if err != nil {
 		slog.Warn("UDS authentication failed", "error", err)
 		return
 	}
 	slog.Debug("UDS client authenticated")
+	isControlConnection := purpose == "control"
+	if !isControlConnection {
+		s.setUDSAuthenticated(conn)
+	}
 
 	// Set idle timeout: if no message received within 5 minutes, close connection
 	// This prevents resource leaks from abandoned connections
@@ -353,8 +366,147 @@ func (s *Server) handleUDSConnection(conn net.Conn) {
 		// Clear read deadline for processing
 		_ = conn.SetReadDeadline(time.Time{})
 
-		// Forward to Chrome and send response back
+		if s.handleUDSControlMessage(raw, conn) {
+			continue
+		}
+
 		s.forwardToChrome(raw, conn)
+	}
+}
+
+func (s *Server) markChromeMessage() {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.chromeReady = true
+	s.lastChromeAt = time.Now()
+	s.lastChromeErr = ""
+}
+
+func (s *Server) markChromeDisconnected(err error) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.chromeReady = false
+	if err != nil {
+		s.lastChromeErr = err.Error()
+	}
+}
+
+func (s *Server) authenticatedUDSConnectionCountLocked() int {
+	count := 0
+	for _, authenticated := range s.udsConnections {
+		if authenticated {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *Server) authenticatedUDSConnectionCount() int {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	return s.authenticatedUDSConnectionCountLocked()
+}
+
+func (s *Server) setUDSAuthenticated(conn net.Conn) {
+	s.connMu.Lock()
+	previousCount := s.authenticatedUDSConnectionCountLocked()
+	s.udsConnections[conn] = true
+	nextCount := s.authenticatedUDSConnectionCountLocked()
+	s.connMu.Unlock()
+
+	if previousCount == 0 && nextCount > 0 {
+		s.sendMCPStateToChrome(true)
+	}
+}
+
+func (s *Server) removeUDSConnection(conn net.Conn) {
+	s.connMu.Lock()
+	wasAuthenticated := s.udsConnections[conn]
+	delete(s.udsConnections, conn)
+	nextCount := s.authenticatedUDSConnectionCountLocked()
+	s.connMu.Unlock()
+
+	if wasAuthenticated && nextCount == 0 {
+		s.sendMCPStateToChrome(false)
+	}
+}
+
+func (s *Server) chromeOutput() io.Writer {
+	if s.chromeWriter != nil {
+		return s.chromeWriter
+	}
+	return os.Stdout
+}
+
+func (s *Server) sendToChrome(msg interface{}) {
+	if err := protocol.SendMessage(s.chromeOutput(), msg); err != nil {
+		slog.Error("failed to send message to Chrome", "error", err)
+	}
+}
+
+func (s *Server) sendMCPStateToChrome(connected bool) {
+	messageType := "mcp_disconnected"
+	if connected {
+		messageType = "mcp_connected"
+	}
+	s.sendToChrome(map[string]string{"type": messageType})
+}
+
+func (s *Server) healthSnapshot() map[string]interface{} {
+	s.connMu.Lock()
+	udsConnectionCount := len(s.udsConnections)
+	authenticatedUDSConnectionCount := s.authenticatedUDSConnectionCountLocked()
+	s.connMu.Unlock()
+
+	s.stateMu.Lock()
+	chromeReady := s.chromeReady
+	lastChromeAt := s.lastChromeAt
+	lastChromeErr := s.lastChromeErr
+	startedAt := s.startedAt
+	s.stateMu.Unlock()
+
+	closed := false
+	select {
+	case <-s.closed:
+		closed = true
+	default:
+	}
+
+	response := map[string]interface{}{
+		"type":                        "health_response",
+		"ok":                          !closed,
+		"pid":                         os.Getpid(),
+		"socketPath":                  socketPath,
+		"chromeReady":                 chromeReady && !closed,
+		"udsConnections":              udsConnectionCount,
+		"authenticatedUdsConnections": authenticatedUDSConnectionCount,
+		"mcpConnected":                authenticatedUDSConnectionCount > 0,
+		"startedAt":                   startedAt.UTC().Format(time.RFC3339Nano),
+		"uptimeMs":                    time.Since(startedAt).Milliseconds(),
+	}
+	if !lastChromeAt.IsZero() {
+		response["lastChromeMessageAt"] = lastChromeAt.UTC().Format(time.RFC3339Nano)
+	}
+	if lastChromeErr != "" {
+		response["lastChromeError"] = lastChromeErr
+	}
+	return response
+}
+
+func (s *Server) handleUDSControlMessage(raw []byte, writer io.Writer) bool {
+	var msg protocol.Message
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return false
+	}
+
+	switch msg.Type {
+	case "health_check", "native_health":
+		if err := protocol.SendMessage(writer, s.healthSnapshot()); err != nil {
+			slog.Error("failed to send health response", "error", err)
+		}
+		return true
+	default:
+		return false
 	}
 }
 
@@ -440,13 +592,17 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 
 	switch msg.Type {
 	case "ping":
-		protocol.SendMessage(os.Stdout, map[string]string{"type": "pong"})
+		s.sendToChrome(map[string]string{"type": "pong"})
 	case "get_status":
-		protocol.SendMessage(os.Stdout, map[string]string{"type": "mcp_connected"})
-		protocol.SendMessage(os.Stdout, map[string]string{"type": "status_response"})
+		authenticatedUDSConnectionCount := s.authenticatedUDSConnectionCount()
+		s.sendToChrome(map[string]interface{}{
+			"type":                        "status_response",
+			"mcpConnected":                authenticatedUDSConnectionCount > 0,
+			"authenticatedUdsConnections": authenticatedUDSConnectionCount,
+		})
 	case "get_analytics_id":
 		analytics.ConfirmInstallID()
-		protocol.SendMessage(os.Stdout, map[string]string{
+		s.sendToChrome(map[string]string{
 			"type":        "analytics_id_response",
 			"distinct_id": analytics.GetOrCreateDistinctID(),
 		})
@@ -456,7 +612,7 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 		}
 		_ = json.Unmarshal(raw, &syncMsg)
 		analytics.ConfirmInstallID()
-		protocol.SendMessage(os.Stdout, map[string]string{
+		s.sendToChrome(map[string]string{
 			"type":        "analytics_id_response",
 			"distinct_id": analytics.AdoptInstallID(syncMsg.DistinctID),
 		})

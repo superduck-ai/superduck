@@ -74,11 +74,20 @@ function withToolRequestTimeout<T>(
 export interface NativeHostStatus {
   nativeHostInstalled: boolean;
   mcpConnected: boolean;
+  connecting?: boolean;
+  reconnecting?: boolean;
+}
+
+export interface NativeHostResetResult {
+  success: boolean;
+  status: NativeHostStatus;
+  reconnecting?: boolean;
 }
 
 export interface NativeHostManager {
   connect: () => Promise<boolean>;
   disconnect: () => Promise<boolean>;
+  reset: () => Promise<NativeHostResetResult>;
   getStatus: () => Promise<NativeHostStatus>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   handleHeartbeatAlarm: () => Promise<void>;
@@ -91,9 +100,13 @@ export function createNativeHostManager(): NativeHostManager {
   let mcpConnected = false;
   let statusResolve: ((value: NativeHostStatus) => void) | null = null;
   let statusTimeout: ReturnType<typeof setTimeout> | null = null;
+  let statusPromise: Promise<NativeHostStatus> | null = null;
   let heartbeatResolve: ((alive: boolean) => void) | null = null;
+  let heartbeatInFlight = false;
   let explicitDisconnect = false;
   let disconnectHandler: (() => void) | null = null;
+  let connectionGeneration = 0;
+  let connectAttemptId = 0;
 
   const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
     // Don't gate on nativeHostInstalled — after a service worker restart
@@ -117,6 +130,24 @@ export function createNativeHostManager(): NativeHostManager {
       return Number.isNaN(parsed) ? undefined : parsed;
     }
     return undefined;
+  }
+
+  function currentStatus(): NativeHostStatus {
+    const status: NativeHostStatus = { nativeHostInstalled, mcpConnected };
+    if (isConnecting && !nativePort) status.connecting = true;
+    if (reconnectScheduler.isPending && nativeHostInstalled) status.reconnecting = true;
+    return status;
+  }
+
+  function resolveStatus(value: NativeHostStatus = currentStatus()) {
+    if (statusTimeout) {
+      clearTimeout(statusTimeout);
+      statusTimeout = null;
+    }
+    const resolve = statusResolve;
+    statusResolve = null;
+    statusPromise = null;
+    resolve?.(value);
   }
 
   function buildErrorToolResponse(content: string | unknown[]) {
@@ -161,7 +192,22 @@ export function createNativeHostManager(): NativeHostManager {
         ? buildErrorToolResponse(content)
         : { type: 'tool_response', result: { content } };
 
-    nativePort.postMessage(response);
+    try {
+      nativePort.postMessage(response);
+    } catch {
+      /* disconnected while responding */
+    }
+  }
+
+  async function setMcpConnectionState(connected: boolean) {
+    mcpConnected = connected;
+    void setStorageValue(StorageKeys.MCP_CONNECTED, connected);
+    if (connected) {
+      await tabGroupManager.initialize();
+      tabGroupManager.startTabGroupChangeListener();
+    } else {
+      tabGroupManager.stopTabGroupChangeListener();
+    }
   }
 
   async function handleToolRequest(message: ToolRequestMessage) {
@@ -230,14 +276,12 @@ export function createNativeHostManager(): NativeHostManager {
         break;
 
       case 'status_response':
-        if (statusResolve) {
-          if (statusTimeout) {
-            clearTimeout(statusTimeout);
-            statusTimeout = null;
-          }
-          statusResolve({ nativeHostInstalled, mcpConnected });
-          statusResolve = null;
+        if (typeof message.mcpConnected === 'boolean') {
+          await setMcpConnectionState(message.mcpConnected);
+        } else if (typeof message.mcp_connected === 'boolean') {
+          await setMcpConnectionState(message.mcp_connected);
         }
+        resolveStatus();
         break;
 
       case 'analytics_id_response':
@@ -247,16 +291,11 @@ export function createNativeHostManager(): NativeHostManager {
         break;
 
       case 'mcp_connected':
-        mcpConnected = true;
-        void setStorageValue(StorageKeys.MCP_CONNECTED, true);
-        await tabGroupManager.initialize();
-        tabGroupManager.startTabGroupChangeListener();
+        await setMcpConnectionState(true);
         break;
 
       case 'mcp_disconnected':
-        mcpConnected = false;
-        void setStorageValue(StorageKeys.MCP_CONNECTED, false);
-        tabGroupManager.stopTabGroupChangeListener();
+        await setMcpConnectionState(false);
         break;
     }
   }
@@ -269,38 +308,38 @@ export function createNativeHostManager(): NativeHostManager {
     chrome.alarms.clear(HEARTBEAT_ALARM);
   }
 
-  async function handleHeartbeatAlarm(): Promise<void> {
-    if (!nativePort) return;
+  async function detachDebuggerTargets() {
+    try {
+      const targets = await chrome.debugger.getTargets();
+      await Promise.allSettled(
+        targets
+          .filter((t) => t.attached && typeof t.tabId === 'number')
+          .map((t) => chrome.debugger.detach({ tabId: t.tabId! }).catch(() => {}))
+      );
+    } catch (err) {
+      console.warn('[nativeHost] cleanup: debugger detach failed', err);
+    }
+  }
 
-    const portAtStart = nativePort;
-
-    const timeout = new Promise<boolean>((resolve) =>
-      setTimeout(() => resolve(false), HEARTBEAT_TIMEOUT_MS)
-    );
-    const ping = new Promise<boolean>((resolve) => {
-      heartbeatResolve = resolve;
-      try {
-        nativePort!.postMessage({ type: 'ping' });
-      } catch {
-        resolve(false);
-      }
-    });
-
-    const alive = await Promise.race([timeout, ping]);
-    if (alive) return;
-
-    // If the port was replaced by auto-reconnect while we were awaiting,
-    // bail out — the new port is healthy and must not be killed.
-    if (nativePort !== portAtStart) return;
-
-    heartbeatResolve = null;
+  async function recycleNativePort({
+    detachDebugger = false,
+    reconnectBridge = true,
+    scheduleReconnect = true
+  }: {
+    detachDebugger?: boolean;
+    reconnectBridge?: boolean;
+    scheduleReconnect?: boolean;
+  } = {}) {
     stopHeartbeat();
+    heartbeatResolve?.(false);
+    heartbeatResolve = null;
+
     const deadPort = nativePort;
     nativePort = null;
     mcpConnected = false;
+    resolveStatus();
+    void setStorageValue(StorageKeys.MCP_CONNECTED, false);
 
-    // Remove the disconnect handler before calling disconnect() to prevent
-    // it from firing and duplicating cleanup (reconnectMcp + schedule).
     if (deadPort && disconnectHandler) {
       try {
         deadPort.onDisconnect.removeListener(disconnectHandler);
@@ -308,23 +347,56 @@ export function createNativeHostManager(): NativeHostManager {
         /* port already disconnected */
       }
     }
+    disconnectHandler = null;
+
     try {
       deadPort?.disconnect();
     } catch {
-      /* already disconnected */
+      /* port already disconnected */
     }
-    void setStorageValue(StorageKeys.MCP_CONNECTED, false);
 
-    const targets = await chrome.debugger.getTargets();
-    await Promise.allSettled(
-      targets
-        .filter((t) => t.attached && typeof t.tabId === 'number')
-        .map((t) => chrome.debugger.detach({ tabId: t.tabId! }).catch(() => {}))
-    );
+    if (detachDebugger) {
+      await detachDebuggerTargets();
+    }
 
     tabGroupManager.stopTabGroupChangeListener();
-    reconnectMcp();
-    reconnectScheduler.schedule();
+    if (reconnectBridge) reconnectMcp();
+    if (scheduleReconnect && !explicitDisconnect) reconnectScheduler.schedule();
+  }
+
+  async function handleHeartbeatAlarm(): Promise<void> {
+    if (!nativePort) return;
+    if (heartbeatInFlight) return;
+    heartbeatInFlight = true;
+
+    try {
+      const portAtStart = nativePort;
+
+      const timeout = new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), HEARTBEAT_TIMEOUT_MS)
+      );
+      const ping = new Promise<boolean>((resolve) => {
+        heartbeatResolve = resolve;
+        try {
+          nativePort!.postMessage({ type: 'ping' });
+        } catch {
+          resolve(false);
+        }
+      });
+
+      const alive = await Promise.race([timeout, ping]);
+      if (alive) return;
+
+      // If the port was replaced by auto-reconnect while we were awaiting,
+      // bail out — the new port is healthy and must not be killed.
+      if (nativePort !== portAtStart) return;
+
+      console.warn('[nativeHost] heartbeat timed out; recycling native port');
+      await recycleNativePort({ detachDebugger: true });
+    } finally {
+      heartbeatResolve = null;
+      heartbeatInFlight = false;
+    }
   }
 
   async function connect(isScheduled: boolean = false): Promise<boolean> {
@@ -332,6 +404,8 @@ export function createNativeHostManager(): NativeHostManager {
       if (nativePort) return true;
       if (isConnecting) return false;
       isConnecting = true;
+      const attemptId = ++connectAttemptId;
+      const generationAtStart = connectionGeneration;
       explicitDisconnect = false;
       reconnectScheduler.enable();
       reconnectScheduler.cancel();
@@ -354,7 +428,7 @@ export function createNativeHostManager(): NativeHostManager {
               const onDisconnect = () => {
                 if (settled) return;
                 settled = true;
-                chrome.runtime.lastError;
+                handleDisconnectError(chrome.runtime.lastError?.message);
                 resolve(false);
               };
 
@@ -396,7 +470,12 @@ export function createNativeHostManager(): NativeHostManager {
             // Guard: if disconnect() was called while we were awaiting the
             // handshake, abort this connection — the user explicitly wanted
             // to disconnect and we must not silently reconnect behind them.
-            if (explicitDisconnect) {
+            if (
+              explicitDisconnect ||
+              generationAtStart !== connectionGeneration ||
+              attemptId !== connectAttemptId ||
+              nativePort
+            ) {
               port.disconnect();
               continue;
             }
@@ -412,11 +491,20 @@ export function createNativeHostManager(): NativeHostManager {
             // fresh bridge connection attempt regardless of prior state.
             void connectBridge(true);
 
-            nativePort.onMessage.addListener((message) => {
+            const connectedPort = port;
+            const connectedGeneration = generationAtStart;
+
+            connectedPort.onMessage.addListener((message) => {
+              if (nativePort !== connectedPort || connectedGeneration !== connectionGeneration) {
+                return;
+              }
               void handleNativeMessage(message);
             });
 
             disconnectHandler = () => {
+              if (nativePort !== connectedPort || connectedGeneration !== connectionGeneration) {
+                return;
+              }
               const errorMessage = chrome.runtime.lastError?.message;
               console.warn('[nativeHost] disconnected', {
                 error: errorMessage || 'unknown',
@@ -424,6 +512,7 @@ export function createNativeHostManager(): NativeHostManager {
               });
               nativePort = null;
               mcpConnected = false;
+              resolveStatus();
               void setStorageValue(StorageKeys.MCP_CONNECTED, false);
               stopHeartbeat();
               handleDisconnectError(errorMessage);
@@ -431,18 +520,19 @@ export function createNativeHostManager(): NativeHostManager {
               reconnectMcp();
               reconnectScheduler.schedule();
             };
-            nativePort.onDisconnect.addListener(disconnectHandler);
+            connectedPort.onDisconnect.addListener(disconnectHandler);
 
-            nativePort.postMessage({ type: 'get_status' });
+            connectedPort.postMessage({ type: 'get_status' });
             const storedAnalyticsId = await getStoredSharedAnalyticsId();
-            nativePort.postMessage(
+            connectedPort.postMessage(
               storedAnalyticsId
                 ? { type: 'sync_analytics_id', distinct_id: storedAnalyticsId }
                 : { type: 'get_analytics_id' }
             );
             startHeartbeat();
             return true;
-          } catch {
+          } catch (err) {
+            if (err instanceof Error) handleDisconnectError(err.message);
             // Try next host.
           }
         }
@@ -452,12 +542,14 @@ export function createNativeHostManager(): NativeHostManager {
         if (err instanceof Error) handleDisconnectError(err.message);
         return false;
       } finally {
-        isConnecting = false;
+        if (attemptId === connectAttemptId) {
+          isConnecting = false;
+        }
         // If connect failed, schedule a retry. Use nativePort (not
         // nativeHostInstalled) as the success indicator — the probe loop
         // may have cleared nativeHostInstalled when the first host name
         // returned "not found" before trying the fallback host.
-        if (!nativePort && !explicitDisconnect) {
+        if (!nativePort && !explicitDisconnect && generationAtStart === connectionGeneration) {
           reconnectScheduler.schedule();
         }
       }
@@ -466,8 +558,36 @@ export function createNativeHostManager(): NativeHostManager {
     }
   }
 
+  async function reset(): Promise<NativeHostResetResult> {
+    connectionGeneration++;
+    connectAttemptId++;
+    explicitDisconnect = false;
+    reconnectScheduler.enable();
+    reconnectScheduler.reset();
+    isConnecting = false;
+    await recycleNativePort({
+      detachDebugger: true,
+      reconnectBridge: true,
+      scheduleReconnect: false
+    });
+
+    const connected = await connect(false);
+    if (!connected) return { success: false, status: currentStatus() };
+
+    return {
+      success: true,
+      reconnecting: true,
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false
+      }
+    };
+  }
+
   async function disconnect(): Promise<boolean> {
     try {
+      connectionGeneration++;
+      connectAttemptId++;
       explicitDisconnect = true;
       reconnectScheduler.disable();
       stopHeartbeat();
@@ -477,6 +597,7 @@ export function createNativeHostManager(): NativeHostManager {
       isConnecting = false;
       nativeHostInstalled = false;
       mcpConnected = false;
+      resolveStatus();
       return true;
     } catch {
       return false;
@@ -486,35 +607,49 @@ export function createNativeHostManager(): NativeHostManager {
   async function getStatus(): Promise<NativeHostStatus> {
     const port = nativePort;
     if (port && nativeHostInstalled) {
-      if (statusTimeout) clearTimeout(statusTimeout);
-
-      return new Promise((resolve) => {
+      if (statusPromise) return statusPromise;
+      const basePromise = new Promise<NativeHostStatus>((resolve) => {
         statusResolve = resolve;
-        port.postMessage({ type: 'get_status' });
-        statusTimeout = setTimeout(() => {
+        try {
+          port.postMessage({ type: 'get_status' });
+        } catch {
           statusResolve = null;
-          resolve({ nativeHostInstalled, mcpConnected });
+          resolve(currentStatus());
+          return;
+        }
+        statusTimeout = setTimeout(() => {
+          resolveStatus();
         }, 10_000);
       });
+      const trackedPromise = basePromise.finally(() => {
+        if (statusPromise === trackedPromise) statusPromise = null;
+      });
+      statusPromise = trackedPromise;
+      return statusPromise;
     }
 
-    return { nativeHostInstalled, mcpConnected };
+    return currentStatus();
   }
 
   function sendMcpNotification(method: string, params?: Record<string, unknown>): boolean {
     if (!nativePort) return false;
-    nativePort.postMessage({
-      type: 'notification',
-      jsonrpc: '2.0',
-      method,
-      params: params || {}
-    });
-    return true;
+    try {
+      nativePort.postMessage({
+        type: 'notification',
+        jsonrpc: '2.0',
+        method,
+        params: params || {}
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return {
     connect,
     disconnect,
+    reset,
     getStatus,
     sendMcpNotification,
     handleHeartbeatAlarm
