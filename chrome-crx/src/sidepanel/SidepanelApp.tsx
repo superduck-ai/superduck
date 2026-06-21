@@ -164,6 +164,10 @@ import type {
 // infinite render loop (SidepanelApp rendered 100/200 times in dev).
 const TAB_GROUP_EVENT_PROPERTIES: string[] = ['groupId', 'url', 'status'];
 
+function parseNotificationPreference(value: unknown): NotificationPreference {
+  return value === 'enabled' || value === 'disabled' ? value : undefined;
+}
+
 // ─── Plan Mode types and utilities ───
 
 export function SidepanelApp() {
@@ -582,12 +586,32 @@ export function SidepanelApp() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const value = await getStorageValue(StorageKeys.NOTIFICATIONS_ENABLED);
-      if (value === 'enabled' || value === 'disabled') {
-        setNotificationsEnabled(value);
-      }
-    })();
+    let cancelled = false;
+
+    const applyNotificationPreference = (value: unknown) => {
+      if (cancelled) return;
+      const preference = parseNotificationPreference(value);
+      notificationsEnabledRef.current = preference;
+      setNotificationsEnabled(preference);
+    };
+
+    void getStorageValue(StorageKeys.NOTIFICATIONS_ENABLED)
+      .then(applyNotificationPreference)
+      .catch(() => applyNotificationPreference(undefined));
+
+    const listener = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string
+    ) => {
+      if (areaName !== 'local' || !(StorageKeys.NOTIFICATIONS_ENABLED in changes)) return;
+      applyNotificationPreference(changes[StorageKeys.NOTIFICATIONS_ENABLED].newValue);
+    };
+
+    chrome.storage.onChanged.addListener(listener);
+    return () => {
+      cancelled = true;
+      chrome.storage.onChanged.removeListener(listener);
+    };
   }, []);
 
   // Initialize page info for workflow modal

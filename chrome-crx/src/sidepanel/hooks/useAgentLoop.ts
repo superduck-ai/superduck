@@ -49,6 +49,7 @@ import { isToolUseContentBlock } from '../../messageTypes';
 import { checkToolAllowed, getPageType } from '../planMode';
 import { manageScreenshotHistory } from '../lightningCommands';
 import { getStatusSummaryLanguageInstruction } from '../StatusDisplay';
+import { getStorageValue, StorageKeys } from '../../extensionServices';
 import type { PermissionManager } from '../../PermissionManager';
 import type { ToolProviderSchema } from '../../mcpRuntime/pageToolsSupport/types';
 import type {
@@ -138,7 +139,7 @@ export interface UseAgentLoopReturn {
     manual?: boolean,
     options?: { visibleCommandText?: string }
   ) => Promise<ApiConversationMessage[]>;
-  sendCompletionNotification: () => Promise<void>;
+  sendCompletionNotification: (tabId?: number, answerText?: string) => Promise<void>;
   generateStatusSummary: (text: string) => Promise<void>;
   generateConversationTitle: (
     userMessage: Pick<ApiConversationMessage, 'content'>
@@ -171,8 +172,16 @@ const NAVIGATION_OBSERVE_SYSTEM_REMINDER =
 const BROWSER_BATCH_FAILURE_SYSTEM_REMINDER =
   '<system-reminder>The previous browser_batch failed. Do not retry it unchanged; completed actions may already have run. Recover by observing the current page with read_page/find or by running only the failed action separately. Once refs/state are fresh again, prefer browser_batch for the next deterministic 2-5 action prefix.</system-reminder>';
 
+const MAX_NOTIFICATION_ANSWER_LENGTH = 240;
+
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function formatNotificationAnswer(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= MAX_NOTIFICATION_ANSWER_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_NOTIFICATION_ANSWER_LENGTH - 3).trimEnd()}...`;
 }
 
 function isBrowserBatchReminderEligible(toolUse: ToolUseBlock): boolean {
@@ -374,23 +383,43 @@ export function useAgentLoop({
 
   // ─── Send completion notification ─────────────────────────────────────────
 
-  const sendCompletionNotification = useCallback(async () => {
-    if (notificationsEnabled !== 'enabled') return;
-    const startedAt = generationStartedAtRef.current;
-    if (!startedAt || Date.now() - startedAt <= 60000 || completionNotificationSentRef.current)
-      return;
-    completionNotificationSentRef.current = true;
-    try {
-      await chrome.notifications.create(`notification_${Date.now()}`, {
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('icon-128.png'),
-        title: 'Task Completed',
-        message: 'Your Claude task has finished running.'
-      });
-    } catch (error) {
-      console.warn('Failed to show notification:', error);
-    }
-  }, [notificationsEnabled]);
+  const sendCompletionNotification = useCallback(
+    async (tabId?: number, answerText = '') => {
+      let notificationPreference = notificationsEnabledRef.current;
+      if (notificationPreference === undefined) {
+        const storedValue = await getStorageValue(StorageKeys.NOTIFICATIONS_ENABLED);
+        notificationPreference =
+          storedValue === 'enabled' || storedValue === 'disabled' ? storedValue : undefined;
+        notificationsEnabledRef.current = notificationPreference;
+      }
+      if (notificationPreference !== 'enabled') return;
+      if (!generationStartedAtRef.current || completionNotificationSentRef.current) return;
+      completionNotificationSentRef.current = true;
+      const notificationTabId =
+        typeof tabId === 'number' && Number.isFinite(tabId) ? String(tabId) : 'unknown';
+      const answerSummary = formatNotificationAnswer(answerText);
+      try {
+        await chrome.notifications.create(`notification_${notificationTabId}_${Date.now()}`, {
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('icon-128.png'),
+          title: intl.formatMessage({
+            id: 'superduck_is_done',
+            defaultMessage: 'SuperDuck is done'
+          }),
+          message:
+            answerSummary ||
+            intl.formatMessage({
+              id: 'superduck_completion_no_answer',
+              defaultMessage: 'SuperDuck finished without a text response.'
+            }),
+          priority: 2
+        });
+      } catch (error) {
+        console.warn('Failed to show notification:', error);
+      }
+    },
+    [intl]
+  );
 
   // ─── Generate status summary ──────────────────────────────────────────────
 
@@ -783,7 +812,7 @@ export function useAgentLoop({
               setMessageLimitDismissed(false);
 
               if (response.stop_reason !== 'tool_use') {
-                await sendCompletionNotification();
+                await sendCompletionNotification(executionTabId, finalText);
                 break;
               }
 

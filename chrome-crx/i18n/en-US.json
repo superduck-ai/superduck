@@ -683,6 +683,7 @@
   "ignore": "Ignore",
   "november": "November",
   "superduck_is_done": "SuperDuck is done",
+  "superduck_completion_no_answer": "SuperDuck finished without a text response.",
   "decline": "Decline",
   "explore_examples": "explore examples",
   "stop": "Stop",
