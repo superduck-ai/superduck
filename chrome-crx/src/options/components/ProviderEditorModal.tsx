@@ -50,6 +50,22 @@ function parseContextLengthInput(value: string): number | undefined {
   return Math.floor(parsed);
 }
 
+function normalizeProviderScopeBaseURL(kind: ProviderKind, baseURL: string): string {
+  return normalizeProviderBaseURL(kind, baseURL || DEFAULT_BASE_URL[kind]);
+}
+
+function isSameProviderScope(
+  provider: AiProvider | null | undefined,
+  kind: ProviderKind,
+  baseURL: string
+): boolean {
+  if (!provider || provider.kind !== kind) return false;
+  return (
+    normalizeProviderScopeBaseURL(provider.kind, provider.baseURL) ===
+    normalizeProviderScopeBaseURL(kind, baseURL)
+  );
+}
+
 export interface ProviderEditorValue {
   id: string;
   kind: ProviderKind;
@@ -200,11 +216,24 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const parsedContextLength = parseContextLengthInput(contextLengthInput);
   const hasInvalidContextLength = Boolean(contextLengthInput.trim()) && !parsedContextLength;
 
+  const resetContextLengthLookup = (nextModelId = modelId) => {
+    setContextLengthInput('');
+    setContextLengthSource('none');
+    setContextLengthTouched(false);
+    setIsResolvingContextLength(Boolean(nextModelId.trim()));
+  };
+
   useEffect(() => {
     if (!isOpen || contextLengthTouched) return;
 
     const trimmedModelId = modelId.trim();
     if (!trimmedModelId) {
+      setContextLengthInput('');
+      setContextLengthSource('none');
+      setIsResolvingContextLength(false);
+      return;
+    }
+    if (!isValidProviderBaseURL(baseURL)) {
       setContextLengthInput('');
       setContextLengthSource('none');
       setIsResolvingContextLength(false);
@@ -219,6 +248,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     };
 
     const existingContextLength =
+      isSameProviderScope(provider, kind, baseURL) &&
       provider?.modelId?.trim() === trimmedModelId &&
       typeof provider?.contextLength === 'number' &&
       provider.contextLength > 0
@@ -253,7 +283,13 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
     const timer = window.setTimeout(() => {
       setIsResolvingContextLength(true);
-      void lookupCachedModelMetadata(trimmedModelId)
+      void lookupCachedModelMetadata(
+        {
+          kind,
+          baseURL: normalizeProviderScopeBaseURL(kind, baseURL)
+        },
+        trimmedModelId
+      )
         .then((cachedMetadata) => {
           if (cancelled) return;
           if (cachedMetadata?.contextLength) {
@@ -285,10 +321,14 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     };
   }, [
     contextLengthTouched,
+    baseURL,
     isOpen,
+    kind,
     modelMetadata,
     modelId,
+    provider?.baseURL,
     provider?.contextLength,
+    provider?.kind,
     provider?.modelId
   ]);
 
@@ -303,7 +343,12 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
   const handleModelIdChange = (nextModelId: string) => {
     setModelId(nextModelId);
-    setContextLengthTouched(false);
+    resetContextLengthLookup(nextModelId);
+  };
+
+  const handleBaseURLChange = (nextBaseURL: string) => {
+    setBaseURL(nextBaseURL);
+    resetContextLengthLookup();
   };
 
   const handleContextLengthChange = (nextContextLength: string) => {
@@ -340,15 +385,23 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
     setIsResolvingContextLength(true);
     try {
-      const cached = await lookupCachedModelMetadata(trimmedModelId);
+      const fetched = await fetchContextLengthForModel(trimmedModelId);
+      if (fetched) return getPreferredConfiguredModelContextLength(trimmedModelId, fetched);
+      const cached = await lookupCachedModelMetadata(
+        {
+          kind,
+          baseURL: normalizeProviderScopeBaseURL(kind, baseURL)
+        },
+        trimmedModelId
+      );
       if (cached?.contextLength) {
         return getPreferredConfiguredModelContextLength(trimmedModelId, cached.contextLength);
       }
       const builtInContextLength = getPreferredConfiguredModelContextLength(trimmedModelId);
       if (builtInContextLength) return builtInContextLength;
-      const fetched = await fetchContextLengthForModel(trimmedModelId);
-      if (fetched) return getPreferredConfiguredModelContextLength(trimmedModelId, fetched);
-      const isSameModelAsExisting = provider?.modelId?.trim() === trimmedModelId;
+      const isSameModelAsExisting =
+        isSameProviderScope(provider, kind, baseURL) &&
+        provider?.modelId?.trim() === trimmedModelId;
       const existingContextLength =
         typeof provider?.contextLength === 'number' && provider.contextLength > 0
           ? provider.contextLength
@@ -387,7 +440,9 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
       baseURL: normalizeProviderBaseURL(kind, baseURL)
     };
     const contextLength =
-      parsedContextLength ?? (await resolveContextLengthForSubmit(trimmedModelId, submitToken));
+      contextLengthTouched && parsedContextLength
+        ? parsedContextLength
+        : await resolveContextLengthForSubmit(trimmedModelId, submitToken);
     if (submitTokenRef.current !== submitToken || !isOpenRef.current) return;
     onSave({
       ...value,
@@ -417,6 +472,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
             onChange={(value) => {
               const next = value as ProviderKind;
               setKind(next);
+              resetContextLengthLookup();
               setBaseURL((current) => {
                 const trimmed = current.trim();
                 if (!trimmed) return '';
@@ -452,7 +508,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
           </label>
           <TextInput
             value={baseURL}
-            onChange={(event) => setBaseURL(event.target.value)}
+            onChange={(event) => handleBaseURLChange(event.target.value)}
             onBlur={handleBaseURLBlur}
             placeholder={intl.formatMessage(
               { id: 'api_url_hint', defaultMessage: 'Leave blank to use the default ({url}).' },

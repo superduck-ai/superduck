@@ -4,11 +4,11 @@ import {
   extractModelMetadata,
   fetchProviderModelCatalog,
   fetchProviderModels,
+  getModelMetadataCacheStorageKey,
   isValidProviderBaseURL,
   loadProviderConfig,
   lookupCachedModelMetadata,
   lookupModelMetadata,
-  MODEL_METADATA_CACHE_STORAGE_KEY,
   normalizeProviderBaseURL,
   OPENAI_RESPONSES_MIN_OUTPUT_TOKENS,
   PROVIDER_CONFIG_VERSION,
@@ -361,8 +361,9 @@ describe('lookupCachedModelMetadata', () => {
   });
 
   it('uses the local metadata cache without fetching remote metadata', async () => {
+    const cacheKey = getModelMetadataCacheStorageKey(baseProvider);
     const get = vi.fn().mockResolvedValue({
-      [MODEL_METADATA_CACHE_STORAGE_KEY]: {
+      [cacheKey]: {
         fetchedAt: Date.now(),
         models: {
           'aion-labs/aion-2.0': {
@@ -380,7 +381,7 @@ describe('lookupCachedModelMetadata', () => {
     vi.stubGlobal('chrome', { storage: { local: { get, set } } });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(lookupCachedModelMetadata('aion-2.0')).resolves.toMatchObject({
+    await expect(lookupCachedModelMetadata(baseProvider, 'aion-2.0')).resolves.toMatchObject({
       id: 'aion-labs/aion-2.0',
       contextLength: 131_072,
       inputModalities: ['text', 'image']
@@ -390,8 +391,9 @@ describe('lookupCachedModelMetadata', () => {
   });
 
   it('matches short ids against provider-prefixed local metadata entries', async () => {
+    const cacheKey = getModelMetadataCacheStorageKey(baseProvider);
     const get = vi.fn().mockResolvedValue({
-      [MODEL_METADATA_CACHE_STORAGE_KEY]: {
+      [cacheKey]: {
         fetchedAt: Date.now(),
         models: {
           'moonshotai/kimi-k2.5': {
@@ -403,10 +405,31 @@ describe('lookupCachedModelMetadata', () => {
     });
     vi.stubGlobal('chrome', { storage: { local: { get } } });
 
-    await expect(lookupCachedModelMetadata('kimi-k2.5')).resolves.toMatchObject({
+    await expect(lookupCachedModelMetadata(baseProvider, 'kimi-k2.5')).resolves.toMatchObject({
       id: 'moonshotai/kimi-k2.5',
       contextLength: 262_144
     });
+  });
+
+  it('does not reuse cached metadata from another provider scope', async () => {
+    const otherProvider = {
+      ...baseProvider,
+      baseURL: 'https://other.example.com/v1'
+    };
+    const get = vi.fn().mockResolvedValue({
+      [getModelMetadataCacheStorageKey(otherProvider)]: {
+        fetchedAt: Date.now(),
+        models: {
+          'gpt-4o': {
+            id: 'gpt-4o',
+            contextLength: 1_000
+          }
+        }
+      }
+    });
+    vi.stubGlobal('chrome', { storage: { local: { get } } });
+
+    await expect(lookupCachedModelMetadata(baseProvider, 'gpt-4o')).resolves.toBeUndefined();
   });
 
   it('returns undefined on cache miss without fetching remote metadata', async () => {
@@ -416,7 +439,9 @@ describe('lookupCachedModelMetadata', () => {
     vi.stubGlobal('chrome', { storage: { local: { get, set } } });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(lookupCachedModelMetadata('anthropic/claude-sonnet-4.5')).resolves.toBeUndefined();
+    await expect(
+      lookupCachedModelMetadata(baseProvider, 'anthropic/claude-sonnet-4.5')
+    ).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(set).not.toHaveBeenCalled();
   });
@@ -518,8 +543,9 @@ describe('fetchProviderModelCatalog', () => {
       contextLength: 128_000
     });
     expect(catalog.metadata['claude-opus-4-6']).toBe(catalog.metadata['claude-opus-4.6']);
+    const cacheKey = getModelMetadataCacheStorageKey(baseProvider);
     expect(set).toHaveBeenCalledWith({
-      [MODEL_METADATA_CACHE_STORAGE_KEY]: expect.objectContaining({
+      [cacheKey]: expect.objectContaining({
         fetchedAt: expect.any(Number),
         models: expect.objectContaining({
           'gpt-4o': expect.objectContaining({

@@ -44,7 +44,7 @@ export const PROVIDER_STORAGE_KEYS = {
 export const PROVIDER_CONFIG_VERSION = 2;
 export const PROVIDER_CONFIG_BROADCAST = 'superduck.providerConfigUpdated';
 export const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
-export const MODEL_METADATA_CACHE_STORAGE_KEY = 'modelMetadata';
+const MODEL_METADATA_CACHE_STORAGE_KEY_PREFIX = 'modelMetadata';
 const LEGACY_SELECTED_MODEL_KEY = 'selectedModel';
 const LEGACY_DEFAULT_MODEL = 'claude-opus-4-6';
 const LEGACY_TIER_ORDER = ['deep', 'smart', 'flash'] as const;
@@ -96,6 +96,18 @@ export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
   gemini: 'Gemini',
   'openai-compatible': 'OpenAI Responses'
 };
+
+export function getModelMetadataCacheStorageKey(
+  provider: Pick<AiProvider, 'kind' | 'baseURL'>
+): string {
+  const baseURL = normalizeProviderBaseURL(
+    provider.kind,
+    provider.baseURL || DEFAULT_BASE_URL[provider.kind]
+  );
+  return `${MODEL_METADATA_CACHE_STORAGE_KEY_PREFIX}:${provider.kind}:${encodeURIComponent(
+    baseURL
+  )}`;
+}
 
 function emptyConfig(): ProviderConfig {
   return {
@@ -705,25 +717,30 @@ export function lookupModelMetadata(
   return undefined;
 }
 
-async function readModelMetadataCache(): Promise<ModelMetadataCache | null> {
+async function readModelMetadataCache(
+  provider: Pick<AiProvider, 'kind' | 'baseURL'>
+): Promise<ModelMetadataCache | null> {
   try {
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return null;
-    const raw = await chrome.storage.local.get(MODEL_METADATA_CACHE_STORAGE_KEY);
-    return parseModelMetadataCache(raw[MODEL_METADATA_CACHE_STORAGE_KEY]);
+    const storageKey = getModelMetadataCacheStorageKey(provider);
+    const raw = await chrome.storage.local.get(storageKey);
+    return parseModelMetadataCache(raw[storageKey]);
   } catch {
     return null;
   }
 }
 
 async function writeModelMetadataCache(
+  provider: Pick<AiProvider, 'kind' | 'baseURL'>,
   models: Record<string, ProviderModelMetadata>
 ): Promise<void> {
   if (Object.keys(models).length === 0) return;
   try {
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
-    const existing = await readModelMetadataCache();
+    const storageKey = getModelMetadataCacheStorageKey(provider);
+    const existing = await readModelMetadataCache(provider);
     await chrome.storage.local.set({
-      [MODEL_METADATA_CACHE_STORAGE_KEY]: {
+      [storageKey]: {
         fetchedAt: Date.now(),
         models: {
           ...(existing?.models ?? {}),
@@ -737,9 +754,10 @@ async function writeModelMetadataCache(
 }
 
 export async function lookupCachedModelMetadata(
+  provider: Pick<AiProvider, 'kind' | 'baseURL'>,
   modelId: string
 ): Promise<ProviderModelMetadata | undefined> {
-  const cache = await readModelMetadataCache();
+  const cache = await readModelMetadataCache(provider);
   return cache ? lookupModelMetadata(cache.models, modelId) : undefined;
 }
 
@@ -822,7 +840,7 @@ export async function fetchProviderModelCatalog(
 ): Promise<ProviderModelCatalog> {
   const payload = await fetchRawModelList(provider, timeoutMs);
   const metadata = extractModelMetadata(payload);
-  await writeModelMetadataCache(metadata);
+  await writeModelMetadataCache(provider, metadata);
   return {
     models: extractModelIds(payload),
     metadata

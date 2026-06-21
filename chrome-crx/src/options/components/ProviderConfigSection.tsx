@@ -16,6 +16,7 @@ import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_KIND_LABEL,
   emptyConfigSnapshot,
+  getModelMetadataCacheStorageKey,
   isProviderComplete,
   loadProviderConfig,
   lookupCachedModelMetadata,
@@ -138,13 +139,12 @@ function getInputModalitiesFromMetadata(metadata: ProviderModelMetadata | undefi
 
 function getModelMetadata(
   modelId: string,
+  cacheKey: string,
   cachedModelMetadata: Record<string, ProviderModelMetadata | null>
 ): ProviderModelMetadata | undefined {
   const trimmedModelId = modelId.trim();
   if (!trimmedModelId) return undefined;
-  return (
-    getConfiguredModelMetadata(trimmedModelId) ?? cachedModelMetadata[trimmedModelId] ?? undefined
-  );
+  return getConfiguredModelMetadata(trimmedModelId) ?? cachedModelMetadata[cacheKey] ?? undefined;
 }
 
 interface ProviderStatusInfo {
@@ -189,15 +189,22 @@ const ProviderConfigSection: React.FC = () => {
     return savedConfig ? isProviderConfigUsable(savedConfig) : false;
   }, [savedSnapshot]);
   const shouldShowSetupGuide = isConfigLoaded && !hasUsableSavedConfig;
-  const providerModelIds = useMemo(
+  const providerMetadataRequests = useMemo(
     () =>
-      Array.from(
-        new Set(
-          config.providers
-            .map((provider) => provider.modelId.trim())
-            .filter((modelId) => modelId.length > 0)
-        )
-      ),
+      config.providers
+        .map((provider) => {
+          const modelId = provider.modelId.trim();
+          if (!modelId) return null;
+          return {
+            cacheKey: `${getModelMetadataCacheStorageKey(provider)}:${modelId}`,
+            modelId,
+            provider
+          };
+        })
+        .filter(
+          (request): request is { cacheKey: string; modelId: string; provider: AiProvider } =>
+            request !== null
+        ),
     [config.providers]
   );
   const inputModalityLabels = useMemo(
@@ -221,17 +228,18 @@ const ProviderConfigSection: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const missingModelIds = providerModelIds.filter(
-      (modelId) => !getConfiguredModelMetadata(modelId) && !(modelId in cachedModelMetadata)
+    const missingRequests = providerMetadataRequests.filter(
+      (request) =>
+        !getConfiguredModelMetadata(request.modelId) && !(request.cacheKey in cachedModelMetadata)
     );
-    if (missingModelIds.length === 0) return;
+    if (missingRequests.length === 0) return;
 
     let cancelled = false;
     void Promise.all(
-      missingModelIds.map(
-        async (modelId): Promise<[string, ProviderModelMetadata | null]> => [
-          modelId,
-          (await lookupCachedModelMetadata(modelId)) ?? null
+      missingRequests.map(
+        async (request): Promise<[string, ProviderModelMetadata | null]> => [
+          request.cacheKey,
+          (await lookupCachedModelMetadata(request.provider, request.modelId)) ?? null
         ]
       )
     ).then((entries) => {
@@ -248,7 +256,7 @@ const ProviderConfigSection: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [cachedModelMetadata, providerModelIds]);
+  }, [cachedModelMetadata, providerMetadataRequests]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -482,8 +490,9 @@ const ProviderConfigSection: React.FC = () => {
     const errorMessage = overlay?.message ?? provider.errorMessage;
     const dirty = dirtyProviderIds.has(provider.id);
     const trimmedModelId = provider.modelId.trim();
-    const hasCachedMetadata = trimmedModelId in cachedModelMetadata;
-    const metadata = getModelMetadata(trimmedModelId, cachedModelMetadata);
+    const cacheKey = `${getModelMetadataCacheStorageKey(provider)}:${trimmedModelId}`;
+    const hasCachedMetadata = cacheKey in cachedModelMetadata;
+    const metadata = getModelMetadata(trimmedModelId, cacheKey, cachedModelMetadata);
     const isLoadingModalities =
       trimmedModelId.length > 0 &&
       !getConfiguredModelMetadata(trimmedModelId) &&

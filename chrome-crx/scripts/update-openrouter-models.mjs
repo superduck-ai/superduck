@@ -167,11 +167,19 @@ async function main() {
     throw new Error(`Failed to fetch OpenRouter models: HTTP ${response.status}`);
   }
   const payload = await response.json();
-  const source = Array.isArray(payload.data) ? payload.data : [];
+  const source = Array.isArray(payload?.data) ? payload.data : null;
+  if (!source || source.length === 0) {
+    throw new Error('OpenRouter payload missing model list; aborting snapshot refresh.');
+  }
+
   const models = source
     .map(metadataFor)
     .filter(Boolean)
     .sort((a, b) => a.id.localeCompare(b.id));
+  if (models.length === 0) {
+    throw new Error('No valid OpenRouter models extracted; aborting snapshot refresh.');
+  }
+
   const index = buildIndex(models);
   const body = `/**\n * Bundled OpenRouter model metadata.\n *\n * Generated from ${OPENROUTER_MODELS_URL} so extension users do not need to\n * reach OpenRouter at runtime for model metadata such as context length,\n * pricing, modalities, and supported parameters.\n *\n * Refresh with: bun scripts/update-openrouter-models.mjs\n */\n\nexport interface OpenRouterModelMetadata {\n  id: string;\n  canonicalSlug?: string;\n  name: string;\n  description?: string;\n  created?: number;\n  contextLength: number;\n  maxCompletionTokens?: number;\n  isModerated?: boolean;\n  modality?: string;\n  inputModalities?: string[];\n  outputModalities?: string[];\n  tokenizer?: string;\n  instructType?: string;\n  pricing?: Record<string, string>;\n  supportedParameters?: string[];\n  knowledgeCutoff?: string;\n  expirationDate?: string;\n  reasoning?: {\n    mandatory?: boolean;\n    defaultEnabled?: boolean;\n    supportedEfforts?: string[];\n    defaultEffort?: string;\n  };\n}\n\nexport const OPENROUTER_MODELS: OpenRouterModelMetadata[] = ${formatJson(models)};\n\nexport const OPENROUTER_MODEL_INDEX: Record<string, number> = ${formatJson(index)};\n`;
   await writeFile(outputPath, body);
