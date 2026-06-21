@@ -28,6 +28,9 @@ describe('models context lengths', () => {
     expect(getModelContextLength('kimi-k2.5')).toBe(262_144);
     expect(getModelContextLength('moonshotai/kimi-k2.5')).toBe(262_144);
     expect(getModelContextLength('moonshotai/kimi-k2.5-0127')).toBe(262_144);
+    expect(getConfiguredModelMetadata('kimi-k2.5')).toMatchObject({
+      inputModalities: ['text', 'image']
+    });
   });
 
   it('uses bundled metadata instead of a default-sized stale detected value', () => {

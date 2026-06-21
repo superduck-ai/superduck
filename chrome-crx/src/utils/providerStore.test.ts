@@ -369,7 +369,8 @@ describe('lookupCachedModelMetadata', () => {
             id: 'aion-labs/aion-2.0',
             canonicalSlug: 'aion-labs/aion-2.0-20260223',
             name: 'AionLabs: Aion-2.0',
-            contextLength: 131_072
+            contextLength: 131_072,
+            inputModalities: ['text', 'image']
           }
         }
       }
@@ -381,7 +382,8 @@ describe('lookupCachedModelMetadata', () => {
 
     await expect(lookupCachedModelMetadata('aion-2.0')).resolves.toMatchObject({
       id: 'aion-labs/aion-2.0',
-      contextLength: 131_072
+      contextLength: 131_072,
+      inputModalities: ['text', 'image']
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(set).not.toHaveBeenCalled();

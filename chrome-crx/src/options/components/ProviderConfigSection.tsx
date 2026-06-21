@@ -1,17 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { createLucideIcon } from 'lucide-react';
+import {
+  AudioLines,
+  CircleHelp,
+  FileText,
+  Image,
+  Type,
+  Video,
+  createLucideIcon,
+  type LucideIcon
+} from 'lucide-react';
 import { Button } from '@/components/ui';
+import { getConfiguredModelMetadata } from '@/constants/models';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_KIND_LABEL,
   emptyConfigSnapshot,
   isProviderComplete,
   loadProviderConfig,
+  lookupCachedModelMetadata,
   saveProviderConfig,
   testProviderConnection,
   type AiProvider,
   type ProviderConfig,
+  type ProviderModelMetadata,
   type ProviderKind
 } from '@/utils/providerStore';
 import {
@@ -72,9 +84,67 @@ const PROVIDER_KIND_COLOR: Record<ProviderKind, string> = {
   gemini: 'bg-blue-600 text-white',
   'openai-compatible': 'bg-emerald-600 text-white'
 };
+const INPUT_MODALITY_ORDER = ['text', 'image', 'video', 'audio', 'file'];
+const INPUT_MODALITY_ICON: Record<string, LucideIcon> = {
+  text: Type,
+  image: Image,
+  video: Video,
+  audio: AudioLines,
+  file: FileText
+};
 
 function getProviderBadgeText(provider: AiProvider): string {
   return provider.name.trim().charAt(0).toUpperCase() || '?';
+}
+
+function normalizeInputModality(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/^input[_-]?/, '');
+  if (!normalized) return '';
+  if (normalized.includes('image')) return 'image';
+  if (normalized.includes('video')) return 'video';
+  if (normalized.includes('audio') || normalized.includes('sound')) return 'audio';
+  if (
+    normalized.includes('file') ||
+    normalized.includes('document') ||
+    normalized.includes('pdf')
+  ) {
+    return 'file';
+  }
+  if (normalized.includes('text')) return 'text';
+  return normalized;
+}
+
+function getInputModalitiesFromMetadata(metadata: ProviderModelMetadata | undefined): string[] {
+  if (!metadata) return [];
+  const explicit = metadata.inputModalities ?? [];
+  const parsedFromModality = metadata.modality
+    ? (metadata.modality.split('->')[0]?.split('+') ?? [])
+    : [];
+  const values = explicit.length > 0 ? explicit : parsedFromModality;
+  return Array.from(
+    new Set(values.map(normalizeInputModality).filter((value) => value.trim().length > 0))
+  ).sort((a, b) => {
+    const aIndex = INPUT_MODALITY_ORDER.indexOf(a);
+    const bIndex = INPUT_MODALITY_ORDER.indexOf(b);
+    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
+}
+
+function getModelMetadata(
+  modelId: string,
+  cachedModelMetadata: Record<string, ProviderModelMetadata | null>
+): ProviderModelMetadata | undefined {
+  const trimmedModelId = modelId.trim();
+  if (!trimmedModelId) return undefined;
+  return (
+    getConfiguredModelMetadata(trimmedModelId) ?? cachedModelMetadata[trimmedModelId] ?? undefined
+  );
 }
 
 interface ProviderStatusInfo {
@@ -86,6 +156,13 @@ interface SaveNotice {
   id: number;
   message: string;
   tone: 'success' | 'warning';
+}
+
+interface InputModalityItem {
+  key: string;
+  label: string;
+  title: string;
+  icon: LucideIcon;
 }
 
 const ProviderConfigSection: React.FC = () => {
@@ -102,6 +179,9 @@ const ProviderConfigSection: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [cachedModelMetadata, setCachedModelMetadata] = useState<
+    Record<string, ProviderModelMetadata | null>
+  >({});
 
   const isDirty = useMemo(() => JSON.stringify(config) !== savedSnapshot, [config, savedSnapshot]);
   const hasUsableSavedConfig = useMemo(() => {
@@ -109,6 +189,27 @@ const ProviderConfigSection: React.FC = () => {
     return savedConfig ? isProviderConfigUsable(savedConfig) : false;
   }, [savedSnapshot]);
   const shouldShowSetupGuide = isConfigLoaded && !hasUsableSavedConfig;
+  const providerModelIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          config.providers
+            .map((provider) => provider.modelId.trim())
+            .filter((modelId) => modelId.length > 0)
+        )
+      ),
+    [config.providers]
+  );
+  const inputModalityLabels = useMemo(
+    () => ({
+      text: intl.formatMessage({ id: 'input_modality_text', defaultMessage: '文本' }),
+      image: intl.formatMessage({ id: 'input_modality_image', defaultMessage: '图片' }),
+      video: intl.formatMessage({ id: 'input_modality_video', defaultMessage: '视频' }),
+      audio: intl.formatMessage({ id: 'input_modality_audio', defaultMessage: '音频' }),
+      file: intl.formatMessage({ id: 'input_modality_file', defaultMessage: '文件' })
+    }),
+    [intl]
+  );
 
   useEffect(() => {
     void (async () => {
@@ -118,6 +219,36 @@ const ProviderConfigSection: React.FC = () => {
       setIsConfigLoaded(true);
     })();
   }, []);
+
+  useEffect(() => {
+    const missingModelIds = providerModelIds.filter(
+      (modelId) => !getConfiguredModelMetadata(modelId) && !(modelId in cachedModelMetadata)
+    );
+    if (missingModelIds.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(
+      missingModelIds.map(
+        async (modelId): Promise<[string, ProviderModelMetadata | null]> => [
+          modelId,
+          (await lookupCachedModelMetadata(modelId)) ?? null
+        ]
+      )
+    ).then((entries) => {
+      if (cancelled) return;
+      setCachedModelMetadata((previous) => {
+        const next = { ...previous };
+        for (const [modelId, metadata] of entries) {
+          next[modelId] = metadata;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedModelMetadata, providerModelIds]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -350,6 +481,39 @@ const ProviderConfigSection: React.FC = () => {
     const effectiveStatus: AiProvider['status'] = overlay?.status ?? provider.status;
     const errorMessage = overlay?.message ?? provider.errorMessage;
     const dirty = dirtyProviderIds.has(provider.id);
+    const trimmedModelId = provider.modelId.trim();
+    const hasCachedMetadata = trimmedModelId in cachedModelMetadata;
+    const metadata = getModelMetadata(trimmedModelId, cachedModelMetadata);
+    const isLoadingModalities =
+      trimmedModelId.length > 0 &&
+      !getConfiguredModelMetadata(trimmedModelId) &&
+      !hasCachedMetadata;
+    const inputModalities = getInputModalitiesFromMetadata(metadata);
+    const inputModalityItems: InputModalityItem[] = inputModalities.map((modality) => {
+      const label = inputModalityLabels[modality as keyof typeof inputModalityLabels] ?? modality;
+      return {
+        key: modality,
+        label,
+        title: intl.formatMessage(
+          { id: 'input_modality_icon_title', defaultMessage: '可读取{modality}' },
+          { modality: label }
+        ),
+        icon: INPUT_MODALITY_ICON[modality] ?? CircleHelp
+      };
+    });
+    const unavailableLabel = intl.formatMessage({
+      id: 'input_modalities_hint_unavailable',
+      defaultMessage: '没有找到输入模态信息。'
+    });
+    const inputModalitiesLabel = intl.formatMessage({
+      id: 'input_modalities_label',
+      defaultMessage: '输入模态'
+    });
+    const inputModalitiesDetectingLabel = intl.formatMessage({
+      id: 'input_modalities_detecting',
+      defaultMessage: '正在读取模型能力...'
+    });
+
     return (
       <div
         key={provider.id}
@@ -371,9 +535,50 @@ const ProviderConfigSection: React.FC = () => {
                   dirty={dirty}
                 />
               </div>
-              <div className="text-text-400 font-base-sm truncate mt-0.5">
-                {PROVIDER_KIND_LABEL[provider.kind]}
-                {provider.modelId ? ` · ${provider.modelId}` : ''}
+              <div className="mt-0.5 flex min-w-0 items-center gap-2 text-text-400 font-base-sm">
+                <span className="truncate">
+                  {PROVIDER_KIND_LABEL[provider.kind]}
+                  {provider.modelId ? ` · ${provider.modelId}` : ''}
+                </span>
+                {trimmedModelId && (
+                  <span
+                    className="flex shrink-0 items-center gap-1 text-text-300"
+                    aria-label={inputModalitiesLabel}
+                  >
+                    {isLoadingModalities ? (
+                      <span
+                        title={inputModalitiesDetectingLabel}
+                        aria-label={inputModalitiesDetectingLabel}
+                        className="inline-flex size-5 items-center justify-center rounded text-text-500"
+                      >
+                        <SpinnerIcon aria-hidden size={14} className="animate-spin" />
+                      </span>
+                    ) : inputModalityItems.length > 0 ? (
+                      inputModalityItems.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <span
+                            key={item.key}
+                            title={item.title}
+                            aria-label={item.title}
+                            className="inline-flex size-5 items-center justify-center rounded text-text-300 transition-colors hover:bg-bg-100 hover:text-text-100"
+                          >
+                            <Icon aria-hidden size={15} />
+                            <span className="sr-only">{item.label}</span>
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span
+                        title={unavailableLabel}
+                        aria-label={unavailableLabel}
+                        className="inline-flex size-5 items-center justify-center rounded text-text-500"
+                      >
+                        <CircleHelp aria-hidden size={15} />
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
           </div>
