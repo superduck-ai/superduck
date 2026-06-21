@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"chrome-native-host/internal/protocol"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -119,6 +120,163 @@ func TestForwardToChromeTimesOutWhenExtensionDoesNotRespond(t *testing.T) {
 	case <-server.closed:
 	case <-time.After(time.Second):
 		t.Fatal("server was not closed after Chrome response timeout")
+	}
+}
+
+func TestHandleUDSControlMessageRespondsToHealthCheckLocally(t *testing.T) {
+	t.Parallel()
+
+	var clientOut bytes.Buffer
+	server := &Server{
+		udsConnections: make(map[net.Conn]bool),
+		closed:         make(chan struct{}),
+		startedAt:      time.Now(),
+		chromeReady:    true,
+	}
+
+	raw := []byte(`{"type":"health_check"}`)
+	if !server.handleUDSControlMessage(raw, &clientOut) {
+		t.Fatal("health_check was not handled locally")
+	}
+
+	responseRaw, err := protocol.ReadMessage(&clientOut)
+	if err != nil {
+		t.Fatalf("failed to read health response: %v", err)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(responseRaw, &response); err != nil {
+		t.Fatalf("failed to parse health response: %v", err)
+	}
+	if response["type"] != "health_response" {
+		t.Fatalf("response type = %v, want health_response", response["type"])
+	}
+	if response["ok"] != true {
+		t.Fatalf("response ok = %v, want true", response["ok"])
+	}
+	if response["chromeReady"] != true {
+		t.Fatalf("response chromeReady = %v, want true", response["chromeReady"])
+	}
+	if _, ok := response["pid"].(float64); !ok {
+		t.Fatalf("response pid has type %T, want number", response["pid"])
+	}
+}
+
+func TestControlHealthConnectionDoesNotCountAsMCPConnected(t *testing.T) {
+	t.Parallel()
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	_ = clientConn.SetDeadline(time.Now().Add(time.Second))
+
+	var chromeOut bytes.Buffer
+	server := &Server{
+		udsAuth: "test-token",
+		udsConnections: map[net.Conn]bool{
+			serverConn: false,
+		},
+		chromeWriter: &chromeOut,
+		closed:       make(chan struct{}),
+		startedAt:    time.Now(),
+		chromeReady:  true,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		server.handleUDSConnection(serverConn)
+		close(done)
+	}()
+
+	if err := protocol.SendMessage(clientConn, map[string]string{
+		"type":    "auth",
+		"token":   "test-token",
+		"purpose": "control",
+	}); err != nil {
+		t.Fatalf("failed to send auth: %v", err)
+	}
+	if _, err := protocol.ReadMessage(clientConn); err != nil {
+		t.Fatalf("failed to read auth response: %v", err)
+	}
+
+	if err := protocol.SendMessage(clientConn, map[string]string{"type": "health_check"}); err != nil {
+		t.Fatalf("failed to send health check: %v", err)
+	}
+	responseRaw, err := protocol.ReadMessage(clientConn)
+	if err != nil {
+		t.Fatalf("failed to read health response: %v", err)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(responseRaw, &response); err != nil {
+		t.Fatalf("failed to parse health response: %v", err)
+	}
+	if response["mcpConnected"] != false {
+		t.Fatalf("response mcpConnected = %v, want false", response["mcpConnected"])
+	}
+	if response["authenticatedUdsConnections"] != float64(0) {
+		t.Fatalf("response authenticatedUdsConnections = %v, want 0", response["authenticatedUdsConnections"])
+	}
+
+	clientConn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("control connection did not close")
+	}
+	if chromeOut.Len() != 0 {
+		t.Fatalf("control connection wrote unexpected Chrome state message: %q", chromeOut.String())
+	}
+}
+
+func TestHandleChromeGetStatusReportsAuthenticatedUDSState(t *testing.T) {
+	t.Parallel()
+
+	var chromeOut bytes.Buffer
+	clientConn, peerConn := net.Pipe()
+	defer clientConn.Close()
+	defer peerConn.Close()
+
+	server := &Server{
+		udsConnections: map[net.Conn]bool{
+			clientConn: true,
+		},
+		chromeWriter: &chromeOut,
+		closed:       make(chan struct{}),
+		startedAt:    time.Now(),
+	}
+
+	server.handleChromeMessage([]byte(`{"type":"get_status"}`), &protocol.Message{Type: "get_status"})
+
+	responseRaw, err := protocol.ReadMessage(&chromeOut)
+	if err != nil {
+		t.Fatalf("failed to read status response: %v", err)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(responseRaw, &response); err != nil {
+		t.Fatalf("failed to parse status response: %v", err)
+	}
+	if response["type"] != "status_response" {
+		t.Fatalf("response type = %v, want status_response", response["type"])
+	}
+	if response["mcpConnected"] != true {
+		t.Fatalf("response mcpConnected = %v, want true", response["mcpConnected"])
+	}
+	if response["authenticatedUdsConnections"] != float64(1) {
+		t.Fatalf("response authenticatedUdsConnections = %v, want 1", response["authenticatedUdsConnections"])
+	}
+	if chromeOut.Len() != 0 {
+		t.Fatalf("get_status wrote extra native-host messages after status_response")
+	}
+}
+
+func TestHandleUDSControlMessageIgnoresToolRequests(t *testing.T) {
+	t.Parallel()
+
+	server := &Server{
+		closed:    make(chan struct{}),
+		startedAt: time.Now(),
+	}
+	raw := []byte(`{"type":"tool_request","method":"execute_tool","params":{"tool":"superduck_list_tabs","args":{}}}`)
+	if server.handleUDSControlMessage(raw, io.Discard) {
+		t.Fatal("tool_request should be forwarded to Chrome, not handled locally")
 	}
 }
 

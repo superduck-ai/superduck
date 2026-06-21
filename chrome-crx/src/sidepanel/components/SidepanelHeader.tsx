@@ -14,6 +14,7 @@ import {
 import { Tooltip } from '../Tooltip';
 import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
 import type { SupportedLocale } from '../../index-react-dom-intl';
+import { NativeHostStatusButton } from './NativeHostStatusButton';
 
 export interface SidepanelHeaderProps {
   // Model menu
@@ -54,7 +55,12 @@ export interface SidepanelHeaderProps {
   handleLanguageSelection: (locale: SupportedLocale) => void;
 
   // Utils
-  intl: { formatMessage: (descriptor: { id: string; defaultMessage?: string }) => string };
+  intl: {
+    formatMessage: (
+      descriptor: { id: string; defaultMessage?: string },
+      values?: Record<string, string | number | boolean | null | undefined>
+    ) => string;
+  };
   trackEvent: (event: string, properties?: any) => void;
 }
 
@@ -163,6 +169,15 @@ export function SidepanelHeader({
             </button>
           </Tooltip>
         )}
+        <NativeHostStatusButton
+          intl={intl}
+          trackEvent={trackEvent}
+          onOpen={() => {
+            setIsModelMenuOpen(false);
+            setIsHeaderMenuOpen(false);
+            setIsLanguageSubmenuOpen(false);
+          }}
+        />
         <button
           type="button"
           className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"

@@ -203,6 +203,7 @@ registerRuntimeMessageListener({
   openSidePanelRequest: sidePanelController.openSidePanelRequest,
   openOptionsWithTask: sidePanelController.openOptionsWithTask,
   getNativeHostStatus: nativeHostManager.getStatus,
+  resetNativeHost: nativeHostManager.reset,
   sendMcpNotification: nativeHostManager.sendMcpNotification,
   executeScheduledTask: scheduledTaskManager.executeScheduledTask,
   handleStaticIndicatorHeartbeat: staticIndicatorController.handleHeartbeat,

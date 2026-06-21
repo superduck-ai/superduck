@@ -39,6 +39,7 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     openSidePanelRequest: vi.fn(),
     openOptionsWithTask: vi.fn(),
     getNativeHostStatus: vi.fn(),
+    resetNativeHost: vi.fn(),
     sendMcpNotification: vi.fn(),
     executeScheduledTask: vi.fn(),
     handleStaticIndicatorHeartbeat: vi.fn(),
@@ -49,6 +50,19 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     messageListener = undefined;
+    mcpRuntimeMocks.isBridgeConnected.mockReturnValue(false);
+    deps.getNativeHostStatus = vi.fn(async () => ({
+      nativeHostInstalled: false,
+      mcpConnected: false
+    }));
+    deps.resetNativeHost = vi.fn(async () => ({
+      success: true,
+      reconnecting: true,
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false
+      }
+    }));
     tabsQuery.mockResolvedValue([{ id: 99, windowId: 11 }]);
     runtimeSendMessage.mockImplementation(
       (_message: unknown, callback?: (response?: unknown) => void) => {
@@ -88,6 +102,22 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     expect(messageListener).toBeDefined();
     return await new Promise<Record<string, unknown>>((resolve) => {
       const handled = messageListener?.({ type: 'PANEL_READY' }, {}, resolve);
+      expect(handled).toBe(true);
+    });
+  }
+
+  async function dispatchCheckNativeHostStatus() {
+    expect(messageListener).toBeDefined();
+    return await new Promise<Record<string, unknown>>((resolve) => {
+      const handled = messageListener?.({ type: 'check_native_host_status' }, {}, resolve);
+      expect(handled).toBe(true);
+    });
+  }
+
+  async function dispatchResetNativeHostConnection() {
+    expect(messageListener).toBeDefined();
+    return await new Promise<Record<string, unknown>>((resolve) => {
+      const handled = messageListener?.({ type: 'reset_native_host_connection' }, {}, resolve);
       expect(handled).toBe(true);
     });
   }
@@ -148,5 +178,127 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
       },
       expect.any(Function)
     );
+  });
+
+  it('responds to native-host status checks even when the probe fails', async () => {
+    deps.getNativeHostStatus = vi.fn(async () => {
+      throw new Error('probe failed');
+    });
+    mcpRuntimeMocks.isBridgeConnected.mockReturnValue(true);
+
+    await expect(dispatchCheckNativeHostStatus()).resolves.toEqual({
+      status: {
+        nativeHostInstalled: false,
+        mcpConnected: false,
+        connecting: false,
+        reconnecting: false,
+        bridgeConnected: true,
+        error: 'probe failed'
+      }
+    });
+  });
+
+  it('reports bridge status separately from native-host MCP status', async () => {
+    deps.getNativeHostStatus = vi.fn(async () => ({
+      nativeHostInstalled: true,
+      mcpConnected: false
+    }));
+    mcpRuntimeMocks.isBridgeConnected.mockReturnValue(true);
+
+    await expect(dispatchCheckNativeHostStatus()).resolves.toEqual({
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false,
+        connecting: false,
+        reconnecting: false,
+        bridgeConnected: true
+      }
+    });
+  });
+
+  it('reports in-progress native-host connections separately from disconnected state', async () => {
+    deps.getNativeHostStatus = vi.fn(async () => ({
+      nativeHostInstalled: false,
+      mcpConnected: false,
+      connecting: true
+    }));
+
+    await expect(dispatchCheckNativeHostStatus()).resolves.toEqual({
+      status: {
+        nativeHostInstalled: false,
+        mcpConnected: false,
+        connecting: true,
+        reconnecting: false,
+        bridgeConnected: false
+      }
+    });
+  });
+
+  it('resets the native-host connection and returns the latest status', async () => {
+    mcpRuntimeMocks.isBridgeConnected.mockReturnValue(true);
+    deps.resetNativeHost = vi.fn(async () => ({
+      success: true,
+      reconnecting: true,
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false
+      }
+    }));
+
+    await expect(dispatchResetNativeHostConnection()).resolves.toEqual({
+      success: true,
+      reconnecting: true,
+      status: {
+        nativeHostInstalled: true,
+        mcpConnected: false,
+        connecting: false,
+        reconnecting: true,
+        bridgeConnected: true
+      }
+    });
+    expect(deps.resetNativeHost).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns reset failures with a panel-friendly status payload', async () => {
+    deps.resetNativeHost = vi.fn(async () => ({
+      success: false,
+      status: {
+        nativeHostInstalled: false,
+        mcpConnected: false
+      }
+    }));
+
+    await expect(dispatchResetNativeHostConnection()).resolves.toEqual({
+      success: false,
+      reconnecting: false,
+      status: {
+        nativeHostInstalled: false,
+        mcpConnected: false,
+        connecting: false,
+        reconnecting: false,
+        bridgeConnected: false
+      }
+    });
+  });
+
+  it('returns reset errors without probing status again', async () => {
+    deps.resetNativeHost = vi.fn(async () => {
+      throw new Error('reset failed');
+    });
+    mcpRuntimeMocks.isBridgeConnected.mockReturnValue(true);
+
+    await expect(dispatchResetNativeHostConnection()).resolves.toEqual({
+      success: false,
+      error: 'reset failed',
+      status: {
+        nativeHostInstalled: false,
+        mcpConnected: false,
+        connecting: false,
+        reconnecting: false,
+        bridgeConnected: true,
+        error: 'reset failed'
+      }
+    });
+    expect(deps.getNativeHostStatus).not.toHaveBeenCalled();
   });
 });

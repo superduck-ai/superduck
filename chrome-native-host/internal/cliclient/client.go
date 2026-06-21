@@ -41,30 +41,33 @@ func defaults(o Options) Options {
 	return o
 }
 
-// Call sends one tool_request and returns the structured result (or string content).
-func Call(tool string, args map[string]any, opts Options) (any, error) {
+func dialAndAuthenticate(opts Options, purpose string) (net.Conn, error) {
 	opts = defaults(opts)
 
-	conn, err := net.DialTimeout("unix", opts.SocketPath, 2*time.Second)
+	conn, err := net.DialTimeout("unix", opts.SocketPath, dialTimeout(opts.Timeout))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNotConnected, err)
 	}
-	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(opts.Timeout))
 
-	// Authenticate with the native host
 	token, err := udsauth.ReadToken()
 	if err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("auth token: %w", err)
 	}
 
 	authReq := map[string]string{"type": "auth", "token": token}
+	if purpose != "" {
+		authReq["purpose"] = purpose
+	}
 	if err := protocol.SendMessage(conn, authReq); err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("send auth: %w", err)
 	}
 
 	authRaw, err := protocol.ReadMessage(conn)
 	if err != nil {
+		_ = conn.Close()
 		var nerr net.Error
 		if errors.As(err, &nerr) && nerr.Timeout() {
 			return nil, ErrTimeout
@@ -78,14 +81,37 @@ func Call(tool string, args map[string]any, opts Options) (any, error) {
 		Error string `json:"error"`
 	}
 	if err := json.Unmarshal(authRaw, &authResp); err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("parse auth response: %w", err)
 	}
 	if authResp.Type != "auth_response" || authResp.OK != "true" {
+		_ = conn.Close()
 		if authResp.Error != "" {
 			return nil, fmt.Errorf("%w: %s", ErrAuthFailed, authResp.Error)
 		}
 		return nil, fmt.Errorf("%w: unexpected response type=%q ok=%q", ErrAuthFailed, authResp.Type, authResp.OK)
 	}
+
+	return conn, nil
+}
+
+func dialTimeout(timeout time.Duration) time.Duration {
+	const maxDialTimeout = 2 * time.Second
+	if timeout > 0 && timeout < maxDialTimeout {
+		return timeout
+	}
+	return maxDialTimeout
+}
+
+// Call sends one tool_request and returns the structured result (or string content).
+func Call(tool string, args map[string]any, opts Options) (any, error) {
+	opts = defaults(opts)
+
+	conn, err := dialAndAuthenticate(opts, "")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
 
 	req := map[string]any{
 		"type":   "tool_request",
@@ -125,6 +151,42 @@ func Call(tool string, args map[string]any, opts Options) (any, error) {
 		return resp.Result.StructuredContent, nil
 	}
 	return resp.Result.Content, nil
+}
+
+// Control sends one authenticated native-host control message. Control messages
+// are answered by native-host itself and do not route through Chrome.
+func Control(message map[string]any, opts Options) (map[string]any, error) {
+	opts = defaults(opts)
+
+	conn, err := dialAndAuthenticate(opts, "control")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	if err := protocol.SendMessage(conn, message); err != nil {
+		return nil, fmt.Errorf("send control: %w", err)
+	}
+	raw, err := protocol.ReadMessage(conn)
+	if err != nil {
+		var nerr net.Error
+		if errors.Is(err, context.DeadlineExceeded) ||
+			(errors.As(err, &nerr) && nerr.Timeout()) ||
+			strings.Contains(err.Error(), "i/o timeout") {
+			return nil, ErrTimeout
+		}
+		return nil, fmt.Errorf("read control response: %w", err)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return nil, fmt.Errorf("parse control response: %w", err)
+	}
+	return response, nil
+}
+
+func Health(opts Options) (map[string]any, error) {
+	return Control(map[string]any{"type": "health_check"}, opts)
 }
 
 // CallString is a convenience for tools whose primary payload is a JSON string in `output`.

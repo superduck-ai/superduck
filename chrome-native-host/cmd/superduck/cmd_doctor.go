@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -87,13 +86,19 @@ func cmdDoctor(argv []string) error {
 		}
 	}
 
-	// 3. UDS 可连
-	conn, dialErr := net.DialTimeout("unix", gflags.SocketPath, 2*time.Second)
-	connOK := dialErr == nil
-	if conn != nil {
-		conn.Close()
+	// 3. UDS 可连且认证/control 协议可响应
+	healthOpts := clientOpts()
+	if healthOpts.Timeout > 3*time.Second {
+		healthOpts.Timeout = 3 * time.Second
 	}
-	check("native-host UDS reachable", connOK, "make sure your browser is running with the SuperDuck extension loaded")
+	status, healthErr := cliclient.Health(healthOpts)
+	connOK := healthErr == nil
+	check("native-host UDS/auth reachable", connOK, "make sure your browser is running with the SuperDuck extension loaded")
+	if connOK {
+		fmt.Printf("    pid=%v chromeReady=%v socket=%v\n", status["pid"], status["chromeReady"], status["socketPath"])
+	} else if healthErr != nil {
+		fmt.Printf("    → %s\n", healthErr)
+	}
 
 	// 4. 扩展存活: 调一次 list_tabs
 	if connOK {

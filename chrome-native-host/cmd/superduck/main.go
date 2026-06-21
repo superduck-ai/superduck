@@ -30,6 +30,7 @@ WORKFLOW:
 SETUP / DIAGNOSTICS:
   init                       Install native messaging manifest and start the native-host
                              (run once after 'npm install -g superduck-cli')
+  status                     Check native-host UDS/auth health without calling browser tools
   doctor                     Health-check binary, manifest, native-host UDS, extension
   update [--check]           Check for and install CLI updates
   log [--tail N] [--json]    Tail the audit log (~/.superduck/audit.jsonl)
@@ -264,6 +265,8 @@ func main() {
 		err = cmdGif(rest)
 	case "init", "setup":
 		err = cmdSetup(rest)
+	case "status":
+		err = cmdStatus(rest)
 	case "update":
 		err = cmdUpdate(rest)
 	case "doctor":

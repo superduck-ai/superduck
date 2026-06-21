@@ -5,7 +5,7 @@ import {
   trackEvent
 } from '../mcpRuntime';
 import { SIDE_PANEL_SET_ACTIVE_TAB } from '../constants/runtimeMessages';
-import type { NativeHostStatus } from './nativeHost';
+import type { NativeHostResetResult, NativeHostStatus } from './nativeHost';
 import type { OpenSidePanelRequest } from './sidePanel';
 import { incrementPanelAlive, decrementPanelAlive } from './sidePanel';
 import type { ScheduledTask } from './types';
@@ -46,6 +46,8 @@ const HANDLED_MESSAGE_TYPES = new Set([
   'PLAY_NOTIFICATION_SOUND',
   'open_side_panel',
   'check_native_host_status',
+  'reset_native_host_connection',
+  'restart_native_host',
   'SEND_MCP_NOTIFICATION',
   'OPEN_OPTIONS_WITH_TASK',
   'EXECUTE_SCHEDULED_TASK',
@@ -62,6 +64,7 @@ export interface RuntimeMessageListenerDeps {
   openSidePanelRequest: (request: OpenSidePanelRequest) => Promise<void>;
   openOptionsWithTask: (task: ScheduledTask) => Promise<void>;
   getNativeHostStatus: () => Promise<NativeHostStatus>;
+  resetNativeHost: () => Promise<NativeHostResetResult>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   executeScheduledTask: (task: ScheduledTask, runLogId: string) => Promise<void>;
   handleStaticIndicatorHeartbeat: (
@@ -132,13 +135,60 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
   }
 
   async function handleNativeHostStatus(sendResponse: RuntimeSendResponse) {
-    const status = await deps.getNativeHostStatus();
-    sendResponse({
-      status: {
-        nativeHostInstalled: status.nativeHostInstalled,
-        mcpConnected: status.mcpConnected || isBridgeConnected()
-      }
-    });
+    try {
+      const status = await deps.getNativeHostStatus();
+      sendResponse({
+        status: {
+          nativeHostInstalled: status.nativeHostInstalled,
+          mcpConnected: status.mcpConnected,
+          connecting: status.connecting === true,
+          reconnecting: status.reconnecting === true,
+          bridgeConnected: isBridgeConnected()
+        }
+      });
+    } catch (err) {
+      sendResponse({
+        status: {
+          nativeHostInstalled: false,
+          mcpConnected: false,
+          connecting: false,
+          reconnecting: false,
+          bridgeConnected: isBridgeConnected(),
+          error: getErrorMessage(err)
+        }
+      });
+    }
+  }
+
+  async function handleResetNativeHost(sendResponse: RuntimeSendResponse) {
+    try {
+      const result = await deps.resetNativeHost();
+      sendResponse({
+        success: result.success,
+        reconnecting: result.reconnecting === true,
+        status: {
+          nativeHostInstalled: result.status.nativeHostInstalled,
+          mcpConnected: result.status.mcpConnected,
+          connecting: result.status.connecting === true,
+          reconnecting: result.reconnecting === true || result.status.reconnecting === true,
+          bridgeConnected: isBridgeConnected()
+        }
+      });
+    } catch (err) {
+      const errorMessage = getErrorMessage(err);
+      sendResponse({
+        success: false,
+        error: errorMessage,
+        status: {
+          nativeHostInstalled: false,
+          mcpConnected: false,
+          connecting: false,
+          reconnecting: false,
+          bridgeConnected: isBridgeConnected(),
+          error: errorMessage
+        }
+      });
+    }
   }
 
   function handleStopAgent(
@@ -240,6 +290,14 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
 
       if (message.type === 'check_native_host_status') {
         await handleNativeHostStatus(sendResponse);
+        return;
+      }
+
+      if (
+        message.type === 'reset_native_host_connection' ||
+        message.type === 'restart_native_host'
+      ) {
+        await handleResetNativeHost(sendResponse);
         return;
       }
 
