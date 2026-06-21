@@ -137,6 +137,10 @@ function getInputModalitiesFromMetadata(metadata: ProviderModelMetadata | undefi
   });
 }
 
+function hasInputModalityMetadata(metadata: ProviderModelMetadata | undefined): boolean {
+  return getInputModalitiesFromMetadata(metadata).length > 0;
+}
+
 function getModelMetadata(
   modelId: string,
   cacheKey: string,
@@ -144,7 +148,16 @@ function getModelMetadata(
 ): ProviderModelMetadata | undefined {
   const trimmedModelId = modelId.trim();
   if (!trimmedModelId) return undefined;
-  return getConfiguredModelMetadata(trimmedModelId) ?? cachedModelMetadata[cacheKey] ?? undefined;
+  const configured = getConfiguredModelMetadata(trimmedModelId);
+  const cached = cachedModelMetadata[cacheKey] ?? undefined;
+  if (!configured) return cached;
+  if (!cached || hasInputModalityMetadata(configured)) return configured;
+  return {
+    ...cached,
+    ...configured,
+    modality: configured.modality ?? cached.modality,
+    inputModalities: configured.inputModalities ?? cached.inputModalities
+  };
 }
 
 interface ProviderStatusInfo {
@@ -228,20 +241,24 @@ const ProviderConfigSection: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const missingRequests = providerMetadataRequests.filter(
-      (request) =>
-        !getConfiguredModelMetadata(request.modelId) && !(request.cacheKey in cachedModelMetadata)
-    );
+    const missingRequests = providerMetadataRequests.filter((request) => {
+      const configured = getConfiguredModelMetadata(request.modelId);
+      return !hasInputModalityMetadata(configured) && !(request.cacheKey in cachedModelMetadata);
+    });
     if (missingRequests.length === 0) return;
 
     let cancelled = false;
     void Promise.all(
-      missingRequests.map(
-        async (request): Promise<[string, ProviderModelMetadata | null]> => [
-          request.cacheKey,
-          (await lookupCachedModelMetadata(request.provider, request.modelId)) ?? null
-        ]
-      )
+      missingRequests.map(async (request): Promise<[string, ProviderModelMetadata | null]> => {
+        try {
+          return [
+            request.cacheKey,
+            (await lookupCachedModelMetadata(request.provider, request.modelId)) ?? null
+          ];
+        } catch {
+          return [request.cacheKey, null];
+        }
+      })
     ).then((entries) => {
       if (cancelled) return;
       setCachedModelMetadata((previous) => {
@@ -493,9 +510,10 @@ const ProviderConfigSection: React.FC = () => {
     const cacheKey = `${getModelMetadataCacheStorageKey(provider)}:${trimmedModelId}`;
     const hasCachedMetadata = cacheKey in cachedModelMetadata;
     const metadata = getModelMetadata(trimmedModelId, cacheKey, cachedModelMetadata);
+    const configuredMetadata = getConfiguredModelMetadata(trimmedModelId);
     const isLoadingModalities =
       trimmedModelId.length > 0 &&
-      !getConfiguredModelMetadata(trimmedModelId) &&
+      !hasInputModalityMetadata(configuredMetadata) &&
       !hasCachedMetadata;
     const inputModalities = getInputModalitiesFromMetadata(metadata);
     const inputModalityItems: InputModalityItem[] = inputModalities.map((modality) => {
