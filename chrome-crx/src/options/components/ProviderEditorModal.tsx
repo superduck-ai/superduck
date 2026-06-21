@@ -20,6 +20,7 @@ const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'openai-compatible', label: 'OpenAI Responses' }
 ];
+const DEFAULT_PROVIDER_KIND: ProviderKind = 'anthropic';
 
 export interface ProviderEditorValue {
   id: string;
@@ -48,7 +49,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const intl = useIntl();
   const isEditing = Boolean(provider);
 
-  const [kind, setKind] = useState<ProviderKind>('openai-compatible');
+  const [kind, setKind] = useState<ProviderKind>(DEFAULT_PROVIDER_KIND);
   const [name, setName] = useState('');
   const [modelId, setModelId] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -66,7 +67,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     isOpenRef.current = isOpen;
     submitTokenRef.current += 1;
     if (!isOpen) return;
-    setKind(provider?.kind ?? 'openai-compatible');
+    setKind(provider?.kind ?? DEFAULT_PROVIDER_KIND);
     setName(provider?.name ?? '');
     setModelId(provider?.modelId ?? '');
     setApiKey(provider?.apiKey ?? '');
