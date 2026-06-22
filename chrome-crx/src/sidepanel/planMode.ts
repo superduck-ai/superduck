@@ -16,6 +16,14 @@ function isPlanDomainEntry(
   return isRecord(value) && typeof value.domain === 'string';
 }
 
+function getFirstBatchActionName(toolInput: unknown): string | undefined {
+  if (!isRecord(toolInput) || !Array.isArray(toolInput.actions)) return undefined;
+  const firstAction = toolInput.actions[0];
+  if (!isRecord(firstAction)) return undefined;
+  if (typeof firstAction.name === 'string') return firstAction.name;
+  return typeof firstAction.tool === 'string' ? firstAction.tool : undefined;
+}
+
 export function getPageType(url: string | undefined): 'system' | 'non-script' | 'regular' {
   if (!url) return 'regular';
   if (
@@ -38,11 +46,13 @@ export function checkToolAllowed(
   pageType: string,
   permMode: string,
   hasApprovedPlan: boolean,
-  _toolInput?: unknown
+  toolInput?: unknown
 ): { allowed: boolean; errorMessage?: string; suggestedGuidance?: string } {
   if (pageType === 'system' || pageType === 'non-script') {
     const allowedTools = ['navigate', 'update_plan', 'TodoWrite', 'turn_answer_start'];
-    if (!allowedTools.includes(toolName)) {
+    const isNavigateFirstBatch =
+      toolName === 'browser_batch' && getFirstBatchActionName(toolInput) === 'navigate';
+    if (!allowedTools.includes(toolName) && !isNavigateFirstBatch) {
       return {
         allowed: false,
         errorMessage:

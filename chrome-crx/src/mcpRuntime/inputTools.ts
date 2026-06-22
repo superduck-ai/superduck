@@ -24,6 +24,7 @@ import type {
 import { resolveStaleRef, getRefBackendNodeId, getRefRole, getRefMetaByTab } from './refBridge';
 import { captureAnnotatedScreenshot } from './annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
+import { moveSearchNavigationToNewTab } from './navigationIsolation';
 
 interface ComputerToolParams {
   action: string;
@@ -63,6 +64,11 @@ interface FormInputScriptResult extends ToolResult {
   message?: string;
 }
 
+interface SearchSubmitTarget {
+  url: string;
+  value: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -98,7 +104,157 @@ function isFormInputScriptResult(value: unknown): value is FormInputScriptResult
   );
 }
 
+function isSearchSubmitTarget(value: unknown): value is SearchSubmitTarget {
+  return isRecord(value) && typeof value.url === 'string' && typeof value.value === 'string';
+}
+
 type PermissionManagerLike = ToolContext['permissionManager'];
+
+function canOpenNewTabFromInteraction(action: string): boolean {
+  return (
+    action === 'left_click' ||
+    action === 'double_click' ||
+    action === 'triple_click' ||
+    action === 'type' ||
+    action === 'key'
+  );
+}
+
+function canSubmitSearchNavigation(params: ComputerToolParams): boolean {
+  if (params.action === 'key' && typeof params.text === 'string') {
+    return params.text
+      .split(/\s+/)
+      .some((key) => key.toLowerCase() === 'enter' || key.toLowerCase() === 'return');
+  }
+  return params.action === 'type' && typeof params.text === 'string' && /[\r\n]/.test(params.text);
+}
+
+function resolveWindowOpenUrl(rawUrl: string, currentUrl: string): string | undefined {
+  try {
+    const url = new URL(rawUrl, currentUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+async function createTabsForWindowOpenEvents(
+  openerTabId: number,
+  currentUrl: string
+): Promise<number[]> {
+  const events = cdpDebugger.consumeWindowOpenEvents(openerTabId);
+  const seenUrls = new Set<string>();
+  const createdTabIds: number[] = [];
+
+  for (const event of events) {
+    const url = resolveWindowOpenUrl(event.url, currentUrl);
+    if (!url || seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
+    if (typeof tabId === 'number') createdTabIds.push(tabId);
+  }
+
+  return createdTabIds;
+}
+
+async function getFocusedSearchSubmitTarget(
+  tabId: number
+): Promise<SearchSubmitTarget | undefined> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: (): SearchSubmitTarget | null => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLInputElement)) return null;
+
+      const inputType = (active.type || 'text').toLowerCase();
+      if (!['search', 'text', 'url', ''].includes(inputType)) return null;
+
+      const value = active.value.trim();
+      if (!value) return null;
+
+      const form = active.form;
+      const fieldHints = [
+        active.type,
+        active.name,
+        active.id,
+        active.placeholder,
+        active.getAttribute('aria-label'),
+        active.getAttribute('role'),
+        active.getAttribute('class')
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const queryNamePattern = /^(q|query|keyword|keywords|wd|word|search|search_query|text)$/i;
+      const fieldLooksSearch =
+        inputType === 'search' ||
+        queryNamePattern.test(active.name || '') ||
+        /\b(search|query|keyword|keywords)\b|搜索|搜/.test(fieldHints);
+
+      if (!form) return null;
+
+      const method = (form.getAttribute('method') || form.method || 'get').toLowerCase();
+      if (method && method !== 'get') return null;
+
+      const formHints = [
+        form.getAttribute('role'),
+        form.getAttribute('aria-label'),
+        form.getAttribute('id'),
+        form.getAttribute('class'),
+        form.getAttribute('action')
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const action = form.getAttribute('action') || location.href;
+      let targetUrl: URL;
+      try {
+        targetUrl = new URL(action, location.href);
+      } catch {
+        return null;
+      }
+      if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') return null;
+
+      const targetLooksSearch =
+        /\b(search|query|keyword|keywords)\b|搜索|搜/.test(formHints) ||
+        /\/search\b|search\.|\/all\b/.test(`${targetUrl.hostname}${targetUrl.pathname}`);
+      if (!fieldLooksSearch && !targetLooksSearch) return null;
+
+      const params = new URLSearchParams();
+      const formData = new FormData(form);
+      formData.forEach((entryValue, key) => {
+        if (!key || entryValue instanceof File) return;
+        params.append(key, entryValue);
+      });
+      if (active.name && !params.has(active.name)) params.append(active.name, value);
+
+      const hasQueryValue = Array.from(params.entries()).some(([key, paramValue]) => {
+        return paramValue.trim().length > 0 && (queryNamePattern.test(key) || key === active.name);
+      });
+      if (!hasQueryValue) return null;
+
+      targetUrl.search = params.toString();
+      return { url: targetUrl.href, value };
+    }
+  });
+
+  for (const result of results || []) {
+    if (isSearchSubmitTarget(result.result)) return result.result;
+  }
+}
+
+async function openFocusedSearchSubmitInNewTab(tabId: number): Promise<number[]> {
+  try {
+    const target = await getFocusedSearchSubmitTarget(tabId);
+    if (!target?.url) return [];
+    const createdTabId = await tabGroupManager.createChildTabInGroup(tabId, target.url);
+    return typeof createdTabId === 'number' ? [createdTabId] : [];
+  } catch {
+    return [];
+  }
+}
 
 // ToolContext and ToolResult interfaces defined below in the tool definitions section
 
@@ -297,112 +453,153 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         return currentUrl;
       };
       let result: ToolResult;
+      let openedTabIdsForContext: number[] = [];
       const clickOptions = context.skipIndicator ? { skipIndicator: true } : undefined;
+      const runAction = async (): Promise<ToolResult> => {
+        switch (toolParams.action) {
+          case 'left_click':
+          case 'right_click':
+            return await executeClick(
+              effectiveTabId,
+              toolParams,
+              1,
+              requireCurrentUrl(),
+              clickOptions,
+              context.permissionManager
+            );
 
-      switch (toolParams.action) {
-        case 'left_click':
-        case 'right_click':
-          result = await executeClick(
-            effectiveTabId,
-            toolParams,
-            1,
-            requireCurrentUrl(),
-            clickOptions,
-            context.permissionManager
-          );
-          break;
+          case 'type':
+            return await executeType(effectiveTabId, toolParams, requireCurrentUrl());
 
-        case 'type':
-          result = await executeType(effectiveTabId, toolParams, requireCurrentUrl());
-          break;
-
-        case 'screenshot':
-          if (toolParams.annotate) {
-            const annotated = await captureAnnotatedScreenshot(effectiveTabId);
-            if (annotated) {
-              result = {
-                output: `Annotated screenshot with ${annotated.annotations.length} labeled elements:\n${annotated.legend}`,
-                base64Image: annotated.base64Image,
-                imageFormat: annotated.imageFormat
-              };
-            } else {
-              result = await executeScreenshot(effectiveTabId, clickOptions);
+          case 'screenshot':
+            if (toolParams.annotate) {
+              const annotated = await captureAnnotatedScreenshot(effectiveTabId);
+              if (annotated) {
+                return {
+                  output: `Annotated screenshot with ${annotated.annotations.length} labeled elements:\n${annotated.legend}`,
+                  base64Image: annotated.base64Image,
+                  imageFormat: annotated.imageFormat
+                };
+              }
+              return await executeScreenshot(effectiveTabId, clickOptions);
             }
+            return await executeScreenshot(effectiveTabId, clickOptions);
+
+          case 'wait':
+            return await executeWait(toolParams);
+
+          case 'scroll':
+            return await executeScroll(
+              effectiveTabId,
+              toolParams,
+              context.permissionManager,
+              clickOptions
+            );
+
+          case 'key':
+            return await executeKey(effectiveTabId, toolParams, requireCurrentUrl());
+
+          case 'left_click_drag':
+            return await executeDrag(effectiveTabId, toolParams, requireCurrentUrl(), clickOptions);
+
+          case 'double_click':
+            return await executeClick(
+              effectiveTabId,
+              toolParams,
+              2,
+              requireCurrentUrl(),
+              clickOptions,
+              context.permissionManager
+            );
+
+          case 'triple_click':
+            return await executeClick(
+              effectiveTabId,
+              toolParams,
+              3,
+              requireCurrentUrl(),
+              clickOptions,
+              context.permissionManager
+            );
+
+          case 'zoom':
+            return await executeZoom(effectiveTabId, toolParams);
+
+          case 'scroll_to':
+            return await executeScrollTo(effectiveTabId, toolParams, requireCurrentUrl());
+
+          case 'hover':
+            return await executeHover(
+              effectiveTabId,
+              toolParams,
+              requireCurrentUrl(),
+              clickOptions
+            );
+
+          default:
+            throw new Error(`Unsupported action: ${toolParams.action}`);
+        }
+      };
+
+      if (canOpenNewTabFromInteraction(toolParams.action)) {
+        cdpDebugger.clearWindowOpenEvents(effectiveTabId);
+        try {
+          await cdpDebugger.enablePageEvents(effectiveTabId);
+        } catch {
+          // Page.windowOpen is a best-effort fallback; normal input still runs without it.
+        }
+
+        let adoptedTabIds = canSubmitSearchNavigation(toolParams)
+          ? await openFocusedSearchSubmitInNewTab(effectiveTabId)
+          : [];
+        if (adoptedTabIds.length > 0) {
+          openedTabIdsForContext = adoptedTabIds;
+          cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
+          result = {
+            output: `Opened search results in a new tab in current group: ${adoptedTabIds.join(', ')}`
+          };
+        } else {
+          result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          adoptedTabIds = await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId);
+          if (adoptedTabIds.length === 0) {
+            adoptedTabIds = await createTabsForWindowOpenEvents(
+              effectiveTabId,
+              requireCurrentUrl()
+            );
           } else {
-            result = await executeScreenshot(effectiveTabId, clickOptions);
+            cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
           }
-          break;
-
-        case 'wait':
-          result = await executeWait(toolParams);
-          break;
-
-        case 'scroll':
-          result = await executeScroll(
-            effectiveTabId,
-            toolParams,
-            context.permissionManager,
-            clickOptions
-          );
-          break;
-
-        case 'key':
-          result = await executeKey(effectiveTabId, toolParams, requireCurrentUrl());
-          break;
-
-        case 'left_click_drag':
-          result = await executeDrag(effectiveTabId, toolParams, requireCurrentUrl(), clickOptions);
-          break;
-
-        case 'double_click':
-          result = await executeClick(
-            effectiveTabId,
-            toolParams,
-            2,
-            requireCurrentUrl(),
-            clickOptions,
-            context.permissionManager
-          );
-          break;
-
-        case 'triple_click':
-          result = await executeClick(
-            effectiveTabId,
-            toolParams,
-            3,
-            requireCurrentUrl(),
-            clickOptions,
-            context.permissionManager
-          );
-          break;
-
-        case 'zoom':
-          result = await executeZoom(effectiveTabId, toolParams);
-          break;
-
-        case 'scroll_to':
-          result = await executeScrollTo(effectiveTabId, toolParams, requireCurrentUrl());
-          break;
-
-        case 'hover':
-          result = await executeHover(
-            effectiveTabId,
-            toolParams,
-            requireCurrentUrl(),
-            clickOptions
-          );
-          break;
-
-        default:
-          throw new Error(`Unsupported action: ${toolParams.action}`);
+          if (adoptedTabIds.length === 0 && canSubmitSearchNavigation(toolParams)) {
+            adoptedTabIds = await moveSearchNavigationToNewTab({
+              openerTabId: effectiveTabId,
+              previousUrl: requireCurrentUrl(),
+              timeoutMs: 1800
+            });
+          }
+          if (adoptedTabIds.length > 0) {
+            openedTabIdsForContext = adoptedTabIds;
+            const suffix = `Opened new tab${adoptedTabIds.length === 1 ? '' : 's'} in current group: ${adoptedTabIds.join(', ')}`;
+            result = {
+              ...result,
+              output: result.output ? `${result.output}\n${suffix}` : suffix
+            };
+          }
+        }
+      } else {
+        result = await runAction();
       }
 
       const availableTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const executedOnTabId =
+        openedTabIdsForContext.length > 0
+          ? openedTabIdsForContext[openedTabIdsForContext.length - 1]
+          : effectiveTabId;
       return {
         ...result,
         tabContext: {
           currentTabId: context.tabId,
-          executedOnTabId: effectiveTabId,
+          executedOnTabId,
           availableTabs,
           tabCount: availableTabs.length
         }

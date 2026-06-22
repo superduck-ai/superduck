@@ -7,6 +7,7 @@ const fixtures = vi.hoisted(() => {
   const executeReadPage = vi.fn();
   const executeFind = vi.fn();
   const executeFormInput = vi.fn();
+  const executeTabsCreate = vi.fn();
   const waitForTabLoading = vi.fn();
   const attachDebugger = vi.fn();
   const isDebuggerAttached = vi.fn();
@@ -16,7 +17,10 @@ const fixtures = vi.hoisted(() => {
     description: 'computer',
     parameters: {
       required: ['action', 'tabId'],
-      action: { type: 'string', enum: ['wait', 'screenshot', 'left_click', 'key'] },
+      action: {
+        type: 'string',
+        enum: ['wait', 'screenshot', 'left_click', 'key', 'type', 'scroll']
+      },
       duration: { type: 'number', minimum: 0, maximum: 30 },
       ref: { type: 'string' },
       text: { type: 'string' },
@@ -40,7 +44,8 @@ const fixtures = vi.hoisted(() => {
     parameters: {
       required: ['url', 'tabId'],
       url: { type: 'string' },
-      tabId: { type: 'number' }
+      tabId: { type: 'number' },
+      newTab: { type: 'boolean' }
     },
     execute: executeNavigate,
     toProviderSchema: async () => ({
@@ -59,6 +64,7 @@ const fixtures = vi.hoisted(() => {
     description: 'read_page',
     parameters: {
       tabId: { type: 'number' },
+      filter: { type: 'string', enum: ['interactive', 'all'] },
       max_chars: { type: 'number', minimum: 1, maximum: 1000 }
     },
     execute: executeReadPage,
@@ -114,16 +120,36 @@ const fixtures = vi.hoisted(() => {
     })
   };
 
+  const tabsCreateTool = {
+    name: 'tabs_create',
+    description: 'tabs_create',
+    parameters: {
+      url: { type: 'string' },
+      tabId: { type: 'number' }
+    },
+    execute: executeTabsCreate,
+    toProviderSchema: async () => ({
+      name: 'tabs_create',
+      description: 'tabs_create',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    })
+  };
+
   return {
     executeComputer,
     executeNavigate,
     executeReadPage,
     executeFind,
     executeFormInput,
+    executeTabsCreate,
     waitForTabLoading,
     attachDebugger,
     isDebuggerAttached,
-    tools: [computerTool, navigateTool, readPageTool, findTool, formInputTool]
+    tools: [computerTool, navigateTool, readPageTool, findTool, formInputTool, tabsCreateTool]
   };
 });
 
@@ -163,821 +189,234 @@ function parseOutput(result: ToolResult): Record<string, unknown> {
   return JSON.parse(result.output || '{}') as Record<string, unknown>;
 }
 
-function mockChromeTab(tab: Partial<chrome.tabs.Tab>): void {
-  (
-    chrome.tabs.get as unknown as {
-      mockResolvedValue: (value: Partial<chrome.tabs.Tab>) => void;
-    }
-  ).mockResolvedValue(tab);
-}
-
-function mockChromeTabError(error: Error): void {
-  (
-    chrome.tabs.get as unknown as {
-      mockRejectedValue: (value: Error) => void;
-    }
-  ).mockRejectedValue(error);
-}
-
-describe('browser_batch runtime contract', () => {
+describe('browser_batch Claude-like runtime contract', () => {
   beforeEach(() => {
     fixtures.executeComputer.mockReset();
     fixtures.executeNavigate.mockReset();
     fixtures.executeReadPage.mockReset();
     fixtures.executeFind.mockReset();
     fixtures.executeFormInput.mockReset();
+    fixtures.executeTabsCreate.mockReset();
     fixtures.waitForTabLoading.mockReset();
     fixtures.attachDebugger.mockReset();
     fixtures.isDebuggerAttached.mockReset();
     fixtures.isDebuggerAttached.mockResolvedValue(true);
-    mockChromeTab({ id: 7, url: 'https://example.com' });
+    (
+      chrome.tabs.get as unknown as {
+        mockResolvedValue: (value: Partial<chrome.tabs.Tab>) => void;
+      }
+    ).mockResolvedValue({ id: 7, url: 'https://example.com' });
   });
 
-  it('rejects single-action batches so one-off actions run directly', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [{ tool: 'computer', input: { action: 'screenshot' } }]
-      },
-      context
-    );
+  it('exposes Claude-style {name, input} actions and allows one or more actions', async () => {
+    const schema = await batchTool.toProviderSchema();
+    const actions = schema.input_schema.properties.actions;
+    const item = actions.items as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
 
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      remaining: 1,
-      stoppedReason: 'invalid_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('requires at least 2 deterministic actions');
+    expect(actions.minItems).toBe(1);
+    expect(actions.maxItems).toBeUndefined();
+    expect(item.required).toEqual(['name', 'input']);
+    expect(item.properties.name).toMatchObject({ type: 'string' });
+    expect(item.properties).not.toHaveProperty('tool.enum');
+    expect(schema.description).toContain('{name, input}');
+    expect(schema.description).toContain('navigate');
   });
 
-  it('coerces child action inputs before execution and returns structured success', async () => {
-    fixtures.executeComputer.mockResolvedValue({ output: 'computer action' });
-
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: '1' } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
-      1,
-      { action: 'wait', duration: 1, tabId: 7 },
-      context
-    );
-    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
-      2,
-      { action: 'screenshot', tabId: 7 },
-      context
-    );
-    expect(result).toMatchObject({
-      completed: 2,
-      failedIndex: null,
-      remaining: 0,
-      stoppedReason: 'completed'
-    });
-    expect(parseOutput(result)).toMatchObject({
-      completed: 2,
-      failedIndex: null,
-      remaining: 0,
-      stoppedReason: 'completed'
-    });
-  });
-
-  it('validates every child action before running any tool', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'computer', input: {} }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 1,
-      remaining: 0,
-      stoppedReason: 'validation_error'
-    });
-    expect(result.is_error).toBe(true);
-    expect(String(result.output)).toContain('action is required');
-  });
-
-  it('accepts Claude-style name aliases for child actions', async () => {
-    fixtures.executeComputer.mockResolvedValue({ output: 'computer action' });
-
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          {
-            name: 'computer',
-            input: { action: 'wait', duration: '1' }
-          } as unknown as { tool: string; input: Record<string, unknown> },
-          {
-            name: 'computer',
-            input: { action: 'screenshot' }
-          } as unknown as { tool: string; input: Record<string, unknown> }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
-      1,
-      { action: 'wait', duration: 1, tabId: 7 },
-      context
-    );
-    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
-      2,
-      { action: 'screenshot', tabId: 7 },
-      context
-    );
-    expect(result).toMatchObject({
-      completed: 2,
-      failedIndex: null,
-      remaining: 0,
-      stoppedReason: 'completed'
-    });
-  });
-
-  it('keeps summary mode child outputs concise', async () => {
+  it('runs a single action instead of rejecting it', async () => {
     fixtures.executeComputer.mockResolvedValue({ output: 'screenshot captured' });
-    fixtures.executeReadPage.mockResolvedValue({ output: 'x'.repeat(500) });
 
     const result = await batchTool.execute(
       {
         tabId: 7,
-        resultMode: 'summary',
-        actions: [
-          { tool: 'computer', input: { action: 'screenshot' } },
-          { tool: 'read_page', input: { max_chars: 1000 } }
-        ]
+        actions: [{ name: 'computer', input: { action: 'screenshot' } }]
       },
       context
     );
 
-    const output = parseOutput(result);
-    const steps = output.steps as Array<{ output?: string }>;
-    expect(steps[1].output).toHaveLength(160);
-    expect(output.summary).not.toContain('x'.repeat(300));
-  });
-
-  it('ensures debugger attach before CDP-dependent child actions', async () => {
-    fixtures.isDebuggerAttached.mockResolvedValue(false);
-    fixtures.executeComputer.mockResolvedValue({ output: 'screenshot' });
-
-    await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.attachDebugger).toHaveBeenCalledWith(7);
     expect(fixtures.executeComputer).toHaveBeenCalledWith(
       { action: 'screenshot', tabId: 7 },
-      context
+      expect.objectContaining({ tabId: 7, availableTools: fixtures.tools })
     );
+    expect(result).toMatchObject({
+      completed: 1,
+      failedIndex: null,
+      remaining: 0,
+      stoppedReason: 'completed',
+      batchItems: [{ label: 'computer:screenshot', output: 'screenshot captured' }]
+    });
   });
 
-  it('rejects system pages before child execution or debugger attach', async () => {
-    mockChromeTab({ id: 7, url: 'chrome://newtab/' });
-    fixtures.executeComputer.mockResolvedValue({ output: 'computer action' });
+  it('executes navigate and read_page sequentially inside one batch', async () => {
+    fixtures.executeNavigate.mockResolvedValue({
+      output: 'navigated',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 7,
+        availableTabs: [{ id: 7, title: 'Example', url: 'https://example.com/form' }],
+        tabCount: 1
+      }
+    });
+    fixtures.executeReadPage.mockResolvedValue({ output: 'page content' });
 
     const result = await batchTool.execute(
       {
         tabId: 7,
         actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'computer', input: { action: 'screenshot' } }
+          { name: 'navigate', input: { url: 'https://example.com/form' } },
+          { name: 'read_page', input: { filter: 'interactive' } }
         ]
       },
       context
     );
 
-    expect(fixtures.attachDebugger).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
+    expect(fixtures.executeNavigate).toHaveBeenCalledWith(
+      { url: 'https://example.com/form', tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+    expect(fixtures.waitForTabLoading).toHaveBeenCalledWith(7);
+    expect(fixtures.executeReadPage).toHaveBeenCalledWith(
+      { filter: 'interactive', tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
     expect(result).toMatchObject({
-      failedIndex: 0,
-      stoppedReason: 'system_page',
-      is_error: true
+      completed: 2,
+      failedIndex: null,
+      stoppedReason: 'completed'
     });
   });
 
-  it('returns a structured batch error when the target tab disappears before execution', async () => {
-    mockChromeTabError(new Error('No tab with id: 7'));
-    fixtures.executeComputer.mockResolvedValue({ output: 'computer action' });
+  it('allows tabs_create inside the generic batch wrapper', async () => {
+    fixtures.executeTabsCreate.mockResolvedValue({
+      output: 'Opened https://example.com/search in new tab. Tab ID: 8',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 8,
+        availableTabs: [
+          { id: 7, title: 'Home', url: 'https://example.com' },
+          { id: 8, title: 'Search', url: 'https://example.com/search' }
+        ],
+        tabCount: 2
+      }
+    });
 
     const result = await batchTool.execute(
       {
         tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
+        actions: [{ name: 'tabs_create', input: { url: 'https://example.com/search' } }]
       },
       context
     );
 
-    expect(fixtures.attachDebugger).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'tab_unavailable',
-      is_error: true
-    });
-    const parsed = parseOutput(result);
-    const steps = parsed.steps as Array<{ errorCode?: string; error?: string }>;
-    expect(steps[0]?.errorCode).toBe('tab_unavailable');
-    expect(steps[0]?.error).toContain('tab 7 is no longer available');
-  });
-
-  it('rejects navigate followed by read_page because new-page discovery must observe separately', async () => {
-    fixtures.executeNavigate.mockResolvedValue({ output: 'navigated' });
-    fixtures.executeReadPage.mockResolvedValue({ output: 'page' });
-
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'navigate', input: { url: 'https://example.com/form' } },
-          { tool: 'read_page', input: { max_chars: 100 } }
-        ]
-      },
-      context
+    expect(fixtures.executeTabsCreate).toHaveBeenCalledWith(
+      { url: 'https://example.com/search', tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
     );
-
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(fixtures.executeReadPage).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
+      completed: 1,
+      failedIndex: null,
+      tabContext: {
+        executedOnTabId: 8,
+        tabCount: 2
+      }
     });
-    expect(String(result.output)).toContain('navigate should not run inside browser_batch');
   });
 
-  it('rejects navigate followed by wait and read_page observation', async () => {
-    fixtures.executeNavigate.mockResolvedValue({ output: 'navigated' });
+  it('keeps legacy {tool, input} action aliases working', async () => {
     fixtures.executeComputer.mockResolvedValue({ output: 'waited' });
-    fixtures.executeReadPage.mockResolvedValue({ output: 'page' });
 
     const result = await batchTool.execute(
       {
         tabId: 7,
-        actions: [
-          { tool: 'navigate', input: { url: 'https://example.com/form' } },
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'read_page', input: { max_chars: 100 } }
-        ]
+        actions: [{ tool: 'computer', input: { action: 'wait', duration: '1' } }]
       },
       context
     );
 
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(fixtures.executeReadPage).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('navigate should not run inside browser_batch');
-  });
-
-  it('rejects navigate followed by find inside the same batch', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'navigate', input: { url: 'https://example.com' } },
-          { tool: 'find', input: { query: 'search box' } }
-        ]
-      },
-      context
+    expect(fixtures.executeComputer).toHaveBeenCalledWith(
+      { action: 'wait', duration: 1, tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
     );
-
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(fixtures.executeFind).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('navigate should not run inside browser_batch');
+    expect(result).toMatchObject({ completed: 1, failedIndex: null });
   });
 
-  it('rejects navigate followed by wait and find inside the same batch', async () => {
+  it('validates child input when that child step is reached', async () => {
+    fixtures.executeComputer.mockResolvedValueOnce({ output: 'waited' });
+
     const result = await batchTool.execute(
       {
         tabId: 7,
         actions: [
-          { tool: 'navigate', input: { url: 'https://example.com' } },
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'find', input: { query: 'search box' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(fixtures.executeFind).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('navigate should not run inside browser_batch');
-  });
-
-  it('rejects observation results followed by ref-dependent mutation in one batch', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'read_page', input: { max_chars: 100 } },
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeReadPage).not.toHaveBeenCalled();
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 2,
-      remaining: 1,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('cannot be consumed by later actions');
-  });
-
-  it('rejects observation-first discovery batches', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'read_page', input: { max_chars: 100 } },
-          { tool: 'find', input: { query: 'search box' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeReadPage).not.toHaveBeenCalled();
-    expect(fixtures.executeFind).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('should not start with read_page/find/get_page_text');
-  });
-
-  it('rejects stale ref-consuming actions after navigation before side effects', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'navigate', input: { url: 'https://example.com/form' } },
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('navigate should not run inside browser_batch');
-  });
-
-  it('rejects stale ref-consuming actions after navigation even when separated by wait', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'navigate', input: { url: 'https://example.com/form' } },
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeNavigate).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('navigate should not run inside browser_batch');
-  });
-
-  it('rejects placeholder refs because same-batch observation outputs cannot be interpolated', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref: '{{searchBoxRef}}', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'invalid_batch_input',
-      is_error: true
-    });
-    const parsed = parseOutput(result);
-    const steps = parsed.steps as Array<{ error?: string }>;
-    expect(steps[0]?.error).toContain('requires concrete refs like "ref_1"');
-  });
-
-  it('gives specific guidance for form_input ref_id misuse', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref_id: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'invalid_batch_input',
-      is_error: true
-    });
-    const parsed = parseOutput(result);
-    const steps = parsed.steps as Array<{ error?: string }>;
-    expect(steps[0]?.error).toContain('form_input uses "ref", not "ref_id"');
-  });
-
-  it('rejects wait actions that exceed the child action timeout', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 20 } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      stoppedReason: 'invalid_batch_input',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('too long for browser_batch child timeout');
-  });
-
-  it('does not continue from a failed read-only action into later mutation', async () => {
-    fixtures.executeReadPage.mockResolvedValue({ error: 'page unavailable' });
-    fixtures.executeFormInput.mockResolvedValue({ output: 'set value' });
-
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        onError: 'continue',
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'read_page', input: { max_chars: 100 } },
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeReadPage).not.toHaveBeenCalled();
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 2,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-  });
-
-  it('does not report completed when onError continue skips a trailing read-only failure', async () => {
-    fixtures.executeComputer.mockResolvedValue({ output: 'waited' });
-    fixtures.executeReadPage.mockResolvedValue({ error: 'page unavailable' });
-
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        onError: 'continue',
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1 } },
-          { tool: 'read_page', input: { max_chars: 100 } }
+          { name: 'computer', input: { action: 'wait', duration: 1 } },
+          { name: 'computer', input: {} }
         ]
       },
       context
     );
 
     expect(fixtures.executeComputer).toHaveBeenCalledTimes(1);
-    expect(fixtures.executeReadPage).toHaveBeenCalledTimes(1);
+    expect(fixtures.executeComputer).toHaveBeenCalledWith(
+      { action: 'wait', duration: 1, tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
     expect(result).toMatchObject({
       completed: 1,
       failedIndex: 1,
-      remaining: 0,
-      stoppedReason: 'tool_error',
+      stoppedReason: 'validation_error',
       is_error: true
     });
-    expect(parseOutput(result)).toMatchObject({
-      completed: 1,
-      failedIndex: 1,
-      remaining: 0,
-      stoppedReason: 'tool_error'
-    });
+    expect(String(result.output)).toContain('action is required');
   });
 
-  it('allows ref-based form input followed by Enter when refs were observed before the batch', async () => {
-    fixtures.executeFormInput.mockResolvedValue({ output: 'set value' });
-    fixtures.executeComputer.mockResolvedValue({ output: 'pressed Enter' });
+  it('allows cross-tab child actions when the child inputs target explicit tabs', async () => {
+    fixtures.executeComputer.mockResolvedValue({ output: 'ok' });
 
     const result = await batchTool.execute(
       {
         tabId: 7,
         actions: [
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
+          { name: 'computer', input: { action: 'wait', duration: 1, tabId: 8 } },
+          { name: 'computer', input: { action: 'screenshot', tabId: 9 } }
         ]
       },
       context
     );
 
-    expect(fixtures.executeFormInput).toHaveBeenCalledWith(
-      { ref: 'ref_1', value: 'deepseek', tabId: 7 },
-      context
+    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
+      1,
+      { action: 'wait', duration: 1, tabId: 8 },
+      expect.objectContaining({ availableTools: fixtures.tools })
     );
-    expect(fixtures.executeComputer).toHaveBeenCalledWith(
-      { action: 'key', text: 'Enter', tabId: 7 },
-      context
+    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
+      2,
+      { action: 'screenshot', tabId: 9 },
+      expect.objectContaining({ availableTools: fixtures.tools })
     );
+    expect(fixtures.waitForTabLoading).toHaveBeenCalledWith(8);
     expect(result).toMatchObject({
       completed: 2,
       failedIndex: null,
       stoppedReason: 'completed'
     });
-    expect(fixtures.waitForTabLoading).toHaveBeenCalledWith(7);
   });
 
-  it('clears child action timeout timers after successful batch actions', async () => {
-    vi.useFakeTimers();
-    try {
-      fixtures.executeComputer.mockResolvedValue({ output: 'screenshot' });
-      fixtures.executeReadPage.mockResolvedValue({ output: 'read page' });
-
-      const resultPromise = batchTool.execute(
-        {
-          tabId: 7,
-          actions: [
-            { tool: 'computer', input: { action: 'screenshot' } },
-            { tool: 'read_page', input: { max_chars: 1000 } }
-          ]
-        },
-        context
-      );
-
-      await expect(resultPromise).resolves.toMatchObject({
-        completed: 2,
-        failedIndex: null,
-        stoppedReason: 'completed'
-      });
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('preflights page permission before executing child actions', async () => {
-    const permissionManager = {
-      checkPermission: vi.fn().mockResolvedValue({ allowed: false, needsPrompt: true }),
-      getTurnApprovedDomains: vi.fn(() => []),
-      setTurnApprovedDomains: vi.fn()
-    };
-
+  it('rejects nested browser_batch actions', async () => {
     const result = await batchTool.execute(
       {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
-        ]
-      },
-      {
-        ...context,
-        toolUseId: 'batch-tool-use',
-        permissionManager: permissionManager as ToolContext['permissionManager']
-      }
-    );
-
-    expect(result).toMatchObject({
-      type: 'permission_required',
-      tool: 'browser_batch',
-      url: 'https://example.com',
-      toolUseId: 'batch-tool-use'
-    });
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-  });
-
-  it('turn-approves the preflighted domain after batch permission succeeds', async () => {
-    const permissionManager = {
-      checkPermission: vi.fn().mockResolvedValue({ allowed: true }),
-      getTurnApprovedDomains: vi.fn(() => ['existing.test']),
-      setTurnApprovedDomains: vi.fn()
-    };
-    fixtures.executeFormInput.mockResolvedValue({ output: 'set value' });
-    fixtures.executeComputer.mockResolvedValue({ output: 'pressed Enter' });
-
-    await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } }
-        ]
-      },
-      {
-        ...context,
-        toolUseId: 'batch-tool-use',
-        permissionManager: permissionManager as ToolContext['permissionManager']
-      }
-    );
-
-    expect(permissionManager.setTurnApprovedDomains).toHaveBeenCalledWith([
-      'existing.test',
-      'example.com'
-    ]);
-    expect(fixtures.executeFormInput).toHaveBeenCalled();
-    expect(fixtures.executeComputer).toHaveBeenCalled();
-  });
-
-  it('rejects actions after Enter because submit may change page state', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter' } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
+        actions: [{ name: 'browser_batch', input: { actions: [] } }]
       },
       context
     );
 
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 2,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('actions after Enter/Return should not run');
-  });
-
-  it('rejects actions after modifier+Enter because submit shortcuts may change page state', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'cmd+Enter' } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 2,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('actions after Enter/Return should not run');
-  });
-
-  it('rejects key tokens after Enter inside the same key action', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'form_input', input: { ref: 'ref_1', value: 'deepseek' } },
-          { tool: 'computer', input: { action: 'key', text: 'Enter Tab' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 1,
-      stoppedReason: 'unsafe_batch',
-      is_error: true
-    });
-    expect(String(result.output)).toContain('key tokens after Enter/Return should not run');
-  });
-
-  it('rejects cross-tab child actions before execution', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'wait', duration: 1, tabId: 8 } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       completed: 0,
       failedIndex: 0,
-      remaining: 1,
-      stoppedReason: 'cross_tab'
+      stoppedReason: 'nested_batch',
+      is_error: true
     });
-    expect(result.is_error).toBe(true);
-  });
-
-  it('rejects tools outside the batch allowlist', async () => {
-    const result = await batchTool.execute(
-      {
-        tabId: 7,
-        actions: [
-          { tool: 'tabs_create', input: {} },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
-      },
-      context
-    );
-
-    expect(fixtures.executeComputer).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      completed: 0,
-      failedIndex: 0,
-      remaining: 1,
-      stoppedReason: 'disallowed_tool'
-    });
-    expect(result.is_error).toBe(true);
-    expect(String(result.output)).toContain('not allowed in browser_batch');
+    expect(String(result.output)).toContain('browser_batch cannot be nested');
   });
 
   it('returns the original permission request when the first child action needs approval', async () => {
@@ -991,10 +430,7 @@ describe('browser_batch runtime contract', () => {
     const result = await batchTool.execute(
       {
         tabId: 7,
-        actions: [
-          { tool: 'computer', input: { action: 'left_click', ref: 'ref_1' } },
-          { tool: 'computer', input: { action: 'screenshot' } }
-        ]
+        actions: [{ name: 'computer', input: { action: 'left_click', ref: 'ref_1' } }]
       },
       context
     );
@@ -1007,55 +443,86 @@ describe('browser_batch runtime contract', () => {
     });
   });
 
-  it('keeps last image and tab context when a later child action needs permission', async () => {
-    const tabContext = {
-      currentTabId: 7,
-      executedOnTabId: 7,
-      availableTabs: [{ id: 7, title: 'Example', url: 'https://example.com' }],
-      tabCount: 1
-    };
-    fixtures.executeComputer.mockResolvedValueOnce({
-      output: 'screenshot',
-      base64Image: 'image-data',
-      imageFormat: 'png',
-      tabContext
-    });
-    fixtures.executeComputer.mockResolvedValueOnce({
+  it('returns a permission request after safe prior wait actions', async () => {
+    fixtures.executeComputer.mockResolvedValueOnce({ output: 'waited' });
+    fixtures.executeNavigate.mockResolvedValueOnce({
       type: 'permission_required',
-      tool: 'computer',
+      tool: 'navigate',
       url: 'https://example.org',
-      toolUseId: 'child-tool'
+      toolUseId: 'nav-tool'
     });
 
     const result = await batchTool.execute(
       {
         tabId: 7,
         actions: [
-          { tool: 'computer', input: { action: 'screenshot' } },
-          { tool: 'computer', input: { action: 'left_click', ref: 'ref_1' } }
+          { name: 'computer', input: { action: 'wait', duration: 1 } },
+          { name: 'navigate', input: { url: 'https://example.org' } }
+        ]
+      },
+      context
+    );
+
+    expect(result).toMatchObject({
+      type: 'permission_required',
+      tool: 'navigate',
+      url: 'https://example.org',
+      toolUseId: 'nav-tool'
+    });
+  });
+
+  it('stops and asks for standalone permission after unsafe prior actions', async () => {
+    fixtures.executeComputer.mockResolvedValueOnce({ output: 'clicked' });
+    fixtures.executeNavigate.mockResolvedValueOnce({
+      type: 'permission_required',
+      tool: 'navigate',
+      url: 'https://example.org',
+      toolUseId: 'nav-tool'
+    });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'computer', input: { action: 'left_click', ref: 'ref_1' } },
+          { name: 'navigate', input: { url: 'https://example.org' } }
         ]
       },
       context
     );
 
     expect(result.type).toBeUndefined();
-    expect(result.error).toBeUndefined();
     expect(result).toMatchObject({
       completed: 1,
       failedIndex: 1,
-      remaining: 0,
       stoppedReason: 'permission_required',
-      base64Image: 'image-data',
-      imageFormat: 'png',
-      tabContext
+      is_error: true
     });
-    expect(result.is_error).toBe(true);
-    expect(parseOutput(result)).toMatchObject({
-      completed: 1,
-      failedIndex: 1,
-      remaining: 0,
-      stoppedReason: 'permission_required'
-    });
-    expect(String(result.output)).toContain('https://example.org');
+    expect(String(result.output)).toContain('call navigate standalone');
+  });
+
+  it('keeps summary mode child outputs concise and exposes batchItems', async () => {
+    fixtures.executeComputer.mockResolvedValue({ output: 'screenshot captured' });
+    fixtures.executeReadPage.mockResolvedValue({ output: 'x'.repeat(500) });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        resultMode: 'summary',
+        actions: [
+          { name: 'computer', input: { action: 'screenshot' } },
+          { name: 'read_page', input: { max_chars: 1000 } }
+        ]
+      },
+      context
+    );
+
+    const output = parseOutput(result);
+    const steps = output.steps as Array<{ output?: string }>;
+    expect(steps[1].output).toHaveLength(160);
+    expect(result.batchItems).toMatchObject([
+      { label: 'computer:screenshot', output: 'screenshot captured' },
+      { label: 'read_page', output: 'x'.repeat(500) }
+    ]);
   });
 });
