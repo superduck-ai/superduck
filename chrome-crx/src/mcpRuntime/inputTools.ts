@@ -26,8 +26,10 @@ import { captureAnnotatedScreenshot } from './annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 import {
   checkDomainCategoryForNavigation,
+  createPolicyCheckedChildTab,
   moveSearchNavigationToNewTab
 } from './navigationIsolation';
+import type { NavigationPolicyContext } from './navigationIsolation';
 
 interface ComputerToolParams {
   action: string;
@@ -144,7 +146,8 @@ function resolveWindowOpenUrl(rawUrl: string, currentUrl: string): string | unde
 
 async function createTabsForWindowOpenEvents(
   openerTabId: number,
-  currentUrl: string
+  currentUrl: string,
+  policy: NavigationPolicyContext
 ): Promise<number[]> {
   const events = cdpDebugger.consumeWindowOpenEvents(openerTabId);
   const seenUrls = new Set<string>();
@@ -155,7 +158,7 @@ async function createTabsForWindowOpenEvents(
     if (!url || seenUrls.has(url)) continue;
     seenUrls.add(url);
 
-    const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
+    const tabId = await createPolicyCheckedChildTab(openerTabId, url, policy);
     if (typeof tabId === 'number') createdTabIds.push(tabId);
   }
 
@@ -191,9 +194,15 @@ async function getFocusedSearchSubmitTarget(
         .join(' ')
         .toLowerCase();
       const queryNamePattern = /^(q|query|keyword|keywords|wd|word|search|search_query|text)$/i;
+      // Field-name signal is intentionally narrower than queryNamePattern: generic
+      // names like "text"/"word" appear on plenty of non-search GET forms, so they
+      // must NOT alone trigger search isolation (that would swallow a real submit).
+      // Real engines using those names (e.g. Yandex text=) still match via the
+      // search-looking form action/target below.
+      const searchFieldNamePattern = /^(q|query|keyword|keywords|wd|search|search_query)$/i;
       const fieldLooksSearch =
         inputType === 'search' ||
-        queryNamePattern.test(active.name || '') ||
+        searchFieldNamePattern.test(active.name || '') ||
         /\b(search|query|keyword|keywords)\b|搜索|搜/.test(fieldHints);
 
       if (!form) return null;
@@ -585,6 +594,11 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           // Page.windowOpen is a best-effort fallback; normal input still runs without it.
         }
 
+        const navigationPolicy: NavigationPolicyContext = {
+          permissionManager: context.permissionManager,
+          toolUseId: context.toolUseId,
+          toolName: 'computer'
+        };
         let adoptedTabIds: number[] = [];
         if (canSubmitSearchNavigation(toolParams)) {
           const submitOutcome = await openFocusedSearchSubmitInNewTab(
@@ -608,7 +622,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           if (adoptedTabIds.length === 0) {
             adoptedTabIds = await createTabsForWindowOpenEvents(
               effectiveTabId,
-              requireCurrentUrl()
+              requireCurrentUrl(),
+              navigationPolicy
             );
           } else {
             cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
@@ -617,7 +632,8 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
             adoptedTabIds = await moveSearchNavigationToNewTab({
               openerTabId: effectiveTabId,
               previousUrl: requireCurrentUrl(),
-              timeoutMs: 1800
+              timeoutMs: 1800,
+              policy: navigationPolicy
             });
           }
           if (adoptedTabIds.length > 0) {

@@ -9,8 +9,10 @@ import {
 } from './axSnapshot';
 import {
   checkDomainCategoryForNavigation,
+  createPolicyCheckedChildTab,
   moveSearchNavigationToNewTab
 } from './navigationIsolation';
+import type { NavigationPolicyContext } from './navigationIsolation';
 import { registerRefsInPage, pruneStaleRefs } from './refBridge';
 import type { CdpRuntimeEvaluateResult, ConsoleMessage, NetworkRequest } from './cdpTypes';
 import {
@@ -261,6 +263,11 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         );
       });
 
+      const navigationPolicy: NavigationPolicyContext = {
+        permissionManager: context.permissionManager,
+        toolUseId,
+        toolName: 'javascript_tool'
+      };
       let openedTabIds = await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId);
       if (openedTabIds.length === 0) {
         const events = cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
@@ -271,7 +278,11 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
             if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
             if (seenUrls.has(url.href)) continue;
             seenUrls.add(url.href);
-            const tabId = await tabGroupManager.createChildTabInGroup(effectiveTabId, url.href);
+            const tabId = await createPolicyCheckedChildTab(
+              effectiveTabId,
+              url.href,
+              navigationPolicy
+            );
             if (typeof tabId === 'number') openedTabIds.push(tabId);
           } catch {
             // Ignore malformed or unsupported window.open targets.
@@ -284,7 +295,8 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         openedTabIds = await moveSearchNavigationToNewTab({
           openerTabId: effectiveTabId,
           previousUrl: tabUrl,
-          timeoutMs: 2500
+          timeoutMs: 2500,
+          policy: navigationPolicy
         });
       }
 
@@ -396,11 +408,15 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       }
 
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      // Report the newly opened tab as executedOnTabId so browser_batch chains
+      // subsequent steps onto it, matching computer tool behavior.
+      const executedOnTabId =
+        openedTabIds.length > 0 ? openedTabIds[openedTabIds.length - 1] : effectiveTabId;
       return {
         output,
         tabContext: {
           currentTabId: context.tabId,
-          executedOnTabId: effectiveTabId,
+          executedOnTabId,
           availableTabs: validTabs,
           tabCount: validTabs.length
         }

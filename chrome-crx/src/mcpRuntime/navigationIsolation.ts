@@ -14,6 +14,17 @@ const SEARCH_QUERY_PARAMS = new Set([
   'word'
 ]);
 
+export interface NavigationPolicyContext {
+  permissionManager: {
+    checkPermission(
+      url: string,
+      toolUseId?: string
+    ): Promise<{ allowed: boolean; needsPrompt?: boolean }>;
+  };
+  toolUseId?: string;
+  toolName: string;
+}
+
 export async function checkDomainCategoryForNavigation(
   url: string,
   toolName: string
@@ -35,6 +46,26 @@ export async function checkDomainCategoryForNavigation(
     console.warn(`[${toolName}] domain category check failed for`, url, err);
   }
   return null;
+}
+
+/**
+ * Opens a grouped child tab for a URL that was derived from page activity
+ * (window.open events, search-result navigations, synthesized search submits)
+ * only after it passes the same domain-category and permission gates as
+ * navigate/tabs_create. Returns the new tab id, or null when the navigation
+ * policy disallows it (blocked category, denied, or pending approval) so the
+ * caller simply skips opening the tab instead of bypassing the policy.
+ */
+export async function createPolicyCheckedChildTab(
+  openerTabId: number,
+  url: string,
+  policy: NavigationPolicyContext
+): Promise<number | null> {
+  if (await checkDomainCategoryForNavigation(url, policy.toolName)) return null;
+  const permission = await policy.permissionManager.checkPermission(url, policy.toolUseId);
+  if (!permission.allowed) return null;
+  const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
+  return typeof tabId === 'number' ? tabId : null;
 }
 
 function parseHttpUrl(url: string): URL | undefined {
@@ -104,13 +135,14 @@ export async function moveSearchNavigationToNewTab(options: {
   openerTabId: number;
   previousUrl: string;
   timeoutMs?: number;
+  policy: NavigationPolicyContext;
 }): Promise<number[]> {
-  const { openerTabId, previousUrl, timeoutMs = 1200 } = options;
+  const { openerTabId, previousUrl, timeoutMs = 1200, policy } = options;
   const nextUrl = await waitForChangedUrl(openerTabId, previousUrl, timeoutMs);
   if (!nextUrl || !isSearchLikeNavigation(previousUrl, nextUrl)) return [];
 
-  const childTabId = await tabGroupManager.createChildTabInGroup(openerTabId, nextUrl);
-  if (typeof childTabId !== 'number') return [];
+  const childTabId = await createPolicyCheckedChildTab(openerTabId, nextUrl, policy);
+  if (childTabId === null) return [];
 
   try {
     await chrome.tabs.update(openerTabId, { url: previousUrl });

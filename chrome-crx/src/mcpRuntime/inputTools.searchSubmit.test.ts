@@ -79,7 +79,8 @@ vi.mock('./annotatedScreenshot', () => ({
 
 vi.mock('./navigationIsolation', () => ({
   moveSearchNavigationToNewTab: vi.fn(async () => []),
-  checkDomainCategoryForNavigation: fixtures.checkDomainCategoryForNavigation
+  checkDomainCategoryForNavigation: fixtures.checkDomainCategoryForNavigation,
+  createPolicyCheckedChildTab: vi.fn(async () => null)
 }));
 
 const chromeMock = vi.hoisted(() => ({

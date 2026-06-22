@@ -213,7 +213,12 @@ describe('TabGroupManager MCP tab groups', () => {
     const openedTabs = await moveSearchNavigationToNewTab({
       openerTabId: 7,
       previousUrl: 'https://example.com/',
-      timeoutMs: 100
+      timeoutMs: 100,
+      policy: {
+        permissionManager: { checkPermission: async () => ({ allowed: true }) },
+        toolUseId: undefined,
+        toolName: 'test'
+      }
     });
 
     expect(openedTabs).toEqual([31]);
@@ -226,5 +231,35 @@ describe('TabGroupManager MCP tab groups', () => {
     expect(chromeMock.tabs.update).toHaveBeenCalledWith(7, {
       url: 'https://example.com/'
     });
+  });
+
+  it('does not open the search-result tab when the destination lacks permission', async () => {
+    await tabGroupManager.createMcpTabGroup();
+    chromeMock.tabs.get.mockImplementation(
+      async (id: number): Promise<MockTab> => ({
+        id,
+        windowId: 1,
+        groupId: 123,
+        url: 'https://search.example.org/?q=agent',
+        title: `Tab ${id}`,
+        index: 0,
+        status: 'complete'
+      })
+    );
+    chromeMock.tabs.create.mockClear();
+
+    const openedTabs = await moveSearchNavigationToNewTab({
+      openerTabId: 7,
+      previousUrl: 'https://example.com/',
+      timeoutMs: 100,
+      policy: {
+        permissionManager: { checkPermission: async () => ({ allowed: false, needsPrompt: true }) },
+        toolUseId: undefined,
+        toolName: 'test'
+      }
+    });
+
+    expect(openedTabs).toEqual([]);
+    expect(chromeMock.tabs.create).not.toHaveBeenCalled();
   });
 });
