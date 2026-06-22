@@ -45,7 +45,7 @@ interface BatchItemResult {
 const CHILD_ACTION_TIMEOUT_MS = 15000;
 const SUMMARY_STEP_OUTPUT_MAX_CHARS = 160;
 const BROWSER_BATCH_DESCRIPTION =
-  "Execute a sequence of browser tool calls in ONE round trip. Each item is {name, input} where input is exactly what you'd pass to that tool standalone. Actions execute SEQUENTIALLY (not in parallel) and stop on the first error. Use this tool extensively to quickly execute work whenever you can predict two or more steps ahead, e.g. navigate, click a field, type, press Return, screenshot. Each tool's own permission check runs per item; if an action navigates to a domain without permission, the next item's check fails and the batch stops. Screenshots and other images are returned interleaved with outputs; coordinates you write in THIS batch refer to the screenshot taken BEFORE this call. browser_batch cannot be nested.";
+  "Execute a sequence of browser tool calls in ONE round trip. Each item is {name, input} where input is exactly what you'd pass to that tool standalone. Actions execute SEQUENTIALLY (not in parallel) and stop on the first error. Use this tool extensively to quickly execute work whenever you can predict two or more steps ahead, e.g. navigate, click a field, type, press Return, screenshot. Each tool's own permission check runs per item; if an action navigates to a domain without permission, the next item's check fails and the batch stops. When a step opens a new tab (tabs_create, navigate with newTab:true, or a search submit), later steps that omit tabId automatically run on that newly created tab; pass an explicit tabId to target a different tab. Screenshots and other images are returned interleaved with outputs; coordinates you write in THIS batch refer to the screenshot taken BEFORE this call. browser_batch cannot be nested.";
 
 const DEBUGGER_REQUIRED_TOOLS = new Set(['computer', 'resize_window']);
 const SAFE_PERMISSION_PROMPT_TOOLS = new Set([
@@ -339,10 +339,13 @@ function resolveStepTabId(
   result: ToolResult,
   context: ToolContext
 ): number | undefined {
-  if (typeof input.tabId === 'number') return input.tabId;
+  // executedOnTabId reflects the tab a step actually ran on, including any tab it
+  // newly created (tabs_create, navigate{newTab}, search submit). Prefer it over the
+  // input tab so the created tab loads correctly and propagates to later steps.
   if (typeof result.tabContext?.executedOnTabId === 'number') {
     return result.tabContext.executedOnTabId;
   }
+  if (typeof input.tabId === 'number') return input.tabId;
   return typeof context.tabId === 'number' ? context.tabId : undefined;
 }
 
@@ -547,6 +550,10 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
     let lastImage: { base64Image: string; imageFormat: string } | undefined;
     let lastTabContext: ToolResult['tabContext'] | undefined;
     let canPropagatePermission = true;
+    // Tracks the tab the previous step ran on so steps that create/open a new tab
+    // (tabs_create, navigate{newTab}, search-submit) propagate that tab id to later
+    // actions that omit tabId — callers cannot know a newly created tab id ahead of time.
+    let currentDefaultTabId = defaultTabId;
 
     for (let i = 0; i < preparedActions.length; i++) {
       const { action, toolName, tool } = preparedActions[i];
@@ -554,7 +561,7 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
         input: action.input,
         toolName,
         tools,
-        defaultTabId
+        defaultTabId: currentDefaultTabId
       });
       const validation = validateToolInput(toolName, input, tools);
       if (!validation.valid) {
@@ -702,9 +709,11 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
       canPropagatePermission =
         canPropagatePermission && canPropagatePermissionPrompt(toolName, input);
 
-      if (i < preparedActions.length - 1 && action.waitAfter !== 'none') {
-        const tabId = resolveStepTabId(input, result, childContext);
-        if (tabId !== undefined) await waitForTabLoading(tabId);
+      const stepTabId = resolveStepTabId(input, result, childContext);
+      if (stepTabId !== undefined) currentDefaultTabId = stepTabId;
+
+      if (i < preparedActions.length - 1 && action.waitAfter !== 'none' && stepTabId !== undefined) {
+        await waitForTabLoading(stepTabId);
       }
     }
 

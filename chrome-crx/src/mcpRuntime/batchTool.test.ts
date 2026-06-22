@@ -324,6 +324,76 @@ describe('browser_batch Claude-like runtime contract', () => {
     });
   });
 
+  it('carries a tabs_create tab id into later steps that omit tabId', async () => {
+    fixtures.executeTabsCreate.mockResolvedValue({
+      output: 'Opened https://example.com/search in new tab. Tab ID: 8',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 8,
+        availableTabs: [
+          { id: 7, title: 'Home', url: 'https://example.com' },
+          { id: 8, title: 'Search', url: 'https://example.com/search' }
+        ],
+        tabCount: 2
+      }
+    });
+    fixtures.executeReadPage.mockResolvedValue({ output: 'search page content' });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'tabs_create', input: { url: 'https://example.com/search' } },
+          { name: 'read_page', input: { filter: 'all' } }
+        ]
+      },
+      context
+    );
+
+    expect(fixtures.executeTabsCreate).toHaveBeenCalledWith(
+      { url: 'https://example.com/search', tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+    expect(fixtures.waitForTabLoading).toHaveBeenCalledWith(8);
+    expect(fixtures.executeReadPage).toHaveBeenCalledWith(
+      { filter: 'all', tabId: 8 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+    expect(result).toMatchObject({ completed: 2, failedIndex: null, stoppedReason: 'completed' });
+  });
+
+  it('carries a navigate newTab id into later steps that omit tabId', async () => {
+    fixtures.executeNavigate.mockResolvedValue({
+      output: 'Opened https://example.com/results in new tab. Tab ID: 9',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 9,
+        availableTabs: [
+          { id: 7, title: 'Home', url: 'https://example.com' },
+          { id: 9, title: 'Results', url: 'https://example.com/results' }
+        ],
+        tabCount: 2
+      }
+    });
+    fixtures.executeComputer.mockResolvedValue({ output: 'screenshot captured' });
+
+    await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'navigate', input: { url: 'https://example.com/results', newTab: true } },
+          { name: 'computer', input: { action: 'screenshot' } }
+        ]
+      },
+      context
+    );
+
+    expect(fixtures.executeComputer).toHaveBeenCalledWith(
+      { action: 'screenshot', tabId: 9 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+  });
+
   it('keeps legacy {tool, input} action aliases working', async () => {
     fixtures.executeComputer.mockResolvedValue({ output: 'waited' });
 
