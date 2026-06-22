@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Trash2, X, MessageSquare, ChevronRight } from 'lucide-react';
 import { getStorageValue, setStorageValue } from '../extensionServices';
+import { loadProviderConfig } from '../utils/providerStore';
 import {
   SESSION_INDEX_KEY,
   SESSION_CONVERSATION_MAP_KEY,
@@ -44,6 +45,15 @@ export function truncatePreview(text: string | undefined, maxLen: number): strin
   return trimmed.slice(0, maxLen) + '…';
 }
 
+export function getSessionModelLabel(
+  providerId: string | undefined,
+  providerNameById: Readonly<Record<string, string>>
+): string | undefined {
+  if (!providerId) return undefined;
+  const providerName = providerNameById[providerId]?.trim();
+  return providerName || undefined;
+}
+
 // ─── Session History Panel ────────────────────────────────────────────────────
 
 export interface SessionHistoryPanelProps {
@@ -62,6 +72,32 @@ export function SessionHistoryPanel({
   const [entries, setEntries] = useState<SessionIndexEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [providerNameById, setProviderNameById] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+
+    void loadProviderConfig(true)
+      .then((config) => {
+        if (!active) return;
+        setProviderNameById(
+          Object.fromEntries(
+            config.providers.flatMap((provider) => {
+              const providerName = provider.name.trim();
+              return providerName ? [[provider.id, providerName]] : [];
+            })
+          )
+        );
+      })
+      .catch(() => {
+        if (active) setProviderNameById({});
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
 
   // Load session index whenever the panel opens
   useEffect(() => {
@@ -237,6 +273,7 @@ export function SessionHistoryPanel({
               {displayEntries.map((entry) => {
                 const isDeleting = deletingId === entry.sessionId;
                 const isActive = entry.sessionId === activeSessionId;
+                const modelLabel = getSessionModelLabel(entry.model, providerNameById);
                 return (
                   // Outer row is a div, not a button, so the nested
                   // delete <button> stays valid HTML and reachable for
@@ -279,9 +316,9 @@ export function SessionHistoryPanel({
                         <span className="text-[11px] text-text-500">
                           {formatRelativeTime(entry.updatedAt)}
                         </span>
-                        {entry.model && (
+                        {modelLabel && (
                           <span className="text-[10px] text-text-500 bg-bg-300 px-1 py-0.5 rounded truncate max-w-[80px]">
-                            {entry.model}
+                            {modelLabel}
                           </span>
                         )}
                         {isActive && (

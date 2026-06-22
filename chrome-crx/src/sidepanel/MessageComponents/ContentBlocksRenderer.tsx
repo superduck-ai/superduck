@@ -828,31 +828,40 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
           <div className="mx-2.5 mt-1 mb-2">
             {actionSummaries.length > 0 && (
               <div className="overflow-hidden rounded-lg border-[0.5px] border-border-300 bg-bg-000/50">
-                <ol className="flex flex-col divide-y divide-border-300">
+                <ol className="flex flex-col divide-y divide-border-300/70">
                   {actionSummaries.map((action, index) => (
-                    <li key={`${action.toolName}-${index}`} className="flex gap-2 px-2 py-1.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[0.5px] border-border-300 text-[0.625rem] text-text-400">
+                    <li
+                      key={`${action.toolName}-${index}`}
+                      className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-1.5 px-3 py-2"
+                    >
+                      <span className="flex size-6 shrink-0 items-center justify-center self-start rounded-full border-[0.5px] border-border-300 text-[0.6875rem] leading-none text-text-400">
                         {index + 1}
                       </span>
-                      <span className="mt-0.5 flex shrink-0 items-center justify-center text-text-400">
-                        {action.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs text-text-300">{action.text}</span>
+                      <div className="min-w-0">
+                        <div className="flex min-h-6 items-center gap-2">
+                          <span className="flex size-5 shrink-0 items-center justify-center text-text-400">
+                            {action.icon}
+                          </span>
+                          <span className="min-w-0 break-words text-xs leading-5 text-text-300">
+                            {action.text}
+                          </span>
+                        </div>
                         {action.status === 'failed' && action.error && (
-                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-[0.6875rem] text-danger-200">
+                          <span className="mt-1 block whitespace-pre-wrap break-words pl-7 text-[0.6875rem] leading-4 text-danger-200">
                             {action.error}
                           </span>
                         )}
+                      </div>
+                      <span className="flex h-6 shrink-0 items-center justify-end self-start">
+                        {action.status === 'complete' && (
+                          <Check size={13} className="text-text-400" />
+                        )}
+                        {action.status === 'failed' && (
+                          <Badge color="danger" className="min-w-10 justify-center">
+                            {intl.formatMessage({ id: 'failed', defaultMessage: 'Failed' })}
+                          </Badge>
+                        )}
                       </span>
-                      {action.status === 'complete' && (
-                        <Check size={12} className="mt-0.5 shrink-0 text-text-400" />
-                      )}
-                      {action.status === 'failed' && (
-                        <span className="mt-1 inline-flex h-5 w-10 shrink-0 items-center justify-center rounded bg-danger-900 text-[0.625rem] leading-none text-danger-200">
-                          {intl.formatMessage({ id: 'failed', defaultMessage: 'Failed' })}
-                        </span>
-                      )}
                     </li>
                   ))}
                 </ol>
