@@ -10,6 +10,7 @@ import {
 import {
   checkDomainCategoryForNavigation,
   createPolicyCheckedChildTab,
+  filterPolicyAllowedTabs,
   moveSearchNavigationToNewTab
 } from './navigationIsolation';
 import type { NavigationPolicyContext } from './navigationIsolation';
@@ -268,7 +269,10 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         toolUseId,
         toolName: 'javascript_tool'
       };
-      let openedTabIds = await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId);
+      let openedTabIds = await filterPolicyAllowedTabs(
+        await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+        navigationPolicy
+      );
       if (openedTabIds.length === 0) {
         const events = cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
         const seenUrls = new Set<string>();

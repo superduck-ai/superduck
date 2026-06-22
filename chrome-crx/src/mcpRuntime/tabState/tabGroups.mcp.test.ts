@@ -261,5 +261,10 @@ describe('TabGroupManager MCP tab groups', () => {
 
     expect(openedTabs).toEqual([]);
     expect(chromeMock.tabs.create).not.toHaveBeenCalled();
+    // Even though the destination was blocked, the opener must be restored to
+    // the previous URL so it is not left on the policy-violating page.
+    expect(chromeMock.tabs.update).toHaveBeenCalledWith(7, {
+      url: 'https://example.com/'
+    });
   });
 });

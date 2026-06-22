@@ -25,47 +25,90 @@ export interface NavigationPolicyContext {
   toolName: string;
 }
 
+const ORG_BLOCKED_CATEGORY = 'category_org_blocked';
+const BLOCKED_DOMAIN_CATEGORIES = new Set(['category1', 'category2', ORG_BLOCKED_CATEGORY]);
+
 export async function checkDomainCategoryForNavigation(
   url: string,
   toolName: string
 ): Promise<ToolResult | null> {
   try {
     const category = await domainCategoryCache.getCategory(url);
-    if (
-      category &&
-      ('category1' === category || 'category2' === category || 'category_org_blocked' === category)
-    ) {
+    if (category && BLOCKED_DOMAIN_CATEGORIES.has(category)) {
       return {
         error:
-          'category_org_blocked' === category
+          ORG_BLOCKED_CATEGORY === category
             ? "This site is blocked by your organization's policy."
             : 'This site is not allowed due to safety restrictions.'
       };
     }
   } catch (err) {
+    // Intentionally fail-open here: the category lookup is a secondary safety
+    // layer and matches navigate/tabs_create behavior. The primary gate is the
+    // permission check, which still runs for every navigation, so a transient
+    // category-cache error cannot by itself open an unapproved destination.
     console.warn(`[${toolName}] domain category check failed for`, url, err);
   }
   return null;
 }
 
 /**
+ * Whether a URL derived from page activity may be opened/adopted into the
+ * managed group, applying the same domain-category + permission gates as
+ * navigate/tabs_create. needsPrompt is treated as not-yet-allowed: derived /
+ * incidental navigations do not raise their own permission prompt (the agent
+ * can navigate explicitly to trigger one), they are simply not adopted.
+ */
+async function isNavigationAllowedByPolicy(
+  url: string,
+  policy: NavigationPolicyContext
+): Promise<boolean> {
+  if (await checkDomainCategoryForNavigation(url, policy.toolName)) return false;
+  const permission = await policy.permissionManager.checkPermission(url, policy.toolUseId);
+  return permission.allowed === true;
+}
+
+/**
  * Opens a grouped child tab for a URL that was derived from page activity
- * (window.open events, search-result navigations, synthesized search submits)
- * only after it passes the same domain-category and permission gates as
- * navigate/tabs_create. Returns the new tab id, or null when the navigation
- * policy disallows it (blocked category, denied, or pending approval) so the
- * caller simply skips opening the tab instead of bypassing the policy.
+ * (window.open events, search-result navigations) only after it passes the
+ * navigation policy. Returns the new tab id, or null when the policy disallows
+ * it so the caller simply skips opening the tab instead of bypassing the policy.
  */
 export async function createPolicyCheckedChildTab(
   openerTabId: number,
   url: string,
   policy: NavigationPolicyContext
 ): Promise<number | null> {
-  if (await checkDomainCategoryForNavigation(url, policy.toolName)) return null;
-  const permission = await policy.permissionManager.checkPermission(url, policy.toolUseId);
-  if (!permission.allowed) return null;
+  if (!(await isNavigationAllowedByPolicy(url, policy))) return null;
   const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
   return typeof tabId === 'number' ? tabId : null;
+}
+
+/**
+ * Filters tabs that Chrome itself opened (window.open / target=_blank) and that
+ * were adopted into the managed group, keeping only those whose URL passes the
+ * navigation policy. Disallowed tabs are excluded so they never become the
+ * agent's batch tab context; blank/system tabs are kept (nothing to gate yet).
+ */
+export async function filterPolicyAllowedTabs(
+  tabIds: number[],
+  policy: NavigationPolicyContext
+): Promise<number[]> {
+  const allowed: number[] = [];
+  for (const tabId of tabIds) {
+    let url: string | undefined;
+    try {
+      url = (await chrome.tabs.get(tabId)).url;
+    } catch {
+      continue;
+    }
+    if (!url || url === 'about:blank' || !/^https?:\/\//.test(url)) {
+      allowed.push(tabId);
+      continue;
+    }
+    if (await isNavigationAllowedByPolicy(url, policy)) allowed.push(tabId);
+  }
+  return allowed;
 }
 
 function parseHttpUrl(url: string): URL | undefined {
@@ -142,13 +185,16 @@ export async function moveSearchNavigationToNewTab(options: {
   if (!nextUrl || !isSearchLikeNavigation(previousUrl, nextUrl)) return [];
 
   const childTabId = await createPolicyCheckedChildTab(openerTabId, nextUrl, policy);
-  if (childTabId === null) return [];
 
+  // The opener already navigated in-page to the search results. Whether we
+  // isolated them into a child tab (allowed) or the destination failed the
+  // navigation policy (blocked/unapproved), the managed opener must not be left
+  // sitting on that URL, so always restore the previous page.
   try {
     await chrome.tabs.update(openerTabId, { url: previousUrl });
   } catch {
-    // If the opener disappeared, keeping the result tab is still useful.
+    // If the opener disappeared, keeping any result tab is still useful.
   }
 
-  return [childTabId];
+  return childTabId === null ? [] : [childTabId];
 }

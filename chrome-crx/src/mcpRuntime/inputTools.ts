@@ -27,6 +27,7 @@ import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 import {
   checkDomainCategoryForNavigation,
   createPolicyCheckedChildTab,
+  filterPolicyAllowedTabs,
   moveSearchNavigationToNewTab
 } from './navigationIsolation';
 import type { NavigationPolicyContext } from './navigationIsolation';
@@ -618,7 +619,10 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         } else {
           result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
           await new Promise((resolve) => setTimeout(resolve, 150));
-          adoptedTabIds = await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId);
+          adoptedTabIds = await filterPolicyAllowedTabs(
+            await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+            navigationPolicy
+          );
           if (adoptedTabIds.length === 0) {
             adoptedTabIds = await createTabsForWindowOpenEvents(
               effectiveTabId,
