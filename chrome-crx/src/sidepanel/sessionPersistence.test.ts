@@ -17,7 +17,7 @@ import {
   normalizeHistoricalMessage,
   pickEventMessage
 } from './sessionHistory';
-import { formatRelativeTime, truncatePreview } from './SessionHistoryPanel';
+import { formatRelativeTime, getSessionModelLabel, truncatePreview } from './SessionHistoryPanel';
 import type { SessionIndexEntry, SessionSnapshot, ChatMessage } from './types';
 
 // ─── Tab-session key ──────────────────────────────────────────────────────────
@@ -58,6 +58,24 @@ describe('session index constants', () => {
     expect(SESSION_INDEX_KEY).toBe('sidepanel_session_index_v1');
     expect(SESSION_CONVERSATION_MAP_KEY).toBe('sidepanel_conversation_map_v1');
     expect(SESSION_REMOTE_MAP_KEY).toBe('sidepanel_conversation_remote_map_v1');
+  });
+});
+
+describe('getSessionModelLabel', () => {
+  it('displays the configured provider name for a stored provider id', () => {
+    expect(
+      getSessionModelLabel('prov_abc123', {
+        prov_abc123: 'DeepSeek'
+      })
+    ).toBe('DeepSeek');
+  });
+
+  it('hides the model label when the provider no longer exists', () => {
+    expect(getSessionModelLabel('prov_missing', {})).toBeUndefined();
+  });
+
+  it('hides blank configured provider names', () => {
+    expect(getSessionModelLabel('prov_blank', { prov_blank: '   ' })).toBeUndefined();
   });
 });
 
