@@ -18,20 +18,11 @@ const BROWSER_BATCH_I18N_KEYS = [
   'browser_batch_stopped_screenshot',
   'browser_batch_stopped_screenshot_after_actions',
   'open_browser_batch_screenshot',
-  'browser_batch_error_unsafe_after_navigate',
-  'browser_batch_error_unsafe_observation_then_mutation',
-  'browser_batch_error_unsafe_observation_first',
-  'browser_batch_error_unsafe_after_submit',
-  'browser_batch_error_invalid_placeholder_ref',
-  'browser_batch_error_invalid_form_ref_id',
   'browser_batch_error_invalid_sequence',
-  'browser_batch_error_wait_too_long',
   'browser_batch_error_permission_required',
-  'browser_batch_error_cross_tab',
   'browser_batch_error_disallowed_tool',
   'browser_batch_error_stale_ref',
   'browser_batch_error_system_page',
-  'browser_batch_error_tab_unavailable',
   'browser_batch_error_tool_error',
   'browser_batch_error_generic',
   'failed'
@@ -96,12 +87,12 @@ describe('browser batch localized error text', () => {
 
   it('prefers structured stoppedReason over raw error inference', () => {
     const text = getLocalizedBrowserBatchError(
-      'actions after navigate should not run',
+      'No element found with reference: ref_1',
       undefined,
-      'unsafe_after_submit',
+      'system_page',
       zhIntl
     );
 
-    expect(text).toBe(zhCN.browser_batch_error_unsafe_after_submit);
+    expect(text).toBe(zhCN.browser_batch_error_system_page);
   });
 });
