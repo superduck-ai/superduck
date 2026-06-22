@@ -1,9 +1,10 @@
-// Active tab here = the focused tab of the last-focused window, NOT
-// tabGroupManager.currentTabId. SuperDuck CLI is invoked from outside Chrome
-// so it must follow the user's actual focus, not the panel's pinned group.
+// CLI tools resolve their tab via the MCP tab group (🦆SuperDuck),
+// lazily creating one if needed. Only superduck_list_tabs and
+// superduck_background_fetch bypass this (they don't target a single tab).
 
 import type { ToolDefinition } from './pageTools';
 import { cdpDebugger } from './cdp';
+import { tabGroupManager } from './tabState';
 
 const LIST_TABS_CHROME_API_TIMEOUT_MS = 5_000;
 
@@ -116,6 +117,40 @@ async function resolveActiveTab(explicit?: number): Promise<chrome.tabs.Tab> {
   return tabs[0];
 }
 
+async function resolveCliTab(explicit?: number): Promise<chrome.tabs.Tab> {
+  if (explicit !== undefined && explicit !== null) {
+    return await chrome.tabs.get(explicit);
+  }
+  await tabGroupManager.initialize();
+  const ctx = await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true });
+  if (!ctx) throw new Error('Failed to create MCP tab group');
+  const tab = await chrome.tabs.get(ctx.currentTabId);
+  // Internal pages (edge://, chrome://, chrome-extension://) cannot be scripted.
+  // Navigate to a minimal page so subsequent tools can inject scripts.
+  if (
+    tab.id !== undefined &&
+    tab.url &&
+    /^(chrome|edge|brave|chrome-extension|about|data):/.test(tab.url)
+  ) {
+    await chrome.tabs.update(tab.id, { url: 'https://example.com' });
+    await new Promise<void>((resolve) => {
+      const listener = (tabId: number, changeInfo: { status?: string }) => {
+        if (tabId === tab.id && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }, 3000);
+    });
+    tab.url = 'https://example.com';
+  }
+  return tab;
+}
+
 function eTLDPlus1(hostname: string): string {
   const parts = hostname.split('.');
   if (parts.length <= 2) return hostname;
@@ -132,18 +167,17 @@ function eTLDPlus1(hostname: string): string {
 export const superduckActiveContextTool: ToolDefinition<ActiveContextArgs> = {
   name: 'superduck_active_context',
   description:
-    "SuperDuck CLI: get url/title/selection/visible-text from the user's currently active Chrome tab (last focused window). Use full=true for full page innerText (warns about token cost).",
+    'SuperDuck CLI: get url/title/selection/visible-text from the MCP tab group tab. Use full=true for full page innerText (warns about token cost).',
   parameters: {
     tabId: {
       type: 'number',
-      description:
-        'Optional explicit tab id. Defaults to the active tab of the last focused window.'
+      description: 'Optional explicit tab id. Defaults to the current MCP tab group tab.'
     },
     full: { type: 'boolean', description: 'Return whole-page innerText instead of viewport text' }
   },
   execute: async (args) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveCliTab(args?.tabId);
       if (tab.id === undefined) return { error: 'Tab has no id' };
 
       const full = !!args?.full;
@@ -364,11 +398,14 @@ export const superduckListTabsTool: ToolDefinition<Record<string, never>> = {
 export const superduckOpenTool: ToolDefinition<OpenArgs> = {
   name: 'superduck_open',
   description:
-    "SuperDuck CLI: navigate user's active Chrome tab to a URL. Pass newTab=true to open in a new tab instead.",
+    'SuperDuck CLI: open a URL in the MCP tab group. Pass newTab=true to open in an additional tab within the group.',
   parameters: {
     url: { type: 'string', description: 'URL to open (http(s) or chrome://...)' },
-    newTab: { type: 'boolean', description: 'Open in a new tab; default updates the active tab' },
-    tabId: { type: 'number', description: 'Override active-tab resolution' }
+    newTab: {
+      type: 'boolean',
+      description: 'Open in a new tab within the MCP group; default navigates the current tab'
+    },
+    tabId: { type: 'number', description: 'Override MCP tab resolution with an explicit tab ID' }
   },
   execute: async (args) => {
     try {
@@ -376,11 +413,15 @@ export const superduckOpenTool: ToolDefinition<OpenArgs> = {
       if (!url) return { error: 'url is required' };
       let tab: chrome.tabs.Tab;
       if (args?.newTab) {
-        tab = await chrome.tabs.create({ url, active: true });
+        const mcpTab = await resolveCliTab();
+        tab = await chrome.tabs.create({ url, active: false, windowId: mcpTab.windowId });
+        if (tabGroupManager.mcpTabGroupId && tab.id) {
+          await chrome.tabs.group({ tabIds: [tab.id], groupId: tabGroupManager.mcpTabGroupId });
+        }
       } else {
-        const active = await resolveActiveTab(args?.tabId);
-        if (active.id === undefined) return { error: 'active tab has no id' };
-        const updated = await chrome.tabs.update(active.id, { url, active: true });
+        const mcpTab = await resolveCliTab(args?.tabId);
+        if (mcpTab.id === undefined) return { error: 'tab has no id' };
+        const updated = await chrome.tabs.update(mcpTab.id, { url });
         if (!updated) return { error: 'failed to update tab' };
         tab = updated;
       }
@@ -400,7 +441,7 @@ export const superduckOpenTool: ToolDefinition<OpenArgs> = {
   },
   toProviderSchema: async () => ({
     name: 'superduck_open',
-    description: 'SuperDuck CLI: navigate active tab (or open new tab)',
+    description: 'SuperDuck CLI: open URL in MCP tab group',
     input_schema: {
       type: 'object',
       properties: {
@@ -425,8 +466,8 @@ export const superduckClickTool: ToolDefinition<ClickArgs> = {
   },
   execute: async (args) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
-      if (tab.id === undefined) return { error: 'active tab has no id' };
+      const tab = await resolveCliTab(args?.tabId);
+      if (tab.id === undefined) return { error: 'tab has no id' };
       const selector = args?.selector ? String(args.selector) : '';
       const text = args?.text ? String(args.text) : '';
       if (!selector && !text) return { error: 'selector or text is required' };
@@ -509,8 +550,8 @@ export const superduckFillTool: ToolDefinition<FillArgs> = {
   },
   execute: async (args) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
-      if (tab.id === undefined) return { error: 'active tab has no id' };
+      const tab = await resolveCliTab(args?.tabId);
+      if (tab.id === undefined) return { error: 'tab has no id' };
       const selector = String(args?.selector || '');
       if (!selector) return { error: 'selector is required' };
       const value = args?.value === undefined ? '' : String(args.value);
@@ -576,8 +617,8 @@ export const superduckPressTool: ToolDefinition<PressArgs> = {
   },
   execute: async (args) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
-      if (tab.id === undefined) return { error: 'active tab has no id' };
+      const tab = await resolveCliTab(args?.tabId);
+      if (tab.id === undefined) return { error: 'tab has no id' };
       const key = String(args?.key || '');
       if (!key) return { error: 'key is required' };
       const selector = args?.selector ? String(args.selector) : '';
