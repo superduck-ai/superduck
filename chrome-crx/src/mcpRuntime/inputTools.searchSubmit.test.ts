@@ -10,6 +10,7 @@ const fixtures = vi.hoisted(() => {
   const enablePageEvents = vi.fn();
   const consumeWindowOpenEvents = vi.fn();
   const sendCommand = vi.fn();
+  const checkDomainCategoryForNavigation = vi.fn();
 
   return {
     checkPermission,
@@ -19,7 +20,8 @@ const fixtures = vi.hoisted(() => {
     clearWindowOpenEvents,
     enablePageEvents,
     consumeWindowOpenEvents,
-    sendCommand
+    sendCommand,
+    checkDomainCategoryForNavigation
   };
 });
 
@@ -33,7 +35,8 @@ vi.mock('../extensionServices', () => ({
 
 vi.mock('./shared', () => ({
   PermissionTools: {
-    TYPE: 'type'
+    TYPE: 'type',
+    NAVIGATE: 'navigate'
   },
   checkUrlSecurity: vi.fn(async () => null),
   screenshotContextManager: {
@@ -75,7 +78,8 @@ vi.mock('./annotatedScreenshot', () => ({
 }));
 
 vi.mock('./navigationIsolation', () => ({
-  moveSearchNavigationToNewTab: vi.fn(async () => [])
+  moveSearchNavigationToNewTab: vi.fn(async () => []),
+  checkDomainCategoryForNavigation: fixtures.checkDomainCategoryForNavigation
 }));
 
 const chromeMock = vi.hoisted(() => ({
@@ -108,9 +112,11 @@ beforeEach(() => {
   fixtures.enablePageEvents.mockReset();
   fixtures.consumeWindowOpenEvents.mockReset();
   fixtures.sendCommand.mockReset();
+  fixtures.checkDomainCategoryForNavigation.mockReset();
   chromeMock.tabs.get.mockReset();
   chromeMock.scripting.executeScript.mockReset();
 
+  fixtures.checkDomainCategoryForNavigation.mockResolvedValue(null);
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
   fixtures.getEffectiveTabId.mockResolvedValue(10);
   fixtures.createChildTabInGroup.mockResolvedValue(31);
@@ -151,5 +157,32 @@ describe('computer search submit isolation', () => {
       executedOnTabId: 31,
       tabCount: 2
     });
+  });
+
+  it('returns permission_required for the synthesized search URL without opening a tab', async () => {
+    fixtures.checkPermission.mockImplementation(async (url: string) => {
+      if (url === 'https://example.com/search?q=agent') return { allowed: false, needsPrompt: true };
+      return { allowed: true };
+    });
+
+    const result = await computerTool.execute({ action: 'key', text: 'Enter', tabId: 10 }, context);
+
+    expect(result.type).toBe('permission_required');
+    expect(result.tool).toBe('navigate');
+    expect(result.url).toBe('https://example.com/search?q=agent');
+    expect(fixtures.createChildTabInGroup).not.toHaveBeenCalled();
+    expect(fixtures.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('blocks the synthesized search URL when the domain category is restricted', async () => {
+    fixtures.checkDomainCategoryForNavigation.mockResolvedValue({
+      error: "This site is blocked by your organization's policy."
+    });
+
+    const result = await computerTool.execute({ action: 'key', text: 'Enter', tabId: 10 }, context);
+
+    expect(result.error).toBe("This site is blocked by your organization's policy.");
+    expect(fixtures.createChildTabInGroup).not.toHaveBeenCalled();
+    expect(fixtures.sendCommand).not.toHaveBeenCalled();
   });
 });

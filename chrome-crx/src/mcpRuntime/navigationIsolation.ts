@@ -1,5 +1,6 @@
 import { waitForTabLoading } from './shared';
-import { tabGroupManager } from './tabState';
+import { domainCategoryCache, tabGroupManager } from './tabState';
+import type { ToolResult } from './pageToolsSupport/types';
 
 const SEARCH_QUERY_PARAMS = new Set([
   'q',
@@ -12,6 +13,29 @@ const SEARCH_QUERY_PARAMS = new Set([
   'wd',
   'word'
 ]);
+
+export async function checkDomainCategoryForNavigation(
+  url: string,
+  toolName: string
+): Promise<ToolResult | null> {
+  try {
+    const category = await domainCategoryCache.getCategory(url);
+    if (
+      category &&
+      ('category1' === category || 'category2' === category || 'category_org_blocked' === category)
+    ) {
+      return {
+        error:
+          'category_org_blocked' === category
+            ? "This site is blocked by your organization's policy."
+            : 'This site is not allowed due to safety restrictions.'
+      };
+    }
+  } catch (err) {
+    console.warn(`[${toolName}] domain category check failed for`, url, err);
+  }
+  return null;
+}
 
 function parseHttpUrl(url: string): URL | undefined {
   try {

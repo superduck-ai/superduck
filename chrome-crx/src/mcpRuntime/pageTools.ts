@@ -7,7 +7,10 @@ import {
   normalizeSnapshotForDiff,
   withSnapshotLock
 } from './axSnapshot';
-import { moveSearchNavigationToNewTab } from './navigationIsolation';
+import {
+  checkDomainCategoryForNavigation,
+  moveSearchNavigationToNewTab
+} from './navigationIsolation';
 import { registerRefsInPage, pruneStaleRefs } from './refBridge';
 import type { CdpRuntimeEvaluateResult, ConsoleMessage, NetworkRequest } from './cdpTypes';
 import {
@@ -151,29 +154,6 @@ function normalizeHttpUrlForNavigation(url: string): string {
       `Invalid URL: "${url}". Ensure the URL has a valid format (e.g., "https://example.com" or "example.com"). Only http:// and https:// schemes are supported.`
     );
   }
-}
-
-async function checkDomainCategoryForNavigation(
-  url: string,
-  toolName: string
-): Promise<ToolResult | null> {
-  try {
-    const category = await domainCategoryCache.getCategory(url);
-    if (
-      category &&
-      ('category1' === category || 'category2' === category || 'category_org_blocked' === category)
-    ) {
-      return {
-        error:
-          'category_org_blocked' === category
-            ? "This site is blocked by your organization's policy."
-            : 'This site is not allowed due to safety restrictions.'
-      };
-    }
-  } catch (err) {
-    console.warn(`[${toolName}] domain category check failed for`, url, err);
-  }
-  return null;
 }
 
 function getScriptErrorMessage(error: unknown): string {

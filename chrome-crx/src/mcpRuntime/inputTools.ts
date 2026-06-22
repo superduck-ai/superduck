@@ -24,7 +24,10 @@ import type {
 import { resolveStaleRef, getRefBackendNodeId, getRefRole, getRefMetaByTab } from './refBridge';
 import { captureAnnotatedScreenshot } from './annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
-import { moveSearchNavigationToNewTab } from './navigationIsolation';
+import {
+  checkDomainCategoryForNavigation,
+  moveSearchNavigationToNewTab
+} from './navigationIsolation';
 
 interface ComputerToolParams {
   action: string;
@@ -245,14 +248,47 @@ async function getFocusedSearchSubmitTarget(
   }
 }
 
-async function openFocusedSearchSubmitInNewTab(tabId: number): Promise<number[]> {
+interface SearchSubmitOutcome {
+  openedTabIds: number[];
+  // Set when the synthesized search URL is blocked or needs approval; the caller
+  // must surface this instead of opening the tab or running the key/type action.
+  gate?: ToolResult;
+}
+
+async function openFocusedSearchSubmitInNewTab(
+  tabId: number,
+  permissionManager: PermissionManagerLike,
+  toolUseId: string | undefined
+): Promise<SearchSubmitOutcome> {
   try {
     const target = await getFocusedSearchSubmitTarget(tabId);
-    if (!target?.url) return [];
+    if (!target?.url) return { openedTabIds: [] };
+
+    // The destination URL is synthesized from the form action, so it must pass the
+    // same domain-category and permission gates as navigate/tabs_create before we
+    // open it; otherwise this shortcut would bypass the navigation policy.
+    const categoryResult = await checkDomainCategoryForNavigation(target.url, 'computer');
+    if (categoryResult) return { openedTabIds: [], gate: categoryResult };
+
+    const permissionResult = await permissionManager.checkPermission(target.url, toolUseId);
+    if (!permissionResult.allowed) {
+      return {
+        openedTabIds: [],
+        gate: permissionResult.needsPrompt
+          ? {
+              type: 'permission_required',
+              tool: PermissionTools.NAVIGATE,
+              url: target.url,
+              toolUseId
+            }
+          : { error: 'Navigation to this domain is not allowed' }
+      };
+    }
+
     const createdTabId = await tabGroupManager.createChildTabInGroup(tabId, target.url);
-    return typeof createdTabId === 'number' ? [createdTabId] : [];
+    return { openedTabIds: typeof createdTabId === 'number' ? [createdTabId] : [] };
   } catch {
-    return [];
+    return { openedTabIds: [] };
   }
 }
 
@@ -549,9 +585,16 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           // Page.windowOpen is a best-effort fallback; normal input still runs without it.
         }
 
-        let adoptedTabIds = canSubmitSearchNavigation(toolParams)
-          ? await openFocusedSearchSubmitInNewTab(effectiveTabId)
-          : [];
+        let adoptedTabIds: number[] = [];
+        if (canSubmitSearchNavigation(toolParams)) {
+          const submitOutcome = await openFocusedSearchSubmitInNewTab(
+            effectiveTabId,
+            context.permissionManager,
+            context.toolUseId
+          );
+          if (submitOutcome.gate) return submitOutcome.gate;
+          adoptedTabIds = submitOutcome.openedTabIds;
+        }
         if (adoptedTabIds.length > 0) {
           openedTabIdsForContext = adoptedTabIds;
           cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
