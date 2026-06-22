@@ -76,3 +76,6 @@ coverage/
 # E2E test artifacts
 chrome-crx/e2e/test-results/
 chrome-crx/e2e/playwright-report/
+
+# Local-only documents (architecture audit, personal notes, etc.)
+docs/
