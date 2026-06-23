@@ -454,6 +454,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           toolUseId: context.toolUseId,
           toolName: 'computer'
         };
+        tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
         // Run the real interaction first (so SPA/onsubmit handlers and the actual
         // typed value drive the navigation), then isolate whatever navigation it
         // produced — adopted popups, window.open events, or an in-place search

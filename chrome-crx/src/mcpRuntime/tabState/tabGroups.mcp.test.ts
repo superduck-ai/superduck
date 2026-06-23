@@ -76,6 +76,7 @@ const chromeMock = vi.hoisted(() => ({
     }),
     sendMessage: vi.fn(async () => {}),
     onCreated: { addListener: vi.fn() },
+    onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
     onRemoved: { addListener: vi.fn() }
   },
   tabGroups: {
@@ -104,14 +105,14 @@ const chromeMock = vi.hoisted(() => ({
 vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
-const { moveSearchNavigationToNewTab, filterPolicyAllowedTabs } = await import(
-  '../navigationIsolation'
-);
+const { moveSearchNavigationToNewTab, filterPolicyAllowedTabs } =
+  await import('../navigationIsolation');
 
 type MutableTabGroupManager = typeof tabGroupManager & {
   groupMetadata: Map<number, unknown>;
   initialized: boolean;
   mcpTabGroupId: number | null;
+  childTabNavigationPoliciesByOpener: Map<number, { timeoutId?: ReturnType<typeof setTimeout> }>;
 };
 
 const manager = tabGroupManager as MutableTabGroupManager;
@@ -120,6 +121,10 @@ beforeEach(() => {
   manager.groupMetadata.clear();
   manager.initialized = true;
   manager.mcpTabGroupId = null;
+  for (const policy of manager.childTabNavigationPoliciesByOpener.values()) {
+    if (policy.timeoutId) clearTimeout(policy.timeoutId);
+  }
+  manager.childTabNavigationPoliciesByOpener.clear();
 
   chromeMock.tabs.create.mockClear();
   chromeMock.tabs.group.mockClear();
@@ -127,6 +132,8 @@ beforeEach(() => {
   chromeMock.tabs.remove.mockClear();
   chromeMock.tabs.get.mockClear();
   chromeMock.tabs.query.mockClear();
+  chromeMock.tabs.onUpdated.addListener.mockClear();
+  chromeMock.tabs.onUpdated.removeListener.mockClear();
   chromeMock.tabGroups.update.mockClear();
   chromeMock.tabGroups.get.mockClear();
   chromeMock.tabGroups.query.mockClear();
@@ -161,8 +168,13 @@ describe('TabGroupManager MCP tab groups', () => {
     });
   });
 
-  it('adopts tabs opened by the MCP group and restores the user tab', async () => {
+  it('adopts policy-allowed tabs opened by the MCP group and restores the user tab', async () => {
     await tabGroupManager.createMcpTabGroup();
+    tabGroupManager.rememberChildTabNavigationPolicy(7, {
+      permissionManager: { checkPermission: async () => ({ allowed: true }) },
+      toolUseId: undefined,
+      toolName: 'test'
+    });
     await tabGroupManager.withPreservedActiveTab(7, async () => {
       await tabGroupManager.handleTabCreated({
         id: 31,
@@ -177,6 +189,33 @@ describe('TabGroupManager MCP tab groups', () => {
     });
 
     expect(chromeMock.tabs.group).toHaveBeenCalledWith({ tabIds: [31], groupId: 123 });
+    expect(chromeMock.tabs.update).toHaveBeenCalledWith(99, { active: true });
+  });
+
+  it('closes policy-disallowed popup tabs before grouping them', async () => {
+    await tabGroupManager.createMcpTabGroup();
+    chromeMock.tabs.group.mockClear();
+    tabGroupManager.rememberChildTabNavigationPolicy(7, {
+      permissionManager: { checkPermission: async () => ({ allowed: false, needsPrompt: true }) },
+      toolUseId: undefined,
+      toolName: 'test'
+    });
+
+    await tabGroupManager.withPreservedActiveTab(7, async () => {
+      await tabGroupManager.handleTabCreated({
+        id: 32,
+        openerTabId: 7,
+        windowId: 1,
+        groupId: -1,
+        url: 'https://blocked.example/',
+        title: 'blocked',
+        index: 4,
+        active: true
+      } as chrome.tabs.Tab);
+    });
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith(32);
+    expect(chromeMock.tabs.group).not.toHaveBeenCalledWith({ tabIds: [32], groupId: 123 });
     expect(chromeMock.tabs.update).toHaveBeenCalledWith(99, { active: true });
   });
 

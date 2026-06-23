@@ -63,7 +63,6 @@ const SAFE_PERMISSION_PROMPT_TOOLS = new Set([
   'tabs_context_mcp',
   'shortcuts_list',
   'navigate',
-  'tabs_create',
   'read_page',
   'find',
   'get_page_text',
@@ -116,6 +115,8 @@ function isPermissionRequired(result: ToolResult): boolean {
 }
 
 function canPropagatePermissionPrompt(toolName: string, input: Record<string, unknown>): boolean {
+  if (toolName === 'tabs_create') return false;
+  if (toolName === 'navigate' && input.newTab === true) return false;
   if (SAFE_PERMISSION_PROMPT_TOOLS.has(toolName)) return true;
   if (toolName === 'computer') {
     return (

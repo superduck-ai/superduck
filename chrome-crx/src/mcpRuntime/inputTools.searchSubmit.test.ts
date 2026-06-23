@@ -8,6 +8,7 @@ const fixtures = vi.hoisted(() => {
   const getValidTabsWithMetadata = vi.fn();
   const withPreservedActiveTab = vi.fn();
   const adoptChildTabsFromOpener = vi.fn();
+  const rememberChildTabNavigationPolicy = vi.fn();
   const clearWindowOpenEvents = vi.fn();
   const enablePageEvents = vi.fn();
   const consumeWindowOpenEvents = vi.fn();
@@ -24,6 +25,7 @@ const fixtures = vi.hoisted(() => {
     getValidTabsWithMetadata,
     withPreservedActiveTab,
     adoptChildTabsFromOpener,
+    rememberChildTabNavigationPolicy,
     clearWindowOpenEvents,
     enablePageEvents,
     consumeWindowOpenEvents,
@@ -61,7 +63,8 @@ vi.mock('./tabState', () => ({
     createChildTabInGroup: fixtures.createChildTabInGroup,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
-    adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener
+    adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
+    rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy
   }
 }));
 
@@ -149,6 +152,13 @@ describe('computer search submit isolation (post-action)', () => {
 
     // The real Enter must be dispatched (so SPA/onsubmit handlers and the typed
     // value drive the navigation), then the in-place result is moved to a new tab.
+    expect(fixtures.rememberChildTabNavigationPolicy).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({
+        permissionManager: context.permissionManager,
+        toolName: 'computer'
+      })
+    );
     expect(fixtures.pressKey).toHaveBeenCalledWith(10, 'Enter');
     expect(fixtures.moveSearchNavigationToNewTab).toHaveBeenCalledWith(
       expect.objectContaining({ openerTabId: 10, previousUrl: 'https://example.com/' })

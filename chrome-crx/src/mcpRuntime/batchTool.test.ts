@@ -646,6 +646,96 @@ describe('browser_batch Claude-like runtime contract', () => {
     });
   });
 
+  it('does not propagate a later permission prompt after tabs_create opens a tab', async () => {
+    fixtures.executeTabsCreate.mockResolvedValue({
+      output: 'Opened https://example.com/search in new tab. Tab ID: 8',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 8,
+        availableTabs: [
+          { id: 7, title: 'Home', url: 'https://example.com' },
+          { id: 8, title: 'Search', url: 'https://example.com/search' }
+        ],
+        tabCount: 2
+      }
+    });
+    fixtures.executeReadPage.mockResolvedValue({
+      type: 'permission_required',
+      tool: 'read_page',
+      url: 'https://example.com/search',
+      toolUseId: 'rp'
+    });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'tabs_create', input: { url: 'https://example.com/search' } },
+          { name: 'read_page', input: { filter: 'all' } }
+        ]
+      },
+      context
+    );
+
+    expect(fixtures.executeReadPage).toHaveBeenCalledWith(
+      { filter: 'all', tabId: 8 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+    expect(result.type).toBeUndefined();
+    expect(result).toMatchObject({
+      completed: 1,
+      failedIndex: 1,
+      stoppedReason: 'permission_required',
+      is_error: true
+    });
+    expect(String(result.output)).toContain('call read_page standalone');
+  });
+
+  it('does not propagate a later permission prompt after navigate newTab opens a tab', async () => {
+    fixtures.executeNavigate.mockResolvedValue({
+      output: 'Opened https://example.com/results in new tab. Tab ID: 9',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 9,
+        availableTabs: [
+          { id: 7, title: 'Home', url: 'https://example.com' },
+          { id: 9, title: 'Results', url: 'https://example.com/results' }
+        ],
+        tabCount: 2
+      }
+    });
+    fixtures.executeReadPage.mockResolvedValue({
+      type: 'permission_required',
+      tool: 'read_page',
+      url: 'https://example.com/results',
+      toolUseId: 'rp'
+    });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'navigate', input: { url: 'https://example.com/results', newTab: true } },
+          { name: 'read_page', input: { filter: 'all' } }
+        ]
+      },
+      context
+    );
+
+    expect(fixtures.executeReadPage).toHaveBeenCalledWith(
+      { filter: 'all', tabId: 9 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+    expect(result.type).toBeUndefined();
+    expect(result).toMatchObject({
+      completed: 1,
+      failedIndex: 1,
+      stoppedReason: 'permission_required',
+      is_error: true
+    });
+    expect(String(result.output)).toContain('call read_page standalone');
+  });
+
   it('does not retarget later default steps when a step explicitly targets another tab', async () => {
     fixtures.executeReadPage.mockResolvedValue({
       output: 'read tab 8',

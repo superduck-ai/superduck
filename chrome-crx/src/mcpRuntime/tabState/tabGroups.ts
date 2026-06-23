@@ -64,6 +64,23 @@ interface BlockedTabInfo {
   category: string;
 }
 
+interface ChildTabNavigationPolicy {
+  permissionManager: {
+    checkPermission(
+      url: string,
+      toolUseId?: string
+    ): Promise<{ allowed: boolean; needsPrompt?: boolean }>;
+  };
+  toolUseId?: string;
+  toolName: string;
+  expiresAt: number;
+  timeoutId?: ReturnType<typeof setTimeout>;
+}
+
+const CHILD_TAB_NAVIGATION_POLICY_TTL_MS = 30000;
+const ORG_BLOCKED_CATEGORY = 'category_org_blocked';
+const BLOCKED_DOMAIN_CATEGORIES = new Set(['category1', 'category2', ORG_BLOCKED_CATEGORY]);
+
 class TabGroupManager {
   static instance: TabGroupManager;
   groupMetadata = new Map<number, GroupMetadata>();
@@ -83,6 +100,7 @@ class TabGroupManager {
   isTabGroupListenerStarted = false;
   isTabCreationListenerStarted = false;
   protectedActiveTabsByWindow = new Map<number, { tabId: number; expiresAt: number }>();
+  childTabNavigationPoliciesByOpener = new Map<number, ChildTabNavigationPolicy>();
   DISMISSED_GROUPS_KEY = StorageKeys.DISMISSED_TAB_GROUPS;
 
   constructor() {
@@ -216,8 +234,41 @@ class TabGroupManager {
     const openerTabId = tab.openerTabId;
     if (typeof tabId !== 'number' || typeof openerTabId !== 'number') return;
 
+    const policy = this.getChildTabNavigationPolicy(openerTabId);
+    const action = await this.getCreatedChildTabAction(tab, policy);
+    if (action === 'skip') return;
+    if (action === 'close') {
+      await this.removeTabIfPresent(tabId);
+      await this.restoreProtectedActiveTab(tab);
+      return;
+    }
+
     const adopted = await this.adoptChildTabFromOpener(tab, openerTabId);
+    if (adopted && action === 'watch' && policy) {
+      this.watchDeferredChildNavigation(tabId, policy);
+    }
     if (adopted) await this.restoreProtectedActiveTab(tab);
+  }
+
+  rememberChildTabNavigationPolicy(
+    openerTabId: number,
+    policy: Omit<ChildTabNavigationPolicy, 'expiresAt' | 'timeoutId'>,
+    ttlMs = CHILD_TAB_NAVIGATION_POLICY_TTL_MS
+  ): void {
+    const previous = this.childTabNavigationPoliciesByOpener.get(openerTabId);
+    if (previous?.timeoutId) clearTimeout(previous.timeoutId);
+
+    const record: ChildTabNavigationPolicy = {
+      ...policy,
+      expiresAt: Date.now() + ttlMs
+    };
+    record.timeoutId = setTimeout(() => {
+      if (this.childTabNavigationPoliciesByOpener.get(openerTabId) === record) {
+        this.childTabNavigationPoliciesByOpener.delete(openerTabId);
+      }
+    }, ttlMs);
+    (record.timeoutId as { unref?: () => void }).unref?.();
+    this.childTabNavigationPoliciesByOpener.set(openerTabId, record);
   }
 
   async adoptChildTabsFromOpener(openerTabId: number): Promise<number[]> {
@@ -280,6 +331,86 @@ class TabGroupManager {
     const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
     if (typeof mainTabId !== 'number') return false;
     return await this.adoptChildTab(mainTabId, tab);
+  }
+
+  private getChildTabNavigationPolicy(openerTabId: number): ChildTabNavigationPolicy | undefined {
+    const policy = this.childTabNavigationPoliciesByOpener.get(openerTabId);
+    if (!policy) return undefined;
+    if (policy.expiresAt >= Date.now()) return policy;
+    if (policy.timeoutId) clearTimeout(policy.timeoutId);
+    this.childTabNavigationPoliciesByOpener.delete(openerTabId);
+    return undefined;
+  }
+
+  private async getCreatedChildTabAction(
+    tab: chrome.tabs.Tab,
+    policy: ChildTabNavigationPolicy | undefined
+  ): Promise<'adopt' | 'watch' | 'close' | 'skip'> {
+    const url = tab.url || tab.pendingUrl;
+    if (!policy) return 'skip';
+    if (!url || url === 'about:blank') return 'watch';
+    if (!this.isHttpUrl(url)) return 'adopt';
+    return (await this.isChildNavigationAllowedByPolicy(url, policy)) ? 'adopt' : 'close';
+  }
+
+  private isHttpUrl(url: string): boolean {
+    return /^https?:\/\//i.test(url);
+  }
+
+  private async isChildNavigationAllowedByPolicy(
+    url: string,
+    policy: ChildTabNavigationPolicy
+  ): Promise<boolean> {
+    try {
+      const category = await DomainCategoryCache.getCategory(url);
+      if (category && BLOCKED_DOMAIN_CATEGORIES.has(category)) return false;
+    } catch (err) {
+      console.warn(`[${policy.toolName}] domain category check failed for`, url, err);
+    }
+
+    const permission = await policy.permissionManager.checkPermission(url, policy.toolUseId);
+    return permission.allowed === true;
+  }
+
+  private watchDeferredChildNavigation(tabId: number, policy: ChildTabNavigationPolicy): void {
+    const onUpdated = chrome.tabs.onUpdated;
+    if (!onUpdated?.addListener) return;
+
+    const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
+      if (updatedTabId !== tabId) return;
+      const url = changeInfo.url;
+      if (!url || !this.isHttpUrl(url)) return;
+      try {
+        onUpdated.removeListener(listener);
+      } catch {
+        // Listener may already be detached.
+      }
+      void (async () => {
+        if (!(await this.isChildNavigationAllowedByPolicy(url, policy))) {
+          await this.removeTabIfPresent(tabId);
+        } else {
+          await this.updateTabBlocklistStatus(tabId, url);
+        }
+      })();
+    };
+
+    onUpdated.addListener(listener);
+    const timeoutId = setTimeout(() => {
+      try {
+        onUpdated.removeListener(listener);
+      } catch {
+        // Listener may already be detached.
+      }
+    }, CHILD_TAB_NAVIGATION_POLICY_TTL_MS);
+    (timeoutId as { unref?: () => void }).unref?.();
+  }
+
+  private async removeTabIfPresent(tabId: number): Promise<void> {
+    try {
+      await chrome.tabs.remove(tabId);
+    } catch {
+      // Tab may already be gone.
+    }
   }
 
   private async adoptChildTab(mainTabId: number, tab: chrome.tabs.Tab): Promise<boolean> {

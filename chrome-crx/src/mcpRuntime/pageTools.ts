@@ -243,6 +243,12 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       if (securityCheck) return securityCheck;
 
       const wrappedCode = wrapUserCode(code);
+      const navigationPolicy: NavigationPolicyContext = {
+        permissionManager: context.permissionManager,
+        toolUseId,
+        toolName: 'javascript_tool'
+      };
+      tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
 
       cdpDebugger.clearWindowOpenEvents(effectiveTabId);
       try {
@@ -264,11 +270,6 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         );
       });
 
-      const navigationPolicy: NavigationPolicyContext = {
-        permissionManager: context.permissionManager,
-        toolUseId,
-        toolName: 'javascript_tool'
-      };
       let openedTabIds = await filterPolicyAllowedTabs(
         await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
         navigationPolicy
