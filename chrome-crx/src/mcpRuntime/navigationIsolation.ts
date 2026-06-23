@@ -87,8 +87,9 @@ export async function createPolicyCheckedChildTab(
 /**
  * Filters tabs that Chrome itself opened (window.open / target=_blank) and that
  * were adopted into the managed group, keeping only those whose URL passes the
- * navigation policy. Disallowed tabs are excluded so they never become the
- * agent's batch tab context; blank/system tabs are kept (nothing to gate yet).
+ * navigation policy. Tabs that fail the policy are closed (not just hidden), so
+ * a blocked/unapproved page cannot remain open in the browser; blank/system
+ * tabs are kept (nothing to gate yet).
  */
 export async function filterPolicyAllowedTabs(
   tabIds: number[],
@@ -106,7 +107,18 @@ export async function filterPolicyAllowedTabs(
       allowed.push(tabId);
       continue;
     }
-    if (await isNavigationAllowedByPolicy(url, policy)) allowed.push(tabId);
+    if (await isNavigationAllowedByPolicy(url, policy)) {
+      allowed.push(tabId);
+    } else {
+      // The page opened this tab to a destination that fails the same gate as
+      // navigate/tabs_create; close it so the policy actually prevents access
+      // instead of leaving the blocked page open and merely unreported.
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch {
+        // Tab may already be gone; nothing else to do.
+      }
+    }
   }
   return allowed;
 }
@@ -184,17 +196,18 @@ export async function moveSearchNavigationToNewTab(options: {
   const nextUrl = await waitForChangedUrl(openerTabId, previousUrl, timeoutMs);
   if (!nextUrl || !isSearchLikeNavigation(previousUrl, nextUrl)) return [];
 
-  const childTabId = await createPolicyCheckedChildTab(openerTabId, nextUrl, policy);
-
-  // The opener already navigated in-page to the search results. Whether we
-  // isolated them into a child tab (allowed) or the destination failed the
-  // navigation policy (blocked/unapproved), the managed opener must not be left
-  // sitting on that URL, so always restore the previous page.
   try {
-    await chrome.tabs.update(openerTabId, { url: previousUrl });
-  } catch {
-    // If the opener disappeared, keeping any result tab is still useful.
+    const childTabId = await createPolicyCheckedChildTab(openerTabId, nextUrl, policy);
+    return childTabId === null ? [] : [childTabId];
+  } finally {
+    // The opener already navigated in-page to the search results. Whether we
+    // isolated them into a child tab (allowed), the destination failed the
+    // navigation policy (blocked/unapproved), or the policy check threw, the
+    // managed opener must not be left on that URL — always restore it.
+    try {
+      await chrome.tabs.update(openerTabId, { url: previousUrl });
+    } catch {
+      // If the opener disappeared, keeping any result tab is still useful.
+    }
   }
-
-  return childTabId === null ? [] : [childTabId];
 }

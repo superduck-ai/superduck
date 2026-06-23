@@ -26,6 +26,7 @@ const chromeMock = vi.hoisted(() => ({
     ),
     group: vi.fn(async () => 123),
     ungroup: vi.fn(async () => {}),
+    remove: vi.fn(async () => {}),
     update: vi.fn(async () => ({})),
     get: vi.fn(
       async (id: number): Promise<MockTab> => ({
@@ -103,7 +104,9 @@ const chromeMock = vi.hoisted(() => ({
 vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
-const { moveSearchNavigationToNewTab } = await import('../navigationIsolation');
+const { moveSearchNavigationToNewTab, filterPolicyAllowedTabs } = await import(
+  '../navigationIsolation'
+);
 
 type MutableTabGroupManager = typeof tabGroupManager & {
   groupMetadata: Map<number, unknown>;
@@ -121,6 +124,7 @@ beforeEach(() => {
   chromeMock.tabs.create.mockClear();
   chromeMock.tabs.group.mockClear();
   chromeMock.tabs.update.mockClear();
+  chromeMock.tabs.remove.mockClear();
   chromeMock.tabs.get.mockClear();
   chromeMock.tabs.query.mockClear();
   chromeMock.tabGroups.update.mockClear();
@@ -266,5 +270,31 @@ describe('TabGroupManager MCP tab groups', () => {
     expect(chromeMock.tabs.update).toHaveBeenCalledWith(7, {
       url: 'https://example.com/'
     });
+  });
+
+  it('closes adopted tabs whose destination fails the navigation policy', async () => {
+    chromeMock.tabs.get.mockImplementation(
+      async (id: number): Promise<MockTab> => ({
+        id,
+        windowId: 1,
+        groupId: 123,
+        url: id === 41 ? 'https://approved.example/' : 'https://blocked.example/',
+        title: `Tab ${id}`,
+        index: 0,
+        status: 'complete'
+      })
+    );
+
+    const kept = await filterPolicyAllowedTabs([41, 42], {
+      permissionManager: {
+        checkPermission: async (url: string) => ({ allowed: url.startsWith('https://approved.') })
+      },
+      toolUseId: undefined,
+      toolName: 'test'
+    });
+
+    expect(kept).toEqual([41]);
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith(42);
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalledWith(41);
   });
 });
