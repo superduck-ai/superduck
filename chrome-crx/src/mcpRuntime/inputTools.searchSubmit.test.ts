@@ -179,8 +179,26 @@ describe('computer search submit isolation (post-action)', () => {
 
     expect(fixtures.pressKey).toHaveBeenCalledWith(10, 'Enter');
     expect(fixtures.consumeWindowOpenEvents).toHaveBeenCalledWith(10);
-    expect(fixtures.moveSearchNavigationToNewTab).not.toHaveBeenCalled();
+    expect(fixtures.moveSearchNavigationToNewTab).toHaveBeenCalledWith(
+      expect.objectContaining({ openerTabId: 10, previousUrl: 'https://example.com/' })
+    );
     expect(result.tabContext).toMatchObject({ executedOnTabId: 41 });
+  });
+
+  it('also isolates same-tab search navigation when the interaction opened a popup', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([41]);
+    fixtures.filterPolicyAllowedTabs.mockResolvedValue([41]);
+    fixtures.moveSearchNavigationToNewTab.mockResolvedValue([31]);
+
+    const result = await computerTool.execute({ action: 'key', text: 'Enter', tabId: 10 }, context);
+
+    expect(fixtures.pressKey).toHaveBeenCalledWith(10, 'Enter');
+    expect(fixtures.consumeWindowOpenEvents).toHaveBeenCalledWith(10);
+    expect(fixtures.moveSearchNavigationToNewTab).toHaveBeenCalledWith(
+      expect.objectContaining({ openerTabId: 10, previousUrl: 'https://example.com/' })
+    );
+    expect(result.output).toContain('Opened new tabs in current group: 41, 31');
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 31 });
   });
 
   it('drops an adopted tab that the policy filter rejected', async () => {

@@ -86,28 +86,29 @@ export async function createPolicyCheckedChildTab(
 
 const DEFERRED_NAV_GUARD_TIMEOUT_MS = 30000;
 
-/**
- * Watches a still-blank adopted popup for a later navigation to an http(s)
- * destination and closes it if that destination fails the navigation policy.
- * This covers `window.open('about:blank')` followed by a delayed
- * `w.location = 'https://blocked'`, which would otherwise leave a gated page
- * open permanently because the synchronous filter could not yet evaluate it.
- */
-function guardDeferredNavigation(tabId: number, policy: NavigationPolicyContext): void {
+function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): void {
   const onUpdated = chrome.tabs?.onUpdated;
   if (!onUpdated?.addListener) return;
 
-  const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
-    if (updatedTabId !== tabId) return;
-    const url = changeInfo.url;
-    if (!url || !/^https?:\/\//.test(url)) return;
+  let detached = false;
+  const timeoutRef: { current?: ReturnType<typeof setTimeout> } = {};
+  const detach = () => {
+    if (detached) return;
+    detached = true;
+    if (timeoutRef.current !== undefined) clearTimeout(timeoutRef.current);
     try {
       onUpdated.removeListener(listener);
     } catch {
       // Listener may already be detached.
     }
+  };
+  const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
+    if (updatedTabId !== tabId) return;
+    const url = changeInfo.url;
+    if (!url || !/^https?:\/\//.test(url)) return;
     void (async () => {
       if (!(await isNavigationAllowedByPolicy(url, policy))) {
+        detach();
         try {
           await chrome.tabs.remove(tabId);
         } catch {
@@ -118,24 +119,17 @@ function guardDeferredNavigation(tabId: number, policy: NavigationPolicyContext)
   };
 
   onUpdated.addListener(listener);
-  // Stop watching after a bounded window so the listener cannot leak; removing an
-  // already-detached listener is a no-op.
-  setTimeout(() => {
-    try {
-      onUpdated.removeListener(listener);
-    } catch {
-      // Listener may already be detached.
-    }
-  }, DEFERRED_NAV_GUARD_TIMEOUT_MS);
+  timeoutRef.current = setTimeout(detach, DEFERRED_NAV_GUARD_TIMEOUT_MS);
+  (timeoutRef.current as { unref?: () => void }).unref?.();
 }
 
 /**
  * Filters tabs that Chrome itself opened (window.open / target=_blank) and that
  * were adopted into the managed group, keeping only those whose URL passes the
  * navigation policy. Tabs that fail the policy are closed (not just hidden), so
- * a blocked/unapproved page cannot remain open in the browser. A tab still on
- * about:blank cannot be evaluated yet, so it is kept but watched: a later
- * navigation to a disallowed destination closes it (see guardDeferredNavigation).
+ * a blocked/unapproved page cannot remain open in the browser. Kept child tabs
+ * are watched for a bounded window so a later redirect or opener-driven
+ * navigation to a disallowed destination closes them too.
  */
 export async function filterPolicyAllowedTabs(
   tabIds: number[],
@@ -150,7 +144,7 @@ export async function filterPolicyAllowedTabs(
       continue;
     }
     if (!url || url === 'about:blank') {
-      guardDeferredNavigation(tabId, policy);
+      guardChildNavigation(tabId, policy);
       allowed.push(tabId);
       continue;
     }
@@ -159,6 +153,7 @@ export async function filterPolicyAllowedTabs(
       continue;
     }
     if (await isNavigationAllowedByPolicy(url, policy)) {
+      guardChildNavigation(tabId, policy);
       allowed.push(tabId);
     } else {
       // The page opened this tab to a destination that fails the same gate as

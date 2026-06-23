@@ -336,4 +336,41 @@ describe('TabGroupManager MCP tab groups', () => {
     expect(chromeMock.tabs.remove).toHaveBeenCalledWith(42);
     expect(chromeMock.tabs.remove).not.toHaveBeenCalledWith(41);
   });
+
+  it('keeps watching policy-allowed adopted tabs and closes later disallowed redirects', async () => {
+    chromeMock.tabs.get.mockImplementation(
+      async (id: number): Promise<MockTab> => ({
+        id,
+        windowId: 1,
+        groupId: 123,
+        url: 'https://allowed.example/',
+        title: `Tab ${id}`,
+        index: 0,
+        status: 'complete'
+      })
+    );
+
+    const kept = await filterPolicyAllowedTabs([41], {
+      permissionManager: {
+        checkPermission: async (url: string) => ({ allowed: url.startsWith('https://allowed.') })
+      },
+      toolUseId: undefined,
+      toolName: 'test'
+    });
+
+    expect(kept).toEqual([41]);
+    const listener = chromeMock.tabs.onUpdated.addListener.mock.calls[0]?.[0] as
+      | ((tabId: number, changeInfo: { url?: string }) => void)
+      | undefined;
+    expect(listener).toBeDefined();
+
+    listener?.(41, { url: 'https://allowed.example/redirect' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalledWith(41);
+
+    listener?.(41, { url: 'https://blocked.example/' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith(41);
+    expect(chromeMock.tabs.onUpdated.removeListener).toHaveBeenCalledWith(listener);
+  });
 });

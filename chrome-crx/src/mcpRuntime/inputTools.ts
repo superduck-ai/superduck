@@ -474,13 +474,16 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         } else {
           cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
         }
-        if (adoptedTabIds.length === 0 && canSubmitSearchNavigation(toolParams)) {
-          adoptedTabIds = await moveSearchNavigationToNewTab({
+        if (canSubmitSearchNavigation(toolParams)) {
+          const searchTabIds = await moveSearchNavigationToNewTab({
             openerTabId: effectiveTabId,
             previousUrl: requireCurrentUrl(),
             timeoutMs: 1800,
             policy: navigationPolicy
           });
+          for (const tabId of searchTabIds) {
+            if (!adoptedTabIds.includes(tabId)) adoptedTabIds.push(tabId);
+          }
         }
         if (adoptedTabIds.length > 0) {
           openedTabIdsForContext = adoptedTabIds;
