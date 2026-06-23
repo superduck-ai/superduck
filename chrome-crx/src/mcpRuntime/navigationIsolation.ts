@@ -25,8 +25,8 @@ export interface NavigationPolicyContext {
   toolName: string;
 }
 
-const ORG_BLOCKED_CATEGORY = 'category_org_blocked';
-const BLOCKED_DOMAIN_CATEGORIES = new Set(['category1', 'category2', ORG_BLOCKED_CATEGORY]);
+export const ORG_BLOCKED_CATEGORY = 'category_org_blocked';
+export const BLOCKED_DOMAIN_CATEGORIES = new Set(['category1', 'category2', ORG_BLOCKED_CATEGORY]);
 
 export async function checkDomainCategoryForNavigation(
   url: string,
@@ -59,7 +59,7 @@ export async function checkDomainCategoryForNavigation(
  * incidental navigations do not raise their own permission prompt (the agent
  * can navigate explicitly to trigger one), they are simply not adopted.
  */
-async function isNavigationAllowedByPolicy(
+export async function isNavigationAllowedByPolicy(
   url: string,
   policy: NavigationPolicyContext
 ): Promise<boolean> {
@@ -68,11 +68,11 @@ async function isNavigationAllowedByPolicy(
   return permission.allowed === true;
 }
 
-function isHttpUrl(url: string): boolean {
-  return /^https?:\/\//.test(url);
+export function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
 }
 
-async function closeTabIfPresent(tabId: number): Promise<void> {
+export async function closeTabIfPresent(tabId: number): Promise<void> {
   try {
     await chrome.tabs.remove(tabId);
   } catch {
@@ -80,7 +80,7 @@ async function closeTabIfPresent(tabId: number): Promise<void> {
   }
 }
 
-async function enforceChildNavigationPolicy(
+export async function enforceChildNavigationPolicy(
   tabId: number,
   url: string | undefined,
   policy: NavigationPolicyContext
@@ -120,9 +120,23 @@ export async function createPolicyCheckedChildTab(
   return tabId;
 }
 
-const DEFERRED_NAV_GUARD_TIMEOUT_MS = 30000;
+export const DEFERRED_NAV_GUARD_TIMEOUT_MS = 30000;
 
-function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): () => void {
+/**
+ * Watches a child tab for a bounded window: if it later navigates to a URL that
+ * fails the navigation policy, the tab is closed and the listener detaches.
+ * `onAllowed` runs (best-effort) when a derived navigation passes the gate, so
+ * callers that track per-tab blocklist state can update it. Returns a detach
+ * handle so the caller can stop watching early.
+ */
+export function guardChildNavigation(
+  tabId: number,
+  policy: NavigationPolicyContext,
+  options: {
+    timeoutMs?: number;
+    onAllowed?: (url: string) => Promise<void> | void;
+  } = {}
+): () => void {
   const onUpdated = chrome.tabs?.onUpdated;
   if (!onUpdated?.addListener) return () => undefined;
 
@@ -143,14 +157,21 @@ function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): (
     const url = changeInfo.url;
     if (!url || !isHttpUrl(url)) return;
     void (async () => {
-      if (!(await enforceChildNavigationPolicy(tabId, url, policy))) {
+      if (await isNavigationAllowedByPolicy(url, policy)) {
+        try {
+          await options.onAllowed?.(url);
+        } catch {
+          // Blocklist side-effect is best-effort; never let it affect the gate.
+        }
+      } else {
         detach();
+        await closeTabIfPresent(tabId);
       }
     })();
   };
 
   onUpdated.addListener(listener);
-  timeoutRef.current = setTimeout(detach, DEFERRED_NAV_GUARD_TIMEOUT_MS);
+  timeoutRef.current = setTimeout(detach, options.timeoutMs ?? DEFERRED_NAV_GUARD_TIMEOUT_MS);
   (timeoutRef.current as { unref?: () => void }).unref?.();
   return detach;
 }
