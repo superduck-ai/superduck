@@ -68,6 +68,29 @@ async function isNavigationAllowedByPolicy(
   return permission.allowed === true;
 }
 
+function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//.test(url);
+}
+
+async function closeTabIfPresent(tabId: number): Promise<void> {
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch {
+    // Tab may already be gone.
+  }
+}
+
+async function enforceChildNavigationPolicy(
+  tabId: number,
+  url: string | undefined,
+  policy: NavigationPolicyContext
+): Promise<boolean> {
+  if (!url || !isHttpUrl(url)) return true;
+  if (await isNavigationAllowedByPolicy(url, policy)) return true;
+  await closeTabIfPresent(tabId);
+  return false;
+}
+
 /**
  * Opens a grouped child tab for a URL that was derived from page activity
  * (window.open events, search-result navigations) only after it passes the
@@ -82,15 +105,26 @@ export async function createPolicyCheckedChildTab(
   if (!(await isNavigationAllowedByPolicy(url, policy))) return null;
   const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
   if (typeof tabId !== 'number') return null;
-  guardChildNavigation(tabId, policy);
+  const detachGuard = guardChildNavigation(tabId, policy);
+  let currentUrl: string | undefined;
+  try {
+    currentUrl = (await chrome.tabs.get(tabId)).url;
+  } catch {
+    detachGuard();
+    return null;
+  }
+  if (!(await enforceChildNavigationPolicy(tabId, currentUrl, policy))) {
+    detachGuard();
+    return null;
+  }
   return tabId;
 }
 
 const DEFERRED_NAV_GUARD_TIMEOUT_MS = 30000;
 
-function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): void {
+function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): () => void {
   const onUpdated = chrome.tabs?.onUpdated;
-  if (!onUpdated?.addListener) return;
+  if (!onUpdated?.addListener) return () => undefined;
 
   let detached = false;
   const timeoutRef: { current?: ReturnType<typeof setTimeout> } = {};
@@ -107,15 +141,10 @@ function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): v
   const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
     if (updatedTabId !== tabId) return;
     const url = changeInfo.url;
-    if (!url || !/^https?:\/\//.test(url)) return;
+    if (!url || !isHttpUrl(url)) return;
     void (async () => {
-      if (!(await isNavigationAllowedByPolicy(url, policy))) {
+      if (!(await enforceChildNavigationPolicy(tabId, url, policy))) {
         detach();
-        try {
-          await chrome.tabs.remove(tabId);
-        } catch {
-          // Tab may already be gone.
-        }
       }
     })();
   };
@@ -123,6 +152,7 @@ function guardChildNavigation(tabId: number, policy: NavigationPolicyContext): v
   onUpdated.addListener(listener);
   timeoutRef.current = setTimeout(detach, DEFERRED_NAV_GUARD_TIMEOUT_MS);
   (timeoutRef.current as { unref?: () => void }).unref?.();
+  return detach;
 }
 
 /**
@@ -150,7 +180,7 @@ export async function filterPolicyAllowedTabs(
       allowed.push(tabId);
       continue;
     }
-    if (!/^https?:\/\//.test(url)) {
+    if (!isHttpUrl(url)) {
       allowed.push(tabId);
       continue;
     }

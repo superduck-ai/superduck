@@ -116,7 +116,14 @@ function canOpenNewTabFromInteraction(action: string): boolean {
   );
 }
 
-function canSubmitSearchNavigation(params: ComputerToolParams): boolean {
+function canTriggerSearchNavigationIsolation(params: ComputerToolParams): boolean {
+  if (
+    params.action === 'left_click' ||
+    params.action === 'double_click' ||
+    params.action === 'triple_click'
+  ) {
+    return true;
+  }
   if (params.action === 'key' && typeof params.text === 'string') {
     return params.text
       .split(/\s+/)
@@ -474,7 +481,7 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         } else {
           cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
         }
-        if (canSubmitSearchNavigation(toolParams)) {
+        if (canTriggerSearchNavigationIsolation(toolParams)) {
           const searchTabIds = await moveSearchNavigationToNewTab({
             openerTabId: effectiveTabId,
             previousUrl: requireCurrentUrl(),

@@ -362,6 +362,17 @@ describe('TabGroupManager MCP tab groups', () => {
       index: 3,
       openerTabId: 7
     });
+    chromeMock.tabs.get.mockImplementation(
+      async (id: number): Promise<MockTab> => ({
+        id,
+        windowId: 1,
+        groupId: 123,
+        url: id === 31 ? 'https://allowed.example/' : 'https://example.com/',
+        title: `Tab ${id}`,
+        index: id === 31 ? 1 : 0,
+        status: 'complete'
+      })
+    );
 
     const tabId = await createPolicyCheckedChildTab(7, 'https://allowed.example/', {
       permissionManager: {
@@ -384,6 +395,44 @@ describe('TabGroupManager MCP tab groups', () => {
     listener?.(31, { url: 'https://blocked.example/' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(chromeMock.tabs.remove).toHaveBeenCalledWith(31);
+    expect(chromeMock.tabs.onUpdated.removeListener).toHaveBeenCalledWith(listener);
+  });
+
+  it('rechecks policy-created child tabs after attaching the redirect guard', async () => {
+    await tabGroupManager.createMcpTabGroup();
+    chromeMock.tabs.create.mockResolvedValueOnce({
+      id: 31,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://allowed.example/',
+      title: 'allowed',
+      index: 3,
+      openerTabId: 7
+    });
+    chromeMock.tabs.get.mockImplementation(
+      async (id: number): Promise<MockTab> => ({
+        id,
+        windowId: 1,
+        groupId: 123,
+        url: id === 31 ? 'https://blocked.example/' : 'https://example.com/',
+        title: `Tab ${id}`,
+        index: id === 31 ? 1 : 0,
+        status: 'complete'
+      })
+    );
+
+    const tabId = await createPolicyCheckedChildTab(7, 'https://allowed.example/', {
+      permissionManager: {
+        checkPermission: async (url: string) => ({ allowed: url.startsWith('https://allowed.') })
+      },
+      toolUseId: undefined,
+      toolName: 'test'
+    });
+
+    expect(tabId).toBeNull();
+    expect(chromeMock.tabs.onUpdated.addListener).toHaveBeenCalled();
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith(31);
+    const listener = chromeMock.tabs.onUpdated.addListener.mock.calls[0]?.[0];
     expect(chromeMock.tabs.onUpdated.removeListener).toHaveBeenCalledWith(listener);
   });
 
