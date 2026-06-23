@@ -81,7 +81,9 @@ export async function createPolicyCheckedChildTab(
 ): Promise<number | null> {
   if (!(await isNavigationAllowedByPolicy(url, policy))) return null;
   const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
-  return typeof tabId === 'number' ? tabId : null;
+  if (typeof tabId !== 'number') return null;
+  guardChildNavigation(tabId, policy);
+  return tabId;
 }
 
 const DEFERRED_NAV_GUARD_TIMEOUT_MS = 30000;

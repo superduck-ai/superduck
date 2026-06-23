@@ -270,7 +270,7 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         );
       });
 
-      let openedTabIds = await filterPolicyAllowedTabs(
+      const openedTabIds = await filterPolicyAllowedTabs(
         await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
         navigationPolicy
       );
@@ -296,13 +296,14 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       } else {
         cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
       }
-      if (openedTabIds.length === 0) {
-        openedTabIds = await moveSearchNavigationToNewTab({
-          openerTabId: effectiveTabId,
-          previousUrl: tabUrl,
-          timeoutMs: 2500,
-          policy: navigationPolicy
-        });
+      const searchTabIds = await moveSearchNavigationToNewTab({
+        openerTabId: effectiveTabId,
+        previousUrl: tabUrl,
+        timeoutMs: 2500,
+        policy: navigationPolicy
+      });
+      for (const tabId of searchTabIds) {
+        if (!openedTabIds.includes(tabId)) openedTabIds.push(tabId);
       }
 
       let output = '';

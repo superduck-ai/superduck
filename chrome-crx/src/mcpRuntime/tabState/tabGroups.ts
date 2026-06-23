@@ -244,7 +244,7 @@ class TabGroupManager {
     }
 
     const adopted = await this.adoptChildTabFromOpener(tab, openerTabId);
-    if (adopted && action === 'watch' && policy) {
+    if (adopted && policy) {
       this.watchDeferredChildNavigation(tabId, policy);
     }
     if (adopted) await this.restoreProtectedActiveTab(tab);
@@ -376,17 +376,25 @@ class TabGroupManager {
     const onUpdated = chrome.tabs.onUpdated;
     if (!onUpdated?.addListener) return;
 
-    const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
-      if (updatedTabId !== tabId) return;
-      const url = changeInfo.url;
-      if (!url || !this.isHttpUrl(url)) return;
+    let detached = false;
+    const timeoutRef: { current?: ReturnType<typeof setTimeout> } = {};
+    const detach = () => {
+      if (detached) return;
+      detached = true;
+      if (timeoutRef.current !== undefined) clearTimeout(timeoutRef.current);
       try {
         onUpdated.removeListener(listener);
       } catch {
         // Listener may already be detached.
       }
+    };
+    const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
+      if (updatedTabId !== tabId) return;
+      const url = changeInfo.url;
+      if (!url || !this.isHttpUrl(url)) return;
       void (async () => {
         if (!(await this.isChildNavigationAllowedByPolicy(url, policy))) {
+          detach();
           await this.removeTabIfPresent(tabId);
         } else {
           await this.updateTabBlocklistStatus(tabId, url);
@@ -395,14 +403,8 @@ class TabGroupManager {
     };
 
     onUpdated.addListener(listener);
-    const timeoutId = setTimeout(() => {
-      try {
-        onUpdated.removeListener(listener);
-      } catch {
-        // Listener may already be detached.
-      }
-    }, CHILD_TAB_NAVIGATION_POLICY_TTL_MS);
-    (timeoutId as { unref?: () => void }).unref?.();
+    timeoutRef.current = setTimeout(detach, Math.max(0, policy.expiresAt - Date.now()));
+    (timeoutRef.current as { unref?: () => void }).unref?.();
   }
 
   private async removeTabIfPresent(tabId: number): Promise<void> {
