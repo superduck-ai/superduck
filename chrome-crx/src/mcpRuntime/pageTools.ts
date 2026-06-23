@@ -7,6 +7,13 @@ import {
   normalizeSnapshotForDiff,
   withSnapshotLock
 } from './axSnapshot';
+import {
+  checkDomainCategoryForNavigation,
+  createPolicyCheckedChildTab,
+  filterPolicyAllowedTabs,
+  moveSearchNavigationToNewTab
+} from './navigationIsolation';
+import type { NavigationPolicyContext } from './navigationIsolation';
 import { registerRefsInPage, pruneStaleRefs } from './refBridge';
 import type { CdpRuntimeEvaluateResult, ConsoleMessage, NetworkRequest } from './cdpTypes';
 import {
@@ -46,6 +53,12 @@ interface JavaScriptToolInput {
 
 interface NavigateToolInput {
   url: string;
+  tabId?: number;
+  newTab?: boolean;
+}
+
+interface TabsCreateToolInput {
+  url?: string;
   tabId?: number;
 }
 
@@ -125,6 +138,25 @@ interface ReadPageScriptResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function normalizeHttpUrlForNavigation(url: string): string {
+  let normalizedUrl = url;
+  if (!normalizedUrl.match(/^https?:\/\//)) {
+    normalizedUrl = `https://${normalizedUrl}`;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('Unsupported protocol');
+    }
+    return parsedUrl.href;
+  } catch {
+    throw new Error(
+      `Invalid URL: "${url}". Ensure the URL has a valid format (e.g., "https://example.com" or "example.com"). Only http:// and https:// schemes are supported.`
+    );
+  }
 }
 
 function getScriptErrorMessage(error: unknown): string {
@@ -211,17 +243,68 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       if (securityCheck) return securityCheck;
 
       const wrappedCode = wrapUserCode(code);
+      const navigationPolicy: NavigationPolicyContext = {
+        permissionManager: context.permissionManager,
+        toolUseId,
+        toolName: 'javascript_tool'
+      };
+      tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
 
-      const evalResult = await cdpDebugger.sendCommand<CdpRuntimeEvaluateResult>(
-        effectiveTabId,
-        'Runtime.evaluate',
-        {
-          expression: wrappedCode,
-          returnByValue: true,
-          awaitPromise: true,
-          timeout: 10000
-        }
+      cdpDebugger.clearWindowOpenEvents(effectiveTabId);
+      try {
+        await cdpDebugger.enablePageEvents(effectiveTabId);
+      } catch {
+        // Page.windowOpen capture is best effort; JavaScript execution still runs without it.
+      }
+
+      const evalResult = await tabGroupManager.withPreservedActiveTab(effectiveTabId, async () => {
+        return await cdpDebugger.sendCommand<CdpRuntimeEvaluateResult>(
+          effectiveTabId,
+          'Runtime.evaluate',
+          {
+            expression: wrappedCode,
+            returnByValue: true,
+            awaitPromise: true,
+            timeout: 10000
+          }
+        );
+      });
+
+      const openedTabIds = await filterPolicyAllowedTabs(
+        await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+        navigationPolicy
       );
+      if (openedTabIds.length === 0) {
+        const events = cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
+        const seenUrls = new Set<string>();
+        for (const event of events) {
+          try {
+            const url = new URL(event.url, tabUrl);
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
+            if (seenUrls.has(url.href)) continue;
+            seenUrls.add(url.href);
+            const tabId = await createPolicyCheckedChildTab(
+              effectiveTabId,
+              url.href,
+              navigationPolicy
+            );
+            if (typeof tabId === 'number') openedTabIds.push(tabId);
+          } catch {
+            // Ignore malformed or unsupported window.open targets.
+          }
+        }
+      } else {
+        cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
+      }
+      const searchTabIds = await moveSearchNavigationToNewTab({
+        openerTabId: effectiveTabId,
+        previousUrl: tabUrl,
+        timeoutMs: 2500,
+        policy: navigationPolicy
+      });
+      for (const tabId of searchTabIds) {
+        if (!openedTabIds.includes(tabId)) openedTabIds.push(tabId);
+      }
 
       let output = '';
       let isError = false;
@@ -308,8 +391,8 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         output = 'undefined';
       }
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
       if (isError) {
+        const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
         return {
           error: `JavaScript execution error: ${errorMessage}`,
           tabContext: {
@@ -321,15 +404,25 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         };
       }
 
+      if (openedTabIds.length > 0) {
+        const suffix = `Opened new tab${openedTabIds.length === 1 ? '' : 's'} in current group: ${openedTabIds.join(', ')}`;
+        output = output ? `${output}\n${suffix}` : suffix;
+      }
+
       if (output.length > maxOutputSize) {
         output = output.substring(0, maxOutputSize) + '\n[OUTPUT TRUNCATED: Exceeded 50KB limit]';
       }
 
+      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      // Report the newly opened tab as executedOnTabId so browser_batch chains
+      // subsequent steps onto it, matching computer tool behavior.
+      const executedOnTabId =
+        openedTabIds.length > 0 ? openedTabIds[openedTabIds.length - 1] : effectiveTabId;
       return {
         output,
         tabContext: {
           currentTabId: context.tabId,
-          executedOnTabId: effectiveTabId,
+          executedOnTabId,
           availableTabs: validTabs,
           tabCount: validTabs.length
         }
@@ -371,7 +464,7 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
 const navigateTool: ToolDefinition<NavigateToolInput> = {
   name: 'navigate',
   description:
-    "Navigate to a URL in an existing tab, or go forward/back in browser history. PREFERRED: Always use this tool to navigate to URLs instead of creating new tabs. This keeps all operations in the current tab. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+    "Navigate to a URL in an existing tab, open a URL in a new background tab in the same tab group, or go forward/back in browser history. Use newTab:true when the current page should remain open, such as opening search results, detail pages, or comparison pages. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
   parameters: {
     url: {
       type: 'string',
@@ -382,41 +475,29 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
       type: 'number',
       description:
         "Tab ID to navigate. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
+    },
+    newTab: {
+      type: 'boolean',
+      description:
+        'When true, open the URL in a new background tab in the same tab group instead of replacing the current tab. Use this for search result pages or detail pages when the original page should stay open. Not supported with "back" or "forward".'
     }
   },
   execute: async (input, context): Promise<ToolResult> => {
     try {
-      const { url, tabId } = input;
+      const { url, tabId, newTab } = input;
       if (!url) throw new Error('URL parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
       const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const isHistoryNavigation = ['back', 'forward'].includes(url.toLowerCase());
+      if (newTab && isHistoryNavigation) {
+        throw new Error('newTab is not supported with back/forward navigation');
+      }
 
       // Check domain category for non-history navigation
-      if (url && !['back', 'forward'].includes(url.toLowerCase())) {
-        try {
-          const category = await domainCategoryCache.getCategory(url);
-          if (
-            category &&
-            ('category1' === category ||
-              'category2' === category ||
-              'category_org_blocked' === category)
-          ) {
-            return {
-              error:
-                'category_org_blocked' === category
-                  ? "This site is blocked by your organization's policy."
-                  : 'This site is not allowed due to safety restrictions.'
-            };
-          }
-        } catch (err) {
-          // Category check unavailable — log the failure so safety-gate
-          // bypasses are observable. Per RoboCFO: "tool errors must never
-          // be silently swallowed." We proceed with navigation (fail-open)
-          // because the category service may be temporarily unavailable;
-          // the permission check below still enforces per-host grants.
-          console.warn('[navigate] domain category check failed for', url, err);
-        }
+      if (url && !isHistoryNavigation) {
+        const categoryResult = await checkDomainCategoryForNavigation(url, 'navigate');
+        if (categoryResult) return categoryResult;
       }
 
       const tab = await chrome.tabs.get(effectiveTabId);
@@ -454,18 +535,7 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
         };
       }
 
-      let normalizedUrl: string = url;
-      if (!normalizedUrl.match(/^https?:\/\//)) {
-        normalizedUrl = `https://${normalizedUrl}`;
-      }
-
-      try {
-        new URL(normalizedUrl);
-      } catch {
-        throw new Error(
-          `Invalid URL: "${url}". Ensure the URL has a valid format (e.g., "https://example.com" or "example.com"). Only http:// and https:// schemes are supported.`
-        );
-      }
+      const normalizedUrl = normalizeHttpUrlForNavigation(url);
 
       const toolUseId = context?.toolUseId;
       const permissionResult = await context.permissionManager.checkPermission(
@@ -481,6 +551,31 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
               toolUseId
             }
           : { error: 'Navigation to this domain is not allowed' };
+      }
+
+      if (newTab) {
+        const createdTab = await chrome.tabs.create({
+          url: normalizedUrl,
+          active: false,
+          openerTabId: effectiveTabId
+        });
+        if (!createdTab.id) throw new Error('Failed to create tab - no tab ID returned');
+        const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
+        if (mainTabId) {
+          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id);
+        } else if (tab.groupId && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+          await chrome.tabs.group({ tabIds: createdTab.id, groupId: tab.groupId });
+        }
+        const validTabs = await tabGroupManager.getValidTabsWithMetadata(effectiveTabId);
+        return {
+          output: `Opened ${normalizedUrl} in new tab. Tab ID: ${createdTab.id}`,
+          tabContext: {
+            currentTabId: context.tabId,
+            executedOnTabId: createdTab.id,
+            availableTabs: validTabs,
+            tabCount: validTabs.length
+          }
+        };
       }
 
       await chrome.tabs.update(effectiveTabId, { url: normalizedUrl });
@@ -505,7 +600,7 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
   toProviderSchema: async () => ({
     name: 'navigate',
     description:
-      "Navigate to a URL in an existing tab, or go forward/back in browser history. PREFERRED: Always use this tool to navigate to URLs instead of creating new tabs. This keeps all operations in the current tab. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+      "Navigate to a URL in an existing tab, open a URL in a new background tab in the same tab group, or go forward/back in browser history. Use newTab:true when the current page should remain open, such as opening search results, detail pages, or comparison pages. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
     input_schema: {
       type: 'object',
       properties: {
@@ -518,6 +613,11 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
           type: 'number',
           description:
             "Tab ID to navigate. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
+        },
+        newTab: {
+          type: 'boolean',
+          description:
+            'When true, open the URL in a new background tab in the same tab group instead of replacing the current tab. Use this for search result pages or detail pages when the original page should stay open. Not supported with "back" or "forward".'
         }
       },
       required: ['url', 'tabId']
@@ -1435,26 +1535,71 @@ const tabsContextTool: ToolDefinition<EmptyToolInput> = {
 // Tool: tabs_create (Be)
 // =============================================================================
 
-const tabsCreateTool: ToolDefinition<EmptyToolInput> = {
+const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
   name: 'tabs_create',
   description:
-    'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
-  parameters: {},
-  execute: async (_input, context): Promise<ToolResult> => {
+    'Creates a new background tab in the current tab group, optionally opening a URL immediately. Use this when the user asks for a new tab or when the workflow should keep the current page open while opening another page, such as search results, detail pages, or comparison pages.',
+  parameters: {
+    url: {
+      type: 'string',
+      description:
+        'Optional URL to open in the new background tab. Can be provided with or without protocol (defaults to https://). Omit to create a blank new tab.'
+    },
+    tabId: {
+      type: 'number',
+      description:
+        "Tab ID whose current group should receive the new tab. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
+    }
+  },
+  execute: async (input, context): Promise<ToolResult> => {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
+      const { url, tabId } = input || {};
 
-      const currentTab = await chrome.tabs.get(context.tabId);
-      const newTab = await chrome.tabs.create({ url: 'chrome://newtab', active: false });
+      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const currentTab = await chrome.tabs.get(effectiveTabId);
+      const targetUrl = url ? normalizeHttpUrlForNavigation(url) : 'chrome://newtab';
+
+      if (url) {
+        const categoryResult = await checkDomainCategoryForNavigation(targetUrl, 'tabs_create');
+        if (categoryResult) return categoryResult;
+
+        const toolUseId = context?.toolUseId;
+        const permissionResult = await context.permissionManager.checkPermission(
+          targetUrl,
+          toolUseId
+        );
+        if (!permissionResult.allowed) {
+          return permissionResult.needsPrompt
+            ? {
+                type: 'permission_required',
+                tool: PermissionTools.NAVIGATE,
+                url: targetUrl,
+                toolUseId
+              }
+            : { error: 'Navigation to this domain is not allowed' };
+        }
+      }
+
+      const newTab = await chrome.tabs.create({
+        url: targetUrl,
+        active: false,
+        openerTabId: effectiveTabId
+      });
       if (!newTab.id) throw new Error('Failed to create tab - no tab ID returned');
 
-      if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+      const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
+      if (mainTabId) {
+        await tabGroupManager.addTabToGroup(mainTabId, newTab.id);
+      } else if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
         await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
       }
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadata(effectiveTabId);
       return {
-        output: `Created new tab. Tab ID: ${newTab.id}`,
+        output: url
+          ? `Opened ${targetUrl} in new tab. Tab ID: ${newTab.id}`
+          : `Created new tab. Tab ID: ${newTab.id}`,
         tabContext: {
           currentTabId: context.tabId,
           executedOnTabId: newTab.id,
@@ -1471,8 +1616,23 @@ const tabsCreateTool: ToolDefinition<EmptyToolInput> = {
   toProviderSchema: async () => ({
     name: 'tabs_create',
     description:
-      'Creates a new empty tab in the current tab group. IMPORTANT: Only use this when the user explicitly asks to open a new tab, or when you need to keep multiple pages open at the same time. For simple navigation tasks, reuse existing tabs with the navigate tool instead.',
-    input_schema: { type: 'object', properties: {}, required: [] }
+      'Creates a new background tab in the current tab group, optionally opening a URL immediately. Use this when the user asks for a new tab or when the workflow should keep the current page open while opening another page, such as search results, detail pages, or comparison pages.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'Optional URL to open in the new background tab. Can be provided with or without protocol (defaults to https://). Omit to create a blank new tab.'
+        },
+        tabId: {
+          type: 'number',
+          description:
+            "Tab ID whose current group should receive the new tab. Must be a tab in the current group. Use tabs_context first if you don't have a valid tab ID."
+        }
+      },
+      required: []
+    }
   })
 };
 

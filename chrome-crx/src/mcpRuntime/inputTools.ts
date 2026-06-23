@@ -24,6 +24,12 @@ import type {
 import { resolveStaleRef, getRefBackendNodeId, getRefRole, getRefMetaByTab } from './refBridge';
 import { captureAnnotatedScreenshot } from './annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
+import {
+  createPolicyCheckedChildTab,
+  filterPolicyAllowedTabs,
+  moveSearchNavigationToNewTab
+} from './navigationIsolation';
+import type { NavigationPolicyContext } from './navigationIsolation';
 
 interface ComputerToolParams {
   action: string;
@@ -99,6 +105,63 @@ function isFormInputScriptResult(value: unknown): value is FormInputScriptResult
 }
 
 type PermissionManagerLike = ToolContext['permissionManager'];
+
+function canOpenNewTabFromInteraction(action: string): boolean {
+  return (
+    action === 'left_click' ||
+    action === 'double_click' ||
+    action === 'triple_click' ||
+    action === 'type' ||
+    action === 'key'
+  );
+}
+
+function canTriggerSearchNavigationIsolation(params: ComputerToolParams): boolean {
+  if (
+    params.action === 'left_click' ||
+    params.action === 'double_click' ||
+    params.action === 'triple_click'
+  ) {
+    return true;
+  }
+  if (params.action === 'key' && typeof params.text === 'string') {
+    return params.text
+      .split(/\s+/)
+      .some((key) => key.toLowerCase() === 'enter' || key.toLowerCase() === 'return');
+  }
+  return params.action === 'type' && typeof params.text === 'string' && /[\r\n]/.test(params.text);
+}
+
+function resolveWindowOpenUrl(rawUrl: string, currentUrl: string): string | undefined {
+  try {
+    const url = new URL(rawUrl, currentUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+async function createTabsForWindowOpenEvents(
+  openerTabId: number,
+  currentUrl: string,
+  policy: NavigationPolicyContext
+): Promise<number[]> {
+  const events = cdpDebugger.consumeWindowOpenEvents(openerTabId);
+  const seenUrls = new Set<string>();
+  const createdTabIds: number[] = [];
+
+  for (const event of events) {
+    const url = resolveWindowOpenUrl(event.url, currentUrl);
+    if (!url || seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    const tabId = await createPolicyCheckedChildTab(openerTabId, url, policy);
+    if (typeof tabId === 'number') createdTabIds.push(tabId);
+  }
+
+  return createdTabIds;
+}
 
 // ToolContext and ToolResult interfaces defined below in the tool definitions section
 
@@ -297,112 +360,160 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         return currentUrl;
       };
       let result: ToolResult;
+      let openedTabIdsForContext: number[] = [];
       const clickOptions = context.skipIndicator ? { skipIndicator: true } : undefined;
+      const runAction = async (): Promise<ToolResult> => {
+        switch (toolParams.action) {
+          case 'left_click':
+          case 'right_click':
+            return await executeClick(
+              effectiveTabId,
+              toolParams,
+              1,
+              requireCurrentUrl(),
+              clickOptions,
+              context.permissionManager
+            );
 
-      switch (toolParams.action) {
-        case 'left_click':
-        case 'right_click':
-          result = await executeClick(
-            effectiveTabId,
-            toolParams,
-            1,
-            requireCurrentUrl(),
-            clickOptions,
-            context.permissionManager
-          );
-          break;
+          case 'type':
+            return await executeType(effectiveTabId, toolParams, requireCurrentUrl());
 
-        case 'type':
-          result = await executeType(effectiveTabId, toolParams, requireCurrentUrl());
-          break;
-
-        case 'screenshot':
-          if (toolParams.annotate) {
-            const annotated = await captureAnnotatedScreenshot(effectiveTabId);
-            if (annotated) {
-              result = {
-                output: `Annotated screenshot with ${annotated.annotations.length} labeled elements:\n${annotated.legend}`,
-                base64Image: annotated.base64Image,
-                imageFormat: annotated.imageFormat
-              };
-            } else {
-              result = await executeScreenshot(effectiveTabId, clickOptions);
+          case 'screenshot':
+            if (toolParams.annotate) {
+              const annotated = await captureAnnotatedScreenshot(effectiveTabId);
+              if (annotated) {
+                return {
+                  output: `Annotated screenshot with ${annotated.annotations.length} labeled elements:\n${annotated.legend}`,
+                  base64Image: annotated.base64Image,
+                  imageFormat: annotated.imageFormat
+                };
+              }
+              return await executeScreenshot(effectiveTabId, clickOptions);
             }
-          } else {
-            result = await executeScreenshot(effectiveTabId, clickOptions);
+            return await executeScreenshot(effectiveTabId, clickOptions);
+
+          case 'wait':
+            return await executeWait(toolParams);
+
+          case 'scroll':
+            return await executeScroll(
+              effectiveTabId,
+              toolParams,
+              context.permissionManager,
+              clickOptions
+            );
+
+          case 'key':
+            return await executeKey(effectiveTabId, toolParams, requireCurrentUrl());
+
+          case 'left_click_drag':
+            return await executeDrag(effectiveTabId, toolParams, requireCurrentUrl(), clickOptions);
+
+          case 'double_click':
+            return await executeClick(
+              effectiveTabId,
+              toolParams,
+              2,
+              requireCurrentUrl(),
+              clickOptions,
+              context.permissionManager
+            );
+
+          case 'triple_click':
+            return await executeClick(
+              effectiveTabId,
+              toolParams,
+              3,
+              requireCurrentUrl(),
+              clickOptions,
+              context.permissionManager
+            );
+
+          case 'zoom':
+            return await executeZoom(effectiveTabId, toolParams);
+
+          case 'scroll_to':
+            return await executeScrollTo(effectiveTabId, toolParams, requireCurrentUrl());
+
+          case 'hover':
+            return await executeHover(
+              effectiveTabId,
+              toolParams,
+              requireCurrentUrl(),
+              clickOptions
+            );
+
+          default:
+            throw new Error(`Unsupported action: ${toolParams.action}`);
+        }
+      };
+
+      if (canOpenNewTabFromInteraction(toolParams.action)) {
+        cdpDebugger.clearWindowOpenEvents(effectiveTabId);
+        try {
+          await cdpDebugger.enablePageEvents(effectiveTabId);
+        } catch {
+          // Page.windowOpen is a best-effort fallback; normal input still runs without it.
+        }
+
+        const navigationPolicy: NavigationPolicyContext = {
+          permissionManager: context.permissionManager,
+          toolUseId: context.toolUseId,
+          toolName: 'computer'
+        };
+        tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
+        // Run the real interaction first (so SPA/onsubmit handlers and the actual
+        // typed value drive the navigation), then isolate whatever navigation it
+        // produced — adopted popups, window.open events, or an in-place search
+        // result — into a grouped child tab under the navigation policy.
+        result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        let adoptedTabIds = await filterPolicyAllowedTabs(
+          await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+          navigationPolicy
+        );
+        if (adoptedTabIds.length === 0) {
+          adoptedTabIds = await createTabsForWindowOpenEvents(
+            effectiveTabId,
+            requireCurrentUrl(),
+            navigationPolicy
+          );
+        } else {
+          cdpDebugger.consumeWindowOpenEvents(effectiveTabId);
+        }
+        if (canTriggerSearchNavigationIsolation(toolParams)) {
+          const searchTabIds = await moveSearchNavigationToNewTab({
+            openerTabId: effectiveTabId,
+            previousUrl: requireCurrentUrl(),
+            timeoutMs: 1800,
+            policy: navigationPolicy
+          });
+          for (const tabId of searchTabIds) {
+            if (!adoptedTabIds.includes(tabId)) adoptedTabIds.push(tabId);
           }
-          break;
-
-        case 'wait':
-          result = await executeWait(toolParams);
-          break;
-
-        case 'scroll':
-          result = await executeScroll(
-            effectiveTabId,
-            toolParams,
-            context.permissionManager,
-            clickOptions
-          );
-          break;
-
-        case 'key':
-          result = await executeKey(effectiveTabId, toolParams, requireCurrentUrl());
-          break;
-
-        case 'left_click_drag':
-          result = await executeDrag(effectiveTabId, toolParams, requireCurrentUrl(), clickOptions);
-          break;
-
-        case 'double_click':
-          result = await executeClick(
-            effectiveTabId,
-            toolParams,
-            2,
-            requireCurrentUrl(),
-            clickOptions,
-            context.permissionManager
-          );
-          break;
-
-        case 'triple_click':
-          result = await executeClick(
-            effectiveTabId,
-            toolParams,
-            3,
-            requireCurrentUrl(),
-            clickOptions,
-            context.permissionManager
-          );
-          break;
-
-        case 'zoom':
-          result = await executeZoom(effectiveTabId, toolParams);
-          break;
-
-        case 'scroll_to':
-          result = await executeScrollTo(effectiveTabId, toolParams, requireCurrentUrl());
-          break;
-
-        case 'hover':
-          result = await executeHover(
-            effectiveTabId,
-            toolParams,
-            requireCurrentUrl(),
-            clickOptions
-          );
-          break;
-
-        default:
-          throw new Error(`Unsupported action: ${toolParams.action}`);
+        }
+        if (adoptedTabIds.length > 0) {
+          openedTabIdsForContext = adoptedTabIds;
+          const suffix = `Opened new tab${adoptedTabIds.length === 1 ? '' : 's'} in current group: ${adoptedTabIds.join(', ')}`;
+          result = {
+            ...result,
+            output: result.output ? `${result.output}\n${suffix}` : suffix
+          };
+        }
+      } else {
+        result = await runAction();
       }
 
       const availableTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const executedOnTabId =
+        openedTabIdsForContext.length > 0
+          ? openedTabIdsForContext[openedTabIdsForContext.length - 1]
+          : effectiveTabId;
       return {
         ...result,
         tabContext: {
           currentTabId: context.tabId,
-          executedOnTabId: effectiveTabId,
+          executedOnTabId,
           availableTabs,
           tabCount: availableTabs.length
         }

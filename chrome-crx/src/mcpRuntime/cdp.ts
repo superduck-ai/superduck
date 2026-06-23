@@ -13,6 +13,7 @@ import {
   getConsoleTrackingEnabled,
   getNetworkRequestsByTab,
   getNetworkTrackingEnabled,
+  getWindowOpenEventsByTab,
   isDebuggerListenerRegistered,
   setDebuggerListenerRegistered
 } from './cdpState';
@@ -28,7 +29,8 @@ import type {
   NetworkTabData,
   ResizeParams,
   ScreenshotOptions,
-  ScreenshotResult
+  ScreenshotResult,
+  WindowOpenEvent
 } from './cdpTypes';
 
 // =============================================================================
@@ -94,6 +96,12 @@ interface LoadingFailedParams {
   requestId: string;
 }
 
+interface PageWindowOpenParams {
+  url?: string;
+  windowName?: string;
+  userGesture?: boolean;
+}
+
 type DispatchMouseEventParams = {
   type: string;
   x: number;
@@ -137,6 +145,10 @@ class ChromeDebuggerProtocol {
 
   static get consoleTrackingEnabled(): Set<number> {
     return getConsoleTrackingEnabled();
+  }
+
+  static get windowOpenEventsByTab(): Map<number, WindowOpenEvent[]> {
+    return getWindowOpenEventsByTab();
   }
 
   isMac: boolean = false;
@@ -250,6 +262,16 @@ class ChromeDebuggerProtocol {
               matchingRequest.status = 503;
             }
           }
+        } else if ('Page.windowOpen' === method) {
+          const windowOpenParams = params as PageWindowOpenParams;
+          if (windowOpenParams.url) {
+            this.addWindowOpenEvent(tabId, {
+              url: windowOpenParams.url,
+              timestamp: Date.now(),
+              windowName: windowOpenParams.windowName,
+              userGesture: windowOpenParams.userGesture
+            });
+          }
         }
       };
       chrome.debugger.onEvent.addListener(globalThis.__cdpDebuggerEventHandler);
@@ -304,6 +326,28 @@ class ChromeDebuggerProtocol {
     ChromeDebuggerProtocol.networkRequestsByTab.delete(tabId);
     ChromeDebuggerProtocol.consoleTrackingEnabled.delete(tabId);
     ChromeDebuggerProtocol.networkTrackingEnabled.delete(tabId);
+    ChromeDebuggerProtocol.windowOpenEventsByTab.delete(tabId);
+  }
+
+  addWindowOpenEvent(tabId: number, event: WindowOpenEvent): void {
+    const events = ChromeDebuggerProtocol.windowOpenEventsByTab.get(tabId) ?? [];
+    events.push(event);
+    if (events.length > 20) events.shift();
+    ChromeDebuggerProtocol.windowOpenEventsByTab.set(tabId, events);
+  }
+
+  clearWindowOpenEvents(tabId: number): void {
+    ChromeDebuggerProtocol.windowOpenEventsByTab.delete(tabId);
+  }
+
+  consumeWindowOpenEvents(tabId: number): WindowOpenEvent[] {
+    const events = ChromeDebuggerProtocol.windowOpenEventsByTab.get(tabId) ?? [];
+    ChromeDebuggerProtocol.windowOpenEventsByTab.delete(tabId);
+    return events;
+  }
+
+  async enablePageEvents(tabId: number): Promise<void> {
+    await this.sendCommand(tabId, 'Page.enable');
   }
 
   defaultResizeParams: ResizeParams = {

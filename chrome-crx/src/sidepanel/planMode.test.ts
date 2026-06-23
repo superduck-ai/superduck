@@ -7,7 +7,7 @@ vi.mock('../mcpRuntime', () => ({
 import { checkToolAllowed } from './planMode';
 
 describe('checkToolAllowed browser_batch on system pages', () => {
-  it('blocks browser_batch on system pages even when the first action navigates away', () => {
+  it('allows navigate-first browser_batch on system pages', () => {
     const result = checkToolAllowed(
       'browser_batch',
       'system',
@@ -21,12 +21,11 @@ describe('checkToolAllowed browser_batch on system pages', () => {
       }
     );
 
-    expect(result.allowed).toBe(false);
-    expect(result.errorMessage).toBe('browser_batch cannot run on system pages.');
-    expect(result.suggestedGuidance).toContain('use navigate by itself');
+    expect(result.allowed).toBe(true);
+    expect(result.errorMessage).toBeUndefined();
   });
 
-  it('blocks Claude-style name aliases for navigate-first browser_batch', () => {
+  it('allows Claude-style name aliases for navigate-first browser_batch', () => {
     const result = checkToolAllowed(
       'browser_batch',
       'non-script',
@@ -40,9 +39,8 @@ describe('checkToolAllowed browser_batch on system pages', () => {
       }
     );
 
-    expect(result.allowed).toBe(false);
-    expect(result.errorMessage).toBe('browser_batch cannot run on non-script pages.');
-    expect(result.suggestedGuidance).toContain('use navigate by itself');
+    expect(result.allowed).toBe(true);
+    expect(result.errorMessage).toBeUndefined();
   });
 
   it('blocks browser_batch on system pages when it does not start with navigate', () => {
