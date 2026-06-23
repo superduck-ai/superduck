@@ -595,4 +595,86 @@ describe('browser_batch Claude-like runtime contract', () => {
       { label: 'read_page', output: 'x'.repeat(500) }
     ]);
   });
+
+  it('rejects a computer wait longer than the per-step timeout with a clear error', async () => {
+    const result = await batchTool.execute(
+      { tabId: 7, actions: [{ name: 'computer', input: { action: 'wait', duration: 20 } }] },
+      context
+    );
+
+    expect(result).toMatchObject({
+      failedIndex: 0,
+      stoppedReason: 'validation_error',
+      is_error: true
+    });
+    expect(String(result.error)).toContain('too long for the browser_batch per-step timeout');
+    expect(fixtures.executeComputer).not.toHaveBeenCalled();
+  });
+
+  it('propagates a later permission prompt after an allowed navigate', async () => {
+    fixtures.executeNavigate.mockResolvedValue({
+      output: 'navigated',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 7,
+        availableTabs: [{ id: 7, title: 'Example', url: 'https://example.com/' }],
+        tabCount: 1
+      }
+    });
+    fixtures.executeReadPage.mockResolvedValue({
+      type: 'permission_required',
+      tool: 'read_page',
+      url: 'https://example.com/',
+      toolUseId: 'rp'
+    });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'navigate', input: { url: 'https://example.com/' } },
+          { name: 'read_page', input: { filter: 'all' } }
+        ]
+      },
+      context
+    );
+
+    expect(result).toMatchObject({
+      type: 'permission_required',
+      tool: 'read_page',
+      url: 'https://example.com/'
+    });
+  });
+
+  it('does not retarget later default steps when a step explicitly targets another tab', async () => {
+    fixtures.executeReadPage.mockResolvedValue({
+      output: 'read tab 8',
+      tabContext: {
+        currentTabId: 7,
+        executedOnTabId: 8,
+        availableTabs: [
+          { id: 7, title: 'Home', url: 'https://example.com' },
+          { id: 8, title: 'Other', url: 'https://example.com/other' }
+        ],
+        tabCount: 2
+      }
+    });
+    fixtures.executeComputer.mockResolvedValue({ output: 'screenshot captured' });
+
+    await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { name: 'read_page', input: { tabId: 8, filter: 'all' } },
+          { name: 'computer', input: { action: 'screenshot' } }
+        ]
+      },
+      context
+    );
+
+    expect(fixtures.executeComputer).toHaveBeenCalledWith(
+      { action: 'screenshot', tabId: 7 },
+      expect.objectContaining({ availableTools: fixtures.tools })
+    );
+  });
 });

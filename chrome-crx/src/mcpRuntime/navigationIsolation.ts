@@ -84,12 +84,58 @@ export async function createPolicyCheckedChildTab(
   return typeof tabId === 'number' ? tabId : null;
 }
 
+const DEFERRED_NAV_GUARD_TIMEOUT_MS = 30000;
+
+/**
+ * Watches a still-blank adopted popup for a later navigation to an http(s)
+ * destination and closes it if that destination fails the navigation policy.
+ * This covers `window.open('about:blank')` followed by a delayed
+ * `w.location = 'https://blocked'`, which would otherwise leave a gated page
+ * open permanently because the synchronous filter could not yet evaluate it.
+ */
+function guardDeferredNavigation(tabId: number, policy: NavigationPolicyContext): void {
+  const onUpdated = chrome.tabs?.onUpdated;
+  if (!onUpdated?.addListener) return;
+
+  const listener = (updatedTabId: number, changeInfo: { url?: string }) => {
+    if (updatedTabId !== tabId) return;
+    const url = changeInfo.url;
+    if (!url || !/^https?:\/\//.test(url)) return;
+    try {
+      onUpdated.removeListener(listener);
+    } catch {
+      // Listener may already be detached.
+    }
+    void (async () => {
+      if (!(await isNavigationAllowedByPolicy(url, policy))) {
+        try {
+          await chrome.tabs.remove(tabId);
+        } catch {
+          // Tab may already be gone.
+        }
+      }
+    })();
+  };
+
+  onUpdated.addListener(listener);
+  // Stop watching after a bounded window so the listener cannot leak; removing an
+  // already-detached listener is a no-op.
+  setTimeout(() => {
+    try {
+      onUpdated.removeListener(listener);
+    } catch {
+      // Listener may already be detached.
+    }
+  }, DEFERRED_NAV_GUARD_TIMEOUT_MS);
+}
+
 /**
  * Filters tabs that Chrome itself opened (window.open / target=_blank) and that
  * were adopted into the managed group, keeping only those whose URL passes the
  * navigation policy. Tabs that fail the policy are closed (not just hidden), so
- * a blocked/unapproved page cannot remain open in the browser; blank/system
- * tabs are kept (nothing to gate yet).
+ * a blocked/unapproved page cannot remain open in the browser. A tab still on
+ * about:blank cannot be evaluated yet, so it is kept but watched: a later
+ * navigation to a disallowed destination closes it (see guardDeferredNavigation).
  */
 export async function filterPolicyAllowedTabs(
   tabIds: number[],
@@ -103,7 +149,12 @@ export async function filterPolicyAllowedTabs(
     } catch {
       continue;
     }
-    if (!url || url === 'about:blank' || !/^https?:\/\//.test(url)) {
+    if (!url || url === 'about:blank') {
+      guardDeferredNavigation(tabId, policy);
+      allowed.push(tabId);
+      continue;
+    }
+    if (!/^https?:\/\//.test(url)) {
       allowed.push(tabId);
       continue;
     }
@@ -147,17 +198,15 @@ export function isSearchLikeNavigation(previousUrl: string, nextUrl: string): bo
   const next = parseHttpUrl(nextUrl);
   if (!previous || !next) return false;
 
+  // A search-result page must actually carry a search query; otherwise a plain
+  // submit/link to a search.* host (e.g. a settings page) would be mis-isolated.
+  if (!hasSearchQueryParam(next)) return false;
+
   const host = next.hostname.toLowerCase();
-  if ((host.startsWith('search.') || host.includes('.search.')) && hasSearchQueryParam(next)) {
-    return true;
-  }
+  if (host.startsWith('search.') || host.includes('.search.')) return true;
 
   const path = next.pathname.toLowerCase();
-  if ((path.includes('/search') || path.endsWith('/search')) && hasSearchQueryParam(next)) {
-    return true;
-  }
-
-  return previous.hostname !== next.hostname && host.startsWith('search.');
+  return path.includes('/search') || path.endsWith('/search');
 }
 
 async function waitForChangedUrl(

@@ -6,22 +6,32 @@ const fixtures = vi.hoisted(() => {
   const getEffectiveTabId = vi.fn();
   const createChildTabInGroup = vi.fn();
   const getValidTabsWithMetadata = vi.fn();
+  const withPreservedActiveTab = vi.fn();
+  const adoptChildTabsFromOpener = vi.fn();
   const clearWindowOpenEvents = vi.fn();
   const enablePageEvents = vi.fn();
   const consumeWindowOpenEvents = vi.fn();
   const sendCommand = vi.fn();
-  const checkDomainCategoryForNavigation = vi.fn();
+  const getKeyCode = vi.fn();
+  const pressKey = vi.fn();
+  const moveSearchNavigationToNewTab = vi.fn();
+  const filterPolicyAllowedTabs = vi.fn();
 
   return {
     checkPermission,
     getEffectiveTabId,
     createChildTabInGroup,
     getValidTabsWithMetadata,
+    withPreservedActiveTab,
+    adoptChildTabsFromOpener,
     clearWindowOpenEvents,
     enablePageEvents,
     consumeWindowOpenEvents,
     sendCommand,
-    checkDomainCategoryForNavigation
+    getKeyCode,
+    pressKey,
+    moveSearchNavigationToNewTab,
+    filterPolicyAllowedTabs
   };
 });
 
@@ -49,7 +59,9 @@ vi.mock('./tabState', () => ({
   tabGroupManager: {
     getEffectiveTabId: fixtures.getEffectiveTabId,
     createChildTabInGroup: fixtures.createChildTabInGroup,
-    getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata
+    getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
+    withPreservedActiveTab: fixtures.withPreservedActiveTab,
+    adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener
   }
 }));
 
@@ -58,9 +70,11 @@ vi.mock('./cdp', () => ({
     clearWindowOpenEvents: fixtures.clearWindowOpenEvents,
     enablePageEvents: fixtures.enablePageEvents,
     consumeWindowOpenEvents: fixtures.consumeWindowOpenEvents,
-    sendCommand: fixtures.sendCommand
+    sendCommand: fixtures.sendCommand,
+    getKeyCode: fixtures.getKeyCode,
+    pressKey: fixtures.pressKey
   },
-  checkDomainSecurity: vi.fn(),
+  checkDomainSecurity: vi.fn(async () => null),
   generateUniqueId: vi.fn(() => 'id-1'),
   screenshotToViewportCoords: vi.fn(),
   scrollViaContentScript: vi.fn()
@@ -78,10 +92,10 @@ vi.mock('./annotatedScreenshot', () => ({
 }));
 
 vi.mock('./navigationIsolation', () => ({
-  moveSearchNavigationToNewTab: vi.fn(async () => []),
-  checkDomainCategoryForNavigation: fixtures.checkDomainCategoryForNavigation,
+  moveSearchNavigationToNewTab: fixtures.moveSearchNavigationToNewTab,
+  checkDomainCategoryForNavigation: vi.fn(async () => null),
   createPolicyCheckedChildTab: vi.fn(async () => null),
-  filterPolicyAllowedTabs: vi.fn(async (tabIds: number[]) => tabIds)
+  filterPolicyAllowedTabs: fixtures.filterPolicyAllowedTabs
 }));
 
 const chromeMock = vi.hoisted(() => ({
@@ -106,54 +120,40 @@ const context: ToolContext = {
 };
 
 beforeEach(() => {
-  fixtures.checkPermission.mockReset();
-  fixtures.getEffectiveTabId.mockReset();
-  fixtures.createChildTabInGroup.mockReset();
-  fixtures.getValidTabsWithMetadata.mockReset();
-  fixtures.clearWindowOpenEvents.mockReset();
-  fixtures.enablePageEvents.mockReset();
-  fixtures.consumeWindowOpenEvents.mockReset();
-  fixtures.sendCommand.mockReset();
-  fixtures.checkDomainCategoryForNavigation.mockReset();
+  for (const fn of Object.values(fixtures)) fn.mockReset();
   chromeMock.tabs.get.mockReset();
   chromeMock.scripting.executeScript.mockReset();
 
-  fixtures.checkDomainCategoryForNavigation.mockResolvedValue(null);
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
   fixtures.getEffectiveTabId.mockResolvedValue(10);
-  fixtures.createChildTabInGroup.mockResolvedValue(31);
+  fixtures.withPreservedActiveTab.mockImplementation(
+    async (_tabId: number, action: () => Promise<unknown>) => action()
+  );
+  fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+  fixtures.filterPolicyAllowedTabs.mockImplementation(async (tabIds: number[]) => tabIds);
+  fixtures.consumeWindowOpenEvents.mockReturnValue([]);
+  fixtures.moveSearchNavigationToNewTab.mockResolvedValue([]);
+  fixtures.getKeyCode.mockReturnValue('Enter');
   fixtures.getValidTabsWithMetadata.mockResolvedValue([
     { id: 10, title: 'Source', url: 'https://example.com/' },
-    {
-      id: 31,
-      title: 'Results',
-      url: 'https://example.com/search?q=agent'
-    }
+    { id: 31, title: 'Results', url: 'https://example.com/search?q=agent' }
   ]);
-  chromeMock.tabs.get.mockResolvedValue({
-    id: 10,
-    url: 'https://example.com/'
-  });
-  chromeMock.scripting.executeScript.mockResolvedValue([
-    {
-      result: {
-        url: 'https://example.com/search?q=agent',
-        value: 'agent'
-      }
-    }
-  ]);
+  chromeMock.tabs.get.mockResolvedValue({ id: 10, url: 'https://example.com/' });
 });
 
-describe('computer search submit isolation', () => {
-  it('opens focused site search submit in a new group tab instead of pressing Enter in the source tab', async () => {
+describe('computer search submit isolation (post-action)', () => {
+  it('runs the real key action and isolates the resulting in-place search navigation', async () => {
+    fixtures.moveSearchNavigationToNewTab.mockResolvedValue([31]);
+
     const result = await computerTool.execute({ action: 'key', text: 'Enter', tabId: 10 }, context);
 
-    expect(fixtures.createChildTabInGroup).toHaveBeenCalledWith(
-      10,
-      'https://example.com/search?q=agent'
+    // The real Enter must be dispatched (so SPA/onsubmit handlers and the typed
+    // value drive the navigation), then the in-place result is moved to a new tab.
+    expect(fixtures.pressKey).toHaveBeenCalledWith(10, 'Enter');
+    expect(fixtures.moveSearchNavigationToNewTab).toHaveBeenCalledWith(
+      expect.objectContaining({ openerTabId: 10, previousUrl: 'https://example.com/' })
     );
-    expect(fixtures.sendCommand).not.toHaveBeenCalled();
-    expect(result.output).toContain('Opened search results in a new tab');
+    expect(result.output).toContain('Opened new tab');
     expect(result.tabContext).toMatchObject({
       currentTabId: 10,
       executedOnTabId: 31,
@@ -161,30 +161,26 @@ describe('computer search submit isolation', () => {
     });
   });
 
-  it('returns permission_required for the synthesized search URL without opening a tab', async () => {
-    fixtures.checkPermission.mockImplementation(async (url: string) => {
-      if (url === 'https://example.com/search?q=agent') return { allowed: false, needsPrompt: true };
-      return { allowed: true };
-    });
+  it('reports a policy-allowed adopted tab opened by the interaction', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([41]);
+    fixtures.filterPolicyAllowedTabs.mockResolvedValue([41]);
 
     const result = await computerTool.execute({ action: 'key', text: 'Enter', tabId: 10 }, context);
 
-    expect(result.type).toBe('permission_required');
-    expect(result.tool).toBe('navigate');
-    expect(result.url).toBe('https://example.com/search?q=agent');
-    expect(fixtures.createChildTabInGroup).not.toHaveBeenCalled();
-    expect(fixtures.sendCommand).not.toHaveBeenCalled();
+    expect(fixtures.pressKey).toHaveBeenCalledWith(10, 'Enter');
+    expect(fixtures.consumeWindowOpenEvents).toHaveBeenCalledWith(10);
+    expect(fixtures.moveSearchNavigationToNewTab).not.toHaveBeenCalled();
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 41 });
   });
 
-  it('blocks the synthesized search URL when the domain category is restricted', async () => {
-    fixtures.checkDomainCategoryForNavigation.mockResolvedValue({
-      error: "This site is blocked by your organization's policy."
-    });
+  it('drops an adopted tab that the policy filter rejected', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([41]);
+    fixtures.filterPolicyAllowedTabs.mockResolvedValue([]);
 
     const result = await computerTool.execute({ action: 'key', text: 'Enter', tabId: 10 }, context);
 
-    expect(result.error).toBe("This site is blocked by your organization's policy.");
-    expect(fixtures.createChildTabInGroup).not.toHaveBeenCalled();
-    expect(fixtures.sendCommand).not.toHaveBeenCalled();
+    // Filtered out -> falls through to the search-move fallback (also empty here),
+    // so the action ran on the original tab and no new tab is reported.
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 10 });
   });
 });

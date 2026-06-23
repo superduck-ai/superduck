@@ -44,14 +44,39 @@ interface BatchItemResult {
 
 const CHILD_ACTION_TIMEOUT_MS = 15000;
 const SUMMARY_STEP_OUTPUT_MAX_CHARS = 160;
+// A computer.wait whose duration would meet/exceed the per-step timeout can never
+// complete inside a batch, so reject it up front with a clear message instead of
+// letting it die with a generic timeout.
+const MAX_BATCH_WAIT_SECONDS = CHILD_ACTION_TIMEOUT_MS / 1000;
+// form_input mutates field state through injected setters + dispatched events;
+// give the page a brief moment to settle before a following type/key/submit step.
+const FORM_INPUT_SETTLE_MS = 350;
 const BROWSER_BATCH_DESCRIPTION =
   "Execute a sequence of browser tool calls in ONE round trip. Each item is {name, input} where input is exactly what you'd pass to that tool standalone. Actions execute SEQUENTIALLY (not in parallel) and stop on the first error. Use this tool extensively to quickly execute work whenever you can predict two or more steps ahead, e.g. navigate, click a field, type, press Return, screenshot. Each tool's own permission check runs per item; if an action navigates to a domain without permission, the next item's check fails and the batch stops. When a step opens a new tab (tabs_create, navigate with newTab:true, or a search submit), later steps that omit tabId automatically run on that newly created tab; pass an explicit tabId to target a different tab. Screenshots and other images are returned interleaved with outputs; coordinates you write in THIS batch refer to the screenshot taken BEFORE this call. browser_batch cannot be nested.";
 
 const DEBUGGER_REQUIRED_TOOLS = new Set(['computer', 'resize_window']);
+// Tools whose successful execution does not mutate page state, so a later child's
+// permission prompt can still be surfaced for the user to approve. Navigations and
+// reads belong here; only state-changing interactions poison prompt propagation.
 const SAFE_PERMISSION_PROMPT_TOOLS = new Set([
   'tabs_context',
   'tabs_context_mcp',
-  'shortcuts_list'
+  'shortcuts_list',
+  'navigate',
+  'tabs_create',
+  'read_page',
+  'find',
+  'get_page_text',
+  'read_console_messages',
+  'read_network_requests'
+]);
+const SAFE_PERMISSION_PROMPT_COMPUTER_ACTIONS = new Set([
+  'wait',
+  'screenshot',
+  'scroll',
+  'scroll_to',
+  'hover',
+  'zoom'
 ]);
 
 let cachedRegistry: { tools: ToolDefinition[]; map: Map<string, ToolDefinition> } | null = null;
@@ -92,7 +117,26 @@ function isPermissionRequired(result: ToolResult): boolean {
 
 function canPropagatePermissionPrompt(toolName: string, input: Record<string, unknown>): boolean {
   if (SAFE_PERMISSION_PROMPT_TOOLS.has(toolName)) return true;
-  return toolName === 'computer' && input.action === 'wait';
+  if (toolName === 'computer') {
+    return (
+      typeof input.action === 'string' && SAFE_PERMISSION_PROMPT_COMPUTER_ACTIONS.has(input.action)
+    );
+  }
+  return false;
+}
+
+// A computer.wait that cannot finish within the per-step timeout would otherwise
+// fail with an opaque timeout; surface a clear validation message instead.
+function getBatchWaitTooLongError(
+  toolName: string,
+  input: Record<string, unknown>
+): string | undefined {
+  if (toolName !== 'computer' || input.action !== 'wait') return undefined;
+  const duration = input.duration;
+  if (typeof duration === 'number' && duration >= MAX_BATCH_WAIT_SECONDS) {
+    return `computer wait of ${duration}s is too long for the browser_batch per-step timeout (${MAX_BATCH_WAIT_SECONDS}s); run the wait as a standalone step.`;
+  }
+  return undefined;
 }
 
 function summarizeStepInput(toolName: string, input: Record<string, unknown>): string {
@@ -587,6 +631,30 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
           resultMode
         });
       }
+      const waitTooLong = getBatchWaitTooLongError(toolName, input);
+      if (waitTooLong) {
+        const errMsg = `actions[${i}] ${waitTooLong}`;
+        steps.push({
+          index: i,
+          id: action.id,
+          tool: toolName,
+          ok: false,
+          error: errMsg,
+          errorCode: 'validation_error',
+          stoppedReason: 'validation_error'
+        });
+        return buildPartialResult({
+          steps,
+          batchItems,
+          actionCount: preparedActions.length,
+          failedIndex: i,
+          error: errMsg,
+          stoppedReason: 'validation_error',
+          lastImage,
+          lastTabContext,
+          resultMode
+        });
+      }
       const label = getBatchItemLabel(toolName, input);
       let result: ToolResult;
 
@@ -710,10 +778,22 @@ export const batchTool: ToolDefinition<BatchToolParams> = {
         canPropagatePermission && canPropagatePermissionPrompt(toolName, input);
 
       const stepTabId = resolveStepTabId(input, result, childContext);
-      if (stepTabId !== undefined) currentDefaultTabId = stepTabId;
+      // Only make the default sticky when this step actually opened/switched to a
+      // NEW tab (executedOnTabId differs from the tab it targeted). A step that
+      // explicitly reads/acts on another tab must not retarget later default steps.
+      const targetedTabId = typeof input.tabId === 'number' ? input.tabId : currentDefaultTabId;
+      const executedOnTabId = result.tabContext?.executedOnTabId;
+      if (typeof executedOnTabId === 'number' && executedOnTabId !== targetedTabId) {
+        currentDefaultTabId = executedOnTabId;
+      }
 
-      if (i < preparedActions.length - 1 && action.waitAfter !== 'none' && stepTabId !== undefined) {
-        await waitForTabLoading(stepTabId);
+      if (i < preparedActions.length - 1 && action.waitAfter !== 'none') {
+        if (stepTabId !== undefined) await waitForTabLoading(stepTabId);
+        // form_input mutates the field via injected setters; let it settle before a
+        // following type/key/submit so the new value is in place first.
+        if (toolName === 'form_input') {
+          await new Promise((resolve) => setTimeout(resolve, FORM_INPUT_SETTLE_MS));
+        }
       }
     }
 
