@@ -34,6 +34,7 @@ interface GroupMetadata {
   chromeGroupId: number;
   memberStates: Map<number, MemberState>;
   isUnmanaged?: boolean;
+  hasLegacyMemberOrigins?: boolean;
 }
 
 interface GroupWithMembers extends GroupMetadata {
@@ -145,6 +146,7 @@ class TabGroupManager {
   processingMainTabRemoval = new Set<number>();
   mcpTabGroupId: number | null = null;
   MCP_TAB_GROUP_KEY = StorageKeys.MCP_TAB_GROUP_ID;
+  MCP_TAB_GROUP_OWNER_KEY = StorageKeys.MCP_TAB_GROUP_OWNER;
   tabGroupListenerSubscriptionId: string | null = null;
   isTabGroupListenerStarted = false;
   isTabCreationListenerStarted = false;
@@ -553,6 +555,7 @@ class TabGroupManager {
                   origin: mainOrigin,
                   disposition: mainDisposition
                 }),
+                await this.updateMcpTabGroupIdAfterRegroup(oldChromeGroupId, newChromeGroupId),
                 oldChromeGroupId !== newChromeGroupId &&
                   this.groupBlocklistStatuses.delete(oldChromeGroupId),
                 'pulsing' === mainIndicatorState)
@@ -684,6 +687,7 @@ class TabGroupManager {
             origin: pending.origin,
             disposition: pending.disposition
           }),
+          await this.updateMcpTabGroupIdAfterRegroup(pending.originalGroupId, newGroupId),
           pending.originalGroupId !== newGroupId &&
             this.groupBlocklistStatuses.delete(pending.originalGroupId),
           'pulsing' === pending.indicatorState)
@@ -716,6 +720,7 @@ class TabGroupManager {
                 origin: pending.origin,
                 disposition: pending.disposition
               }),
+              await this.updateMcpTabGroupIdAfterRegroup(pending.originalGroupId, newGroupId),
               pending.originalGroupId !== newGroupId &&
                 this.groupBlocklistStatuses.delete(pending.originalGroupId),
               'pulsing' === pending.indicatorState)
@@ -749,17 +754,19 @@ class TabGroupManager {
         'object' == typeof data &&
         (this.groupMetadata = new Map(
           Object.entries(data as Record<string, StoredGroupMetadata>).map(([key, value]) => {
+            let hasLegacyMemberOrigins = false;
             const memberStates = value.memberStates
               ? new Map(
-                  Object.entries(value.memberStates).map(([memberKey, memberValue]) => [
-                    parseInt(memberKey, 10),
-                    normalizeMemberState(memberValue)
-                  ])
+                  Object.entries(value.memberStates).map(([memberKey, memberValue]) => {
+                    if (memberValue.origin === undefined) hasLegacyMemberOrigins = true;
+                    return [parseInt(memberKey, 10), normalizeMemberState(memberValue)];
+                  })
                 )
               : new Map<number, MemberState>();
             const entry: GroupMetadata = {
               ...value,
-              memberStates
+              memberStates,
+              hasLegacyMemberOrigins
             };
             return [parseInt(key, 10), entry];
           })
@@ -772,13 +779,16 @@ class TabGroupManager {
   async saveToStorage(): Promise<void> {
     try {
       const serialized = Object.fromEntries(
-        Array.from(this.groupMetadata.entries()).map(([key, value]) => [
-          key,
-          {
-            ...value,
-            memberStates: Object.fromEntries(value.memberStates || new Map())
-          }
-        ])
+        Array.from(this.groupMetadata.entries()).map(([key, value]) => {
+          const { hasLegacyMemberOrigins: _hasLegacyMemberOrigins, ...storedValue } = value;
+          return [
+            key,
+            {
+              ...storedValue,
+              memberStates: Object.fromEntries(value.memberStates || new Map())
+            }
+          ];
+        })
       );
       await chrome.storage.local.set({ [this.STORAGE_KEY]: serialized });
     } catch (err) {
@@ -1267,16 +1277,18 @@ class TabGroupManager {
         this.keepOnlyHandoffTabs(meta, handoffTabIds);
       }
 
+      if (closeTabIds.length > 0) {
+        await chrome.tabs.remove(closeTabIds);
+      }
+
       const ungroupTabIds = [...deliverableTabIds, ...releaseTabIds];
       if (ungroupTabIds.length > 0 && chrome.tabs.ungroup) {
         await chrome.tabs.ungroup(ungroupTabIds as [number, ...number[]]);
       }
-
-      if (closeTabIds.length > 0) {
-        await chrome.tabs.remove(closeTabIds);
-      }
     } catch (err) {
       if (metadataSnapshot) this.restoreManagedGroupMetadata(meta, metadataSnapshot);
+      await this.reconcileManagedGroupMetadataWithChrome(meta).catch(() => {});
+      await this.saveToStorage();
       throw err;
     }
 
@@ -1378,6 +1390,41 @@ class TabGroupManager {
     this.groupMetadata.set(snapshot.mainTabId, meta);
   }
 
+  private async reconcileManagedGroupMetadataWithChrome(meta: GroupMetadata): Promise<void> {
+    const groupTabs = await chrome.tabs.query({ groupId: meta.chromeGroupId });
+    const currentTabIds = new Set(
+      groupTabs.flatMap((tab) => (typeof tab.id === 'number' ? [tab.id] : []))
+    );
+    if (currentTabIds.size === 0) {
+      await this.removeManagedGroupMetadata(meta);
+      return;
+    }
+
+    for (const memberTabId of Array.from(meta.memberStates.keys())) {
+      if (!currentTabIds.has(memberTabId)) meta.memberStates.delete(memberTabId);
+    }
+    for (const tabId of currentTabIds) {
+      if (!meta.memberStates.has(tabId)) {
+        meta.memberStates.set(tabId, {
+          indicatorState: tabId === meta.mainTabId ? 'none' : 'static',
+          origin: 'user',
+          disposition: 'active'
+        });
+      }
+    }
+    if (!currentTabIds.has(meta.mainTabId)) {
+      const oldMainTabId = meta.mainTabId;
+      meta.mainTabId = groupTabs
+        .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
+        .sort((a, b) => {
+          if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+          return (a.index ?? 0) - (b.index ?? 0);
+        })[0].id;
+      this.groupMetadata.delete(oldMainTabId);
+    }
+    this.groupMetadata.set(meta.mainTabId, meta);
+  }
+
   private async getFinalizedTabContext(
     chromeGroupId: number
   ): Promise<FinalizedTabContext | undefined> {
@@ -1417,6 +1464,55 @@ class TabGroupManager {
     if (await this.isCurrentMcpChromeGroup(meta.chromeGroupId)) {
       await this.clearMcpTabGroup().catch(() => {});
     }
+  }
+
+  private findMetadataByChromeGroupId(chromeGroupId: number): GroupMetadata | undefined {
+    for (const meta of this.groupMetadata.values())
+      if (meta.chromeGroupId === chromeGroupId) return meta;
+    return undefined;
+  }
+
+  private async isStoredMcpChromeGroup(chromeGroupId: number): Promise<boolean> {
+    try {
+      const stored = await chrome.storage.local.get([
+        this.MCP_TAB_GROUP_KEY,
+        this.MCP_TAB_GROUP_OWNER_KEY
+      ] as string[]);
+      return (
+        stored[this.MCP_TAB_GROUP_KEY] === chromeGroupId &&
+        stored[this.MCP_TAB_GROUP_OWNER_KEY] === chromeGroupId
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async updateMcpTabGroupIdAfterRegroup(
+    oldChromeGroupId: number,
+    newChromeGroupId: number
+  ): Promise<void> {
+    if (this.mcpTabGroupId === oldChromeGroupId) this.mcpTabGroupId = newChromeGroupId;
+    if (await this.isStoredMcpChromeGroup(oldChromeGroupId)) {
+      this.mcpTabGroupId = newChromeGroupId;
+      await this.saveMcpTabGroupId();
+    }
+  }
+
+  private migrateLegacyStoredMcpGroup(meta: GroupMetadata): boolean {
+    const hasMcpMember = Array.from(meta.memberStates.values()).some(
+      (memberState) => memberState.isMcp === true
+    );
+    if (!meta.hasLegacyMemberOrigins && !hasMcpMember) return false;
+
+    for (const [tabId, memberState] of meta.memberStates.entries()) {
+      meta.memberStates.set(tabId, {
+        ...memberState,
+        origin: 'agent',
+        disposition: memberState.disposition ?? 'active'
+      });
+    }
+    meta.hasLegacyMemberOrigins = false;
+    return true;
   }
 
   private async isCurrentMcpChromeGroup(chromeGroupId: number): Promise<boolean> {
@@ -2207,6 +2303,7 @@ class TabGroupManager {
   async clearMcpTabGroup(): Promise<void> {
     this.mcpTabGroupId = null;
     await chrome.storage.local.remove(this.MCP_TAB_GROUP_KEY as string);
+    await chrome.storage.local.remove(this.MCP_TAB_GROUP_OWNER_KEY as string);
   }
 
   async createMcpTabGroup(options?: { active?: boolean }): Promise<{
@@ -2299,21 +2396,15 @@ class TabGroupManager {
 
   async saveMcpTabGroupId(): Promise<void> {
     await chrome.storage.local.set({
-      [this.MCP_TAB_GROUP_KEY]: this.mcpTabGroupId
+      [this.MCP_TAB_GROUP_KEY]: this.mcpTabGroupId,
+      [this.MCP_TAB_GROUP_OWNER_KEY]: this.mcpTabGroupId
     });
   }
 
   async loadMcpTabGroupId(): Promise<void> {
     try {
-      const stored = (await chrome.storage.local.get(this.MCP_TAB_GROUP_KEY))[
-        this.MCP_TAB_GROUP_KEY
-      ];
-      if ('number' == typeof stored)
-        try {
-          return (await chrome.tabGroups.get(stored), void (this.mcpTabGroupId = stored));
-        } catch {
-          // ignore
-        }
+      await this.loadStoredMcpTabGroupId();
+      if (this.mcpTabGroupId !== null) return;
       const found = await this.findMcpTabGroupByCharacteristics();
       if (null !== found) {
         this.mcpTabGroupId = found;
@@ -2327,12 +2418,27 @@ class TabGroupManager {
 
   async loadStoredMcpTabGroupId(): Promise<void> {
     try {
-      const stored = (await chrome.storage.local.get(this.MCP_TAB_GROUP_KEY))[
-        this.MCP_TAB_GROUP_KEY
-      ];
+      const storedData = await chrome.storage.local.get([
+        this.MCP_TAB_GROUP_KEY,
+        this.MCP_TAB_GROUP_OWNER_KEY
+      ] as string[]);
+      const stored = storedData[this.MCP_TAB_GROUP_KEY];
       if ('number' == typeof stored)
         try {
-          return (await chrome.tabGroups.get(stored), void (this.mcpTabGroupId = stored));
+          await chrome.tabGroups.get(stored);
+          if (storedData[this.MCP_TAB_GROUP_OWNER_KEY] === stored) {
+            this.mcpTabGroupId = stored;
+            return;
+          }
+          const meta = this.findMetadataByChromeGroupId(stored);
+          if (meta && this.migrateLegacyStoredMcpGroup(meta)) {
+            this.mcpTabGroupId = stored;
+            await this.saveMcpTabGroupId();
+            await this.saveToStorage();
+            return;
+          }
+          await this.clearMcpTabGroup().catch(() => {});
+          return;
         } catch {
           await this.clearMcpTabGroup().catch(() => {});
           return;

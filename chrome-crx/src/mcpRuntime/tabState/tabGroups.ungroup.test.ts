@@ -179,6 +179,33 @@ describe('tabGroupManager.handleTabGroupChange — ungroup regression', () => {
     expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
   });
 
+  it('updates the stored MCP group pointer when the MCP main tab is regrouped', async () => {
+    const m = manager;
+    m.mcpTabGroupId = 100;
+    m.groupMetadata.set(1, {
+      mainTabId: 1,
+      chromeGroupId: 100,
+      memberStates: new Map<number, unknown>([
+        [1, { indicatorState: 'pulsing', origin: 'agent', disposition: 'active' }],
+        [2, { indicatorState: 'static', origin: 'agent', disposition: 'active' }]
+      ])
+    });
+    chromeMock.storage.local.get.mockResolvedValue({
+      mcpTabGroupId: 100,
+      mcpTabGroupOwner: 100
+    });
+
+    await tabGroupManager.handleTabGroupChange(1, 200);
+
+    const meta = m.groupMetadata.get(1);
+    expect(meta?.chromeGroupId).toBe(9999);
+    expect(m.mcpTabGroupId).toBe(9999);
+    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
+      mcpTabGroupId: 9999,
+      mcpTabGroupOwner: 9999
+    });
+  });
+
   it('clears a stored MCP group pointer when deleteGroup removes that group before the pointer is loaded', async () => {
     const m = manager;
     chromeMock.storage.local.get.mockResolvedValueOnce({ mcpTabGroupId: 100 });
