@@ -169,6 +169,37 @@ describe('validateToolInput — type checks', () => {
     expect(result.errors.some((e) => e.includes('duration must be number'))).toBe(true);
   });
 
+  it('rejects a fractional number when integer is expected', () => {
+    const integerTool: ToolDefinition = {
+      name: 'integerTool',
+      description: '',
+      parameters: {
+        keep: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              tabId: { type: 'integer' }
+            }
+          }
+        }
+      },
+      execute: () => Promise.resolve({ output: 'ok' }),
+      toProviderSchema: () => ({
+        name: 'integerTool',
+        description: '',
+        input_schema: { type: 'object', properties: {} }
+      })
+    };
+
+    const valid = validateToolInput('integerTool', { keep: [{ tabId: 12 }] }, [integerTool]);
+    const invalid = validateToolInput('integerTool', { keep: [{ tabId: 12.5 }] }, [integerTool]);
+
+    expect(valid.valid).toBe(true);
+    expect(invalid.valid).toBe(false);
+    expect(invalid.errors).toContain('keep[0].tabId must be integer, got number');
+  });
+
   it('rejects a non-array when array is expected', () => {
     const result = validateToolInput(
       'computer',

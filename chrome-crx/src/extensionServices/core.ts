@@ -79,6 +79,7 @@ export enum StorageKeys {
   TAB_GROUPS = 'tabGroups',
   DISMISSED_TAB_GROUPS = 'dismissedTabGroups',
   MCP_TAB_GROUP_ID = 'mcpTabGroupId',
+  MCP_TAB_GROUP_OWNER = 'mcpTabGroupOwner',
   MCP_CONNECTED = 'mcpConnected',
   ANALYTICS_ID = 'analyticsId',
   QUICK_MODE_TIP_DISMISSED = 'quickModeTipDismissed',

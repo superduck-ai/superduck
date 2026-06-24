@@ -212,7 +212,11 @@ describe('tabGroupManager.promoteToMainTab', () => {
     // `memberStates` stores main tabs too (createGroup / adoptOrphanedGroup
     // also seed it). After promote, the new main sits there with state
     // 'none' — no agent currently running.
-    expect(meta.memberStates.get(2)).toEqual({ indicatorState: 'none' });
+    expect(meta.memberStates.get(2)).toEqual({
+      indicatorState: 'none',
+      origin: 'user',
+      disposition: 'active'
+    });
     // Other members stay in the group
     expect(meta.memberStates.has(3)).toBe(true);
     // The old main is still tracked as a member

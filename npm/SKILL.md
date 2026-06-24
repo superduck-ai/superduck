@@ -31,6 +31,11 @@ superduck fill 'input[name=q]' "claude code"  # set value + dispatch input/chang
 superduck press Enter --selector 'input[name=q]'
 
 superduck tabs                 # list all Chrome tabs (debug; rarely needed)
+superduck tab_group list --create-if-empty    # show or create the MCP tab group
+superduck tab_group new                       # create an MCP tab group tab
+superduck tab_group finalize                  # finalize the MCP tab group
+superduck tab_group finalize --deliverable 123
+superduck tab_group finalize --handoff 123
 superduck doctor               # health check
 superduck log --tail 20        # ~/.superduck/audit.jsonl
 ```
@@ -40,6 +45,7 @@ superduck log --tail 20        # ~/.superduck/audit.jsonl
 - **Default same-domain:** `fetch` rejects targets outside the active tab's eTLD+1. Add `--allow-cross-origin` if the user is OK with it.
 - **Active tab semantics:** "active tab" = the focused tab of the last focused Chrome window. Override with `--tab <id>`.
 - **Act commands act on the live page** the user can see — be explicit with the user before running `open`/`click`/`fill`/`press` if the action is irreversible (submitting forms, sending messages, deleting). For `press Enter` on search forms, prefer `click` on the submit button: synthetic KeyboardEvents are untrusted and many sites ignore them.
+- **Tab cleanup:** before ending a turn after SuperDuck tab-group browser work, call `superduck tab_group finalize` as the final SuperDuck browser action and do not call more SuperDuck browser commands after it. Omit tabs by default, including research/search/source/intermediate/blank/error tabs once you have extracted what you need. Use `--deliverable TAB` only when the tab itself is a user-facing output or requested open page, and `--handoff TAB` only when a later turn should continue from that live page. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs are left open and released from the managed group.
 - **No headless:** if `superduck doctor` says the native host is not reachable, ask the user to open Chrome / install the SuperDuck extension. Do not fall back to other browser automation.
 
 ## Self-bootstrap

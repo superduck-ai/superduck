@@ -146,7 +146,7 @@ describe('new background group tab navigation', () => {
       active: false,
       openerTabId: 10
     });
-    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31);
+    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31, { origin: 'agent' });
     expect(chromeMock.tabs.group).not.toHaveBeenCalled();
     expect(result.tabContext).toMatchObject({
       currentTabId: 10,
@@ -167,7 +167,7 @@ describe('new background group tab navigation', () => {
       active: false,
       openerTabId: 10
     });
-    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31);
+    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31, { origin: 'agent' });
     expect(result.output).toContain('Opened https://example.com/search?q=agent');
     expect(result.tabContext).toMatchObject({
       currentTabId: 10,

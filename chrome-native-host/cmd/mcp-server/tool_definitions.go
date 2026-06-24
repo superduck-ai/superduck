@@ -332,6 +332,19 @@ var toolDefinitions = []toolDefinition{
 		inputSchema: objectSchema(map[string]any{}),
 	},
 	{
+		name:        "tabs_finalize_mcp",
+		description: "Finalize the current MCP tab group with Codex-compatible cleanup semantics. Use this once as the final SuperDuck browser action of the turn. Omit tabs by default. Tabs kept as handoff remain in the managed group for continuation. Tabs kept as deliverable stay open but leave the managed group. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs stay open and leave the managed group.",
+		inputSchema: objectSchema(map[string]any{
+			"keep": arraySchema(
+				"Optional list of tabs to keep after cleanup. Each item is {tabId, status}, where status is handoff or deliverable.",
+				objectProperty("", map[string]any{
+					"tabId":  numberSchema("Tab ID to keep."),
+					"status": stringSchema("Post-finalize disposition for this tab.", withEnum("handoff", "deliverable")),
+				}, "tabId", "status"),
+			),
+		}),
+	},
+	{
 		name:        "shortcuts_list",
 		description: "List all available shortcuts and workflows (shortcuts and workflows are interchangeable). Returns shortcuts with their commands, descriptions, and whether they are workflows. Use shortcuts_execute to run a shortcut or workflow.",
 		inputSchema: objectSchema(map[string]any{}),

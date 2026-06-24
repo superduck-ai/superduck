@@ -9,7 +9,7 @@ import (
 
 func TestRegisterToolsUsesValidSchemas(t *testing.T) {
 	t.Parallel()
-	if got, want := len(toolDefinitions), 20; got != want {
+	if got, want := len(toolDefinitions), 21; got != want {
 		t.Fatalf("toolDefinitions length = %d, want %d", got, want)
 	}
 
@@ -25,6 +25,46 @@ func TestRegisterToolsUsesValidSchemas(t *testing.T) {
 	}()
 
 	registerTools(server, nil)
+}
+
+func TestTabsFinalizeMCPToolDefinition(t *testing.T) {
+	t.Parallel()
+
+	tool := findToolDefinition("tabs_finalize_mcp")
+	if tool == nil {
+		t.Fatal("tabs_finalize_mcp tool definition not found")
+	}
+
+	properties, ok := tool.inputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("tabs_finalize_mcp properties has type %T, want map[string]any", tool.inputSchema["properties"])
+	}
+	keep, ok := properties["keep"].(map[string]any)
+	if !ok {
+		t.Fatalf("keep schema has type %T, want map[string]any", properties["keep"])
+	}
+	if got, want := keep["type"], "array"; got != want {
+		t.Fatalf("keep type = %v, want %q", got, want)
+	}
+	items, ok := keep["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("keep items has type %T, want map[string]any", keep["items"])
+	}
+	itemProperties, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("keep item properties has type %T, want map[string]any", items["properties"])
+	}
+	status, ok := itemProperties["status"].(map[string]any)
+	if !ok {
+		t.Fatalf("status schema has type %T, want map[string]any", itemProperties["status"])
+	}
+	enumValues, ok := status["enum"].([]string)
+	if !ok {
+		t.Fatalf("status enum has type %T, want []string", status["enum"])
+	}
+	if !containsString(enumValues, "handoff") || !containsString(enumValues, "deliverable") {
+		t.Fatalf("status enum = %v, want handoff and deliverable", enumValues)
+	}
 }
 
 func TestBrowserBatchToolDefinition(t *testing.T) {

@@ -17,6 +17,7 @@ func TestExtractSubcommand(t *testing.T) {
 		{"tab_group/list", "tab_group", "list", []string{"list"}},
 		{"tab_group/ls-alias", "tab_group", "list", []string{"ls", "--create-if-empty"}},
 		{"tab_group/new", "tab_group", "new", []string{"new"}},
+		{"tab_group/finalize", "tab_group", "finalize", []string{"finalize", "--deliverable", "123"}},
 		{"tab_group/unknown", "tab_group", "unknown", []string{"weird"}},
 		{"tab_group/empty", "tab_group", "", nil},
 		{"gif/start", "gif", "start", []string{"start"}},
