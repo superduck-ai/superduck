@@ -37,6 +37,13 @@ export interface NetworkTabData {
   requestMap: Map<string, NetworkRequest>;
 }
 
+export interface WindowOpenEvent {
+  url: string;
+  timestamp: number;
+  windowName?: string;
+  userGesture?: boolean;
+}
+
 export interface MouseEventParams {
   type: string;
   x: number;

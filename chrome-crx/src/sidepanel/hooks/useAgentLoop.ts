@@ -146,7 +146,18 @@ export interface UseAgentLoopReturn {
   ) => Promise<void>;
 }
 
-const BATCH_REMINDER_ELIGIBLE_TOOLS = new Set(['form_input', 'read_page', 'find', 'resize_window']);
+const BATCH_REMINDER_ELIGIBLE_TOOLS = new Set([
+  'navigate',
+  'tabs_context',
+  'tabs_context_mcp',
+  'upload_image',
+  'update_plan',
+  'gif_creator',
+  'resize_window',
+  'file_upload',
+  'tabs_create',
+  'tabs_create_mcp'
+]);
 
 const BATCH_REMINDER_ELIGIBLE_COMPUTER_ACTIONS = new Set([
   'left_click',
@@ -156,21 +167,19 @@ const BATCH_REMINDER_ELIGIBLE_COMPUTER_ACTIONS = new Set([
   'type',
   'key',
   'wait',
-  'screenshot',
-  'zoom',
   'scroll',
   'scroll_to',
-  'left_click_drag'
+  'left_click_drag',
+  'hover'
 ]);
 
 const BROWSER_BATCH_SYSTEM_REMINDER =
-  '<system-reminder>You now have current browser context. If read_page/find returned fresh refs and the next 2-5 browser actions are predictable, prefer browser_batch now. Batch the safe prefix instead of calling those actions one by one. Good patterns: form_input(ref, text) -> computer.key(Enter); computer.left_click(ref) -> computer.type(text) -> computer.key(Enter); multiple form_input refs; click(ref) -> screenshot/read_page as final confirmation. Do not batch single actions, navigation, observation-first discovery, or anything after Enter/Return.</system-reminder>';
+  '<system-reminder>You used a single browser tool call this turn. Prefer browser_batch to execute multiple actions in one call — it is significantly faster. Batch your next sequence of clicks, types, navigations, and screenshots together whenever you can predict two or more steps ahead.</system-reminder>';
 
-const NAVIGATION_OBSERVE_SYSTEM_REMINDER =
-  '<system-reminder>Navigation changed the page. Discover before acting: call read_page with filter:"interactive" or use find as a separate tool call to observe the loaded page and get fresh refs. After that observation, prefer browser_batch for the next 2-5 deterministic actions using those refs.</system-reminder>';
+const NAVIGATION_OBSERVE_SYSTEM_REMINDER = BROWSER_BATCH_SYSTEM_REMINDER;
 
 const BROWSER_BATCH_FAILURE_SYSTEM_REMINDER =
-  '<system-reminder>The previous browser_batch failed. Do not retry it unchanged; completed actions may already have run. Recover by observing the current page with read_page/find or by running only the failed action separately. Once refs/state are fresh again, prefer browser_batch for the next deterministic 2-5 action prefix.</system-reminder>';
+  '<system-reminder>The previous browser_batch failed. Do not retry it unchanged; completed actions may already have run. Continue from the current browser state, and use browser_batch again when you can predict the next sequence.</system-reminder>';
 
 const MAX_NOTIFICATION_ANSWER_LENGTH = 240;
 

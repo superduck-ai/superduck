@@ -1,6 +1,13 @@
 import { StorageKeys } from '../../extensionServices';
 import { DomainCategoryCache } from './domainCategory';
 import { getTabEventManager } from './tabEvents';
+import {
+  closeTabIfPresent,
+  guardChildNavigation,
+  isHttpUrl,
+  isNavigationAllowedByPolicy,
+  type NavigationPolicyContext
+} from '../navigationIsolation';
 
 const TAB_GROUP_TITLE = '🦆SuperDuck';
 type TabMemberOrigin = 'agent' | 'user';
@@ -116,6 +123,13 @@ function isFinalizeTabStatus(status: string): status is FinalizeTabStatus {
   return status === 'handoff' || status === 'deliverable';
 }
 
+interface ChildTabNavigationPolicy extends NavigationPolicyContext {
+  expiresAt: number;
+  timeoutId?: ReturnType<typeof setTimeout>;
+}
+
+const CHILD_TAB_NAVIGATION_POLICY_TTL_MS = 30000;
+
 class TabGroupManager {
   static instance: TabGroupManager;
   groupMetadata = new Map<number, GroupMetadata>();
@@ -133,10 +147,14 @@ class TabGroupManager {
   MCP_TAB_GROUP_KEY = StorageKeys.MCP_TAB_GROUP_ID;
   tabGroupListenerSubscriptionId: string | null = null;
   isTabGroupListenerStarted = false;
+  isTabCreationListenerStarted = false;
+  protectedActiveTabsByWindow = new Map<number, { tabId: number; expiresAt: number }>();
+  childTabNavigationPoliciesByOpener = new Map<number, ChildTabNavigationPolicy>();
   DISMISSED_GROUPS_KEY = StorageKeys.DISMISSED_TAB_GROUPS;
 
   constructor() {
     this.startTabRemovalListener();
+    this.startTabCreationListener();
   }
 
   startTabRemovalListener(): void {
@@ -146,6 +164,14 @@ class TabGroupManager {
         status.categoriesByTab.has(tabId) &&
           (await this.removeTabFromBlocklistTracking(groupId, tabId));
     });
+  }
+
+  startTabCreationListener(): void {
+    if (this.isTabCreationListenerStarted || !chrome.tabs.onCreated?.addListener) return;
+    chrome.tabs.onCreated.addListener((tab) => {
+      void this.handleTabCreated(tab);
+    });
+    this.isTabCreationListenerStarted = true;
   }
 
   static getInstance(): TabGroupManager {
@@ -218,6 +244,230 @@ class TabGroupManager {
     getTabEventManager().unsubscribe(this.tabGroupListenerSubscriptionId);
     this.tabGroupListenerSubscriptionId = null;
     this.isTabGroupListenerStarted = false;
+  }
+
+  async withPreservedActiveTab<T>(tabId: number, action: () => Promise<T>): Promise<T> {
+    let windowId: number | undefined;
+    let activeTabId: number | undefined;
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      windowId = tab.windowId;
+      const activeTabs = await chrome.tabs.query({ active: true, windowId });
+      activeTabId = activeTabs[0]?.id;
+      if (typeof activeTabId === 'number' && activeTabId !== tabId) {
+        this.protectedActiveTabsByWindow.set(windowId, {
+          tabId: activeTabId,
+          expiresAt: Date.now() + 5000
+        });
+      }
+    } catch {
+      // If Chrome cannot tell us the active tab, still run the requested action.
+    }
+
+    try {
+      return await action();
+    } finally {
+      if (typeof windowId === 'number' && typeof activeTabId === 'number') {
+        setTimeout(() => {
+          const protectedTab = this.protectedActiveTabsByWindow.get(windowId);
+          if (protectedTab?.tabId === activeTabId && protectedTab.expiresAt <= Date.now()) {
+            this.protectedActiveTabsByWindow.delete(windowId);
+          }
+        }, 5000);
+      }
+    }
+  }
+
+  async handleTabCreated(tab: chrome.tabs.Tab): Promise<void> {
+    const tabId = tab.id;
+    const openerTabId = tab.openerTabId;
+    if (typeof tabId !== 'number' || typeof openerTabId !== 'number') return;
+
+    const policy = this.getChildTabNavigationPolicy(openerTabId);
+    const action = await this.getCreatedChildTabAction(tab, policy);
+    if (action === 'skip') return;
+    if (action === 'close') {
+      await closeTabIfPresent(tabId);
+      await this.restoreProtectedActiveTab(tab);
+      return;
+    }
+
+    const adopted = await this.adoptChildTabFromOpener(tab, openerTabId);
+    if (adopted && policy) {
+      guardChildNavigation(tabId, policy, {
+        timeoutMs: Math.max(0, policy.expiresAt - Date.now()),
+        onAllowed: (url) => this.updateTabBlocklistStatus(tabId, url)
+      });
+    }
+    if (adopted) await this.restoreProtectedActiveTab(tab);
+  }
+
+  rememberChildTabNavigationPolicy(
+    openerTabId: number,
+    policy: Omit<ChildTabNavigationPolicy, 'expiresAt' | 'timeoutId'>,
+    ttlMs = CHILD_TAB_NAVIGATION_POLICY_TTL_MS
+  ): void {
+    const previous = this.childTabNavigationPoliciesByOpener.get(openerTabId);
+    if (previous?.timeoutId) clearTimeout(previous.timeoutId);
+
+    const record: ChildTabNavigationPolicy = {
+      ...policy,
+      expiresAt: Date.now() + ttlMs
+    };
+    record.timeoutId = setTimeout(() => {
+      if (this.childTabNavigationPoliciesByOpener.get(openerTabId) === record) {
+        this.childTabNavigationPoliciesByOpener.delete(openerTabId);
+      }
+    }, ttlMs);
+    (record.timeoutId as { unref?: () => void }).unref?.();
+    this.childTabNavigationPoliciesByOpener.set(openerTabId, record);
+  }
+
+  async adoptChildTabsFromOpener(openerTabId: number): Promise<number[]> {
+    const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
+    if (typeof mainTabId !== 'number') return [];
+
+    let tabs: chrome.tabs.Tab[];
+    try {
+      tabs = await chrome.tabs.query({});
+    } catch {
+      return [];
+    }
+
+    const adoptedTabIds: number[] = [];
+    for (const tab of tabs) {
+      if (typeof tab.id !== 'number' || tab.openerTabId !== openerTabId) continue;
+      if (await this.adoptChildTab(mainTabId, tab)) adoptedTabIds.push(tab.id);
+      await this.restoreProtectedActiveTab(tab);
+    }
+    return adoptedTabIds;
+  }
+
+  async createChildTabInGroup(openerTabId: number, url: string): Promise<number | undefined> {
+    const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
+    if (typeof mainTabId !== 'number') return undefined;
+
+    try {
+      const existingTabs = await chrome.tabs.query({});
+      const existingTab = existingTabs.find(
+        (tab) => tab.openerTabId === openerTabId && tab.url === url && typeof tab.id === 'number'
+      );
+      if (existingTab?.id) {
+        await this.adoptChildTab(mainTabId, existingTab);
+        return existingTab.id;
+      }
+    } catch {
+      // Fall through to creating the tab if the scan fails.
+    }
+
+    let newTab: chrome.tabs.Tab;
+    try {
+      newTab = await chrome.tabs.create({
+        url,
+        active: false,
+        openerTabId
+      });
+    } catch {
+      return undefined;
+    }
+
+    if (typeof newTab.id !== 'number') return undefined;
+    await this.adoptChildTab(mainTabId, { ...newTab, openerTabId });
+    return newTab.id;
+  }
+
+  private async adoptChildTabFromOpener(
+    tab: chrome.tabs.Tab,
+    openerTabId: number
+  ): Promise<boolean> {
+    const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
+    if (typeof mainTabId !== 'number') return false;
+    return await this.adoptChildTab(mainTabId, tab);
+  }
+
+  private getChildTabNavigationPolicy(openerTabId: number): ChildTabNavigationPolicy | undefined {
+    const policy = this.childTabNavigationPoliciesByOpener.get(openerTabId);
+    if (!policy) return undefined;
+    if (policy.expiresAt >= Date.now()) return policy;
+    if (policy.timeoutId) clearTimeout(policy.timeoutId);
+    this.childTabNavigationPoliciesByOpener.delete(openerTabId);
+    return undefined;
+  }
+
+  private async getCreatedChildTabAction(
+    tab: chrome.tabs.Tab,
+    policy: ChildTabNavigationPolicy | undefined
+  ): Promise<'adopt' | 'watch' | 'close' | 'skip'> {
+    const url = tab.url || tab.pendingUrl;
+    if (!policy) return 'skip';
+    if (!url || url === 'about:blank') return 'watch';
+    if (!isHttpUrl(url)) return 'adopt';
+    return (await isNavigationAllowedByPolicy(url, policy)) ? 'adopt' : 'close';
+  }
+
+  private async adoptChildTab(mainTabId: number, tab: chrome.tabs.Tab): Promise<boolean> {
+    const tabId = tab.id;
+    if (typeof tabId !== 'number') return false;
+    const meta = this.groupMetadata.get(mainTabId);
+    if (!meta) return false;
+
+    try {
+      const wasMember = meta.memberStates.has(tabId);
+      const wasInGroup = tab.groupId === meta.chromeGroupId;
+      if (wasMember && wasInGroup) return false;
+
+      if (!wasInGroup) {
+        await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
+      }
+      if (!wasMember) {
+        meta.memberStates.set(tabId, {
+          indicatorState: 'static',
+          origin: 'agent',
+          disposition: 'active'
+        });
+      }
+      if (tab.url) await this.updateTabBlocklistStatus(tabId, tab.url);
+      await this.saveToStorage();
+      const isDismissed = await this.isGroupDismissed(meta.chromeGroupId);
+      if (!isDismissed) {
+        try {
+          await chrome.tabs.sendMessage(tabId, { type: 'SHOW_STATIC_INDICATOR' });
+        } catch {
+          // New tabs often are not ready for content-script messages yet.
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async findManagedMainTabIdForTab(tabId: number): Promise<number | undefined> {
+    await this.initialize();
+    const syncMainTabId = this.findMainTabIdSync(tabId);
+    if (typeof syncMainTabId === 'number') return syncMainTabId;
+
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) return undefined;
+      return this.findMainTabInChromeGroup(tab.groupId) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async restoreProtectedActiveTab(tab: chrome.tabs.Tab): Promise<void> {
+    if (!tab.active || typeof tab.windowId !== 'number') return;
+    const protectedTab = this.protectedActiveTabsByWindow.get(tab.windowId);
+    if (!protectedTab || protectedTab.expiresAt < Date.now() || protectedTab.tabId === tab.id) {
+      return;
+    }
+
+    try {
+      await chrome.tabs.update(protectedTab.tabId, { active: true });
+    } catch {
+      // The user may have closed the tab while the agent was running.
+    }
   }
 
   async handleTabGroupChange(tabId: number, newGroupId: number): Promise<void> {
@@ -1864,6 +2114,39 @@ class TabGroupManager {
       }
       throw new Error(`Could not find tab group ${tabGroupId}`);
     }
+    if (this.mcpTabGroupId !== null) {
+      try {
+        await chrome.tabGroups.get(this.mcpTabGroupId);
+        await this.ensureMcpGroupCharacteristics(this.mcpTabGroupId);
+        const tabs = (await chrome.tabs.query({ groupId: this.mcpTabGroupId }))
+          .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
+          .sort((a, b) => {
+            if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+            return (a.index ?? 0) - (b.index ?? 0);
+          });
+        const tab = tabs[0];
+        if (tab) {
+          let domain: string | undefined;
+          const tabUrl = tab.url;
+          const url =
+            tabUrl &&
+            !tabUrl.startsWith('chrome://') &&
+            !tabUrl.startsWith('edge://') &&
+            !tabUrl.startsWith('brave://')
+              ? tabUrl
+              : void 0;
+          if (url)
+            try {
+              domain = new URL(url).hostname || void 0;
+            } catch {
+              // ignore
+            }
+          return { tabId: tab.id, domain, url };
+        }
+      } catch {
+        await this.clearMcpTabGroup();
+      }
+    }
     return { tabId: void 0 };
   }
 
@@ -1897,6 +2180,53 @@ class TabGroupManager {
   async clearMcpTabGroup(): Promise<void> {
     this.mcpTabGroupId = null;
     await chrome.storage.local.remove(this.MCP_TAB_GROUP_KEY as string);
+  }
+
+  async createMcpTabGroup(options?: { active?: boolean }): Promise<{
+    currentTabId: number;
+    availableTabs: { id: number; title: string; url: string }[];
+    tabCount: number;
+    tabGroupId: number;
+  }> {
+    const newTab = await chrome.tabs.create({
+      url: 'chrome://newtab',
+      active: options?.active ?? false
+    });
+    const newTabId = newTab?.id;
+    if (!newTabId) throw new Error('Failed to create MCP tab');
+
+    const group = await this.createGroup(newTabId, { origin: 'agent' });
+    this.mcpTabGroupId = group.chromeGroupId;
+    await this.saveMcpTabGroupId();
+
+    const availableTabs = (await chrome.tabs.query({ groupId: group.chromeGroupId })).flatMap(
+      (tab) =>
+        typeof tab.id === 'number'
+          ? [
+              {
+                id: tab.id,
+                title: tab.title || '',
+                url: tab.url || ''
+              }
+            ]
+          : []
+    );
+
+    return {
+      currentTabId: newTabId,
+      availableTabs:
+        availableTabs.length > 0
+          ? availableTabs
+          : [
+              {
+                id: newTabId,
+                title: newTab.title || 'New Tab',
+                url: newTab.url || 'chrome://newtab'
+              }
+            ],
+      tabCount: availableTabs.length || 1,
+      tabGroupId: group.chromeGroupId
+    };
   }
 
   async getOrCreateMcpTabContext(options?: { createIfEmpty?: boolean }): Promise<
@@ -1936,24 +2266,7 @@ class TabGroupManager {
         await this.saveMcpTabGroupId();
       }
     if (createIfEmpty) {
-      const win = await chrome.windows.create({
-        url: 'chrome://newtab',
-        focused: true,
-        type: 'normal'
-      });
-      const newTabId = win?.tabs?.[0]?.id;
-      if (!newTabId) throw new Error('Failed to create window with new tab');
-      const group = await this.createGroup(newTabId, { origin: 'agent' });
-      return (
-        (this.mcpTabGroupId = group.chromeGroupId),
-        await this.saveMcpTabGroupId(),
-        {
-          currentTabId: newTabId,
-          availableTabs: [{ id: newTabId, title: 'New Tab', url: 'chrome://newtab' }],
-          tabCount: 1,
-          tabGroupId: group.chromeGroupId
-        }
-      );
+      return await this.createMcpTabGroup({ active: false });
     }
   }
 

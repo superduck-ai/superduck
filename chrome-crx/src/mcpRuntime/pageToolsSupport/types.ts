@@ -43,12 +43,16 @@ export interface ToolContext {
   sessionId?: string;
   messages?: ApiConversationMessage[];
   permissionManager: PermissionManager;
-  createApiMessage?: (params: CreateApiMessageParams, label?: string) => Promise<ApiResponseMessage>;
+  createApiMessage?: (
+    params: CreateApiMessageParams,
+    label?: string
+  ) => Promise<ApiResponseMessage>;
   setTurnApprovedDomains?: (domains: string[]) => void;
   skipIndicator?: boolean;
   tabGroupId?: number;
   model?: string;
   messagesClient?: unknown;
+  availableTools?: ToolDefinition[];
 }
 
 export interface ToolResult {

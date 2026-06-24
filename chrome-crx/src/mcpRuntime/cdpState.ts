@@ -1,4 +1,4 @@
-import type { ConsoleTabData, NetworkTabData } from './cdpTypes';
+import type { ConsoleTabData, NetworkTabData, WindowOpenEvent } from './cdpTypes';
 
 function initializeCdpGlobalState(): void {
   if (globalThis.__cdpDebuggerListenerRegistered === undefined) {
@@ -15,6 +15,9 @@ function initializeCdpGlobalState(): void {
   }
   if (!globalThis.__cdpConsoleTrackingEnabled) {
     globalThis.__cdpConsoleTrackingEnabled = new Set();
+  }
+  if (!globalThis.__cdpWindowOpenEventsByTab) {
+    globalThis.__cdpWindowOpenEventsByTab = new Map();
   }
 }
 
@@ -42,4 +45,8 @@ export function getNetworkTrackingEnabled(): Set<number> {
 
 export function getConsoleTrackingEnabled(): Set<number> {
   return globalThis.__cdpConsoleTrackingEnabled;
+}
+
+export function getWindowOpenEventsByTab(): Map<number, WindowOpenEvent[]> {
+  return globalThis.__cdpWindowOpenEventsByTab as Map<number, WindowOpenEvent[]>;
 }

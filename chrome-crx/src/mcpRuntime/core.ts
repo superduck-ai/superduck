@@ -667,7 +667,8 @@ class ToolExecutor {
           sessionId: this.context.sessionId,
           messagesClient: this.context.messagesClient,
           permissionManager: permissionManagerOverride ?? this.context.permissionManager,
-          createApiMessage: this.createApiMessage()
+          createApiMessage: this.createApiMessage(),
+          availableTools: allTools
         };
 
         const tool = allTools.find((t) => t.name === toolName);
