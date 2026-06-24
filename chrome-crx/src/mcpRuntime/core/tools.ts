@@ -240,7 +240,7 @@ const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
       items: {
         type: 'object',
         properties: {
-          tabId: { type: 'number', description: 'Tab ID to keep.' },
+          tabId: { type: 'integer', description: 'Integer tab ID to keep.' },
           status: {
             type: 'string',
             enum: ['handoff', 'deliverable'],
@@ -296,7 +296,7 @@ const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
           items: {
             type: 'object',
             properties: {
-              tabId: { type: 'number', description: 'Tab ID to keep.' },
+              tabId: { type: 'integer', description: 'Integer tab ID to keep.' },
               status: {
                 type: 'string',
                 enum: ['handoff', 'deliverable'],

@@ -1254,17 +1254,30 @@ class TabGroupManager {
 
     await Promise.allSettled(tabIds.map((tabId) => this.hideAllIndicatorsForTab(tabId)));
 
-    if (handoffTabIds.length > 0) {
-      this.keepOnlyHandoffTabs(meta, handoffTabIds);
-    }
+    const metadataSnapshot =
+      handoffTabIds.length > 0
+        ? {
+            mainTabId: meta.mainTabId,
+            memberStates: new Map(meta.memberStates)
+          }
+        : undefined;
 
-    const ungroupTabIds = [...deliverableTabIds, ...releaseTabIds];
-    if (ungroupTabIds.length > 0 && chrome.tabs.ungroup) {
-      await chrome.tabs.ungroup(ungroupTabIds as [number, ...number[]]).catch(() => {});
-    }
+    try {
+      if (handoffTabIds.length > 0) {
+        this.keepOnlyHandoffTabs(meta, handoffTabIds);
+      }
 
-    if (closeTabIds.length > 0) {
-      await chrome.tabs.remove(closeTabIds).catch(() => {});
+      const ungroupTabIds = [...deliverableTabIds, ...releaseTabIds];
+      if (ungroupTabIds.length > 0 && chrome.tabs.ungroup) {
+        await chrome.tabs.ungroup(ungroupTabIds as [number, ...number[]]);
+      }
+
+      if (closeTabIds.length > 0) {
+        await chrome.tabs.remove(closeTabIds);
+      }
+    } catch (err) {
+      if (metadataSnapshot) this.restoreManagedGroupMetadata(meta, metadataSnapshot);
+      throw err;
     }
 
     if (handoffTabIds.length === 0) {
@@ -1349,6 +1362,20 @@ class TabGroupManager {
       this.groupMetadata.delete(oldMainTabId);
     }
     this.groupMetadata.set(meta.mainTabId, meta);
+  }
+
+  private restoreManagedGroupMetadata(
+    meta: GroupMetadata,
+    snapshot: {
+      mainTabId: number;
+      memberStates: Map<number, MemberState>;
+    }
+  ): void {
+    this.groupMetadata.delete(meta.mainTabId);
+    this.groupMetadata.delete(snapshot.mainTabId);
+    meta.mainTabId = snapshot.mainTabId;
+    meta.memberStates = new Map(snapshot.memberStates);
+    this.groupMetadata.set(snapshot.mainTabId, meta);
   }
 
   private async getFinalizedTabContext(
@@ -2049,10 +2076,10 @@ class TabGroupManager {
         if (tab) {
           const group = await this.findGroupByTab(tabId);
           let domain: string | undefined;
-          group &&
-            ((this.mcpTabGroupId = group.chromeGroupId),
-            await this.saveMcpTabGroupId(),
-            await this.ensureMcpGroupCharacteristics(group.chromeGroupId));
+          if (group) {
+            this.mcpTabGroupId = group.chromeGroupId;
+            await this.ensureMcpGroupCharacteristics(group.chromeGroupId);
+          }
           const tabUrl =
             tab.url &&
             !tab.url.startsWith('chrome://') &&
@@ -2288,8 +2315,10 @@ class TabGroupManager {
           // ignore
         }
       const found = await this.findMcpTabGroupByCharacteristics();
-      if (null !== found)
-        return ((this.mcpTabGroupId = found), void (await this.saveMcpTabGroupId()));
+      if (null !== found) {
+        this.mcpTabGroupId = found;
+        return;
+      }
       this.mcpTabGroupId = null;
     } catch (err) {
       this.mcpTabGroupId = null;

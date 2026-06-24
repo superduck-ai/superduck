@@ -101,7 +101,7 @@ export const coerceToolInputTypes = (
     if (paramName in coerced && paramDef && 'object' === typeof paramDef) {
       const value = coerced[paramName];
       const paramType = Array.isArray(paramDef.type) ? paramDef.type[0] : paramDef.type;
-      if ('number' === paramType && 'string' === typeof value) {
+      if (('number' === paramType || 'integer' === paramType) && 'string' === typeof value) {
         const num = Number(value);
         if (!isNaN(num)) coerced[paramName] = num;
       } else if ('boolean' === paramType && 'string' === typeof value) {
@@ -197,7 +197,12 @@ function collectFieldErrors(
   if (types.length > 0) {
     const actual = jsonTypeOf(value);
     const allowed = types.filter((t) => t !== 'null');
-    if (allowed.length > 0 && !allowed.includes(actual)) {
+    const matches = allowed.some((allowedType) => {
+      if (allowedType === 'integer') return typeof value === 'number' && Number.isInteger(value);
+      if (allowedType === 'number') return typeof value === 'number';
+      return allowedType === actual;
+    });
+    if (allowed.length > 0 && !matches) {
       errors.push(`${key} must be ${allowed.join(' or ')}, got ${actual}`);
       // Skip further checks since downstream ones assume the right type.
       return;

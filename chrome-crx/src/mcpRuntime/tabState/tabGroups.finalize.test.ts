@@ -46,7 +46,7 @@ const chromeMock = vi.hoisted(() => {
       TAB_GROUP_ID_NONE: -1,
       Color: { ORANGE: 'orange', GREEN: 'green' },
       update: vi.fn(async () => {}),
-      query: vi.fn(async () => []),
+      query: vi.fn(async (): Promise<Array<{ id: number; title?: string; color?: string }>> => []),
       get: vi.fn(async (id: number) => ({ id, title: '', color: 'orange' }))
     },
     storage: {
@@ -226,6 +226,27 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     expect(chromeMock.tabsById.has(1)).toBe(true);
   });
 
+  it('does not persist or finalize a styled group discovered through MCP context', async () => {
+    seedTabs([1]);
+    seedGroup(1, [[1, 'agent']]);
+    chromeMock.tabGroups.query.mockResolvedValueOnce([
+      { id: 100, title: '🦆SuperDuck', color: 'orange' }
+    ]);
+
+    const context = await tabGroupManager.getOrCreateMcpTabContext();
+    const tabInfo = await tabGroupManager.getTabForMcp(1);
+    const finalized = await tabGroupManager.finalizeMcpTabGroup();
+
+    expect(context).toMatchObject({ tabGroupId: 100, tabCount: 1 });
+    expect(tabInfo).toMatchObject({ tabId: 1, domain: 'example.com' });
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalledWith({ mcpTabGroupId: 100 });
+    expect(finalized).toBeUndefined();
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).not.toHaveBeenCalled();
+    expect(manager.groupMetadata.has(1)).toBe(true);
+    expect(chromeMock.tabsById.has(1)).toBe(true);
+  });
+
   it('rekeys handoff metadata before closing an omitted main tab', async () => {
     seedTabs([1, 2]);
     seedGroup(1, [
@@ -249,6 +270,74 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
       currentTabId: 2,
       tabCount: 1,
       tabGroupId: 100
+    });
+  });
+
+  it('restores handoff metadata and surfaces errors when ungroup fails', async () => {
+    seedTabs([1, 2]);
+    seedGroup(1, [
+      [1, 'user'],
+      [2, 'agent']
+    ]);
+    chromeMock.tabs.ungroup.mockRejectedValueOnce(new Error('ungroup failed'));
+
+    await expect(
+      tabGroupManager.finalizeManagedGroup({
+        mainTabId: 1,
+        keep: [
+          { tabId: 1, status: 'deliverable' },
+          { tabId: 2, status: 'handoff' }
+        ]
+      })
+    ).rejects.toThrow('ungroup failed');
+
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalled();
+    expect(manager.groupMetadata.has(2)).toBe(false);
+    const restoredMeta = manager.groupMetadata.get(1);
+    expect(restoredMeta?.mainTabId).toBe(1);
+    expect(Array.from(restoredMeta?.memberStates.keys() ?? [])).toEqual([1, 2]);
+    expect(restoredMeta?.memberStates.get(1)).toMatchObject({
+      origin: 'user',
+      disposition: 'active',
+      indicatorState: 'pulsing'
+    });
+    expect(restoredMeta?.memberStates.get(2)).toMatchObject({
+      origin: 'agent',
+      disposition: 'active',
+      indicatorState: 'static'
+    });
+  });
+
+  it('restores handoff metadata and surfaces errors when remove fails', async () => {
+    seedTabs([1, 2]);
+    seedGroup(1, [
+      [1, 'agent'],
+      [2, 'agent']
+    ]);
+    chromeMock.tabs.remove.mockRejectedValueOnce(new Error('remove failed'));
+
+    await expect(
+      tabGroupManager.finalizeManagedGroup({
+        mainTabId: 1,
+        keep: [{ tabId: 2, status: 'handoff' }]
+      })
+    ).rejects.toThrow('remove failed');
+
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalled();
+    expect(manager.groupMetadata.has(2)).toBe(false);
+    const restoredMeta = manager.groupMetadata.get(1);
+    expect(restoredMeta?.mainTabId).toBe(1);
+    expect(Array.from(restoredMeta?.memberStates.keys() ?? [])).toEqual([1, 2]);
+    expect(restoredMeta?.memberStates.get(1)).toMatchObject({
+      origin: 'agent',
+      disposition: 'active',
+      indicatorState: 'pulsing'
+    });
+    expect(restoredMeta?.memberStates.get(2)).toMatchObject({
+      origin: 'agent',
+      disposition: 'active',
+      indicatorState: 'static'
     });
   });
 
