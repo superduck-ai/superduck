@@ -3,6 +3,9 @@ import { DomainCategoryCache } from './domainCategory';
 import { getTabEventManager } from './tabEvents';
 
 const TAB_GROUP_TITLE = '🦆SuperDuck';
+type TabMemberOrigin = 'agent' | 'user';
+type TabMemberDisposition = 'active' | 'handoff';
+type FinalizeTabStatus = 'handoff' | 'deliverable';
 
 // =============================================================================
 // Section 5: TabGroupManager
@@ -13,6 +16,8 @@ interface MemberState {
   previousIndicatorState?: string;
   isMcp?: boolean;
   pendingUpdate?: string;
+  origin?: TabMemberOrigin;
+  disposition?: TabMemberDisposition;
 }
 
 interface GroupMetadata {
@@ -52,6 +57,8 @@ interface PendingRegroup {
   tabId: number;
   originalGroupId: number;
   indicatorState: string;
+  origin: TabMemberOrigin;
+  disposition: TabMemberDisposition;
   metadata: GroupMetadata;
   attemptCount: number;
   timeoutId?: ReturnType<typeof setTimeout>;
@@ -62,6 +69,51 @@ interface BlockedTabInfo {
   title: string;
   url: string;
   category: string;
+}
+
+interface CreateGroupOptions {
+  origin?: TabMemberOrigin;
+}
+
+interface AddTabToGroupOptions {
+  origin?: TabMemberOrigin;
+}
+
+interface FinalizeTabsKeep {
+  tabId: number;
+  status: FinalizeTabStatus;
+}
+
+interface FinalizeManagedGroupOptions {
+  mainTabId?: number;
+  chromeGroupId?: number;
+  keep?: FinalizeTabsKeep[];
+}
+
+interface FinalizedTabContext {
+  currentTabId: number;
+  availableTabs: { id: number; title: string; url: string }[];
+  tabCount: number;
+  tabGroupId: number;
+}
+
+function getMemberOrigin(state: MemberState | undefined): TabMemberOrigin {
+  return state?.origin === 'agent' ? 'agent' : 'user';
+}
+
+function normalizeMemberState(
+  state: MemberState,
+  origin: TabMemberOrigin = getMemberOrigin(state)
+): MemberState {
+  return {
+    ...state,
+    origin,
+    disposition: state.disposition ?? 'active'
+  };
+}
+
+function isFinalizeTabStatus(status: string): status is FinalizeTabStatus {
+  return status === 'handoff' || status === 'deliverable';
 }
 
 class TabGroupManager {
@@ -188,7 +240,9 @@ class TabGroupManager {
             if (this.processingMainTabRemoval.has(mainTabId)) return;
             if (this.pendingRegroups.has(mainTabId)) return;
             this.processingMainTabRemoval.add(mainTabId);
-            const mainIndicatorState = meta.memberStates.get(mainTabId)?.indicatorState || 'none';
+            const mainIndicatorState = indicatorState;
+            const mainOrigin = getMemberOrigin(memberState);
+            const mainDisposition = memberState?.disposition ?? 'active';
             const oldChromeGroupId = meta.chromeGroupId;
 
             // User intent takes precedence over self-healing: when the main
@@ -223,8 +277,10 @@ class TabGroupManager {
                   // ignore — tab may already be closed
                 }
               }
-              this.groupMetadata.delete(mainTabId);
-              this.groupBlocklistStatuses.delete(oldChromeGroupId);
+              await this.removeManagedGroupMetadata({
+                mainTabId,
+                chromeGroupId: oldChromeGroupId
+              });
               this.processingMainTabRemoval.delete(mainTabId);
               await this.saveToStorage();
               return;
@@ -243,7 +299,9 @@ class TabGroupManager {
                 (meta.chromeGroupId = newChromeGroupId),
                 meta.memberStates.clear(),
                 meta.memberStates.set(mainTabId, {
-                  indicatorState: mainIndicatorState
+                  indicatorState: mainIndicatorState,
+                  origin: mainOrigin,
+                  disposition: mainDisposition
                 }),
                 oldChromeGroupId !== newChromeGroupId &&
                   this.groupBlocklistStatuses.delete(oldChromeGroupId),
@@ -266,12 +324,16 @@ class TabGroupManager {
                     tabId: mainTabId,
                     originalGroupId: oldChromeGroupId,
                     indicatorState: mainIndicatorState,
+                    origin: mainOrigin,
+                    disposition: mainDisposition,
                     metadata: meta,
                     attemptCount: 0
                   }),
                   void this.scheduleRegroupRetry(mainTabId))
-                : (this.groupMetadata.delete(mainTabId),
-                  this.groupBlocklistStatuses.delete(oldChromeGroupId),
+                : (await this.removeManagedGroupMetadata({
+                    mainTabId,
+                    chromeGroupId: oldChromeGroupId
+                  }),
                   await this.saveToStorage(),
                   void this.processingMainTabRemoval.delete(mainTabId));
             }
@@ -286,7 +348,9 @@ class TabGroupManager {
           if (!meta.memberStates.has(tabId)) {
             const isSecondary = tabId !== mainTabId;
             meta.memberStates.set(tabId, {
-              indicatorState: isSecondary ? 'static' : 'none'
+              indicatorState: isSecondary ? 'static' : 'none',
+              origin: 'user',
+              disposition: 'active'
             });
             try {
               const tab = await chrome.tabs.get(tabId);
@@ -366,7 +430,9 @@ class TabGroupManager {
           (pending.metadata.chromeGroupId = newGroupId),
           pending.metadata.memberStates.clear(),
           pending.metadata.memberStates.set(tabId, {
-            indicatorState: pending.indicatorState
+            indicatorState: pending.indicatorState,
+            origin: pending.origin,
+            disposition: pending.disposition
           }),
           pending.originalGroupId !== newGroupId &&
             this.groupBlocklistStatuses.delete(pending.originalGroupId),
@@ -396,7 +462,9 @@ class TabGroupManager {
               (pending.metadata.chromeGroupId = newGroupId),
               pending.metadata.memberStates.clear(),
               pending.metadata.memberStates.set(tabId, {
-                indicatorState: pending.indicatorState
+                indicatorState: pending.indicatorState,
+                origin: pending.origin,
+                disposition: pending.disposition
               }),
               pending.originalGroupId !== newGroupId &&
                 this.groupBlocklistStatuses.delete(pending.originalGroupId),
@@ -411,8 +479,10 @@ class TabGroupManager {
             await this.saveToStorage();
             await this.cleanupOldGroup(pending.originalGroupId, tabId);
           } catch (err) {
-            this.groupMetadata.delete(tabId);
-            this.groupBlocklistStatuses.delete(pending.originalGroupId);
+            await this.removeManagedGroupMetadata({
+              mainTabId: tabId,
+              chromeGroupId: pending.originalGroupId
+            });
             await this.saveToStorage();
           }
           this.pendingRegroups.delete(tabId);
@@ -433,7 +503,7 @@ class TabGroupManager {
               ? new Map(
                   Object.entries(value.memberStates).map(([memberKey, memberValue]) => [
                     parseInt(memberKey, 10),
-                    memberValue
+                    normalizeMemberState(memberValue)
                   ])
                 )
               : new Map<number, MemberState>();
@@ -472,7 +542,7 @@ class TabGroupManager {
     return null;
   }
 
-  async createGroup(tabId: number): Promise<GroupWithMembers> {
+  async createGroup(tabId: number, options: CreateGroupOptions = {}): Promise<GroupWithMembers> {
     const existing = await this.findGroupByMainTab(tabId);
     if (existing) return existing;
     const tab = await chrome.tabs.get(tabId);
@@ -515,7 +585,11 @@ class TabGroupManager {
       chromeGroupId,
       memberStates: new Map()
     };
-    metadata.memberStates.set(tabId, { indicatorState: 'none' });
+    metadata.memberStates.set(tabId, {
+      indicatorState: 'none',
+      origin: options.origin ?? 'user',
+      disposition: 'active'
+    });
     this.groupMetadata.set(tabId, metadata);
     await this.saveToStorage();
     const members = await this.getGroupMembers(chromeGroupId);
@@ -537,17 +611,31 @@ class TabGroupManager {
       chromeGroupId,
       memberStates: new Map()
     };
-    metadata.memberStates.set(tabId, { indicatorState: 'none' });
+    metadata.memberStates.set(tabId, {
+      indicatorState: 'none',
+      origin: 'user',
+      disposition: 'active'
+    });
     const groupTabs = await chrome.tabs.query({ groupId: chromeGroupId });
     for (const t of groupTabs)
-      t.id && t.id !== tabId && metadata.memberStates.set(t.id, { indicatorState: 'static' });
+      t.id &&
+        t.id !== tabId &&
+        metadata.memberStates.set(t.id, {
+          indicatorState: 'static',
+          origin: 'user',
+          disposition: 'active'
+        });
     this.groupMetadata.set(tabId, metadata);
     await this.saveToStorage();
     const members = await this.getGroupMembers(chromeGroupId);
     return { ...metadata, memberTabs: members };
   }
 
-  async addTabToGroup(mainTabId: number, tabId: number): Promise<void> {
+  async addTabToGroup(
+    mainTabId: number,
+    tabId: number,
+    options: AddTabToGroupOptions = {}
+  ): Promise<void> {
     const meta = this.groupMetadata.get(mainTabId);
     if (meta) {
       try {
@@ -555,10 +643,14 @@ class TabGroupManager {
           tabIds: [tabId],
           groupId: meta.chromeGroupId
         });
-        meta.memberStates.has(tabId) ||
-          meta.memberStates.set(tabId, {
-            indicatorState: tabId === mainTabId ? 'none' : 'static'
-          });
+        const existingState = meta.memberStates.get(tabId);
+        meta.memberStates.set(tabId, {
+          ...(existingState ?? {}),
+          indicatorState:
+            existingState?.indicatorState ?? (tabId === mainTabId ? 'none' : 'static'),
+          origin: options.origin ?? getMemberOrigin(existingState),
+          disposition: 'active'
+        });
         try {
           const tab = await chrome.tabs.get(tabId);
           tab.url && (await this.updateTabBlocklistStatus(tabId, tab.url));
@@ -698,7 +790,10 @@ class TabGroupManager {
       } catch {
         toRemove.push(mainTabId);
       }
-    for (const id of toRemove) this.groupMetadata.delete(id);
+    for (const id of toRemove) {
+      const meta = this.groupMetadata.get(id);
+      if (meta) await this.removeManagedGroupMetadata(meta);
+    }
     (toRemove.length > 0 || changed) && (await this.saveToStorage());
   }
 
@@ -810,7 +905,8 @@ class TabGroupManager {
     } catch {
       // ignore
     }
-    meta.memberStates.get(newMainTabId);
+    const newMainPreviousState = meta.memberStates.get(newMainTabId);
+    const newMainOrigin = getMemberOrigin(newMainPreviousState);
     meta.mainTabId = newMainTabId;
     try {
       await this.sendIndicatorMessage(newMainTabId, 'HIDE_STATIC_INDICATOR');
@@ -819,9 +915,19 @@ class TabGroupManager {
       // ignore
     }
     'pulsing' === oldState.indicatorState
-      ? (meta.memberStates.set(newMainTabId, { indicatorState: 'pulsing' }),
+      ? (meta.memberStates.set(newMainTabId, {
+          ...(newMainPreviousState ?? {}),
+          indicatorState: 'pulsing',
+          origin: newMainOrigin,
+          disposition: 'active'
+        }),
         await this.sendIndicatorMessage(newMainTabId, 'SHOW_AGENT_INDICATORS'))
-      : meta.memberStates.set(newMainTabId, { indicatorState: 'none' });
+      : meta.memberStates.set(newMainTabId, {
+          ...(newMainPreviousState ?? {}),
+          indicatorState: 'none',
+          origin: newMainOrigin,
+          disposition: 'active'
+        });
     this.groupMetadata.delete(oldMainTabId);
     this.groupMetadata.set(newMainTabId, meta);
     await this.saveToStorage();
@@ -857,8 +963,194 @@ class TabGroupManager {
       } catch (err) {
         // ignore
       }
-      this.groupMetadata.delete(mainTabId);
+      await this.removeManagedGroupMetadata(meta);
       await this.saveToStorage();
+    }
+  }
+
+  async finalizeManagedGroup(
+    options: FinalizeManagedGroupOptions = {}
+  ): Promise<FinalizedTabContext | undefined> {
+    await this.initialize();
+    const meta = this.resolveManagedGroupMetadata(options);
+    if (!meta) throw new Error('No managed tab group found to finalize');
+
+    const groupTabs = await chrome.tabs.query({ groupId: meta.chromeGroupId });
+    const tabIds = groupTabs.flatMap((tab) => (typeof tab.id === 'number' ? [tab.id] : []));
+    const tabIdSet = new Set(tabIds);
+    const keepByTabId = this.validateFinalizeKeep(options.keep ?? [], tabIdSet);
+    const handoffTabIds: number[] = [];
+    const deliverableTabIds: number[] = [];
+    const closeTabIds: number[] = [];
+    const releaseTabIds: number[] = [];
+
+    for (const tabId of tabIds) {
+      const status = keepByTabId.get(tabId);
+      if (status === 'handoff') {
+        handoffTabIds.push(tabId);
+        continue;
+      }
+      if (status === 'deliverable') {
+        deliverableTabIds.push(tabId);
+        continue;
+      }
+      const memberState = meta.memberStates.get(tabId);
+      if (getMemberOrigin(memberState) === 'agent') {
+        closeTabIds.push(tabId);
+      } else {
+        releaseTabIds.push(tabId);
+      }
+    }
+
+    await Promise.allSettled(tabIds.map((tabId) => this.hideAllIndicatorsForTab(tabId)));
+
+    if (handoffTabIds.length > 0) {
+      this.keepOnlyHandoffTabs(meta, handoffTabIds);
+    }
+
+    const ungroupTabIds = [...deliverableTabIds, ...releaseTabIds];
+    if (ungroupTabIds.length > 0 && chrome.tabs.ungroup) {
+      await chrome.tabs.ungroup(ungroupTabIds as [number, ...number[]]).catch(() => {});
+    }
+
+    if (closeTabIds.length > 0) {
+      await chrome.tabs.remove(closeTabIds).catch(() => {});
+    }
+
+    if (handoffTabIds.length === 0) {
+      await this.removeManagedGroupMetadata(meta);
+      await this.saveToStorage();
+      return undefined;
+    }
+
+    await this.saveToStorage();
+    return await this.getFinalizedTabContext(meta.chromeGroupId);
+  }
+
+  async finalizeMcpTabGroup(
+    options: {
+      keep?: FinalizeTabsKeep[];
+    } = {}
+  ): Promise<FinalizedTabContext | undefined> {
+    await this.initialize();
+    await this.loadStoredMcpTabGroupId();
+    if (this.mcpTabGroupId === null) return undefined;
+    return await this.finalizeManagedGroup({
+      chromeGroupId: this.mcpTabGroupId,
+      keep: options.keep
+    });
+  }
+
+  private resolveManagedGroupMetadata(
+    options: FinalizeManagedGroupOptions
+  ): GroupMetadata | undefined {
+    if (typeof options.mainTabId === 'number') return this.groupMetadata.get(options.mainTabId);
+    if (typeof options.chromeGroupId === 'number') {
+      for (const meta of this.groupMetadata.values())
+        if (meta.chromeGroupId === options.chromeGroupId) return meta;
+    }
+    if (this.mcpTabGroupId !== null) {
+      for (const meta of this.groupMetadata.values())
+        if (meta.chromeGroupId === this.mcpTabGroupId) return meta;
+    }
+    return undefined;
+  }
+
+  private validateFinalizeKeep(
+    keep: FinalizeTabsKeep[],
+    validTabIds: Set<number>
+  ): Map<number, FinalizeTabStatus> {
+    const keepByTabId = new Map<number, FinalizeTabStatus>();
+    for (const entry of keep) {
+      if (!Number.isInteger(entry.tabId)) {
+        throw new Error('finalize keep entries require an integer tabId');
+      }
+      if (!validTabIds.has(entry.tabId)) {
+        throw new Error(`finalize cannot keep unknown tab ${entry.tabId}`);
+      }
+      if (!isFinalizeTabStatus(entry.status)) {
+        throw new Error(`finalize received invalid status ${String(entry.status)}`);
+      }
+      if (keepByTabId.has(entry.tabId)) {
+        throw new Error(`finalize received duplicate tab ${entry.tabId}`);
+      }
+      keepByTabId.set(entry.tabId, entry.status);
+    }
+    return keepByTabId;
+  }
+
+  private keepOnlyHandoffTabs(meta: GroupMetadata, handoffTabIds: number[]): void {
+    const oldMainTabId = meta.mainTabId;
+    const handoffSet = new Set(handoffTabIds);
+    for (const memberTabId of Array.from(meta.memberStates.keys())) {
+      if (!handoffSet.has(memberTabId)) meta.memberStates.delete(memberTabId);
+    }
+    for (const tabId of handoffTabIds) {
+      const existing = meta.memberStates.get(tabId);
+      meta.memberStates.set(tabId, {
+        ...(existing ?? {}),
+        indicatorState: 'none',
+        origin: getMemberOrigin(existing),
+        disposition: 'handoff'
+      });
+    }
+    if (!handoffSet.has(meta.mainTabId)) {
+      meta.mainTabId = handoffTabIds[0];
+      this.groupMetadata.delete(oldMainTabId);
+    }
+    this.groupMetadata.set(meta.mainTabId, meta);
+  }
+
+  private async getFinalizedTabContext(
+    chromeGroupId: number
+  ): Promise<FinalizedTabContext | undefined> {
+    const tabs = (await chrome.tabs.query({ groupId: chromeGroupId })).flatMap((tab) =>
+      typeof tab.id === 'number'
+        ? [
+            {
+              id: tab.id,
+              title: tab.title || '',
+              url: tab.url || ''
+            }
+          ]
+        : []
+    );
+    if (tabs.length === 0) return undefined;
+    return {
+      currentTabId: tabs[0].id,
+      availableTabs: tabs,
+      tabCount: tabs.length,
+      tabGroupId: chromeGroupId
+    };
+  }
+
+  private async hideAllIndicatorsForTab(tabId: number, isMcp?: boolean): Promise<void> {
+    await Promise.allSettled([
+      this.sendIndicatorMessage(tabId, 'HIDE_AGENT_INDICATORS', isMcp),
+      this.sendIndicatorMessage(tabId, 'HIDE_STATIC_INDICATOR', isMcp)
+    ]);
+  }
+
+  private async removeManagedGroupMetadata(meta: {
+    mainTabId: number;
+    chromeGroupId: number;
+  }): Promise<void> {
+    this.groupMetadata.delete(meta.mainTabId);
+    this.groupBlocklistStatuses.delete(meta.chromeGroupId);
+    if (await this.isCurrentMcpChromeGroup(meta.chromeGroupId)) {
+      await this.clearMcpTabGroup().catch(() => {});
+    }
+  }
+
+  private async isCurrentMcpChromeGroup(chromeGroupId: number): Promise<boolean> {
+    if (this.mcpTabGroupId === chromeGroupId) return true;
+    try {
+      const stored = (await chrome.storage.local.get(this.MCP_TAB_GROUP_KEY))[
+        this.MCP_TAB_GROUP_KEY
+      ];
+      return stored === chromeGroupId;
+    } catch {
+      return false;
     }
   }
 
@@ -1147,9 +1439,12 @@ class TabGroupManager {
         if ('static' === state && (await this.isGroupDismissed(meta.chromeGroupId))) return;
         const existing = meta.memberStates.get(tabId);
         meta.memberStates.set(tabId, {
+          ...(existing ?? {}),
           indicatorState: state,
           previousIndicatorState: existing?.indicatorState,
-          isMcp: isMcp ?? existing?.isMcp
+          isMcp: isMcp ?? existing?.isMcp,
+          origin: getMemberOrigin(existing),
+          disposition: existing?.disposition ?? 'active'
         });
         break;
       }
@@ -1648,7 +1943,7 @@ class TabGroupManager {
       });
       const newTabId = win?.tabs?.[0]?.id;
       if (!newTabId) throw new Error('Failed to create window with new tab');
-      const group = await this.createGroup(newTabId);
+      const group = await this.createGroup(newTabId, { origin: 'agent' });
       return (
         (this.mcpTabGroupId = group.chromeGroupId),
         await this.saveMcpTabGroupId(),
@@ -1684,6 +1979,24 @@ class TabGroupManager {
         return ((this.mcpTabGroupId = found), void (await this.saveMcpTabGroupId()));
       this.mcpTabGroupId = null;
     } catch (err) {
+      this.mcpTabGroupId = null;
+    }
+  }
+
+  async loadStoredMcpTabGroupId(): Promise<void> {
+    try {
+      const stored = (await chrome.storage.local.get(this.MCP_TAB_GROUP_KEY))[
+        this.MCP_TAB_GROUP_KEY
+      ];
+      if ('number' == typeof stored)
+        try {
+          return (await chrome.tabGroups.get(stored), void (this.mcpTabGroupId = stored));
+        } catch {
+          await this.clearMcpTabGroup().catch(() => {});
+          return;
+        }
+      this.mcpTabGroupId = null;
+    } catch {
       this.mcpTabGroupId = null;
     }
   }

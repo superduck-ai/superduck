@@ -15,7 +15,7 @@ import (
 
 // version is set at build time via -ldflags "-X main.version=..."
 // Falls back to the value below for local dev builds.
-var version = "0.2.5"
+var version = "0.2.6"
 
 const usage = `superduck %s — your browser's session, callable as a tool.
 
@@ -46,6 +46,10 @@ MCP TAB GROUP (each conversation usually owns one group of tabs):
                              makes one if missing when reusing the current group.
   tab_group new              Create a new empty tab in a fresh MCP tab group and print
                              its tabId; that group becomes the current MCP group.
+  tab_group finalize [--handoff TAB] [--deliverable TAB]
+                             Finalize the current MCP tab group as the last browser action.
+                             Omitted SuperDuck-created tabs are closed; deliverable tabs stay
+                             open outside the group; handoff tabs stay grouped for continuation.
 
 MOUSE / KEYBOARD (all require --tab <id>):
   left_click <x> <y> [--modifiers M] [--ref R]
@@ -372,6 +376,7 @@ func extractSubcommand(cmd string, rest []string) string {
 		return pickFirst(map[string]string{
 			"list": "list", "ls": "list",
 			"new": "new", "create": "new",
+			"finalize": "finalize", "finish": "finalize",
 			"help": "help", "--help": "help", "-h": "help",
 		})
 	case "gif":

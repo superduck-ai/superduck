@@ -25,17 +25,55 @@ superduck --tab "$TAB" navigate https://example.com/
 superduck --tab "$TAB" context
 superduck --tab "$TAB" read_page --filter interactive
 superduck --tab "$TAB" left_click --ref ref_1
+superduck tab_group finalize
 ```
 
 New tabs usually start on a Chrome internal page. Navigate to an `https://`
 page before using `exec`, `read_page`, or screenshots. `about:` and `data:`
 URLs may be rejected by `navigate`.
 
+## Tab Cleanup
+
+Before ending a turn after SuperDuck browser work, call
+`superduck tab_group finalize`. Treat it as the final SuperDuck browser action
+of the turn. Do not call more SuperDuck browser commands after finalizing; if
+more browser work is needed, do it first and finalize once at the end.
+
+Omit tabs by default. A tab is worth keeping only when the user needs that live
+page after the turn; otherwise leave it out of the finalize flags. Omit
+research, search, source, intermediate, duplicate, blank, error, and
+login/navigation tabs after extracting what you need. If the user asked a
+question and the answer can be given in the chat, omit the tab even if it
+helped you answer.
+
+Use `--deliverable TAB` when the tab itself is a user-facing output or a page
+the user explicitly asked to keep open or inspect directly. Examples include a
+created/edited document, dashboard, checkout/cart, submitted form result, or a
+requested open page. Deliverable tabs stay open but leave the managed tab
+group:
+
+```bash
+superduck tab_group finalize --deliverable "$TAB"
+```
+
+Use `--handoff TAB` only when the task is unfinished and a later turn should
+continue from that live page, such as a login, approval, payment, CAPTCHA, or
+other user-input checkpoint. Handoff tabs stay in the managed tab group for
+continuation:
+
+```bash
+superduck tab_group finalize --handoff "$TAB"
+```
+
+Omitted SuperDuck-created tabs are closed. Omitted user-origin tabs are left
+open and released from the managed group.
+
 ## Tab Management
 
 ```bash
 superduck tab_group list --create-if-empty
 superduck tab_group new
+superduck tab_group finalize
 superduck tabs
 superduck --tab "$TAB" context
 ```

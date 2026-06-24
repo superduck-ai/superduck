@@ -29,6 +29,13 @@ interface TabsContextMcpArgs {
   createIfEmpty?: boolean;
 }
 
+interface TabsFinalizeMcpArgs {
+  keep?: {
+    tabId?: number;
+    status?: 'handoff' | 'deliverable';
+  }[];
+}
+
 interface ShortcutLookupArgs {
   shortcutId?: string;
   command?: string;
@@ -201,7 +208,7 @@ const tabsCreateMcpTool: ToolDefinition = {
       await tabGroupManager.initialize();
       const newTab = await chrome.tabs.create({ url: 'chrome://newtab', active: true });
       if (!newTab.id) throw new Error('Failed to create tab - no tab ID returned');
-      const group = await tabGroupManager.createGroup(newTab.id);
+      const group = await tabGroupManager.createGroup(newTab.id, { origin: 'agent' });
       const tabGroupId = group.chromeGroupId;
       tabGroupManager.mcpTabGroupId = tabGroupId;
       await tabGroupManager.saveMcpTabGroupId();
@@ -233,6 +240,90 @@ const tabsCreateMcpTool: ToolDefinition = {
     description:
       'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.',
     input_schema: { type: 'object', properties: {}, required: [] }
+  })
+};
+
+const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
+  name: 'tabs_finalize_mcp',
+  description:
+    'Finalize the current MCP tab group with Codex-compatible cleanup semantics. Use this once as the final SuperDuck browser action of the turn. Omit tabs by default. Tabs kept as handoff remain in the managed group for a later turn. Tabs kept as deliverable stay open but leave the managed group. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs stay open and leave the managed group.',
+  parameters: {
+    keep: {
+      type: 'array',
+      description:
+        "Optional list of tabs to keep after cleanup. Each entry is { tabId, status }, where status is 'handoff' or 'deliverable'.",
+      items: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'number', description: 'Tab ID to keep.' },
+          status: {
+            type: 'string',
+            enum: ['handoff', 'deliverable'],
+            description:
+              'handoff keeps the tab in the MCP group for continuation; deliverable leaves it open outside the managed group.'
+          }
+        },
+        required: ['tabId', 'status']
+      }
+    }
+  },
+  execute: async (args) => {
+    try {
+      await tabGroupManager.initialize();
+      const keep = (args?.keep ?? []).map((entry) => {
+        const tabId = entry?.tabId;
+        const status = entry?.status;
+        if (typeof tabId !== 'number' || !Number.isInteger(tabId)) {
+          throw new Error('tabs_finalize_mcp keep entries require integer tabId');
+        }
+        if (status !== 'handoff' && status !== 'deliverable') {
+          throw new Error(`tabs_finalize_mcp received invalid status ${String(status)}`);
+        }
+        return { tabId, status };
+      });
+      const context = await tabGroupManager.finalizeMcpTabGroup({ keep });
+      if (!context) {
+        return {
+          output: 'Finalized MCP tab group. No tabs remain in the managed group.'
+        };
+      }
+      return {
+        output: formatTabsOutput(context.availableTabs, context.tabGroupId),
+        tabContext: context
+      };
+    } catch (err) {
+      return {
+        error: `Failed to finalize MCP tab group: ${err instanceof Error ? err.message : 'Unknown error'}`
+      };
+    }
+  },
+  toProviderSchema: async () => ({
+    name: 'tabs_finalize_mcp',
+    description:
+      'Finalize the current MCP tab group. Use this once as the final SuperDuck browser action. Omit tabs by default. Use status handoff only when a later turn should continue from the live page, or deliverable when the tab itself is a user-facing output/requested open page. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs are released and left open.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        keep: {
+          type: 'array',
+          description:
+            "Optional list of tabs to keep: { tabId, status } with status 'handoff' or 'deliverable'.",
+          items: {
+            type: 'object',
+            properties: {
+              tabId: { type: 'number', description: 'Tab ID to keep.' },
+              status: {
+                type: 'string',
+                enum: ['handoff', 'deliverable'],
+                description: 'Post-finalize disposition for this tab.'
+              }
+            },
+            required: ['tabId', 'status']
+          }
+        }
+      },
+      required: []
+    }
   })
 };
 
@@ -482,6 +573,7 @@ export function getAllTools(): ToolRegistryEntry[] {
       gifCreatorTool,
       tabsContextMcpTool,
       tabsCreateMcpTool,
+      tabsFinalizeMcpTool,
       shortcutsListTool,
       shortcutsGetTool,
       shortcutsExecuteTool,
@@ -511,6 +603,7 @@ export const allTools: ToolRegistryEntry[] = [
   gifCreatorTool,
   tabsContextMcpTool,
   tabsCreateMcpTool,
+  tabsFinalizeMcpTool,
   shortcutsListTool,
   shortcutsGetTool,
   shortcutsExecuteTool,
@@ -521,6 +614,7 @@ export const allTools: ToolRegistryEntry[] = [
 export const mcpToolNames = [
   'tabs_context_mcp',
   'tabs_create_mcp',
+  'tabs_finalize_mcp',
   'shortcuts_list',
   'shortcuts_get',
   ...superduckToolNames

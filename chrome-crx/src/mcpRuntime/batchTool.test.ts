@@ -818,7 +818,7 @@ describe('browser_batch runtime contract', () => {
       {
         ...context,
         toolUseId: 'batch-tool-use',
-        permissionManager: permissionManager as ToolContext['permissionManager']
+        permissionManager: permissionManager as unknown as ToolContext['permissionManager']
       }
     );
 
@@ -852,7 +852,7 @@ describe('browser_batch runtime contract', () => {
       {
         ...context,
         toolUseId: 'batch-tool-use',
-        permissionManager: permissionManager as ToolContext['permissionManager']
+        permissionManager: permissionManager as unknown as ToolContext['permissionManager']
       }
     );
 

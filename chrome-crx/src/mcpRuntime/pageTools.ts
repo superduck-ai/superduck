@@ -1449,7 +1449,12 @@ const tabsCreateTool: ToolDefinition<EmptyToolInput> = {
       if (!newTab.id) throw new Error('Failed to create tab - no tab ID returned');
 
       if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-        await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
+        const mainTabId = await tabGroupManager.getMainTabId(context.tabId);
+        if (typeof mainTabId === 'number') {
+          await tabGroupManager.addTabToGroup(mainTabId, newTab.id, { origin: 'agent' });
+        } else {
+          await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
+        }
       }
 
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);

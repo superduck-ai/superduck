@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"text/tabwriter"
 
 	"chrome-native-host/internal/cliclient"
@@ -14,9 +15,10 @@ import (
 //
 //	superduck tab_group list [--create-if-empty]
 //	superduck tab_group new
+//	superduck tab_group finalize [--handoff TAB] [--deliverable TAB]
 func cmdTabGroup(argv []string) error {
 	if len(argv) == 0 {
-		return fmt.Errorf("usage: superduck tab_group <list|new> [flags]")
+		return fmt.Errorf("usage: superduck tab_group <list|new|finalize> [flags]")
 	}
 	sub, rest := argv[0], argv[1:]
 	switch sub {
@@ -24,6 +26,8 @@ func cmdTabGroup(argv []string) error {
 		return cmdTabGroupList(rest)
 	case "new", "create":
 		return cmdTabGroupNew(rest)
+	case "finalize", "finish":
+		return cmdTabGroupFinalize(rest)
 	case "-h", "--help", "help":
 		fmt.Println(`usage: superduck tab_group <subcommand> [flags]
 
@@ -31,14 +35,33 @@ Subcommands:
   list [--create-if-empty]  Show the MCP tab group's tabs.
                             With --create-if-empty, create one when missing.
   new                       Create a fresh MCP tab group with one tab; prints its tabId.
+  finalize                  Finalize the current MCP tab group as the last browser action.
+      --handoff TAB         Keep TAB in the managed group for continuation.
+      --deliverable TAB     Keep TAB open but remove it from the managed group.
 
 Examples:
   superduck tab_group list
-  TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)`)
+  TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)
+  superduck tab_group finalize --deliverable "$TAB"`)
 		return nil
 	default:
-		return fmt.Errorf("unknown tab_group subcommand: %s (want list|new)", sub)
+		return fmt.Errorf("unknown tab_group subcommand: %s (want list|new|finalize)", sub)
 	}
+}
+
+type tabIDList []int
+
+func (l *tabIDList) String() string {
+	return fmt.Sprint([]int(*l))
+}
+
+func (l *tabIDList) Set(value string) error {
+	id, err := strconv.Atoi(value)
+	if err != nil || id <= 0 {
+		return fmt.Errorf("invalid tab id: %s", value)
+	}
+	*l = append(*l, id)
+	return nil
 }
 
 // cmdTabGroupList: superduck tab_group list [--create-if-empty]
@@ -85,6 +108,44 @@ func cmdTabGroupNew(argv []string) error {
 		return err
 	}
 	raw, err := cliclient.RunTool("tabs_create_mcp", nil, clientOpts(), &rec)
+	if err != nil {
+		return err
+	}
+	return printGroupResult(raw)
+}
+
+// cmdTabGroupFinalize: superduck tab_group finalize [--handoff TAB] [--deliverable TAB]
+func cmdTabGroupFinalize(argv []string) error {
+	fs := flag.NewFlagSet("tab_group finalize", flag.ContinueOnError)
+	var handoff tabIDList
+	var deliverable tabIDList
+	fs.Var(&handoff, "handoff", "Keep TAB in the managed group for continuation; may be repeated")
+	fs.Var(&deliverable, "deliverable", "Keep TAB open but remove it from the managed group; may be repeated")
+	if err := fs.Parse(argv); err != nil {
+		return err
+	}
+
+	keep := make([]map[string]any, 0, len(handoff)+len(deliverable))
+	for _, tabID := range handoff {
+		keep = append(keep, map[string]any{"tabId": tabID, "status": "handoff"})
+	}
+	for _, tabID := range deliverable {
+		keep = append(keep, map[string]any{"tabId": tabID, "status": "deliverable"})
+	}
+	args := map[string]any{}
+	if len(keep) > 0 {
+		args["keep"] = keep
+	}
+
+	rec := cliclient.AuditRecord{Cmd: "tab_group finalize"}
+	if gflags.JSON {
+		raw, err := cliclient.RunToolJSON("tabs_finalize_mcp", args, clientOpts(), &rec)
+		if raw != "" {
+			fmt.Println(raw)
+		}
+		return err
+	}
+	raw, err := cliclient.RunTool("tabs_finalize_mcp", args, clientOpts(), &rec)
 	if err != nil {
 		return err
 	}
