@@ -43,7 +43,8 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     sendMcpNotification: vi.fn(),
     executeScheduledTask: vi.fn(),
     handleStaticIndicatorHeartbeat: vi.fn(),
-    handleDismissStaticIndicator: vi.fn()
+    handleDismissStaticIndicator: vi.fn(),
+    handleAgentIndicatorHeartbeat: vi.fn()
   };
 
   beforeEach(() => {

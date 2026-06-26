@@ -1220,10 +1220,7 @@ export function useAgentLoop({
         completionNotificationSentRef.current = false;
         // Hide agent indicators and add completion prefix to tab group
         if (typeof executionTabId === 'number') {
-          chrome.tabs
-            .sendMessage(executionTabId, { type: 'HIDE_AGENT_INDICATORS' })
-            .catch(() => {});
-          tabGroupManager.setTabIndicatorState(executionTabId, 'none').catch(() => {});
+          tabGroupManager.hideAgentIndicatorsForTab(executionTabId).catch(() => {});
           tabGroupManager.addCompletionPrefix(executionTabId).catch(() => {});
         }
       }

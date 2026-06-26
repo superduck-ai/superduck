@@ -33,6 +33,12 @@ type Options struct {
 	LazyConnect bool
 }
 
+type ToolContext struct {
+	ClientID  string
+	SessionID string
+	TurnID    string
+}
+
 type HealthState string
 
 const (
@@ -481,6 +487,11 @@ func (b *NativeHostBridge) reconnect(ctx context.Context) error {
 // ExecuteTool sends a tool request to the native host and returns the result.
 // It respects the context deadline and will attempt reconnection if the connection is lost.
 func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
+	return b.ExecuteToolWithContext(ctx, toolName, args, ToolContext{})
+}
+
+// ExecuteToolWithContext sends a tool request with optional browser session metadata.
+func (b *NativeHostBridge) ExecuteToolWithContext(ctx context.Context, toolName string, args map[string]interface{}, toolCtx ToolContext) (interface{}, error) {
 	// Fail fast if context is already done
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("context already done: %w", err)
@@ -530,13 +541,21 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 	}()
 
 	// Send tool_request to native host
+	params := map[string]interface{}{
+		"tool": toolName,
+		"args": args,
+	}
+	if toolCtx.ClientID != "" {
+		params["client_id"] = toolCtx.ClientID
+	}
+	if toolCtx.SessionID != "" && toolCtx.TurnID != "" {
+		params["session_id"] = toolCtx.SessionID
+		params["turn_id"] = toolCtx.TurnID
+	}
 	req := map[string]interface{}{
 		"type":   "tool_request",
 		"method": "execute_tool",
-		"params": map[string]interface{}{
-			"tool": toolName,
-			"args": args,
-		},
+		"params": params,
 	}
 
 	// Bound each send so a half-open UDS connection can't block forever while

@@ -7,8 +7,6 @@ import type { CdpRuntimeEvaluateResult } from './cdpTypes';
 import type { ToolContext, ToolDefinition, ToolResult } from './pageTools';
 import { getStorageValue, setStorageValue, StorageKeys } from '../extensionServices';
 
-const MCP_NATIVE_SESSION = 'mcp-native-session';
-
 function findImageInMessages(
   messages: ApiConversationMessage[],
   imageId: string
@@ -910,8 +908,8 @@ const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
       if (!tab) throw new Error(`Tab ${params.tabId} not found`);
       const groupId = tab.groupId ?? -1;
 
-      // For MCP native sessions, verify tab is in a managed tab group
-      if (context.sessionId === MCP_NATIVE_SESSION) {
+      // Browser-scoped native calls should only record tabs inside managed tab groups.
+      if (context.browserSessionScope) {
         const isManaged = await tabGroupManager.isInGroup(params.tabId);
         if (!isManaged) {
           return {

@@ -19,13 +19,13 @@ shift 2
 
 mkdir -p "$OUTPUT_DIR"
 
-# Create tab
-echo "Creating tab..."
-TAB_OUTPUT=$(superduck tab_group new)
-TAB_ID=$(echo "$TAB_OUTPUT" | grep -o 'Tab ID: [0-9]*' | grep -o '[0-9]*')
+# Reuse the current session tab group, creating it only if needed.
+echo "Resolving session tab..."
+TAB_OUTPUT=$(superduck tab_group list --create-if-empty)
+TAB_ID=$(echo "$TAB_OUTPUT" | awk '/^- tabId/ {gsub(/:/, "", $3); print $3; exit}')
 
 if [ -z "$TAB_ID" ]; then
-  echo "Error: Failed to create tab"
+  echo "Error: Failed to resolve tab"
   exit 1
 fi
 

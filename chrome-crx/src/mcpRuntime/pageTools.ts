@@ -1,5 +1,5 @@
 import { PermissionTools, checkUrlSecurity } from './shared';
-import { domainCategoryCache, tabGroupManager } from './tabState';
+import { domainCategoryCache, tabGroupManager, tabLeaseManager } from './tabState';
 import { cdpDebugger } from './cdp';
 import {
   takeSnapshotUnlocked,
@@ -243,10 +243,13 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       if (securityCheck) return securityCheck;
 
       const wrappedCode = wrapUserCode(code);
+      const browserScope = context.browserSessionScope;
       const navigationPolicy: NavigationPolicyContext = {
         permissionManager: context.permissionManager,
         toolUseId,
-        toolName: 'javascript_tool'
+        toolName: 'javascript_tool',
+        sessionId: browserScope?.sessionId,
+        turnId: browserScope?.turnId
       };
       tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
 
@@ -271,7 +274,10 @@ const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       });
 
       const openedTabIds = await filterPolicyAllowedTabs(
-        await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+        await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
+          sessionId: browserScope?.sessionId,
+          turnId: browserScope?.turnId
+        }),
         navigationPolicy
       );
       if (openedTabIds.length === 0) {
@@ -503,6 +509,15 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
 
+      // In-place navigation (back/forward/url) mutates an existing tab; when a
+      // browser session scope is present, assert lease ownership first so one
+      // session can't redirect a tab another session owns. (The newTab path
+      // goes through addTabToGroup, which claims its own lease.)
+      const browserScope = context.browserSessionScope;
+      if (browserScope) {
+        await tabLeaseManager.assertTabAvailableForSession(browserScope.sessionId, effectiveTabId);
+      }
+
       if ('back' === url.toLowerCase()) {
         await chrome.tabs.goBack(tab.id);
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -562,7 +577,12 @@ const navigateTool: ToolDefinition<NavigateToolInput> = {
         if (!createdTab.id) throw new Error('Failed to create tab - no tab ID returned');
         const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
         if (mainTabId) {
-          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id, { origin: 'agent' });
+          const browserScope = context.browserSessionScope;
+          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id, {
+            origin: 'agent',
+            sessionId: browserScope?.sessionId,
+            turnId: browserScope?.turnId
+          });
         } else if (tab.groupId && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
           await chrome.tabs.group({ tabIds: createdTab.id, groupId: tab.groupId });
         }
@@ -1484,8 +1504,6 @@ const resizeWindowTool: ToolDefinition<ResizeWindowToolInput> = {
 // Tool: tabs_context (Ge)
 // =============================================================================
 
-const MCP_NATIVE_SESSION = 'mcp-native-session';
-
 const tabsContextTool: ToolDefinition<EmptyToolInput> = {
   name: 'tabs_context',
   description: 'Get context information about all tabs in the current tab group',
@@ -1494,7 +1512,7 @@ const tabsContextTool: ToolDefinition<EmptyToolInput> = {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const isMcpNative = context.sessionId === MCP_NATIVE_SESSION;
+      const hasBrowserSessionScope = context.browserSessionScope !== undefined;
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
       const tabContext = {
         currentTabId: context.tabId,
@@ -1503,7 +1521,7 @@ const tabsContextTool: ToolDefinition<EmptyToolInput> = {
       };
 
       let tabGroupId: number | undefined;
-      if (isMcpNative) {
+      if (hasBrowserSessionScope) {
         tabGroupId = await (async (currentTabId: number) => {
           try {
             const tab = await chrome.tabs.get(currentTabId);
@@ -1590,7 +1608,12 @@ const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
 
       const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
       if (mainTabId) {
-        await tabGroupManager.addTabToGroup(mainTabId, newTab.id, { origin: 'agent' });
+        const browserScope = context.browserSessionScope;
+        await tabGroupManager.addTabToGroup(mainTabId, newTab.id, {
+          origin: 'agent',
+          sessionId: browserScope?.sessionId,
+          turnId: browserScope?.turnId
+        });
       } else if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
         await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
       }

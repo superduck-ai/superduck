@@ -4,7 +4,7 @@
 
 **SuperDuck 把用户的真实浏览器,变成 agent 可调用的工具。**
 
-agent(Claude Code / Codex 等)通过命令行,以用户当前 Chrome 的身份去读数据、操作页面。
+agent 通过命令行,以用户当前 Chrome 的身份去读数据、操作页面。
 session、cookies、登录态、当前 tab —— 这些原本锁在浏览器里的上下文,
 通过 SuperDuck 暴露给 agent 使用。
 
@@ -47,9 +47,9 @@ CLI 在我们这里的作用:之前 SuperDuck 只是扩展,只有用户能用(�
 
 1. **`superduck context`** —— 读当前 tab 的 url + title + selection + viewport 文本。
    这是最高频的用例,一个命令搞定 80% 的"agent 想知道用户在看啥"
-2. **`superduck fetch <url>`** —— 用当前 Chrome 的 cookies 发请求。
-   这是 SuperDuck 独占的核心价值(其他工具要么没登录态,要么要导出 cookies)
-3. **默认操作 active tab** —— 不引入 MCP group 概念,agent 调用即作用于用户当前 tab
+2. **`superduck tab_group list --create-if-empty` + `--tab` 工具链** —— 复用当前 agent session 的受管 tab group。
+   这是 CLI 与 MCP 行为一致的核心路径,避免 agent 每次调用都制造新 group
+3. **显式 tab 操作** —— agent 调用应作用于受管 group 内的 tab,而不是隐式改用户当前 active tab
 4. **npm 分发 + `setup` 一键初始化** —— `npm i -g superduck && superduck setup`,
    决定首次留存
 5. **SKILL.md** —— 让 Claude Code 知道什么时候调这个 CLI、怎么调
@@ -71,7 +71,8 @@ CLI 在我们这里的作用:之前 SuperDuck 只是扩展,只有用户能用(�
 ```bash
 # Read(MVP 核心)
 superduck context              # 当前 tab 的 url + title + selection + viewport 文本
-superduck fetch <url>          # 用当前 Chrome 身份发请求
+TAB=$(superduck tab_group list --create-if-empty | awk '/^- tabId/ {gsub(/:/, "", $3); print $3; exit}')
+superduck --tab "$TAB" read_page --filter interactive
 
 # Tabs(只保留最基本的)
 superduck tabs                 # 列出所有 tab(调试用)
@@ -111,7 +112,7 @@ superduck doctor               # 全绿即可开始用
 ```
 
 为什么选 npm:
-- 目标用户(Claude Code / Codex 用户)基本都装着 Node
+- 目标用户中的多数 agent 开发环境基本都装着 Node
 - 跨平台一份包,不用维护 brew + winget + apt
 - agent 可自举:发现命令不存在时,SKILL.md 引导它自己 `npm i -g superduck`
 

@@ -20,6 +20,11 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     }
     (window as any).__superduck_agent_indicator_loaded__ = false;
     try {
+      stopAgentIndicatorHeartbeat();
+    } catch {
+      /* noop */
+    }
+    try {
       chrome.storage.onChanged.removeListener(handlePreferredLocaleChanged);
     } catch {
       /* noop */
@@ -189,6 +194,8 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
   let wasStaticActiveBeforeToolUse = false;
   let staticIndicatorHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let ellipsisInterval: ReturnType<typeof setInterval> | null = null;
+  let agentIndicatorHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  let agentIndicatorHeartbeatMisses = 0;
   let isMcpEnabled = false;
 
   function getDocumentMountRoot(): HTMLElement {
@@ -1048,6 +1055,57 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     }
 
     if (isHiddenForToolUse) hideInterruptiveIndicatorsForToolUse();
+
+    // Begin the self-healing heartbeat so a dropped HIDE doesn't leave the
+    // mask + cursor on the page after the task ends.
+    startAgentIndicatorHeartbeat();
+  }
+
+  /**
+   * Self-healing heartbeat for the agent overlay (mask + cursor). The overlay
+   * is shown/hidden by background messages, but a HIDE can be silently dropped
+   * when the content script is transiently unreachable (tab navigating, SW
+   * restarting, transient channel error) — leaving the mask + cursor on the
+   * page after the task ends and the group turns green. The static indicator
+   * already has a heartbeat for the same reason; the agent overlay did not.
+   *
+   * While active, poll the background every few seconds. The background
+   * responds success:true only while the tab's indicatorState is still
+   * "pulsing" (the authoritative backend truth). If the backend says otherwise
+   * — because the turn ended / finalize flipped the state to "none" even
+   * though the HIDE message dropped — self-hide. Tolerate one missed reply
+   * (SW momentarily down) before hiding, to avoid dropping on a hiccup.
+   */
+  function startAgentIndicatorHeartbeat(): void {
+    if (agentIndicatorHeartbeatInterval) return;
+    agentIndicatorHeartbeatMisses = 0;
+    agentIndicatorHeartbeatInterval = setInterval(async () => {
+      if (!isAgentActive) return;
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'AGENT_INDICATOR_HEARTBEAT'
+        });
+        if (response?.success) {
+          agentIndicatorHeartbeatMisses = 0;
+        } else {
+          // Backend no longer considers this tab pulsing — the HIDE was lost.
+          hideAgentIndicators();
+        }
+      } catch {
+        agentIndicatorHeartbeatMisses += 1;
+        if (agentIndicatorHeartbeatMisses >= 2) {
+          hideAgentIndicators();
+        }
+      }
+    }, 4000);
+  }
+
+  function stopAgentIndicatorHeartbeat(): void {
+    if (agentIndicatorHeartbeatInterval) {
+      clearInterval(agentIndicatorHeartbeatInterval);
+      agentIndicatorHeartbeatInterval = null;
+    }
+    agentIndicatorHeartbeatMisses = 0;
   }
 
   /**
@@ -1057,6 +1115,7 @@ import { CursorRenderer } from './cursorAnimation/cursorRenderer';
     if (!isAgentActive) return;
 
     isAgentActive = false;
+    stopAgentIndicatorHeartbeat();
 
     // Animate out
     if (glowBorderEl) {

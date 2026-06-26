@@ -299,8 +299,7 @@ class ChromeDebuggerProtocol {
       const tabId = source.tabId;
       if (!tabId) return;
 
-      chrome.tabs.sendMessage(tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(tabId, 'none').catch(() => {});
+      tabGroupManager.hideAgentIndicatorsForTab(tabId).catch(() => {});
 
       if (reason !== 'canceled_by_user') return;
 

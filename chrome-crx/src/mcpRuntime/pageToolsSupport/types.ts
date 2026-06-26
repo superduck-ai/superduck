@@ -4,6 +4,7 @@ import type {
   ApiResponseMessage,
   CreateApiMessageParams
 } from '../../messageTypes';
+import type { BrowserSessionScope } from '../sessionScope';
 
 export interface ToolSchemaProperty {
   type?: string | string[];
@@ -40,7 +41,21 @@ export interface ToolTabSummary {
 export interface ToolContext {
   tabId?: number;
   toolUseId?: string;
+  /**
+   * Executor/conversation session used for tracing and in-memory tool caches.
+   * This does not imply ownership of browser tabs.
+   */
   sessionId?: string;
+  /**
+   * Executor turn identifier, paired with sessionId for tracing only.
+   * Tab lease operations must use browserSessionScope instead.
+   */
+  turnId?: string;
+  /**
+   * Real browser lease scope supplied by CLI/MCP callers. Only this scope may
+   * claim, resume, or release managed browser tabs.
+   */
+  browserSessionScope?: BrowserSessionScope;
   messages?: ApiConversationMessage[];
   permissionManager: PermissionManager;
   createApiMessage?: (

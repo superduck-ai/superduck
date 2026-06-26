@@ -47,7 +47,7 @@ import {
 import {
   categoryChecker,
   executeTool,
-  getToolSchemasForMcp,
+  getToolSchemasForSidepanel,
   migrateGroupFinalizationState,
   tabGroupManager,
   trackEvent
@@ -577,7 +577,7 @@ export function SidepanelApp() {
   useEffect(() => {
     (async () => {
       try {
-        const schemas = await getToolSchemasForMcp();
+        const schemas = await getToolSchemasForSidepanel();
         setToolSchemas(Array.isArray(schemas) ? (schemas as ToolProviderSchema[]) : []);
       } catch {
         setToolSchemas([]);
@@ -1174,8 +1174,7 @@ export function SidepanelApp() {
     // Use lockedTabId to target the correct tab (the one agent was running on).
     const cancelTabId = lockedTabIdRef.current ?? query.tabId;
     if (typeof cancelTabId === 'number') {
-      chrome.tabs.sendMessage(cancelTabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(cancelTabId, 'none').catch(() => {});
+      tabGroupManager.hideAgentIndicatorsForTab(cancelTabId).catch(() => {});
     }
   }, [isPurlMode, lightningResult, query.tabId]);
 
@@ -2037,8 +2036,7 @@ export function SidepanelApp() {
     abortControllerRef.current?.abort();
     setIsAgentRunning(false);
     if (typeof conversationTabId === 'number') {
-      chrome.tabs.sendMessage(conversationTabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(conversationTabId, 'none').catch(() => {});
+      tabGroupManager.hideAgentIndicatorsForTab(conversationTabId).catch(() => {});
     }
     setApiMessages([]);
     setMessageHistory([]);
@@ -2094,10 +2092,7 @@ export function SidepanelApp() {
       abortControllerRef.current?.abort();
       setIsAgentRunning(false);
       if (typeof conversationTabId === 'number') {
-        chrome.tabs
-          .sendMessage(conversationTabId, { type: 'HIDE_AGENT_INDICATORS' })
-          .catch(() => {});
-        tabGroupManager.setTabIndicatorState(conversationTabId, 'none').catch(() => {});
+        tabGroupManager.hideAgentIndicatorsForTab(conversationTabId).catch(() => {});
       }
 
       // Clear current state before switching

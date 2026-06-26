@@ -29,6 +29,7 @@ import {
   normalizeUrl
 } from './shared';
 import { categoryChecker, tabGroupManager } from './tabState';
+import { BrowserSessionConflictError } from './tabState/tabLeases';
 import { gifFrameStorage } from './mediaTools';
 import {
   cdpDebugger,
@@ -60,6 +61,11 @@ import {
 } from './browserAutomation';
 import { getFeatureValue, refreshFeatures, trackEvent, initializeAnalytics } from './analytics';
 import { allTools, mcpToolNames } from './core/tools';
+import {
+  resolveBrowserSessionParts,
+  resolveToolExecutionSession,
+  type BrowserSessionScope
+} from './sessionScope';
 import type {
   ToolContext,
   ToolProviderSchema,
@@ -147,10 +153,14 @@ const TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE = new Set([
 interface ToolInputRecord extends Record<string, unknown> {
   action?: string;
   coordinate?: unknown;
+  sessionId?: unknown;
+  session_id?: unknown;
   start_coordinate?: unknown;
   tabGroupId?: unknown;
   tabId?: unknown;
   text?: string;
+  turnId?: unknown;
+  turn_id?: unknown;
   url?: string;
 }
 
@@ -451,6 +461,7 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
   if (!toolUseId || !toolName) return;
   const tabId = parseOptionalNumber(args.tabId);
   const tabGroupId = parseOptionalNumber(args.tabGroupId);
+  const { sessionId, turnId } = resolveBrowserSessionParts(message, args);
   if (tabId !== undefined) {
     try {
       await chrome.tabs.get(tabId);
@@ -468,6 +479,8 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
       args,
       tabId,
       tabGroupId,
+      sessionId,
+      turnId,
       clientId: clientType,
       source: 'bridge',
       permissionMode,
@@ -623,6 +636,8 @@ interface ToolExecutorContext {
   tabGroupId?: number;
   model: string;
   sessionId: string;
+  turnId?: string;
+  browserSessionScope?: BrowserSessionScope;
   messagesClient?: MessagesClient;
   permissionManager: PermissionManagerClass;
   onPermissionRequired?: PermissionPromptHandler;
@@ -655,6 +670,7 @@ class ToolExecutor {
           throw new Error('No tab available');
         }
         span.setAttribute('session_id', this.context.sessionId);
+        if (this.context.turnId) span.setAttribute('turn_id', this.context.turnId);
         span.setAttribute('tool_name', toolName);
         if (permissions) span.setAttribute('permissions', permissions);
         if (action) span.setAttribute('action', action);
@@ -665,6 +681,8 @@ class ToolExecutor {
           tabGroupId: this.context.tabGroupId,
           model: this.context.model,
           sessionId: this.context.sessionId,
+          turnId: this.context.turnId,
+          browserSessionScope: this.context.browserSessionScope,
           messagesClient: this.context.messagesClient,
           permissionManager: permissionManagerOverride ?? this.context.permissionManager,
           createApiMessage: this.createApiMessage(),
@@ -1072,10 +1090,19 @@ async function getSelectedModel(): Promise<string> {
   return typeof storedModel === 'string' ? storedModel : '';
 }
 
-async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Promise<ToolExecutor> {
+async function getOrCreateToolExecutor(
+  tabId?: number,
+  tabGroupId?: number,
+  sessionId = MCP_NATIVE_SESSION_ID,
+  turnId?: string,
+  browserSessionScope?: BrowserSessionScope
+): Promise<ToolExecutor> {
   if (toolExecutorInstance) {
     toolExecutorInstance.context.tabId = tabId;
     toolExecutorInstance.context.tabGroupId = tabGroupId;
+    toolExecutorInstance.context.sessionId = sessionId;
+    toolExecutorInstance.context.turnId = turnId;
+    toolExecutorInstance.context.browserSessionScope = browserSessionScope;
     // Refresh the messagesClient if it's missing (e.g., auth wasn't ready on first creation)
     if (!toolExecutorInstance.context.messagesClient) {
       const refreshed = await refreshMessagesClient();
@@ -1087,7 +1114,9 @@ async function getOrCreateToolExecutor(tabId?: number, tabGroupId?: number): Pro
   toolExecutorInstance = new ToolExecutor({
     messagesClient: client,
     permissionManager: new PermissionManagerClass(() => false, {}),
-    sessionId: MCP_NATIVE_SESSION_ID,
+    sessionId,
+    turnId,
+    browserSessionScope,
     tabId,
     tabGroupId,
     model,
@@ -1163,6 +1192,8 @@ interface ExecuteToolOptions {
   args: unknown;
   tabId?: number;
   tabGroupId?: number;
+  sessionId?: string;
+  turnId?: string;
   clientId?: string;
   source?: string;
   permissionMode?: string;
@@ -1233,6 +1264,13 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   const clientId = options.clientId;
   const startTime = Date.now();
   const model = await getSelectedModel();
+  const argsRecord = toToolInputRecord(options.args);
+  const { sessionId, turnId, browserScope } = resolveToolExecutionSession({
+    defaultSessionId: MCP_NATIVE_SESSION_ID,
+    args: argsRecord,
+    sessionId: options.sessionId,
+    turnId: options.turnId
+  });
 
   if (navigationBlockedError && navigationBlockedTime) {
     if (Date.now() - navigationBlockedTime < NAVIGATION_BLOCK_TIMEOUT) {
@@ -1261,22 +1299,29 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   try {
     const skipTabLookup = mcpToolNames.includes(options.toolName) && options.tabId === undefined;
     if (!skipTabLookup) {
-      const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId);
+      const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId, {
+        sessionId: browserScope?.sessionId,
+        turnId: browserScope?.turnId
+      });
       tabId = tabInfo.tabId;
       domain = tabInfo.domain;
       url = tabInfo.url;
     }
-  } catch {
+  } catch (err) {
+    const isBrowserSessionConflict = err instanceof BrowserSessionConflictError;
+    const message = err instanceof Error ? err.message : String(err);
     trackEvent('superduck.mcp.tool_called', {
       tool_name: options.toolName,
       client_id: clientId,
       model,
       success: false,
-      error_type: 'no_tabs_available',
+      error_type: isBrowserSessionConflict ? 'browser_session_conflict' : 'no_tabs_available',
       duration_ms: Date.now() - startTime
     });
     return createErrorResponse(
-      'No tabs available. Please open a new tab or window in your browser.'
+      isBrowserSessionConflict
+        ? message
+        : 'No tabs available. Please open a new tab or window in your browser.'
     );
   }
 
@@ -1351,7 +1396,13 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       });
     }
 
-    const executor = await getOrCreateToolExecutor(tabId, options.tabGroupId);
+    const executor = await getOrCreateToolExecutor(
+      tabId,
+      options.tabGroupId,
+      sessionId,
+      turnId,
+      browserScope
+    );
 
     // If caller provides a messagesClient (e.g., sidepanel), use it directly.
     // The bundle's sidepanel executes tools directly with its own client rather than
@@ -1407,7 +1458,10 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     isError = true === toolResult?.is_error;
   } catch (err) {
     isError = true;
-    if (
+    if (err instanceof BrowserSessionConflictError) {
+      errorType = 'browser_session_conflict';
+      toolResult = createErrorResponse(err.message);
+    } else if (
       err instanceof Error &&
       (err.message.includes('401') ||
         err.message.includes('authentication') ||
@@ -1654,7 +1708,14 @@ export async function restoreActiveToolContextsFromStorage(): Promise<void> {
   }
 }
 const pendingPrefixTimeouts = new Map<number, ReturnType<typeof setTimeout> | null>();
-const PREFIX_CLEANUP_DELAY = 20000;
+// Idle grace before marking a group "done" (green + ✅ prefix + debugger
+// detach) after the last tool in the group finishes. Short by design: it only
+// needs to absorb the gap between back-to-back tool calls so the group color
+// doesn't flicker green↔orange mid-turn. The agent overlay (mask + cursor) is
+// NOT gated on this — it hides immediately when a tool ends (see
+// cleanupAfterToolExecution), so users see the mask disappear at tool end, not
+// at green time.
+const PREFIX_CLEANUP_DELAY = 5000;
 
 const groupFinalizationState = new Map<
   number,
@@ -1778,6 +1839,12 @@ function cleanupAfterToolExecution(tabId: number, _clientId?: string): void {
 
   const mainTabId = findGroupMainTab(tabId);
   if (mainTabId !== undefined && !hasActiveToolsInGroup(mainTabId)) {
+    // The agent overlay (mask + cursor) hides the moment the last tool in the
+    // group finishes — not deferred to the green/finalize timer. A new tool
+    // starting will re-SHOW it (startToolContext). The group color stays
+    // orange until the short PREFIX_CLEANUP_DELAY grace elapses, then
+    // finalizeGroup turns it green.
+    void tabGroupManager.clearIndicatorsForGroup(mainTabId).catch(() => {});
     const state = groupFinalizationState.get(mainTabId);
     if (state) {
       if (state.timer) clearTimeout(state.timer);
@@ -2077,6 +2144,16 @@ function getToolNames(tools: ToolDefinition[]): string[] {
 function getToolSchemasForMcp(): Promise<ToolProviderSchema[]> {
   return toolsToProviderSchema(allTools);
 }
+
+// Tools the sidepanel must NOT expose to its agent. The sidepanel runs these as
+// default runtime logic instead of explicit tool calls: session naming happens
+// automatically via generateConversationTitle -> updateGroupTitle, so the naming
+// tool should not appear in the sidepanel's tool list or be called by the agent.
+const SIDEPANEL_HIDDEN_TOOLS = new Set<string>(['tabs_name_session_mcp']);
+
+function getToolSchemasForSidepanel(): Promise<ToolProviderSchema[]> {
+  return toolsToProviderSchema(allTools.filter((tool) => !SIDEPANEL_HIDDEN_TOOLS.has(tool.name)));
+}
 function formatTabsForDisplay(tabs: ToolTabSummary[]): string {
   return formatTabsOutput(tabs);
 }
@@ -2100,6 +2177,7 @@ export {
   getToolSchemas,
   getToolNames,
   getToolSchemasForMcp,
+  getToolSchemasForSidepanel,
   getTabRelationship,
   getCategoryAndUpdateBlocklist,
   isBlockedCategory,

@@ -1,5 +1,12 @@
 import { StorageKeys } from '../../extensionServices';
 import { DomainCategoryCache } from './domainCategory';
+import {
+  BrowserSessionConflictError,
+  tabLeaseManager,
+  type TabLease,
+  type TabLeaseOrigin
+} from './tabLeases';
+import { tabBadgeManager } from './tabBadges';
 import { getTabEventManager } from './tabEvents';
 import {
   closeTabIfPresent,
@@ -8,8 +15,13 @@ import {
   isNavigationAllowedByPolicy,
   type NavigationPolicyContext
 } from '../navigationIsolation';
+import type { BrowserSessionScope } from '../sessionScope';
 
+const TAB_GROUP_MARKER = '🦆';
 const TAB_GROUP_TITLE = '🦆SuperDuck';
+// Reserved session key for the unscoped/global MCP tab group (sidepanel and
+// ad-hoc CLI calls without --session), so it can also carry a custom title.
+const DEFAULT_SESSION_KEY = '__default__';
 type TabMemberOrigin = 'agent' | 'user';
 type TabMemberDisposition = 'active' | 'handoff';
 type FinalizeTabStatus = 'handoff' | 'deliverable';
@@ -85,6 +97,8 @@ interface CreateGroupOptions {
 
 interface AddTabToGroupOptions {
   origin?: TabMemberOrigin;
+  sessionId?: string;
+  turnId?: string;
 }
 
 interface FinalizeTabsKeep {
@@ -124,6 +138,28 @@ function isFinalizeTabStatus(status: string): status is FinalizeTabStatus {
   return status === 'handoff' || status === 'deliverable';
 }
 
+function getMcpSessionScope(options?: {
+  sessionId?: string;
+  turnId?: string;
+}): BrowserSessionScope | undefined {
+  const sessionId = options?.sessionId?.trim();
+  if (!sessionId) return undefined;
+  // turnId is a per-turn stamp; when omitted it falls back to the sessionId,
+  // matching the CLI where each invocation shares the session's turn.
+  const turnId = options?.turnId?.trim() || sessionId;
+  return { sessionId, turnId };
+}
+
+function isInternalBrowserUrl(url: string | undefined): boolean {
+  return (
+    !url ||
+    url.startsWith('chrome://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('brave://') ||
+    url.startsWith('about:')
+  );
+}
+
 interface ChildTabNavigationPolicy extends NavigationPolicyContext {
   expiresAt: number;
   timeoutId?: ReturnType<typeof setTimeout>;
@@ -134,8 +170,10 @@ const CHILD_TAB_NAVIGATION_POLICY_TTL_MS = 30000;
 class TabGroupManager {
   static instance: TabGroupManager;
   groupMetadata = new Map<number, GroupMetadata>();
+  sessionGroupTitles = new Map<string, string>();
   initialized = false;
   STORAGE_KEY = StorageKeys.TAB_GROUPS;
+  SESSION_TITLES_KEY = StorageKeys.TAB_GROUP_SESSION_TITLES;
   groupBlocklistStatuses = new Map<number, GroupBlocklistStatus>();
   blocklistListeners = new Set<(groupId: number, category: string | undefined) => void>();
   indicatorUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -222,8 +260,17 @@ class TabGroupManager {
   }
 
   async initialize(force = false): Promise<void> {
-    (this.initialized && !force) ||
-      (await this.loadFromStorage(), await this.reconcileWithChrome(), (this.initialized = true));
+    if (this.initialized && !force) return;
+    // First init of this service-worker lifetime (revival / browser launch).
+    // On a true restart the in-memory 20s finalizeGroup timers and
+    // activeToolContexts are gone, so any member left in "pulsing" state is
+    // stale — its overlay would linger forever (the heartbeat keeps it alive
+    // while indicatorState says "pulsing"). Clearing here is safe because a
+    // force re-init during a *live* session keeps this flag false.
+    const firstInitOfLifetime = !this.initialized;
+    await this.loadFromStorage();
+    await this.reconcileWithChrome(firstInitOfLifetime);
+    this.initialized = true;
   }
 
   startTabGroupChangeListener(): void {
@@ -294,7 +341,7 @@ class TabGroupManager {
       return;
     }
 
-    const adopted = await this.adoptChildTabFromOpener(tab, openerTabId);
+    const adopted = await this.adoptChildTabFromOpener(tab, openerTabId, policy ?? {});
     if (adopted && policy) {
       guardChildNavigation(tabId, policy, {
         timeoutMs: Math.max(0, policy.expiresAt - Date.now()),
@@ -325,7 +372,10 @@ class TabGroupManager {
     this.childTabNavigationPoliciesByOpener.set(openerTabId, record);
   }
 
-  async adoptChildTabsFromOpener(openerTabId: number): Promise<number[]> {
+  async adoptChildTabsFromOpener(
+    openerTabId: number,
+    options: { sessionId?: string; turnId?: string } = {}
+  ): Promise<number[]> {
     const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
     if (typeof mainTabId !== 'number') return [];
 
@@ -339,13 +389,17 @@ class TabGroupManager {
     const adoptedTabIds: number[] = [];
     for (const tab of tabs) {
       if (typeof tab.id !== 'number' || tab.openerTabId !== openerTabId) continue;
-      if (await this.adoptChildTab(mainTabId, tab)) adoptedTabIds.push(tab.id);
+      if (await this.adoptChildTab(mainTabId, tab, options)) adoptedTabIds.push(tab.id);
       await this.restoreProtectedActiveTab(tab);
     }
     return adoptedTabIds;
   }
 
-  async createChildTabInGroup(openerTabId: number, url: string): Promise<number | undefined> {
+  async createChildTabInGroup(
+    openerTabId: number,
+    url: string,
+    options: { sessionId?: string; turnId?: string } = {}
+  ): Promise<number | undefined> {
     const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
     if (typeof mainTabId !== 'number') return undefined;
 
@@ -355,10 +409,11 @@ class TabGroupManager {
         (tab) => tab.openerTabId === openerTabId && tab.url === url && typeof tab.id === 'number'
       );
       if (existingTab?.id) {
-        await this.adoptChildTab(mainTabId, existingTab);
+        await this.adoptChildTab(mainTabId, existingTab, options);
         return existingTab.id;
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof BrowserSessionConflictError) throw err;
       // Fall through to creating the tab if the scan fails.
     }
 
@@ -374,17 +429,18 @@ class TabGroupManager {
     }
 
     if (typeof newTab.id !== 'number') return undefined;
-    await this.adoptChildTab(mainTabId, { ...newTab, openerTabId });
+    await this.adoptChildTab(mainTabId, { ...newTab, openerTabId }, options);
     return newTab.id;
   }
 
   private async adoptChildTabFromOpener(
     tab: chrome.tabs.Tab,
-    openerTabId: number
+    openerTabId: number,
+    options: { sessionId?: string; turnId?: string } = {}
   ): Promise<boolean> {
     const mainTabId = await this.findManagedMainTabIdForTab(openerTabId);
     if (typeof mainTabId !== 'number') return false;
-    return await this.adoptChildTab(mainTabId, tab);
+    return await this.adoptChildTab(mainTabId, tab, options);
   }
 
   private getChildTabNavigationPolicy(openerTabId: number): ChildTabNavigationPolicy | undefined {
@@ -407,7 +463,11 @@ class TabGroupManager {
     return (await isNavigationAllowedByPolicy(url, policy)) ? 'adopt' : 'close';
   }
 
-  private async adoptChildTab(mainTabId: number, tab: chrome.tabs.Tab): Promise<boolean> {
+  private async adoptChildTab(
+    mainTabId: number,
+    tab: chrome.tabs.Tab,
+    options: { sessionId?: string; turnId?: string } = {}
+  ): Promise<boolean> {
     const tabId = tab.id;
     if (typeof tabId !== 'number') return false;
     const meta = this.groupMetadata.get(mainTabId);
@@ -417,9 +477,30 @@ class TabGroupManager {
       const wasMember = meta.memberStates.has(tabId);
       const wasInGroup = tab.groupId === meta.chromeGroupId;
       if (wasMember && wasInGroup) return false;
+      // Claim the lease BEFORE the chrome.tabs.group side effect. claimTab is
+      // atomic and throws BrowserSessionConflictError if another session owns
+      // the tab; doing it first guarantees we never leave a tab grouped into
+      // this session's Chrome group while its lease belongs to another session
+      // (the assert-then-act window between a read assert and a later claim).
+      let claimedForSession = false;
+      if (options.sessionId && options.turnId) {
+        await tabLeaseManager.claimTab(options.sessionId, options.turnId, tabId, 'agent', {
+          groupId: meta.chromeGroupId
+        });
+        claimedForSession = true;
+      }
 
-      if (!wasInGroup) {
-        await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
+      try {
+        if (!wasInGroup) {
+          await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
+        }
+      } catch (err) {
+        // Grouping failed after we claimed the lease — undo the claim so we
+        // don't hold a lease on a tab we never actually grouped.
+        if (claimedForSession) {
+          await tabLeaseManager.releaseTabs(options.sessionId!, [tabId]).catch(() => {});
+        }
+        throw err;
       }
       if (!wasMember) {
         meta.memberStates.set(tabId, {
@@ -439,7 +520,8 @@ class TabGroupManager {
         }
       }
       return true;
-    } catch {
+    } catch (err) {
+      if (err instanceof BrowserSessionConflictError) throw err;
       return false;
     }
   }
@@ -771,6 +853,17 @@ class TabGroupManager {
             return [parseInt(key, 10), entry];
           })
         ));
+      const titles = (await chrome.storage.local.get(this.SESSION_TITLES_KEY))[
+        this.SESSION_TITLES_KEY
+      ];
+      this.sessionGroupTitles =
+        titles && typeof titles === 'object'
+          ? new Map(
+              Object.entries(titles as Record<string, string>).filter(
+                ([, value]) => typeof value === 'string' && value.trim()
+              )
+            )
+          : new Map();
     } catch (err) {
       // ignore
     }
@@ -791,6 +884,9 @@ class TabGroupManager {
         })
       );
       await chrome.storage.local.set({ [this.STORAGE_KEY]: serialized });
+      await chrome.storage.local.set({
+        [this.SESSION_TITLES_KEY]: Object.fromEntries(this.sessionGroupTitles.entries())
+      });
     } catch (err) {
       // ignore
     }
@@ -899,11 +995,31 @@ class TabGroupManager {
     const meta = this.groupMetadata.get(mainTabId);
     if (meta) {
       try {
-        await chrome.tabs.group({
-          tabIds: [tabId],
-          groupId: meta.chromeGroupId
-        });
+        // Claim the lease BEFORE the chrome.tabs.group side effect so a
+        // BrowserSessionConflictError aborts before any grouping happens
+        // (avoids grouping a tab into this session's Chrome group while its
+        // lease is owned by another session).
+        let claimedForSession = false;
+        let claimedOrigin: TabLeaseOrigin | undefined;
         const existingState = meta.memberStates.get(tabId);
+        if (options.sessionId && options.turnId) {
+          claimedOrigin = (options.origin ?? getMemberOrigin(existingState)) as TabLeaseOrigin;
+          await tabLeaseManager.claimTab(options.sessionId, options.turnId, tabId, claimedOrigin, {
+            groupId: meta.chromeGroupId
+          });
+          claimedForSession = true;
+        }
+        try {
+          await chrome.tabs.group({
+            tabIds: [tabId],
+            groupId: meta.chromeGroupId
+          });
+        } catch (err) {
+          if (claimedForSession) {
+            await tabLeaseManager.releaseTabs(options.sessionId!, [tabId]).catch(() => {});
+          }
+          throw err;
+        }
         meta.memberStates.set(tabId, {
           ...(existingState ?? {}),
           indicatorState:
@@ -927,6 +1043,7 @@ class TabGroupManager {
             // ignore
           }
       } catch (err) {
+        if (err instanceof BrowserSessionConflictError) throw err;
         // ignore
       }
       await this.saveToStorage();
@@ -1014,7 +1131,7 @@ class TabGroupManager {
     return orphaned;
   }
 
-  async reconcileWithChrome(): Promise<void> {
+  async reconcileWithChrome(clearStalePulsing = false): Promise<void> {
     const allTabs = await chrome.tabs.query({});
     const activeGroupIds = new Set<number>();
     for (const tab of allTabs)
@@ -1053,6 +1170,25 @@ class TabGroupManager {
     for (const id of toRemove) {
       const meta = this.groupMetadata.get(id);
       if (meta) await this.removeManagedGroupMetadata(meta);
+    }
+    if (clearStalePulsing) {
+      // SW just (re)started: the in-memory finalizeGroup timers are gone, so
+      // any member still marked "pulsing" is stale — its overlay (mask +
+      // cursor) would linger forever because the heartbeat keeps it alive
+      // while indicatorState says "pulsing". Flip to "none" and hide. A live
+      // tool that resumes will re-SHOW on its next action.
+      for (const [, meta] of this.groupMetadata.entries()) {
+        for (const [memberId, memberState] of meta.memberStates) {
+          if (memberState.indicatorState !== 'pulsing') continue;
+          memberState.indicatorState = 'none';
+          try {
+            await this.sendIndicatorMessage(memberId, 'HIDE_AGENT_INDICATORS');
+          } catch {
+            // ignore
+          }
+          changed = true;
+        }
+      }
     }
     (toRemove.length > 0 || changed) && (await this.saveToStorage());
   }
@@ -1241,7 +1377,6 @@ class TabGroupManager {
     const keepByTabId = this.validateFinalizeKeep(options.keep ?? [], tabIdSet);
     const handoffTabIds: number[] = [];
     const deliverableTabIds: number[] = [];
-    const closeTabIds: number[] = [];
     const releaseTabIds: number[] = [];
 
     for (const tabId of tabIds) {
@@ -1254,12 +1389,9 @@ class TabGroupManager {
         deliverableTabIds.push(tabId);
         continue;
       }
-      const memberState = meta.memberStates.get(tabId);
-      if (getMemberOrigin(memberState) === 'agent') {
-        closeTabIds.push(tabId);
-      } else {
-        releaseTabIds.push(tabId);
-      }
+      // Omitted tabs (agent- or user-origin) are ungrouped and left open.
+      // finalize releases the managed group; it never closes the user's pages.
+      releaseTabIds.push(tabId);
     }
 
     await Promise.allSettled(tabIds.map((tabId) => this.hideAllIndicatorsForTab(tabId)));
@@ -1277,10 +1409,6 @@ class TabGroupManager {
         this.keepOnlyHandoffTabs(meta, handoffTabIds);
       }
 
-      if (closeTabIds.length > 0) {
-        await chrome.tabs.remove(closeTabIds);
-      }
-
       const ungroupTabIds = [...deliverableTabIds, ...releaseTabIds];
       if (ungroupTabIds.length > 0 && chrome.tabs.ungroup) {
         await chrome.tabs.ungroup(ungroupTabIds as [number, ...number[]]);
@@ -1290,6 +1418,12 @@ class TabGroupManager {
       await this.reconcileManagedGroupMetadataWithChrome(meta).catch(() => {});
       await this.saveToStorage();
       throw err;
+    }
+
+    if (deliverableTabIds.length > 0) {
+      // Badge deliverable tabs so the user can tell which open tabs the agent
+      // handed over; the badge clears when the user switches to the tab.
+      await tabBadgeManager.markDeliverable(deliverableTabIds);
     }
 
     if (handoffTabIds.length === 0) {
@@ -1305,8 +1439,14 @@ class TabGroupManager {
   async finalizeMcpTabGroup(
     options: {
       keep?: FinalizeTabsKeep[];
+      sessionId?: string;
+      turnId?: string;
     } = {}
   ): Promise<FinalizedTabContext | undefined> {
+    const scope = getMcpSessionScope(options);
+    if (scope) {
+      return await this.finalizeSessionMcpTabGroup(scope, options.keep ?? []);
+    }
     await this.initialize();
     await this.loadStoredMcpTabGroupId();
     if (this.mcpTabGroupId === null) return undefined;
@@ -1314,6 +1454,44 @@ class TabGroupManager {
       chromeGroupId: this.mcpTabGroupId,
       keep: options.keep
     });
+  }
+
+  private async finalizeSessionMcpTabGroup(
+    scope: BrowserSessionScope,
+    keep: FinalizeTabsKeep[]
+  ): Promise<FinalizedTabContext | undefined> {
+    await this.initialize();
+    await tabLeaseManager.pruneMissingTabs();
+    const leases = await this.resumeHandoffAndGetSessionLeases(scope);
+    const context = await this.buildSessionContextFromLeases(scope, leases);
+    if (!context) return undefined;
+
+    const activeTabIds = new Set(context.availableTabs.map((tab) => tab.id));
+    const keepByTabId = this.validateFinalizeKeep(keep, activeTabIds);
+    const handoffTabIds = Array.from(keepByTabId.entries())
+      .filter(([, status]) => status === 'handoff')
+      .map(([tabId]) => tabId);
+    const handoffSet = new Set(handoffTabIds);
+    const releaseTabIds = leases
+      .map((lease) => lease.tabId)
+      .filter((tabId) => activeTabIds.has(tabId) && !handoffSet.has(tabId));
+
+    const finalizedContext = await this.finalizeManagedGroup({
+      chromeGroupId: context.tabGroupId,
+      keep
+    });
+
+    if (releaseTabIds.length > 0) {
+      await tabLeaseManager.releaseTabs(scope.sessionId, releaseTabIds);
+    }
+    if (handoffTabIds.length > 0) {
+      await tabLeaseManager.handoffTabs(scope.sessionId, scope.turnId, handoffTabIds, {
+        groupId: context.tabGroupId,
+        activeTabId: context.currentTabId
+      });
+    }
+
+    return finalizedContext;
   }
 
   private resolveManagedGroupMetadata(
@@ -1453,6 +1631,21 @@ class TabGroupManager {
       this.sendIndicatorMessage(tabId, 'HIDE_AGENT_INDICATORS', isMcp),
       this.sendIndicatorMessage(tabId, 'HIDE_STATIC_INDICATOR', isMcp)
     ]);
+  }
+
+  /**
+   * Public, robust HIDE for the agent overlay (mask + cursor) used by
+   * turn-end / cancel / stop / debugger-detach boundaries. Commits the
+   * indicatorState to "none" (the authoritative backend truth the heartbeat
+   * reads) and sends HIDE_AGENT_INDICATORS through sendIndicatorMessage, which
+   * retries + re-injects the content script on a dropped delivery — unlike a
+   * bare chrome.tabs.sendMessage(...).catch(() => {}), which silently loses
+   * the HIDE when the content script is transiently unreachable and leaves
+   * the mask + cursor on the page after the task ends.
+   */
+  async hideAgentIndicatorsForTab(tabId: number): Promise<void> {
+    await this.setTabIndicatorState(tabId, 'none', undefined, false);
+    await this.sendIndicatorMessage(tabId, 'HIDE_AGENT_INDICATORS');
   }
 
   private async removeManagedGroupMetadata(meta: {
@@ -2049,7 +2242,14 @@ class TabGroupManager {
     const meta = this.groupMetadata.get(mainTabId);
     if (meta)
       try {
-        if ((await chrome.tabGroups.get(meta.chromeGroupId)).title !== TAB_GROUP_TITLE) return;
+        const currentTitle = (await chrome.tabGroups.get(meta.chromeGroupId)).title || '';
+        // Defer to an explicit session name, and respect user-customized
+        // (non-🦆) titles. Otherwise re-title on every conversation so a single
+        // session stays named for its current task instead of sticking to the
+        // first conversation's title.
+        if (this.sessionGroupTitles.has(DEFAULT_SESSION_KEY)) return;
+        const isBranded = currentTitle === '' || currentTitle.includes(TAB_GROUP_MARKER);
+        if (!isBranded) return;
         const otherGroupColors = (await chrome.tabGroups.query({}))
           .filter((g) => g.id !== meta.chromeGroupId)
           .map((g) => g.color)
@@ -2079,7 +2279,7 @@ class TabGroupManager {
           for (const [color, count] of colorCounts.entries())
             count < minCount && ((minCount = count), (chosenColor = color));
         }
-        const displayTitle = isLoading ? `\u231B${title.trim()}` : title.trim();
+        const displayTitle = `${isLoading ? '\u231B' : ''}${TAB_GROUP_MARKER} ${title.trim()}`;
         await chrome.tabGroups.update(meta.chromeGroupId, {
           title: displayTitle,
           color: chosenColor
@@ -2158,85 +2358,248 @@ class TabGroupManager {
     await this.setTabIndicatorState(tabId, state, isMcp);
   }
 
+  private getTabRuntimeInfo(tab: chrome.tabs.Tab): { domain?: string; url?: string } {
+    const tabUrl = isInternalBrowserUrl(tab.url) ? undefined : tab.url;
+    let domain: string | undefined;
+    if (tabUrl)
+      try {
+        domain = new URL(tabUrl).hostname || undefined;
+      } catch {
+        // ignore
+      }
+    return { domain, url: tabUrl };
+  }
+
+  private async resumeHandoffAndGetSessionLeases(scope: BrowserSessionScope): Promise<TabLease[]> {
+    await tabLeaseManager.resumeHandoffTabs(scope.sessionId, scope.turnId);
+    return await tabLeaseManager.getSessionActiveLeases(scope.sessionId);
+  }
+
+  private async resolveLeaseGroupId(lease: TabLease): Promise<number | undefined> {
+    if (typeof lease.groupId === 'number') {
+      try {
+        await chrome.tabGroups.get(lease.groupId);
+        return lease.groupId;
+      } catch {
+        // fall through to the tab's current group
+      }
+    }
+    try {
+      const tab = await chrome.tabs.get(lease.tabId);
+      if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) return tab.groupId;
+    } catch {
+      // ignore
+    }
+    return undefined;
+  }
+
+  private async buildSessionContextFromLeases(
+    scope: BrowserSessionScope,
+    leases: TabLease[]
+  ): Promise<
+    | {
+        currentTabId: number;
+        availableTabs: { id: number; title: string; url: string }[];
+        tabCount: number;
+        tabGroupId: number;
+      }
+    | undefined
+  > {
+    if (leases.length === 0) return undefined;
+    // Resolve a groupId from the first lease whose tab/group still exists,
+    // rather than blindly trusting leases[0]. leases comes from
+    // getSessionActiveLeases (Map insertion order, unsorted); a single stale
+    // lease — closed tab or dissolved group — must not cause us to drop the
+    // entire session's live handoff tabs. Sort by tabId first so the pick is
+    // deterministic across calls.
+    const orderedLeases = [...leases].sort((a, b) => a.tabId - b.tabId);
+    let groupId: number | undefined;
+    for (const lease of orderedLeases) {
+      const resolved = await this.resolveLeaseGroupId(lease);
+      if (typeof resolved === 'number') {
+        groupId = resolved;
+        break;
+      }
+    }
+    if (typeof groupId !== 'number') {
+      // No lease in this session can resolve to a live tab/group — they are
+      // all stale (tabs closed / groups dissolved). Drop them so the session
+      // can start fresh instead of carrying dead leases forever.
+      await tabLeaseManager.releaseTabs(
+        scope.sessionId,
+        orderedLeases.map((lease) => lease.tabId)
+      );
+      return undefined;
+    }
+
+    await this.ensureMcpGroupCharacteristics(groupId, scope.sessionId);
+    const leasedTabIds = new Set(leases.map((lease) => lease.tabId));
+    // The handoff primary tab (if any) becomes currentTabId so the next turn
+    // resumes on the tab the agent was actually driving, not whichever tab
+    // happens to sort first by window/index.
+    const preferredTabId = leases.find((lease) => lease.isActiveHandoff === true)?.tabId;
+    const tabs = (await chrome.tabs.query({ groupId }))
+      .filter((tab): tab is chrome.tabs.Tab & { id: number } => {
+        return typeof tab.id === 'number' && leasedTabIds.has(tab.id);
+      })
+      .sort((a, b) => {
+        if (typeof preferredTabId === 'number') {
+          if (a.id === preferredTabId && b.id !== preferredTabId) return -1;
+          if (b.id === preferredTabId && a.id !== preferredTabId) return 1;
+        }
+        if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+        return (a.index ?? 0) - (b.index ?? 0);
+      })
+      .map((tab) => ({
+        id: tab.id,
+        title: tab.title || '',
+        url: tab.url || ''
+      }));
+
+    if (tabs.length === 0) {
+      await tabLeaseManager.releaseTabs(
+        scope.sessionId,
+        leases.map((lease) => lease.tabId)
+      );
+      return undefined;
+    }
+
+    for (const tab of tabs) {
+      await tabLeaseManager.recordTabGroup(tab.id, groupId);
+    }
+    this.mcpTabGroupId = groupId;
+    return {
+      currentTabId: tabs[0].id,
+      availableTabs: tabs,
+      tabCount: tabs.length,
+      tabGroupId: groupId
+    };
+  }
+
+  private async getSessionMcpTabContext(
+    scope: BrowserSessionScope,
+    createIfEmpty: boolean,
+    name?: string
+  ): Promise<
+    | {
+        currentTabId: number;
+        availableTabs: { id: number; title: string; url: string }[];
+        tabCount: number;
+        tabGroupId: number;
+      }
+    | undefined
+  > {
+    const leases = await this.resumeHandoffAndGetSessionLeases(scope);
+    const context = await this.buildSessionContextFromLeases(scope, leases);
+    if (context) return context;
+    return createIfEmpty
+      ? await this.createMcpTabGroup({
+          active: false,
+          sessionId: scope.sessionId,
+          turnId: scope.turnId,
+          name
+        })
+      : undefined;
+  }
+
   async getTabForMcp(
     tabId?: number,
-    tabGroupId?: number
+    tabGroupId?: number,
+    options?: { sessionId?: string; turnId?: string }
   ): Promise<{
     tabId: number | undefined;
     domain?: string;
     url?: string;
   }> {
-    if ((await this.initialize(), await this.loadMcpTabGroupId(), void 0 !== tabId))
+    const scope = getMcpSessionScope(options);
+    await this.initialize();
+    await this.loadMcpTabGroupId();
+
+    if (void 0 !== tabId)
       try {
         const tab = await chrome.tabs.get(tabId);
-        if (tab) {
-          const group = await this.findGroupByTab(tabId);
-          let domain: string | undefined;
-          if (group) {
-            this.mcpTabGroupId = group.chromeGroupId;
-            await this.ensureMcpGroupCharacteristics(group.chromeGroupId);
-          }
-          const tabUrl =
-            tab.url &&
-            !tab.url.startsWith('chrome://') &&
-            !tab.url.startsWith('edge://') &&
-            !tab.url.startsWith('brave://')
-              ? tab.url
-              : void 0;
-          if (tabUrl)
-            try {
-              domain = new URL(tabUrl).hostname || void 0;
-            } catch {
-              // ignore
-            }
-          return { tabId, domain, url: tabUrl };
+        const group = await this.findGroupByTab(tabId);
+        const groupId =
+          group?.chromeGroupId ??
+          (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? tab.groupId : undefined);
+        if (groupId !== undefined) {
+          this.mcpTabGroupId = groupId;
+          await this.ensureMcpGroupCharacteristics(groupId, scope?.sessionId);
         }
-      } catch {
-        throw new Error(`Tab ${tabId} does not exist`);
-      }
-    if (void 0 !== tabGroupId) {
-      for (const [mainId, meta] of this.groupMetadata.entries())
-        if (meta.chromeGroupId === tabGroupId)
-          try {
-            const tab = await chrome.tabs.get(mainId);
-            if (tab) {
-              const tabUrl =
-                tab.url &&
-                !tab.url.startsWith('chrome://') &&
-                !tab.url.startsWith('edge://') &&
-                !tab.url.startsWith('brave://')
-                  ? tab.url
-                  : void 0;
-              return { tabId: mainId, domain: meta.domain, url: tabUrl };
-            }
-          } catch {
-            break;
+        if (scope) {
+          const existingLease = await tabLeaseManager.getLease(tabId);
+          // Refuse to operate on a tab another session owns. This closes the
+          // assert-then-claim race: even if a concurrent claim interleaved
+          // between our (removed) read assert and getLease, we throw here
+          // instead of silently driving — and then being locked out of — a
+          // tab we don't own.
+          if (existingLease && existingLease.sessionId !== scope.sessionId) {
+            throw new BrowserSessionConflictError(tabId, existingLease.sessionId);
           }
+          const memberOrigin = group?.memberStates.get(tabId)?.origin;
+          // Explicit tab commands may target tabs that predate this lease manager. Claim
+          // non-internal tabs and managed-group tabs so future session calls can reuse them.
+          const shouldClaimUnleased = !existingLease && (!isInternalBrowserUrl(tab.url) || group);
+          if (existingLease) {
+            // existingLease.sessionId === scope.sessionId (checked above)
+            await tabLeaseManager.claimTab(
+              scope.sessionId,
+              scope.turnId,
+              tabId,
+              existingLease.origin,
+              { groupId }
+            );
+          } else if (shouldClaimUnleased) {
+            await tabLeaseManager.claimTab(
+              scope.sessionId,
+              scope.turnId,
+              tabId,
+              (memberOrigin ?? 'user') as TabLeaseOrigin,
+              { groupId }
+            );
+          }
+        }
+        return { tabId, ...this.getTabRuntimeInfo(tab) };
+      } catch (err) {
+        if (err instanceof BrowserSessionConflictError) {
+          throw err;
+        }
+        throw new Error(`Tab ${tabId} does not exist`, { cause: err });
+      }
+
+    if (void 0 !== tabGroupId) {
       try {
-        const tabs = await chrome.tabs.query({ groupId: tabGroupId });
-        if (tabs.length > 0 && tabs[0].id) {
-          let domain: string | undefined;
-          const tabUrl = tabs[0].url;
-          const url =
-            tabUrl &&
-            !tabUrl.startsWith('chrome://') &&
-            !tabUrl.startsWith('edge://') &&
-            !tabUrl.startsWith('brave://')
-              ? tabUrl
-              : void 0;
-          if (url)
-            try {
-              domain = new URL(url).hostname || void 0;
-            } catch {
-              // ignore
+        const tabs = (await chrome.tabs.query({ groupId: tabGroupId }))
+          .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
+          .sort((a, b) => {
+            if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+            return (a.index ?? 0) - (b.index ?? 0);
+          });
+        if (tabs.length > 0) {
+          if (scope) {
+            for (const tab of tabs) {
+              await tabLeaseManager.assertTabAvailableForSession(scope.sessionId, tab.id);
             }
-          return { tabId: tabs[0].id, domain, url };
+          }
+          return await this.getTabForMcp(tabs[0].id, undefined, options);
         }
       } catch (err) {
-        // ignore
+        if (err instanceof BrowserSessionConflictError) {
+          throw err;
+        }
       }
       throw new Error(`Could not find tab group ${tabGroupId}`);
     }
+
+    if (scope) {
+      const context = await this.getSessionMcpTabContext(scope, false);
+      if (context) {
+        const tab = await chrome.tabs.get(context.currentTabId);
+        return { tabId: context.currentTabId, ...this.getTabRuntimeInfo(tab) };
+      }
+      return { tabId: undefined };
+    }
+
     if (this.mcpTabGroupId !== null) {
       try {
         await chrome.tabGroups.get(this.mcpTabGroupId);
@@ -2248,24 +2611,7 @@ class TabGroupManager {
             return (a.index ?? 0) - (b.index ?? 0);
           });
         const tab = tabs[0];
-        if (tab) {
-          let domain: string | undefined;
-          const tabUrl = tab.url;
-          const url =
-            tabUrl &&
-            !tabUrl.startsWith('chrome://') &&
-            !tabUrl.startsWith('edge://') &&
-            !tabUrl.startsWith('brave://')
-              ? tabUrl
-              : void 0;
-          if (url)
-            try {
-              domain = new URL(url).hostname || void 0;
-            } catch {
-              // ignore
-            }
-          return { tabId: tab.id, domain, url };
-        }
+        if (tab) return { tabId: tab.id, ...this.getTabRuntimeInfo(tab) };
       } catch {
         await this.clearMcpTabGroup();
       }
@@ -2287,14 +2633,91 @@ class TabGroupManager {
     return false;
   }
 
-  async ensureMcpGroupCharacteristics(chromeGroupId: number): Promise<void> {
+  /**
+   * Title shown on a session's Chrome tab group. The 🦆 marker is always
+   * present so any SuperDuck-opened group is identifiable at a glance; a
+   * session name is appended after it. Falls back to "🦆SuperDuck" when the
+   * session has no name. The unscoped (sidepanel/global) group reads the
+   * DEFAULT_SESSION_KEY title slot.
+   */
+  resolveGroupTitle(sessionId?: string): string {
+    const named = sessionId
+      ? this.sessionGroupTitles.get(sessionId)
+      : this.sessionGroupTitles.get(DEFAULT_SESSION_KEY);
+    return named ? `${TAB_GROUP_MARKER} ${named}` : TAB_GROUP_TITLE;
+  }
+
+  /**
+   * Name the current browser session so its tab group is visually
+   * distinguishable from other concurrent sessions (mirrors Codex's
+   * nameSession). The 🦆 marker is always kept. Applies immediately to the
+   * session's current group, if any.
+   */
+  async nameSession(sessionId: string, name: string): Promise<{ title: string } | undefined> {
+    const trimmed = name.trim();
+    await this.initialize();
+    if (trimmed) this.sessionGroupTitles.set(sessionId, trimmed);
+    else this.sessionGroupTitles.delete(sessionId);
+    await this.saveToStorage();
+    const leases = await tabLeaseManager.getSessionActiveLeases(sessionId);
+    if (leases.length === 0) return undefined;
+    const groupId = await this.resolveLeaseGroupId(leases[0]);
+    if (typeof groupId !== 'number') return undefined;
+    await this.applyGroupTitle(groupId, this.resolveGroupTitle(sessionId));
+    return { title: this.resolveGroupTitle(sessionId) };
+  }
+
+  /**
+   * Name the unscoped (sidepanel/global) MCP tab group. Same 🦆-prefixed
+   * semantics as nameSession, but operates on the current global mcpTabGroupId
+   * instead of a lease-resolved session group.
+   */
+  async nameActiveMcpGroup(name: string): Promise<{ title: string } | undefined> {
+    const trimmed = name.trim();
+    await this.initialize();
+    await this.loadMcpTabGroupId();
+    if (trimmed) this.sessionGroupTitles.set(DEFAULT_SESSION_KEY, trimmed);
+    else this.sessionGroupTitles.delete(DEFAULT_SESSION_KEY);
+    await this.saveToStorage();
+    if (this.mcpTabGroupId === null) return undefined;
+    try {
+      await chrome.tabGroups.get(this.mcpTabGroupId);
+    } catch {
+      return undefined;
+    }
+    await this.applyGroupTitle(this.mcpTabGroupId, this.resolveGroupTitle());
+    return { title: this.resolveGroupTitle() };
+  }
+
+  // Force-write a title (and the SuperDuck orange color) to a Chrome tab group,
+  // bypassing ensureMcpGroupCharacteristics' title-preservation so renames and
+  // clears take effect.
+  private async applyGroupTitle(chromeGroupId: number, title: string): Promise<void> {
+    try {
+      await chrome.tabGroups.update(chromeGroupId, {
+        title,
+        color: chrome.tabGroups.Color.ORANGE
+      });
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  async ensureMcpGroupCharacteristics(chromeGroupId: number, sessionId?: string): Promise<void> {
     try {
       const group = await chrome.tabGroups.get(chromeGroupId);
-      (group.title === TAB_GROUP_TITLE && group.color === chrome.tabGroups.Color.ORANGE) ||
-        (await chrome.tabGroups.update(chromeGroupId, {
-          title: TAB_GROUP_TITLE,
-          color: chrome.tabGroups.Color.ORANGE
-        }));
+      // Preserve any already-branded (🦆) title — a session name or the
+      // sidepanel's conversation title — so subsequent lookups don't clobber it
+      // back to the default. Only enforce the marker + orange color when the
+      // group has drifted off-brand.
+      const hasMarker = typeof group.title === 'string' && group.title.includes(TAB_GROUP_MARKER);
+      const titleOk = hasMarker || group.title === this.resolveGroupTitle(sessionId);
+      const colorOk = group.color === chrome.tabGroups.Color.ORANGE;
+      if (titleOk && colorOk) return;
+      await chrome.tabGroups.update(chromeGroupId, {
+        ...(titleOk ? {} : { title: this.resolveGroupTitle(sessionId) }),
+        ...(colorOk ? {} : { color: chrome.tabGroups.Color.ORANGE })
+      });
     } catch (err) {
       // ignore
     }
@@ -2306,12 +2729,65 @@ class TabGroupManager {
     await chrome.storage.local.remove(this.MCP_TAB_GROUP_OWNER_KEY as string);
   }
 
-  async createMcpTabGroup(options?: { active?: boolean }): Promise<{
+  /**
+   * Dispose of a session's prior Chrome tab group during a --force replace:
+   * ungroup its tabs (left open, never closed) and remove the managed-group
+   * metadata so repeated replacements don't orphan still-grouped tabs or leak
+   * groupMetadata entries.
+   */
+  private async disposeSessionGroup(chromeGroupId: number): Promise<void> {
+    try {
+      const groupTabs = await chrome.tabs.query({ groupId: chromeGroupId });
+      const tabIds = groupTabs.flatMap((tab) => (typeof tab.id === 'number' ? [tab.id] : []));
+      if (tabIds.length > 0 && chrome.tabs.ungroup) {
+        await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
+      }
+    } catch {
+      // group may already be gone
+    }
+    const meta = this.findMetadataByChromeGroupId(chromeGroupId);
+    if (meta) await this.removeManagedGroupMetadata(meta);
+    await this.saveToStorage();
+  }
+
+  async createMcpTabGroup(options?: {
+    active?: boolean;
+    sessionId?: string;
+    turnId?: string;
+    replaceExisting?: boolean;
+    name?: string;
+  }): Promise<{
     currentTabId: number;
     availableTabs: { id: number; title: string; url: string }[];
     tabCount: number;
     tabGroupId: number;
   }> {
+    const scope = getMcpSessionScope(options);
+    if (scope) {
+      const existing = await this.getSessionMcpTabContext(scope, false);
+      if (existing && options?.replaceExisting !== true) {
+        throw new Error(
+          `Session already has MCP tab group ${existing.tabGroupId}; use tab_group list --create-if-empty to reuse tab ${existing.currentTabId}, or pass --force to replace it.`
+        );
+      }
+      if (options?.replaceExisting === true) {
+        // Tear down the prior group so --force doesn't orphan its tabs (still
+        // grouped, never closed) or leak its groupMetadata across repeated
+        // replacements. Ungroup the old group's tabs (left open) and drop the
+        // metadata + leases.
+        if (existing) {
+          await this.disposeSessionGroup(existing.tabGroupId);
+        }
+        await tabLeaseManager.releaseSession(scope.sessionId);
+      }
+    }
+    // Apply a name passed at creation time so the freshly created group is titled
+    // at once; resolveGroupTitle below reads it from sessionGroupTitles.
+    const trimmedName = (options?.name ?? '').trim();
+    if (trimmedName) {
+      this.sessionGroupTitles.set(scope?.sessionId ?? DEFAULT_SESSION_KEY, trimmedName);
+      await this.saveToStorage();
+    }
     const newTab = await chrome.tabs.create({
       url: 'chrome://newtab',
       active: options?.active ?? false
@@ -2322,6 +2798,14 @@ class TabGroupManager {
     const group = await this.createGroup(newTabId, { origin: 'agent' });
     this.mcpTabGroupId = group.chromeGroupId;
     await this.saveMcpTabGroupId();
+    // Force the session/default title onto the freshly created group so a name
+    // set before the group existed (or the branded default) shows up at once.
+    await this.applyGroupTitle(group.chromeGroupId, this.resolveGroupTitle(scope?.sessionId));
+    if (scope) {
+      await tabLeaseManager.claimTab(scope.sessionId, scope.turnId, newTabId, 'agent', {
+        groupId: group.chromeGroupId
+      });
+    }
 
     const availableTabs = (await chrome.tabs.query({ groupId: group.chromeGroupId })).flatMap(
       (tab) =>
@@ -2353,7 +2837,12 @@ class TabGroupManager {
     };
   }
 
-  async getOrCreateMcpTabContext(options?: { createIfEmpty?: boolean }): Promise<
+  async getOrCreateMcpTabContext(options?: {
+    createIfEmpty?: boolean;
+    name?: string;
+    sessionId?: string;
+    turnId?: string;
+  }): Promise<
     | {
         currentTabId: number;
         availableTabs: { id: number; title: string; url: string }[];
@@ -2362,7 +2851,11 @@ class TabGroupManager {
       }
     | undefined
   > {
-    const { createIfEmpty = false } = options || {};
+    const { createIfEmpty = false, name } = options || {};
+    const scope = getMcpSessionScope(options);
+    if (scope) {
+      return await this.getSessionMcpTabContext(scope, createIfEmpty, name);
+    }
     if ((await this.loadMcpTabGroupId(), null !== this.mcpTabGroupId))
       try {
         await chrome.tabGroups.get(this.mcpTabGroupId);
@@ -2390,7 +2883,7 @@ class TabGroupManager {
         await this.saveMcpTabGroupId();
       }
     if (createIfEmpty) {
-      return await this.createMcpTabGroup({ active: false });
+      return await this.createMcpTabGroup({ active: false, name });
     }
   }
 
@@ -2455,7 +2948,7 @@ class TabGroupManager {
       for (const group of groups)
         if (
           group.color === chrome.tabGroups.Color.ORANGE &&
-          group.title?.includes(TAB_GROUP_TITLE)
+          group.title?.includes(TAB_GROUP_MARKER)
         ) {
           if ((await chrome.tabs.query({ groupId: group.id })).length > 0) return group.id;
         }

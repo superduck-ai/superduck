@@ -29,6 +29,8 @@ func (e *ToolError) Error() string { return e.Msg }
 type Options struct {
 	SocketPath string
 	Timeout    time.Duration
+	SessionID  string
+	TurnID     string
 }
 
 func defaults(o Options) Options {
@@ -103,13 +105,39 @@ func dialTimeout(timeout time.Duration) time.Duration {
 	return maxDialTimeout
 }
 
-// Call sends one tool_request and returns the structured result (or string content).
+// Call sends one tool_request and returns the human-readable content (or, when
+// the tool produced no content, the structured payload). Plain-text consumers
+// (RunTool → CallString → printGroupResult) depend on getting the text content
+// here — e.g. `tab_group new` must surface "Created new tab. Tab ID: N".
+// Structured-only fields for JSON consumers are exposed separately via
+// RunToolJSON, which calls callBoth directly.
 func Call(tool string, args map[string]any, opts Options) (any, error) {
+	content, structured, err := callBoth(tool, args, opts)
+	if err != nil {
+		return nil, err
+	}
+	switch c := content.(type) {
+	case nil:
+		return structured, nil
+	case string:
+		if c == "" {
+			return structured, nil
+		}
+		return c, nil
+	default:
+		return c, nil
+	}
+}
+
+// callBoth sends one tool_request and returns both the text content and the
+// structuredContent payload separately, so callers like RunToolJSON can expose
+// structured fields (e.g. tabContext) without losing the human-readable output.
+func callBoth(tool string, args map[string]any, opts Options) (any, any, error) {
 	opts = defaults(opts)
 
 	conn, err := dialAndAuthenticate(opts, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer conn.Close()
 
@@ -122,8 +150,13 @@ func Call(tool string, args map[string]any, opts Options) (any, error) {
 			"client_id": "superduck-cli",
 		},
 	}
+	params := req["params"].(map[string]any)
+	if opts.SessionID != "" && opts.TurnID != "" {
+		params["session_id"] = opts.SessionID
+		params["turn_id"] = opts.TurnID
+	}
 	if err := protocol.SendMessage(conn, req); err != nil {
-		return nil, fmt.Errorf("send: %w", err)
+		return nil, nil, fmt.Errorf("send: %w", err)
 	}
 	raw, err := protocol.ReadMessage(conn)
 	if err != nil {
@@ -132,25 +165,22 @@ func Call(tool string, args map[string]any, opts Options) (any, error) {
 		if errors.Is(err, context.DeadlineExceeded) ||
 			(errors.As(err, &nerr) && nerr.Timeout()) ||
 			strings.Contains(err.Error(), "i/o timeout") {
-			return nil, ErrTimeout
+			return nil, nil, ErrTimeout
 		}
-		return nil, fmt.Errorf("read: %w", err)
+		return nil, nil, fmt.Errorf("read: %w", err)
 	}
 
 	var resp protocol.ToolResponseMsg
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+		return nil, nil, fmt.Errorf("parse response: %w", err)
 	}
 	if resp.Error != nil {
-		return nil, &ToolError{Msg: contentToString(resp.Error.Content)}
+		return nil, nil, &ToolError{Msg: contentToString(resp.Error.Content)}
 	}
 	if resp.Result == nil {
-		return nil, &ToolError{Msg: "empty response from extension"}
+		return nil, nil, &ToolError{Msg: "empty response from extension"}
 	}
-	if resp.Result.StructuredContent != nil {
-		return resp.Result.StructuredContent, nil
-	}
-	return resp.Result.Content, nil
+	return resp.Result.Content, resp.Result.StructuredContent, nil
 }
 
 // Control sends one authenticated native-host control message. Control messages
@@ -216,7 +246,7 @@ func RunTool(tool string, args map[string]any, opts Options, rec *AuditRecord) (
 //
 //	{ "tool": "...", "ok": bool, "output": <raw value or string>, "error"?: "..." }
 func RunToolJSON(tool string, args map[string]any, opts Options, rec *AuditRecord) (string, error) {
-	v, callErr := Call(tool, args, opts)
+	content, structured, callErr := callBoth(tool, args, opts)
 	rec.OK = callErr == nil
 	if callErr != nil {
 		rec.Err = callErr.Error()
@@ -230,7 +260,20 @@ func RunToolJSON(tool string, args map[string]any, opts Options, rec *AuditRecor
 	if callErr != nil {
 		envelope["error"] = callErr.Error()
 	} else {
-		envelope["output"] = normalizeOutput(v)
+		envelope["output"] = normalizeOutput(content)
+		// Promote structured fields (e.g. tabContext) to the envelope top level
+		// so consumers can `jq '.tabContext.currentTabId'` without parsing the
+		// human-readable output string.
+		if m, ok := structured.(map[string]any); ok {
+			for k, v := range m {
+				if k == "content" || k == "output" {
+					continue
+				}
+				if _, exists := envelope[k]; !exists {
+					envelope[k] = v
+				}
+			}
+		}
 	}
 	b, mErr := json.Marshal(envelope)
 	if mErr != nil {

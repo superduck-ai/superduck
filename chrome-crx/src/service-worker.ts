@@ -4,6 +4,7 @@ import {
   initializeExtensionPermissions,
   isAgentActive,
   setOnAgentBecameIdle,
+  tabBadgeManager,
   tabGroupManager,
   trackEvent,
 } from "./mcpRuntime";
@@ -93,6 +94,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   initializeExtensionPermissions();
   await tabGroupManager.initialize();
+  void tabBadgeManager.initialize();
 
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
     void sidePanelController.openOptionsForSetup().catch(() => {});
@@ -119,6 +121,9 @@ chrome.runtime.onStartup.addListener(async () => {
   // `TabEventManager` singleton is fresh in the new SW so no
   // double-registration can occur here.
   tabGroupManager.startTabGroupChangeListener();
+  // Re-arm per-tab badges (state is wiped when the SW dies) and re-subscribe
+  // to lease + tab-activation events.
+  void tabBadgeManager.initialize();
   void connectBridge();
   void nativeHostManager.connect();
   await scheduledTaskManager.restoreScheduledAlarms();
@@ -208,6 +213,7 @@ registerRuntimeMessageListener({
   executeScheduledTask: scheduledTaskManager.executeScheduledTask,
   handleStaticIndicatorHeartbeat: staticIndicatorController.handleHeartbeat,
   handleDismissStaticIndicator: staticIndicatorController.dismissForSenderGroup,
+  handleAgentIndicatorHeartbeat: staticIndicatorController.handleAgentIndicatorHeartbeat,
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

@@ -25,6 +25,12 @@ func splitGlobalFlags(in []string) []string {
 			}
 			gflags.Tab = n
 			i += 2
+		case (a == "--session" || a == "--session-id") && i+1 < len(in):
+			gflags.SessionID = in[i+1]
+			i += 2
+		case (a == "--turn" || a == "--turn-id") && i+1 < len(in):
+			gflags.TurnID = in[i+1]
+			i += 2
 		case a == "--socket" && i+1 < len(in):
 			gflags.SocketPath = in[i+1]
 			i += 2

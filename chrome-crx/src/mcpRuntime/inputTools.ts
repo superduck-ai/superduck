@@ -456,10 +456,13 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
           // Page.windowOpen is a best-effort fallback; normal input still runs without it.
         }
 
+        const browserScope = context.browserSessionScope;
         const navigationPolicy: NavigationPolicyContext = {
           permissionManager: context.permissionManager,
           toolUseId: context.toolUseId,
-          toolName: 'computer'
+          toolName: 'computer',
+          sessionId: browserScope?.sessionId,
+          turnId: browserScope?.turnId
         };
         tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
         // Run the real interaction first (so SPA/onsubmit handlers and the actual
@@ -469,7 +472,10 @@ const computerTool: ToolDefinition<ComputerToolParams> = {
         result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
         await new Promise((resolve) => setTimeout(resolve, 150));
         let adoptedTabIds = await filterPolicyAllowedTabs(
-          await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+          await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
+            sessionId: browserScope?.sessionId,
+            turnId: browserScope?.turnId
+          }),
           navigationPolicy
         );
         if (adoptedTabIds.length === 0) {

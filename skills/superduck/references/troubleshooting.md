@@ -11,17 +11,20 @@ Common issues and their solutions.
 **Solutions**:
 
 1. Check if the native host is running:
+
    ```bash
-   SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
    node "$SKILL_DIR/scripts/check-superduck-status.mjs"
    ```
 
 2. Verify the socket file exists:
+
    ```bash
    ls -la /tmp/chrome-native-host.sock
    ```
 
 3. Try running `superduck doctor` for diagnostics:
+
    ```bash
    superduck doctor
    ```
@@ -37,6 +40,7 @@ Common issues and their solutions.
 **Solutions**:
 
 1. Increase timeout:
+
    ```bash
    superduck --timeout 60 --tab $TAB navigate https://slow-site.com
    ```
@@ -56,19 +60,24 @@ Common issues and their solutions.
 **Solutions**:
 
 1. List current tabs:
+
    ```bash
    superduck tabs
    ```
 
-2. Create a fresh tab:
+2. Reuse or create the current session tab:
+
    ```bash
-   TAB=$(superduck tab_group new | grep -o 'Tab ID: [0-9]*' | grep -o '[0-9]*')
+   TAB=$(superduck tab_group list --create-if-empty | awk '/^- tabId/ {gsub(/:/, "", $3); print $3; exit}')
    ```
 
-3. Use existing tab group:
+3. Replace the current session group only when you intentionally need a separate context:
+
    ```bash
-   superduck tab_group list --create-if-empty
+   TAB=$(superduck tab_group new --force | grep -o 'Tab ID: [0-9]*' | grep -o '[0-9]*')
    ```
+
+   Do not run this after `tab_group list --create-if-empty` during normal browser work.
 
 ## Wait Command Issues
 
@@ -117,11 +126,13 @@ ffmpeg -framerate 1 -i /tmp/step%d.jpg output.gif
 **Solutions**:
 
 1. Check installation:
+
    ```bash
    which superduck
    ```
 
 2. Install or add to PATH:
+
    ```bash
    # If installed but not in PATH
    export PATH="/usr/local/bin:$PATH"
@@ -158,11 +169,13 @@ superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
 **Common Issues**:
 
 1. **Quote escaping**: Use single quotes around JavaScript:
+
    ```bash
    superduck --tab $TAB exec 'document.title'
    ```
 
 2. **Complex scripts**: Use heredoc or separate file:
+
    ```bash
    superduck --tab $TAB exec "$(cat script.js)"
    ```
@@ -181,7 +194,7 @@ superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
 **Solution**: Make scripts executable:
 
 ```bash
-SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
 chmod +x "$SKILL_DIR"/scripts/*.mjs
 chmod +x "$SKILL_DIR"/templates/*.sh
 ```
@@ -221,8 +234,8 @@ Start with basic commands to verify functionality:
 # Test version
 superduck version
 
-# Test tab creation
-superduck tab_group new
+# Test session tab group reuse/create
+TAB=$(superduck tab_group list --create-if-empty | awk '/^- tabId/ {gsub(/:/, "", $3); print $3; exit}')
 
 # Test simple navigation
 superduck --tab $TAB navigate https://example.com
@@ -234,13 +247,15 @@ superduck --tab $TAB context
 If issues persist:
 
 1. Run diagnostics:
+
    ```bash
    superduck doctor
-   SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
    node "$SKILL_DIR/scripts/check-superduck-status.mjs" --json
    ```
 
 2. Check socket status:
+
    ```bash
    ls -la /tmp/chrome-native-host.sock
    ```

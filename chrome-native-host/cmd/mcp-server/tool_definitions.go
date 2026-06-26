@@ -328,20 +328,29 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "tabs_create_mcp",
-		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.",
-		inputSchema: objectSchema(map[string]any{}),
+		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. If this session already has a group, this tool fails unless force is true. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.",
+		inputSchema: objectSchema(map[string]any{
+			"force": booleanSchema("Replace the current session group with a fresh group. Leave false for normal browser work."),
+		}),
 	},
 	{
 		name:        "tabs_finalize_mcp",
-		description: "Finalize the current MCP tab group with Codex-compatible cleanup semantics. Use this once as the final SuperDuck browser action of the turn. Omit tabs by default. Tabs kept as handoff remain in the managed group for continuation. Tabs kept as deliverable stay open but leave the managed group. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs stay open and leave the managed group.",
+		description: "Finalize the current MCP tab group with explicit tab disposition semantics. Use this only when explicitly deciding which tabs become handoff, deliverable, closed, or released. Tabs kept as handoff remain in the managed group for continuation. Tabs kept as deliverable stay open but leave the managed group. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs stay open and leave the managed group.",
 		inputSchema: objectSchema(map[string]any{
 			"keep": arraySchema(
-				"Optional list of tabs to keep after cleanup. Each item is {tabId, status}, where status is handoff or deliverable.",
+				"Optional list of tabs to keep after finalization. Each item is {tabId, status}, where status is handoff or deliverable.",
 				objectProperty("", map[string]any{
 					"tabId":  numberSchema("Tab ID to keep."),
 					"status": stringSchema("Post-finalize disposition for this tab.", withEnum("handoff", "deliverable")),
 				}, "tabId", "status"),
 			),
+		}),
+	},
+	{
+		name:        "tabs_name_session_mcp",
+		description: "Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name (an emoji prefix is fine). Requires a browser session scope (session_id).",
+		inputSchema: objectSchema(map[string]any{
+			"name": stringSchema("Short task-relevant name for the session. Empty string clears the name and reverts to the default group title."),
 		}),
 	},
 	{

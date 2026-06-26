@@ -57,9 +57,11 @@ type ToolRequest struct {
 	Type   string `json:"type"`
 	Method string `json:"method"`
 	Params struct {
-		Tool     string                 `json:"tool"`
-		Args     map[string]interface{} `json:"args"`
-		ClientID string                 `json:"client_id,omitempty"`
+		Tool      string                 `json:"tool"`
+		Args      map[string]interface{} `json:"args"`
+		ClientID  string                 `json:"client_id,omitempty"`
+		SessionID string                 `json:"session_id,omitempty"`
+		TurnID    string                 `json:"turn_id,omitempty"`
 	} `json:"params"`
 }
 

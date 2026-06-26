@@ -56,6 +56,7 @@ const HANDLED_MESSAGE_TYPES = new Set([
   'MAIN_TAB_ACK_RESPONSE',
   'STATIC_INDICATOR_HEARTBEAT',
   'DISMISS_STATIC_INDICATOR_FOR_GROUP',
+  'AGENT_INDICATOR_HEARTBEAT',
   'PANEL_READY',
   'PANEL_CLOSED'
 ]);
@@ -72,6 +73,10 @@ export interface RuntimeMessageListenerDeps {
     sendResponse: RuntimeSendResponse
   ) => Promise<void>;
   handleDismissStaticIndicator: (
+    sender: chrome.runtime.MessageSender,
+    sendResponse: RuntimeSendResponse
+  ) => Promise<void>;
+  handleAgentIndicatorHeartbeat: (
     sender: chrome.runtime.MessageSender,
     sendResponse: RuntimeSendResponse
   ) => Promise<void>;
@@ -211,10 +216,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
 
       const resolvedTargetTabId = targetTabId;
-      chrome.tabs
-        .sendMessage(resolvedTargetTabId, { type: 'HIDE_AGENT_INDICATORS' })
-        .catch(() => {});
-      tabGroupManager.setTabIndicatorState(resolvedTargetTabId, 'none').catch(() => {});
+      tabGroupManager.hideAgentIndicatorsForTab(resolvedTargetTabId).catch(() => {});
 
       chrome.runtime
         .sendMessage({ type: 'STOP_AGENT', targetTabId: resolvedTargetTabId })
@@ -383,6 +385,11 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
 
       if (message.type === 'DISMISS_STATIC_INDICATOR_FOR_GROUP') {
         await deps.handleDismissStaticIndicator(sender, sendResponse);
+        return;
+      }
+
+      if (message.type === 'AGENT_INDICATOR_HEARTBEAT') {
+        await deps.handleAgentIndicatorHeartbeat(sender, sendResponse);
         return;
       }
 

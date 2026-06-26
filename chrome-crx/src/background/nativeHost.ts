@@ -11,6 +11,7 @@ import {
   createErrorResponse,
   executeTool
 } from '../mcpRuntime';
+import { resolveBrowserSessionParts } from '../mcpRuntime/sessionScope';
 import { ReconnectScheduler } from './ReconnectScheduler';
 
 const NATIVE_HOST_NAMES = [
@@ -178,11 +179,13 @@ export function createNativeHostManager(): NativeHostManager {
   function sendToolResponse({
     content,
     isError,
-    is_error: isErrorLegacy
+    is_error: isErrorLegacy,
+    structuredContent
   }: {
     content: string | unknown[];
     isError?: boolean;
     is_error?: boolean;
+    structuredContent?: unknown;
   }) {
     if (!nativePort) return;
     if (!content || (typeof content !== 'string' && !Array.isArray(content))) return;
@@ -190,7 +193,13 @@ export function createNativeHostManager(): NativeHostManager {
     const response =
       (isError ?? isErrorLegacy)
         ? buildErrorToolResponse(content)
-        : { type: 'tool_response', result: { content } };
+        : {
+            type: 'tool_response',
+            result: {
+              content,
+              ...(structuredContent !== undefined ? { structuredContent } : {})
+            }
+          };
 
     try {
       nativePort.postMessage(response);
@@ -227,6 +236,7 @@ export function createNativeHostManager(): NativeHostManager {
 
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
+      const { sessionId, turnId } = resolveBrowserSessionParts(params, args);
 
       const timeoutMs = getToolRequestTimeoutMs(params.tool, args);
       const result = await withToolRequestTimeout(
@@ -235,6 +245,8 @@ export function createNativeHostManager(): NativeHostManager {
           args,
           tabId: parseOptionalInt(args.tabId),
           tabGroupId: parseOptionalInt(args.tabGroupId),
+          sessionId,
+          turnId,
           clientId,
           source: 'native-messaging',
           permissionMode: 'skip_all_permission_checks'
@@ -251,7 +263,8 @@ export function createNativeHostManager(): NativeHostManager {
 
       sendToolResponse({
         content: result.content ?? '',
-        isError: result.is_error
+        isError: result.is_error,
+        structuredContent: result.tabContext ? { tabContext: result.tabContext } : undefined
       });
     } catch (err) {
       sendToolResponse(
