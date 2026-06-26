@@ -18,13 +18,24 @@ if (!['chrome', 'edge'].includes(TARGET)) {
 
 console.log(`\n🦆 Building for target: ${TARGET}\n`);
 
-const viteProcess = spawn('bun', ['run', 'vite', 'build'], {
+// Use process.execPath (the absolute path to the currently running bun) instead
+// of the bare string 'bun', so the child doesn't depend on $PATH containing
+// bun. When launched via an absolute path, an IDE, or a shell with an
+// incomplete PATH, `spawn('bun', ...)` would otherwise ENOENT and — with no
+// 'error' handler — leave the parent waiting on a 'close' that never fires
+// (the build appears to hang).
+const viteProcess = spawn(process.execPath, ['run', 'vite', 'build'], {
   stdio: 'inherit',
   cwd: process.cwd(),
   env: {
     ...process.env,
     BUILD_TARGET: TARGET
   }
+});
+
+viteProcess.on('error', (err) => {
+  console.error(`\n❌ Failed to spawn build process: ${err.message}\n`);
+  process.exit(1);
 });
 
 viteProcess.on('close', (code, signal) => {
