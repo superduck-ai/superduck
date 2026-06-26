@@ -101,13 +101,15 @@ describe('extractTextFromContent', () => {
     expect(extractTextFromContent(content)).toBe('Hello \nWorld');
   });
 
-  it('filters out non-text blocks', () => {
+  it('returns only trailing text after the last tool_use when no marker is present', () => {
+    // Matches what the renderer shows as the final answer: intermediate
+    // progress text before the last tool_use is excluded.
     const content = [
       { type: 'text', text: 'Hello' },
       { type: 'tool_use', id: '1', name: 'foo', input: {} },
       { type: 'text', text: 'World' }
     ];
-    expect(extractTextFromContent(content)).toBe('Hello\nWorld');
+    expect(extractTextFromContent(content)).toBe('World');
   });
 
   it('skips content before turn_answer_start', () => {
