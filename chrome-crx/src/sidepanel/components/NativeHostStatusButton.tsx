@@ -239,9 +239,9 @@ function getStatusView(
           id: 'native_host_status_disconnected_pill',
           defaultMessage: 'Disconnected'
         }),
-        dotClassName: 'bg-danger-100',
-        iconClassName: 'bg-danger-900/30 text-danger-100',
-        pillClassName: 'bg-danger-900/30 text-danger-100'
+        dotClassName: 'bg-text-400',
+        iconClassName: 'bg-bg-200 text-text-300',
+        pillClassName: 'bg-bg-200 text-text-300'
       };
   }
 }
@@ -259,7 +259,7 @@ function NativeHostGlyph({
     return <Loader2 size={size} className={`${className ?? ''} animate-spin`} />;
   }
 
-  if (statusKind === 'error' || statusKind === 'disconnected') {
+  if (statusKind === 'error') {
     return <MonitorX size={size} className={className} />;
   }
 
