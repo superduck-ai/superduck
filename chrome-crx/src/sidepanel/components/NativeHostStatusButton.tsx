@@ -71,6 +71,10 @@ const CLI_SETUP_COMMANDS = ['npm install -g superduck-cli', 'superduck setup'] a
 const CLI_SETUP_COMMAND_TEXT = CLI_SETUP_COMMANDS.join('\n');
 const POST_RESET_STATUS_POLL_DELAY_MS = 1_000;
 const POST_RESET_STATUS_POLL_ATTEMPTS = 6;
+const POPUP_DESIRED_WIDTH = 328;
+// Minimum gap between the popup and the sidepanel viewport edges so it never gets
+// clipped by the sidepanel boundary or the high-risk permission dashed frame.
+const POPUP_VIEWPORT_MARGIN = 12;
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -537,6 +541,36 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
     };
   }, [isOpen]);
 
+  // The popup is anchored to a 28px trigger in the middle of the header (with buttons to
+  // its right), so a fixed right-0 anchor overflows a narrow sidepanel. Keep the original
+  // position (right edge at the trigger) while it fits; as the sidepanel narrows, slide the
+  // popup right just enough to stay visible instead of snapping to the far right.
+  const [popupBox, setPopupBox] = React.useState<{ width: number; right: number } | null>(null);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+
+    const measure = () => {
+      const root = rootRef.current;
+      if (!root) return;
+      const viewportWidth = window.innerWidth;
+      if (viewportWidth <= 2 * POPUP_VIEWPORT_MARGIN) return;
+
+      const rootRect = root.getBoundingClientRect();
+      const width = Math.min(POPUP_DESIRED_WIDTH, viewportWidth - 2 * POPUP_VIEWPORT_MARGIN);
+      // Smallest right edge that keeps the left edge at the margin; otherwise stay on the
+      // trigger. `right` is the offset from the root container's right edge.
+      const right = rootRect.right - Math.max(rootRect.right, POPUP_VIEWPORT_MARGIN + width);
+      setPopupBox((prev) =>
+        prev && prev.width === width && prev.right === right ? prev : { width, right }
+      );
+    };
+
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [isOpen]);
+
   React.useEffect(() => {
     return () => {
       if (copyResetTimerRef.current != null) {
@@ -616,7 +650,11 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
 
       {isOpen ? (
         <div
-          className="absolute right-0 top-full mt-2 z-50 w-[328px] max-w-[calc(100vw-2rem)] rounded-xl border-0.5 border-border-200 bg-bg-000 p-3 text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] backdrop-blur-xl"
+          className="absolute top-full mt-2 z-50 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl border-0.5 border-border-200 bg-bg-000 p-3 text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] backdrop-blur-xl"
+          style={{
+            width: popupBox?.width ?? POPUP_DESIRED_WIDTH,
+            right: popupBox?.right ?? 0
+          }}
           role="dialog"
           aria-labelledby={dialogTitleId}
           aria-describedby={dialogDescriptionId}
