@@ -109,6 +109,8 @@ export interface DebugArtifact {
   redacted: boolean;
   path?: string;
   data?: unknown;
+  content?: unknown;
+  truncated?: boolean;
 }
 
 export interface DebugSessionMeta {

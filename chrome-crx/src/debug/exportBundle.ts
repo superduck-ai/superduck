@@ -221,5 +221,20 @@ export function serializeBundleForTransport(bundle: DebugBundle | null): string 
   truncated.summaryMarkdown =
     buildSummaryMarkdown(truncated) +
     `\n\n[events truncated for transport — kept ${totalKept} most recent across domains]`;
-  return JSON.stringify(truncated);
+
+  let result = JSON.stringify(truncated);
+  if (result.length > MAX_BUNDLE_BYTES) {
+    // Still too big — drop screenshot image content (keep metadata + ref).
+    // Text artifacts (ax-summary, js-result, ref-registry, tab-snapshot) are
+    // kept because they are what the agent actually consumed.
+    truncated.artifacts = truncated.artifacts.map((a) =>
+      a.type === 'screenshot' || a.type === 'annotated-screenshot'
+        ? { ...a, content: undefined }
+        : a
+    );
+    truncated.summaryMarkdown +=
+      '\n\n[screenshot image content dropped for transport — artifact metadata retained]';
+    result = JSON.stringify(truncated);
+  }
+  return result;
 }

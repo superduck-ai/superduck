@@ -10,7 +10,7 @@ import {
 } from '../navigationIsolation';
 import type { NavigationPolicyContext } from '../navigationIsolation';
 import { type ComputerToolParams } from './types';
-import { recordEvent, recordError, redactUrl } from '../../debug';
+import { recordEvent, recordError, redactUrl, recordArtifact } from '../../debug';
 import {
   executeClick,
   executeScreenshot,
@@ -465,6 +465,15 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
           afterUrl: afterUrl ? redactUrl(afterUrl) : undefined
         }
       });
+
+      if (inputAction === 'screenshot' && result?.base64Image) {
+        void recordArtifact({
+          type: 'screenshot',
+          ids: { toolUseId: context.toolUseId, tabId: effectiveTabId },
+          mimeType: result.imageFormat ? `image/${result.imageFormat}` : 'image/png',
+          content: result.base64Image
+        });
+      }
 
       return {
         ...result,

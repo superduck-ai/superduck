@@ -561,7 +561,13 @@ export async function exportDebugBundle(): Promise<DebugBundle | null> {
   }
   const events = await getEvents();
   const artifacts = await getArtifacts();
-  return buildBundle(events, artifacts, meta);
+  const artifactsWithContent = await Promise.all(
+    artifacts.map(async (a) => {
+      const content = await s.getArtifactContent(a.id);
+      return { ...a, content: content ?? undefined };
+    })
+  );
+  return buildBundle(events, artifactsWithContent, meta);
 }
 
 /** Test-only: tear down all module state without touching chrome.storage. */

@@ -99,3 +99,44 @@ func TestWriteBundleEmptyEvents(t *testing.T) {
 		t.Errorf("missing summary: %v", err)
 	}
 }
+
+func TestWriteBundleArtifactContent(t *testing.T) {
+	dir := t.TempDir()
+	b := &Bundle{
+		Session:        Session{DebugSessionID: "x", StartedAt: "2026-06-27T12:00:00Z"},
+		EventsByDomain: map[string][]json.RawMessage{},
+		Artifacts: []Artifact{
+			{ID: "shot1", Type: "screenshot", MimeType: "image/png", Content: json.RawMessage(`"iVBORw0KGgo="`)},
+			{ID: "ax1", Type: "ax-summary", MimeType: "text/plain", Content: json.RawMessage(`"button OK\nlink Next"`)},
+			{ID: "js1", Type: "js-result", MimeType: "application/json", Content: json.RawMessage(`{"output":"42"}`)},
+		},
+		SummaryMarkdown: "# S",
+		Readme:          "r",
+		GeneratedAt:     "2026-06-27T12:00:02Z",
+	}
+	out, err := WriteBundle(b, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := os.ReadFile(filepath.Join(out, "artifacts", "screenshots", "shot1.png"))
+	if err != nil {
+		t.Fatalf("screenshot file: %v", err)
+	}
+	if string(shot) != "iVBORw0KGgo=" {
+		t.Errorf("screenshot content (should be unquoted): %q", shot)
+	}
+	ax, err := os.ReadFile(filepath.Join(out, "artifacts", "ax", "ax1.txt"))
+	if err != nil {
+		t.Fatalf("ax file: %v", err)
+	}
+	if !strings.Contains(string(ax), "button") {
+		t.Errorf("ax content: %q", ax)
+	}
+	js, err := os.ReadFile(filepath.Join(out, "artifacts", "js", "js1.json"))
+	if err != nil {
+		t.Fatalf("js file: %v", err)
+	}
+	if !strings.Contains(string(js), "42") {
+		t.Errorf("js content: %q", js)
+	}
+}

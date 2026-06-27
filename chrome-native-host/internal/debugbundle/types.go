@@ -15,7 +15,9 @@ type Session struct {
 	ArtifactCount     int    `json:"artifactCount"`
 }
 
-// Artifact mirrors the CRX DebugArtifact (metadata only; content stays in CRX).
+// Artifact mirrors the CRX DebugArtifact. Content is the raw artifact payload
+// (base64 PNG for screenshots, text for ax-summary, JSON for js-result) so the
+// CLI can write it to artifacts/<subdir>/<id>.<ext>.
 type Artifact struct {
 	ID         string          `json:"id"`
 	Type       string          `json:"type"`
@@ -25,6 +27,8 @@ type Artifact struct {
 	SHA256     string          `json:"sha256"`
 	Redacted   bool            `json:"redacted"`
 	Data       json.RawMessage `json:"data,omitempty"`
+	Content    json.RawMessage `json:"content,omitempty"`
+	Truncated  bool            `json:"truncated,omitempty"`
 }
 
 // Finding mirrors the CRX DiagnosisFinding.

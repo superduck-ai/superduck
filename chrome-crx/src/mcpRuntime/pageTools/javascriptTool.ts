@@ -408,6 +408,7 @@ async function executeJavascript(
       type: 'js-result',
       ids: { toolUseId, tabId: effectiveTabId },
       mimeType: 'application/json',
+      content: { output, openedTabIds, exceptionSummary: isError ? errorMessage : undefined },
       data: {
         outputLength: output.length,
         outputTruncated,

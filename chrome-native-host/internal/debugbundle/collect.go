@@ -110,8 +110,81 @@ func WriteBundle(b *Bundle, outputDir string) (string, error) {
 	if err := writeJSON(filepath.Join("artifacts", "metadata.json"), b.Artifacts); err != nil {
 		return "", err
 	}
+	if err := writeArtifactContents(b.Artifacts, artDir); err != nil {
+		return "", err
+	}
 
 	return dir, nil
+}
+
+// artifactSubdir maps an artifact type to its on-disk subdirectory.
+func artifactSubdir(t string) string {
+	switch t {
+	case "screenshot", "annotated-screenshot":
+		return "screenshots"
+	case "ax-summary", "ref-registry":
+		return "ax"
+	case "js-result":
+		return "js"
+	case "tab-snapshot":
+		return "tab-state"
+	case "native-status":
+		return "native"
+	case "text":
+		return "text"
+	}
+	return ""
+}
+
+func artifactExt(t string) string {
+	switch t {
+	case "screenshot", "annotated-screenshot":
+		return ".png"
+	case "ax-summary", "text":
+		return ".txt"
+	case "js-result", "tab-snapshot", "native-status", "ref-registry":
+		return ".json"
+	}
+	return ".bin"
+}
+
+// writeArtifactContents writes each artifact's content payload to
+// artifacts/<subdir>/<id>.<ext>. Content that is a JSON string (base64 PNG)
+// is decoded so the file is a real PNG, not a quoted JSON string.
+func writeArtifactContents(artifacts []Artifact, artDir string) error {
+	for _, a := range artifacts {
+		if len(a.Content) == 0 {
+			continue
+		}
+		subdir := artifactSubdir(a.Type)
+		if subdir == "" {
+			continue
+		}
+		sub := filepath.Join(artDir, subdir)
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			return err
+		}
+		data := a.Content
+		// If content is a JSON string, unquote it so binary payloads (base64
+		// screenshots are NOT base64 here — CRX stores raw base64 as a string)
+		// land on disk verbatim.
+		if len(data) > 0 && data[0] == '"' {
+			var s string
+			if err := json.Unmarshal(data, &s); err == nil {
+				data = []byte(s)
+			}
+		}
+		fname := sanitizeFilename(a.ID) + artifactExt(a.Type)
+		if err := os.WriteFile(filepath.Join(sub, fname), data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sanitizeFilename(s string) string {
+	r := strings.NewReplacer("/", "-", "\\", "-", ":", "-")
+	return r.Replace(s)
 }
 
 // PrintDoctor writes a human-readable doctor report.

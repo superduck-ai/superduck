@@ -18,7 +18,7 @@ import { assignRefs } from './refs';
 import { compactTree, renderTree } from './render';
 import { withSnapshotLock } from './snapshotLock';
 import { collectSubtreeBackendIds, fetchAXTree, resolveLinkUrls } from './cdpFetch';
-import { recordEvent, recordError } from '../../debug';
+import { recordEvent, recordError, recordArtifact } from '../../debug';
 
 export { INTERACTIVE_ROLES, CONTENT_ROLES } from './constants';
 export { withSnapshotLock } from './snapshotLock';
@@ -45,6 +45,16 @@ export async function takeSnapshot(
         refCount: result.refMappings?.length ?? 0,
         interactiveRefCount:
           result.refMappings?.filter((r: RefMapping) => r.interactiveOnly).length ?? 0
+      }
+    });
+    void recordArtifact({
+      type: 'ax-summary',
+      ids: { tabId },
+      mimeType: 'text/plain',
+      content: result.content,
+      data: {
+        refCount: result.refMappings?.length ?? 0,
+        contentLength: result.content.length
       }
     });
     return result;

@@ -121,4 +121,36 @@ test.describe('debug evidence bundle', () => {
       bundle.diagnosis.findings.some((f: { id: string }) => f.id === 'native_tool_timeout_no_crx_start')
     ).toBe(true);
   });
+
+  test('artifact content (screenshot + ax-summary) is included in the bundle', async ({
+    serviceWorker
+  }) => {
+    await serviceWorker.evaluate(async () => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      await bridge.startDebugSession({ extensionVersion: '0.1.0' });
+      await bridge.recordArtifact({
+        type: 'screenshot',
+        ids: { toolUseId: 'tu-1', tabId: 1 },
+        mimeType: 'image/png',
+        content: 'iVBORw0KGgo='
+      });
+      await bridge.recordArtifact({
+        type: 'ax-summary',
+        ids: { tabId: 1 },
+        mimeType: 'text/plain',
+        content: 'button OK\nlink Next'
+      });
+    });
+    const bundle = await serviceWorker.evaluate(async () => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      return await bridge.exportDebugBundle();
+    });
+    const screenshot = bundle.artifacts.find((a: { type: string }) => a.type === 'screenshot');
+    expect(screenshot).toBeDefined();
+    expect(screenshot.content).toBe('iVBORw0KGgo=');
+    expect(screenshot.sha256).toMatch(/^sha256-/);
+    const ax = bundle.artifacts.find((a: { type: string }) => a.type === 'ax-summary');
+    expect(ax).toBeDefined();
+    expect(ax.content).toContain('button');
+  });
 });
