@@ -10,6 +10,7 @@ import {
 } from '../navigationIsolation';
 import type { NavigationPolicyContext } from '../navigationIsolation';
 import { type ComputerToolParams } from './types';
+import { recordEvent, recordError, redactUrl } from '../../debug';
 import {
   executeClick,
   executeScreenshot,
@@ -190,6 +191,23 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
       );
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+
+      const inputAction = toolParams.action;
+      const inputStartTime = Date.now();
+      const refSource = toolParams.ref ? 'ref' : toolParams.coordinate ? 'coordinate' : 'none';
+      const beforeUrl = tab.url;
+      recordEvent({
+        domain: 'input',
+        event: 'input.action.start',
+        ids: { toolUseId: context.toolUseId, tabId: effectiveTabId },
+        data: {
+          action: inputAction,
+          refSource,
+          refId: toolParams.ref,
+          hasCoordinate: !!toolParams.coordinate,
+          beforeUrl: beforeUrl ? redactUrl(beforeUrl) : undefined
+        }
+      });
 
       if (!['wait'].includes(toolParams.action)) {
         const tabUrl = tab.url;
@@ -424,6 +442,30 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         openedTabIdsForContext.length > 0
           ? openedTabIdsForContext[openedTabIdsForContext.length - 1]
           : effectiveTabId;
+
+      let afterUrl: string | undefined;
+      try {
+        const afterTab = await chrome.tabs.get(effectiveTabId);
+        afterUrl = afterTab?.url;
+      } catch {
+        afterUrl = undefined;
+      }
+      const beforeAfterUrlSame = !!beforeUrl && beforeUrl === afterUrl;
+      recordEvent({
+        domain: 'input',
+        event: 'input.action.end',
+        ids: { toolUseId: context.toolUseId, tabId: effectiveTabId },
+        data: {
+          action: inputAction,
+          success: !result.error,
+          durationMs: Date.now() - inputStartTime,
+          beforeAfterUrlSame,
+          pageChanged: !beforeAfterUrlSame,
+          beforeUrl: beforeUrl ? redactUrl(beforeUrl) : undefined,
+          afterUrl: afterUrl ? redactUrl(afterUrl) : undefined
+        }
+      });
+
       return {
         ...result,
         tabContext: {
@@ -434,6 +476,13 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         }
       };
     } catch (error) {
+      recordError(
+        'input',
+        'input.action.end',
+        error,
+        { toolUseId: context?.toolUseId, tabId: context?.tabId },
+        { action: params?.action, durationMs: 0 }
+      );
       return {
         error: `Failed to execute action: ${error instanceof Error ? error.message : 'Unknown error'}`
       };

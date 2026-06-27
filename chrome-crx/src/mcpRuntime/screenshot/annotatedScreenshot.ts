@@ -1,6 +1,7 @@
 import { cdpDebugger } from '../cdp';
 import { getRefMetaByTab } from './refBridge';
 import type { CdpDomGetContentQuadsResult } from '../cdp';
+import { recordEvent } from '../../debug';
 
 interface Annotation {
   number: number;
@@ -16,8 +17,22 @@ export async function captureAnnotatedScreenshot(tabId: number): Promise<{
   legend: string;
   annotations: Annotation[];
 } | null> {
+  recordEvent({
+    domain: 'screenshot-ref',
+    event: 'screenshot.annotate.start',
+    ids: { tabId }
+  });
   const refMeta = getRefMetaByTab(tabId);
-  if (!refMeta || refMeta.size === 0) return null;
+  if (!refMeta || refMeta.size === 0) {
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'screenshot.annotate.end',
+      ids: { tabId },
+      level: 'warn',
+      data: { annotationCount: 0, refMetaEmpty: true, contentQuadsAllFailed: false }
+    });
+    return null;
+  }
 
   const annotations: Annotation[] = [];
 
@@ -76,7 +91,21 @@ export async function captureAnnotatedScreenshot(tabId: number): Promise<{
     }
   }
 
-  if (annotations.length === 0) return null;
+  if (annotations.length === 0) {
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'screenshot.annotate.end',
+      ids: { tabId },
+      level: 'warn',
+      data: {
+        annotationCount: 0,
+        refMetaEmpty: false,
+        contentQuadsAllFailed: true,
+        refCount: entries.length
+      }
+    });
+    return null;
+  }
 
   const overlayScript = (items: Annotation[]) => {
     const id = '__superduck_annotations__';
@@ -132,14 +161,37 @@ export async function captureAnnotatedScreenshot(tabId: number): Promise<{
       .map((a) => `[${a.number}] ${a.ref} ${a.role} "${a.name}"`)
       .join('\n');
 
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'screenshot.annotate.end',
+      ids: { tabId },
+      data: {
+        annotationCount: annotations.length,
+        refMetaEmpty: false,
+        contentQuadsAllFailed: false
+      }
+    });
+
     return {
       base64Image: screenshotResult.base64,
       imageFormat: screenshotResult.format,
       legend,
       annotations
     };
-  } catch {
+  } catch (err) {
     await removeOverlay();
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'screenshot.annotate.end',
+      ids: { tabId },
+      level: 'error',
+      data: {
+        annotationCount: 0,
+        refMetaEmpty: false,
+        contentQuadsAllFailed: false,
+        error: err instanceof Error ? err.message : String(err)
+      }
+    });
     return null;
   }
 }
