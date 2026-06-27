@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolContext } from './pageToolsSupport/types';
+import { startDebugSession, resetDebugRecorder } from '../debug/recorder';
+import { InMemoryDebugStore } from '../debug/store';
 
 const fixtures = vi.hoisted(() => {
   const checkPermission = vi.fn();
@@ -178,5 +180,97 @@ describe('javascript_tool popup search isolation', () => {
       currentTabId: 10,
       executedOnTabId: 31
     });
+  });
+});
+
+describe('javascript_tool debug instrumentation', () => {
+  let debugStore: InMemoryDebugStore;
+
+  beforeEach(async () => {
+    debugStore = new InMemoryDebugStore();
+    await startDebugSession({ store: debugStore });
+  });
+
+  afterEach(() => {
+    resetDebugRecorder();
+  });
+
+  it('records javascript event sequence + js-result artifact on success', async () => {
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'document.title', tabId: 10 },
+      context
+    );
+    expect(result.output).toBeDefined();
+
+    const events = (await debugStore.getEvents()).filter((e) => e.domain === 'javascript');
+    const names = events.map((e) => e.event);
+    expect(names).toContain('javascript.exec.start');
+    expect(names).toContain('javascript.permission.check');
+    expect(names).toContain('javascript.security.check');
+    expect(names).toContain('javascript.runtime.evaluate.start');
+    expect(names).toContain('javascript.runtime.evaluate.end');
+    expect(names).toContain('javascript.exec.end');
+
+    const start = events.find((e) => e.event === 'javascript.exec.start')!;
+    expect(start.data?.codeHash).toMatch(/^fnv1a-/);
+    expect(start.data?.codePreview).toBe('document.title');
+    expect(start.data?.codeLength).toBe('document.title'.length);
+
+    const perm = events.find((e) => e.event === 'javascript.permission.check')!;
+    expect(perm.data?.allowed).toBe(true);
+
+    const artifacts = await debugStore.listArtifacts();
+    expect(artifacts.some((a) => a.type === 'js-result')).toBe(true);
+  });
+
+  it('records javascript.runtime.exception on eval exception', async () => {
+    fixtures.sendCommand.mockResolvedValue({
+      exceptionDetails: {
+        exception: { description: 'ReferenceError: x is not defined' },
+        url: 'https://example.com/script.js?token=1',
+        lineNumber: 1,
+        columnNumber: 0
+      }
+    });
+
+    await javascriptTool.execute({ action: 'javascript_exec', text: 'x()', tabId: 10 }, context);
+
+    const events = (await debugStore.getEvents()).filter((e) => e.domain === 'javascript');
+    const exc = events.find((e) => e.event === 'javascript.runtime.exception');
+    expect(exc).toBeDefined();
+    expect(exc?.level).toBe('error');
+    expect(exc?.data?.exceptionSummary).toContain('ReferenceError');
+    expect(exc?.data?.sourceUrl).toBe('https://example.com/script.js?[redacted-query]');
+    const execEnd = events.find((e) => e.event === 'javascript.exec.end');
+    expect(execEnd?.data?.resultType).toBe('is_error');
+  });
+
+  it('records javascript.window_open.detected when window.open fires but no adoption', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://popup.test/open?session=secret', timestamp: Date.now() }
+    ]);
+    fixtures.createPolicyCheckedChildTab.mockResolvedValue(null);
+
+    await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'window.open("https://popup.test/open")', tabId: 10 },
+      context
+    );
+
+    const events = (await debugStore.getEvents()).filter((e) => e.domain === 'javascript');
+    const wo = events.find((e) => e.event === 'javascript.window_open.detected');
+    expect(wo).toBeDefined();
+    expect(wo?.data?.windowOpenCount).toBe(1);
+    expect((wo?.data?.targetUrls as string[] | undefined)?.[0]).toBe(
+      'https://popup.test/open?[redacted-query]'
+    );
+    expect(wo?.data?.adoptedTabIds).toEqual([]);
+  });
+
+  it('does not record javascript events when debug is disabled', async () => {
+    resetDebugRecorder();
+    await javascriptTool.execute({ action: 'javascript_exec', text: '1+1', tabId: 10 }, context);
+    const events = (await debugStore.getEvents()).filter((e) => e.domain === 'javascript');
+    expect(events).toHaveLength(0);
   });
 });

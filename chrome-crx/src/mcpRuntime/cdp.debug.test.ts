@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { InMemoryDebugStore } from '../../debug/store';
+import type { InMemoryDebugStore } from '../debug/store';
 
 describe('cdpDebugger debug instrumentation', () => {
   let store: InMemoryDebugStore;
