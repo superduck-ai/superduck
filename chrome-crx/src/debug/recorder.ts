@@ -25,6 +25,7 @@ import { RingBuffer } from './ringBuffer';
 import { redactValue, sha256Hex, redactArtifactData, type RedactionOptions } from './redaction';
 import { getRuntimeSessionId, newDebugSessionId, resetRuntimeSessionId } from './session';
 import { createDefaultStore, type DebugStore } from './store';
+import { buildBundle, type DebugBundle } from './exportBundle';
 
 const DEFAULT_RING_BUFFER_CAPACITY = 5000;
 const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
@@ -216,7 +217,7 @@ export async function stopDebugSession(): Promise<DebugSessionMeta | null> {
   const result = finalMeta;
   enabled = false;
   ringBuffer = null;
-  store = null;
+  // keep `store` so exportDebugBundle() can still read the just-stopped session
   session = null;
   return result;
 }
@@ -460,8 +461,31 @@ export async function getArtifactContent(id: string): Promise<unknown | undefine
   }
 }
 
+export async function exportDebugBundle(): Promise<DebugBundle | null> {
+  const s = store;
+  if (!s) return null;
+  let meta = session;
+  if (!meta) {
+    try {
+      const sessions = await s.listSessions();
+      if (sessions.length === 0) return null;
+      meta = sessions[sessions.length - 1];
+    } catch {
+      return null;
+    }
+  }
+  const events = await getEvents();
+  const artifacts = await getArtifacts();
+  return buildBundle(events, artifacts, meta);
+}
+
 /** Test-only: tear down all module state without touching chrome.storage. */
 export function resetDebugRecorder(): void {
+  try {
+    store?.close();
+  } catch {
+    // ignore
+  }
   enabled = false;
   session = null;
   ringBuffer = null;
