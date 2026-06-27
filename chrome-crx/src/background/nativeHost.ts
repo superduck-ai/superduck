@@ -17,7 +17,8 @@ import {
   stopDebugSession,
   getDebugStatus,
   exportDebugBundle,
-  serializeBundleForTransport
+  serializeBundleForTransport,
+  recordEvent
 } from '../debug';
 
 const NATIVE_HOST_NAMES = [
@@ -234,6 +235,13 @@ export function createNativeHostManager(): NativeHostManager {
 
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
+
+      recordEvent({
+        domain: 'native-bridge',
+        event: 'native.tool_request.received',
+        ids: { nativeRequestId: clientId },
+        data: { tool: params.tool, method }
+      });
 
       // Debug control commands bypass executeTool to avoid recursive debug
       // events and the tool-runtime timeout.
