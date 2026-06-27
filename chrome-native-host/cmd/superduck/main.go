@@ -277,6 +277,8 @@ func main() {
 		err = cmdDoctor(rest)
 	case "log":
 		err = cmdLog(rest)
+	case "debug":
+		err = cmdDebug(rest)
 	case "version", "--version", "-v":
 		fmt.Println(version)
 	case "help", "--help", "-h":

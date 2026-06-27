@@ -46,5 +46,6 @@ export {
   buildSummaryMarkdown,
   buildReadme,
   groupEventsByDomain,
+  serializeBundleForTransport,
   type DebugBundle
 } from './exportBundle';

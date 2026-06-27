@@ -193,3 +193,33 @@ export function buildReadme(): string {
     'Screenshots and page content are sensitive. Share bundles with care.'
   ].join('\n');
 }
+
+const MAX_BUNDLE_BYTES = 900 * 1024;
+const MAX_EVENTS_PER_DOMAIN_TRUNCATED = 200;
+
+/**
+ * Serialize a bundle for transport over Chrome native messaging (1MB limit).
+ * If the full bundle exceeds the budget, events are truncated to the most
+ * recent N per domain and a truncation marker is appended to the summary.
+ */
+export function serializeBundleForTransport(bundle: DebugBundle | null): string {
+  if (!bundle) return JSON.stringify({ error: 'no active debug session' });
+  const serialized = JSON.stringify(bundle);
+  if (serialized.length <= MAX_BUNDLE_BYTES) return serialized;
+
+  const truncated: DebugBundle = {
+    ...bundle,
+    eventsByDomain: {} as Record<DebugDomain, DebugBaseEvent[]>
+  };
+  let totalKept = 0;
+  for (const d of DEBUG_DOMAINS) {
+    const evts = bundle.eventsByDomain[d] ?? [];
+    const kept = evts.slice(-MAX_EVENTS_PER_DOMAIN_TRUNCATED);
+    truncated.eventsByDomain[d] = kept;
+    totalKept += kept.length;
+  }
+  truncated.summaryMarkdown =
+    buildSummaryMarkdown(truncated) +
+    `\n\n[events truncated for transport — kept ${totalKept} most recent across domains]`;
+  return JSON.stringify(truncated);
+}

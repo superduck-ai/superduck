@@ -12,6 +12,13 @@ import {
   executeTool
 } from '../mcpRuntime';
 import { ReconnectScheduler } from './ReconnectScheduler';
+import {
+  startDebugSession,
+  stopDebugSession,
+  getDebugStatus,
+  exportDebugBundle,
+  serializeBundleForTransport
+} from '../debug';
 
 const NATIVE_HOST_NAMES = [
   'com.me.superduck_browser_extension',
@@ -227,6 +234,53 @@ export function createNativeHostManager(): NativeHostManager {
 
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
+
+      // Debug control commands bypass executeTool to avoid recursive debug
+      // events and the tool-runtime timeout.
+      if (params.tool === 'superduck_debug_start') {
+        try {
+          const manifest = chrome.runtime.getManifest();
+          const meta = await startDebugSession({ extensionVersion: manifest.version });
+          sendToolResponse({ content: JSON.stringify(meta) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug start failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_stop') {
+        try {
+          const meta = await stopDebugSession();
+          sendToolResponse({ content: JSON.stringify(meta) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug stop failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_status') {
+        sendToolResponse({ content: JSON.stringify(getDebugStatus()) });
+        return;
+      }
+      if (params.tool === 'superduck_debug_collect') {
+        try {
+          const bundle = await exportDebugBundle();
+          sendToolResponse({ content: serializeBundleForTransport(bundle) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug collect failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
 
       const timeoutMs = getToolRequestTimeoutMs(params.tool, args);
       const result = await withToolRequestTimeout(
