@@ -3,12 +3,14 @@ import { SidepanelViewStateProvider } from './contexts/SidepanelViewStateContext
 import { SidepanelView } from './components/SidepanelView';
 import { GateRouter } from './components/GateRouter';
 import { useSidepanelState } from './hooks/useSidepanelState';
+import { useSidepanelDebug } from './hooks/useSidepanelDebug';
 
 /**
  * SidepanelApp — 主应用组件
  * 仅负责门控路由和布局，所有业务逻辑在 useSidepanelState 中
  */
 export default function SidepanelApp() {
+  useSidepanelDebug('SidepanelApp');
   const state = useSidepanelState();
 
   // ─── Gate routing ──────────────────────────────────────────────────

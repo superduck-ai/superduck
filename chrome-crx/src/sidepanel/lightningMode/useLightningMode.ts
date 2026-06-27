@@ -13,6 +13,7 @@ import { streamResponse } from './streamResponse';
 import { parseCommands } from './parseCommands';
 import { executeCommands } from './executeCommands';
 import { settleAndScreenshot } from './settleAndScreenshot';
+import { recordEvent } from '../../debug';
 import { synthesizeToolMessages } from './synthesizeToolMessages';
 import { buildLightningSystemPrompt } from './systemPrompt';
 import type { LightningSystemPromptBlock, LightningCreateApiMessageParams } from '../types';
@@ -248,6 +249,15 @@ export function useLightningMode({
           continueLoop = false;
           iterationCount++;
           const iterationStart = performance.now();
+          const lightningIterationId =
+            (globalThis.crypto?.randomUUID?.() as string) ??
+            `lit-${iterationCount}-${Date.now().toString(36)}`;
+          recordEvent({
+            domain: 'lightning',
+            event: 'lightning.iteration.start',
+            ids: { lightningIterationId, tabId: activeTabId },
+            data: { iterationCount, model: getEffectiveModel() }
+          });
 
           abortControllerRef.current = new AbortController();
 

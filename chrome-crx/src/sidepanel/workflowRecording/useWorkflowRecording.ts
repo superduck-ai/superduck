@@ -6,6 +6,7 @@ import { workflowHandleCapturedEvent } from './handleCapturedEvent';
 import { workflowStartRecording } from './startRecording';
 import { workflowStopRecording } from './stopRecording';
 import { workflowTogglePause } from './togglePause';
+import { recordEvent } from '../../debug';
 import { useKeystrokeUpdates } from './useKeystrokeUpdates';
 import { useTabStatusListeners } from './tabStatusListeners';
 import type {
@@ -129,8 +130,16 @@ export const useWorkflowRecording = ({
 
   // Start recording
   const startRecording = useCallback(
-    (enableVoice?: boolean) =>
-      workflowStartRecording({
+    (enableVoice?: boolean) => {
+      const workflowRecordingId =
+        (globalThis.crypto?.randomUUID?.() as string) ?? `wf-${Date.now().toString(36)}`;
+      recordEvent({
+        domain: 'workflow-recording',
+        event: 'workflow.start',
+        ids: { workflowRecordingId, tabId },
+        data: { enableVoice: !!enableVoice }
+      });
+      return workflowStartRecording({
         enableVoice,
         tabId,
         isRecordingRef,
@@ -151,7 +160,8 @@ export const useWorkflowRecording = ({
         startSpeechRecording,
         handleCapturedEvent,
         intl
-      }),
+      });
+    },
     [
       tabId,
       handleCapturedEvent,
@@ -164,54 +174,57 @@ export const useWorkflowRecording = ({
   );
 
   // Stop recording
-  const stopRecording = useCallback(
-    () =>
-      workflowStopRecording({
-        recordingState,
-        activeTabs,
-        isSpeechRecording,
-        isRecordingRef,
-        tabActivationListenerRef,
-        injectionPendingTabsRef,
-        visitedTabsRef,
-        createdTabsRef,
-        tabGroupIdRef,
-        setRecordingState,
-        setCurrentTabId,
-        setActiveTabs,
-        stopSpeechRecording,
-        onComplete
-      }),
-    [recordingState, onComplete, activeTabs, isSpeechRecording, stopSpeechRecording]
-  );
+  const stopRecording = useCallback(() => {
+    recordEvent({ domain: 'workflow-recording', event: 'workflow.stop', ids: { tabId } });
+    return workflowStopRecording({
+      recordingState,
+      activeTabs,
+      isSpeechRecording,
+      isRecordingRef,
+      tabActivationListenerRef,
+      injectionPendingTabsRef,
+      visitedTabsRef,
+      createdTabsRef,
+      tabGroupIdRef,
+      setRecordingState,
+      setCurrentTabId,
+      setActiveTabs,
+      stopSpeechRecording,
+      onComplete
+    });
+  }, [recordingState, onComplete, activeTabs, isSpeechRecording, stopSpeechRecording]);
 
   // Toggle pause
-  const togglePause = useCallback(
-    () =>
-      workflowTogglePause({
-        isPaused: recordingState.isPaused,
-        activeTabs,
-        currentTabId,
-        tabId,
-        isSpeechRecording,
-        injectionPendingTabsRef,
-        speechWasRecordingBeforePauseRef,
-        setRecordingState,
-        handleCapturedEvent,
-        startSpeechRecording,
-        stopSpeechRecording
-      }),
-    [
-      recordingState.isPaused,
+  const togglePause = useCallback(() => {
+    const willPause = !recordingState.isPaused;
+    recordEvent({
+      domain: 'workflow-recording',
+      event: willPause ? 'workflow.pause' : 'workflow.resume',
+      ids: { tabId }
+    });
+    return workflowTogglePause({
+      isPaused: recordingState.isPaused,
       activeTabs,
       currentTabId,
       tabId,
-      handleCapturedEvent,
       isSpeechRecording,
+      injectionPendingTabsRef,
+      speechWasRecordingBeforePauseRef,
+      setRecordingState,
+      handleCapturedEvent,
       startSpeechRecording,
       stopSpeechRecording
-    ]
-  );
+    });
+  }, [
+    recordingState.isPaused,
+    activeTabs,
+    currentTabId,
+    tabId,
+    handleCapturedEvent,
+    isSpeechRecording,
+    startSpeechRecording,
+    stopSpeechRecording
+  ]);
 
   // Toggle speech recording
   const toggleSpeechRecording = useCallback(async () => {

@@ -17,6 +17,7 @@ import {
   type PromptAttachmentPayload
 } from '../sidepanelUtils';
 import { createStreamingTextStore } from '../sidepanelGuards';
+import { recordEvent } from '../../debug';
 import type {
   ApiConversationMessage,
   ApiResponseMessage,
@@ -409,6 +410,19 @@ export function useAgentLoop({
 
       setRuntimeError(null);
       setIsAgentRunning(true);
+      const agentRunId =
+        (globalThis.crypto?.randomUUID?.() as string) ?? `run-${Date.now().toString(36)}`;
+      const agentRunStartedAt = Date.now();
+      recordEvent({
+        domain: 'agent-loop',
+        event: 'agent.run.start',
+        ids: { agentRunId, tabId: executionTabId },
+        data: {
+          model: selectedModel,
+          messageCount: apiMessages.length,
+          attachmentCount: attachments.length
+        }
+      });
       abortControllerRef.current?.abort();
       generationStartedAtRef.current = Date.now();
       completionNotificationSentRef.current = false;
@@ -582,6 +596,12 @@ export function useAgentLoop({
           notificationBannerTimerRef.current = null;
         }
         abortControllerRef.current = null;
+        recordEvent({
+          domain: 'agent-loop',
+          event: 'agent.run.end',
+          ids: { agentRunId, tabId: executionTabId },
+          data: { durationMs: Date.now() - agentRunStartedAt }
+        });
         setIsAgentRunning(false);
         setHasInteractiveTools(false);
         setCurrentStatus('');
