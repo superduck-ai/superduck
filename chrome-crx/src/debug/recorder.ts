@@ -83,6 +83,57 @@ let nativeHostVersion: string | undefined;
 let sessionNote: string | undefined;
 let persistedEventCount = 0;
 
+const DEBUG_ENABLED_KEY = 'DEBUG_EVIDENCE_ENABLED';
+const DEBUG_SESSION_KEY = 'DEBUG_SESSION_META';
+
+/**
+ * Cross-context enabled sync. The service worker starts the session; sidepanel
+ * / content scripts read this flag on load so their events (sidepanel mount,
+ * agent loop, lightning, workflow) reach the shared IndexedDB store under the
+ * same debugSessionId. Without this, sidepanel-context recordEvent calls are
+ * no-ops because each context has its own module-level `enabled` flag.
+ */
+function tryInitFromStorage(): void {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+  try {
+    chrome.storage.local.get([DEBUG_ENABLED_KEY, DEBUG_SESSION_KEY], (result) => {
+      if (chrome.runtime.lastError) return;
+      if (result[DEBUG_ENABLED_KEY] === true && !enabled) {
+        const meta = result[DEBUG_SESSION_KEY] as DebugSessionMeta | undefined;
+        if (meta) {
+          enabled = true;
+          store = createDefaultStore();
+          ringBuffer = new RingBuffer<DebugBaseEvent>(DEFAULT_RING_BUFFER_CAPACITY);
+          redactionOptions = {};
+          monotonicOrigin = Date.now();
+          session = { ...meta, runtimeSessionId: getRuntimeSessionId() };
+        }
+      }
+    });
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area !== 'local') return;
+      if (DEBUG_ENABLED_KEY in changes && changes[DEBUG_ENABLED_KEY]?.newValue === false) {
+        enabled = false;
+      }
+    });
+  } catch {
+    // ignore — storage unavailable
+  }
+}
+
+tryInitFromStorage();
+
+function persistEnabledFlag(enabledFlag: boolean, meta?: DebugSessionMeta): void {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+  try {
+    const payload: Record<string, unknown> = { [DEBUG_ENABLED_KEY]: enabledFlag };
+    if (meta) payload[DEBUG_SESSION_KEY] = meta;
+    chrome.storage.local.set(payload);
+  } catch {
+    // ignore
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -175,6 +226,7 @@ export async function startDebugSession(
     artifactCount: 0
   };
   await persistSession();
+  persistEnabledFlag(true, session);
   recordEvent({
     domain: 'diagnosis',
     event: 'debug.session.start',
@@ -214,6 +266,7 @@ export async function stopDebugSession(): Promise<DebugSessionMeta | null> {
   };
   session = finalMeta;
   await persistSession();
+  persistEnabledFlag(false);
   const result = finalMeta;
   enabled = false;
   ringBuffer = null;

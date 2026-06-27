@@ -49,3 +49,5 @@ export {
   serializeBundleForTransport,
   type DebugBundle
 } from './exportBundle';
+
+import './testBridge';
