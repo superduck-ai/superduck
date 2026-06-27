@@ -25,6 +25,7 @@ import {
   setDebuggerListenerRegistered
 } from './state';
 import { registerDebuggerEventHandlers as registerDebuggerEventHandlersImpl } from './eventHandlers';
+import { recordEvent, recordError } from '../../debug';
 import {
   enableConsoleTracking as enableConsoleTrackingImpl,
   getConsoleMessages as getConsoleMessagesImpl,
@@ -107,6 +108,7 @@ class ChromeDebuggerProtocol {
   }
 
   private async withTabLock<T>(tabId: number, fn: () => Promise<T>): Promise<T> {
+    const hadContention = this.tabLocks.has(tabId);
     const prev = this.tabLocks.get(tabId) ?? Promise.resolve();
     let release!: () => void;
     const gate = new Promise<void>((r) => {
@@ -114,14 +116,15 @@ class ChromeDebuggerProtocol {
     });
     const chained = prev.catch(() => {}).then(() => gate);
     this.tabLocks.set(tabId, chained);
+    if (hadContention) {
+      recordEvent({ domain: 'cdp', event: 'cdp.tab_lock.wait', ids: { tabId } });
+    }
     try {
       await prev.catch(() => {});
       return await fn();
     } finally {
       release();
-      // Clean up the entry if no successor has replaced it.
-      // Without this, each withTabLock call leaves a resolved promise
-      // chain in the map that grows unboundedly over the tab's lifetime.
+      recordEvent({ domain: 'cdp', event: 'cdp.tab_lock.release', ids: { tabId } });
       if (this.tabLocks.get(tabId) === chained) {
         this.tabLocks.delete(tabId);
       }
@@ -152,6 +155,13 @@ class ChromeDebuggerProtocol {
     chrome.debugger.onDetach.addListener((source: chrome.debugger.Debuggee, reason: string) => {
       const tabId = source.tabId;
       if (!tabId) return;
+
+      recordEvent({
+        domain: 'cdp',
+        event: 'cdp.detach',
+        ids: { tabId },
+        data: { source: 'chrome', reason: reason || 'unknown' }
+      });
 
       chrome.tabs.sendMessage(tabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
       tabGroupManager.setTabIndicatorState(tabId, 'none').catch(() => {});
@@ -200,9 +210,21 @@ class ChromeDebuggerProtocol {
   defaultResizeParams: ResizeParams = DEFAULT_RESIZE_PARAMS;
 
   async attachDebugger(tabId: number): Promise<void> {
-    return this.withTabLock(tabId, async () => {
-      await this.attachDebuggerInner(tabId);
-    });
+    recordEvent({ domain: 'cdp', event: 'cdp.attach.start', ids: { tabId } });
+    try {
+      await this.withTabLock(tabId, async () => {
+        await this.attachDebuggerInner(tabId);
+      });
+      recordEvent({
+        domain: 'cdp',
+        event: 'cdp.attach.end',
+        ids: { tabId },
+        data: { success: true }
+      });
+    } catch (err) {
+      recordError('cdp', 'cdp.attach.end', err, { tabId }, { success: false });
+      throw err;
+    }
   }
 
   private async attachDebuggerInner(tabId: number): Promise<void> {
@@ -306,6 +328,12 @@ class ChromeDebuggerProtocol {
   }
 
   async detachDebugger(tabId: number): Promise<void> {
+    recordEvent({
+      domain: 'cdp',
+      event: 'cdp.detach',
+      ids: { tabId },
+      data: { source: 'explicit' }
+    });
     return new Promise<void>((resolve) => {
       chrome.debugger.detach({ tabId }, () => {
         if (chrome.runtime.lastError) {
@@ -372,7 +400,15 @@ class ChromeDebuggerProtocol {
       return (await executeCommand()) as TResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.toLowerCase().includes('debugger is not attached')) {
+      const willRetry = errorMessage.toLowerCase().includes('debugger is not attached');
+      recordError(
+        'cdp',
+        'cdp.command.error',
+        error,
+        { tabId },
+        { method, willRetry, errorMessage }
+      );
+      if (willRetry) {
         await this.attachDebuggerInner(tabId);
         return (await executeCommand()) as TResult;
       }

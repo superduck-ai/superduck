@@ -2,6 +2,8 @@ import { extractDomain } from './helpers';
 import { addConsoleMessage } from './consoleTracking';
 import { addNetworkRequest, updateNetworkRequestStatus } from './networkTracking';
 import { getWindowOpenEventsByTab } from './state';
+import { recordEvent } from '../../debug';
+import { redactUrl } from '../../debug';
 import type {
   ConsoleApiCalledParams,
   ConsoleMessage,
@@ -18,6 +20,12 @@ interface PageWindowOpenParams {
   windowName?: string;
   userGesture?: boolean;
 }
+
+// High-frequency CDP events are sampled to avoid flooding the bundle.
+const CONSOLE_SAMPLE_INTERVAL = 50;
+const NETWORK_SAMPLE_INTERVAL = 50;
+let consoleSampleCounter = 0;
+let networkSampleCounter = 0;
 
 function addWindowOpenEvent(tabId: number, event: WindowOpenEvent): void {
   const events = getWindowOpenEventsByTab().get(tabId) ?? [];
@@ -52,6 +60,20 @@ export function registerDebuggerEventHandlers(): void {
         };
         const domain = extractDomain(message.url);
         addConsoleMessage(tabId, domain, message);
+        consoleSampleCounter++;
+        if (consoleSampleCounter % CONSOLE_SAMPLE_INTERVAL === 0) {
+          recordEvent({
+            domain: 'cdp',
+            event: 'cdp.console.message',
+            ids: { tabId },
+            level: 'debug',
+            data: {
+              sampled: CONSOLE_SAMPLE_INTERVAL,
+              sampleType: message.type,
+              sampleDomain: domain
+            }
+          });
+        }
       } else if ('Runtime.exceptionThrown' === method) {
         const exceptionDetails = (params as ExceptionThrownParams).exceptionDetails;
         const exceptionMessage: ConsoleMessage = {
@@ -73,6 +95,18 @@ export function registerDebuggerEventHandlers(): void {
         };
         const domain = extractDomain(exceptionMessage.url);
         addConsoleMessage(tabId, domain, exceptionMessage);
+        recordEvent({
+          domain: 'cdp',
+          event: 'cdp.exception',
+          ids: { tabId },
+          level: 'error',
+          data: {
+            text: exceptionMessage.text?.slice(0, 500),
+            sourceUrl: exceptionMessage.url ? redactUrl(exceptionMessage.url) : undefined,
+            lineNumber: exceptionMessage.lineNumber,
+            columnNumber: exceptionMessage.columnNumber
+          }
+        });
       } else if ('Network.requestWillBeSent' === method) {
         const requestParams = params as RequestWillBeSentParams;
         const requestId = requestParams.requestId;
@@ -86,6 +120,20 @@ export function registerDebuggerEventHandlers(): void {
         const pageUrl = documentURL || request.url;
         const domain = extractDomain(pageUrl);
         addNetworkRequest(tabId, domain, networkRequest);
+        networkSampleCounter++;
+        if (networkSampleCounter % NETWORK_SAMPLE_INTERVAL === 0) {
+          recordEvent({
+            domain: 'cdp',
+            event: 'cdp.network.request',
+            ids: { tabId },
+            level: 'debug',
+            data: {
+              sampled: NETWORK_SAMPLE_INTERVAL,
+              sampleMethod: request.method,
+              sampleDomain: domain
+            }
+          });
+        }
       } else if ('Network.responseReceived' === method) {
         const responseParams = params as ResponseReceivedParams;
         updateNetworkRequestStatus(tabId, responseParams.requestId, responseParams.response.status);
@@ -100,6 +148,16 @@ export function registerDebuggerEventHandlers(): void {
             timestamp: Date.now(),
             windowName: windowOpenParams.windowName,
             userGesture: windowOpenParams.userGesture
+          });
+          recordEvent({
+            domain: 'cdp',
+            event: 'cdp.window_open',
+            ids: { tabId },
+            data: {
+              targetUrl: redactUrl(windowOpenParams.url),
+              windowName: windowOpenParams.windowName,
+              userGesture: windowOpenParams.userGesture
+            }
           });
         }
       }
