@@ -85,31 +85,50 @@ let persistedEventCount = 0;
 
 const DEBUG_ENABLED_KEY = 'DEBUG_EVIDENCE_ENABLED';
 const DEBUG_SESSION_KEY = 'DEBUG_SESSION_META';
+const DEBUG_PERSISTENT_KEY = 'DEBUG_EVIDENCE_PERSISTENT';
+
+function manifestVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return '';
+  }
+}
 
 /**
- * Cross-context enabled sync. The service worker starts the session; sidepanel
- * / content scripts read this flag on load so their events (sidepanel mount,
- * agent loop, lightning, workflow) reach the shared IndexedDB store under the
- * same debugSessionId. Without this, sidepanel-context recordEvent calls are
- * no-ops because each context has its own module-level `enabled` flag.
+ * Cross-context enabled sync + persistent auto-start.
+ *
+ * Three cases:
+ * 1. Another context (service worker) already started a session this SW
+ *    lifetime — attach to its debugSessionId (sidepanel/content script case).
+ * 2. Persistent mode is on (set via `superduck debug enable`) and no session
+ *    is active — auto-start a fresh session so a crash/bug that happens
+ *    before the user runs `debug start` is still captured.
+ * 3. Nothing configured — stay disabled (default, near-zero overhead).
  */
 function tryInitFromStorage(): void {
   if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
   try {
-    chrome.storage.local.get([DEBUG_ENABLED_KEY, DEBUG_SESSION_KEY], (result) => {
-      if (chrome.runtime.lastError) return;
-      if (result[DEBUG_ENABLED_KEY] === true && !enabled) {
+    chrome.storage.local.get(
+      [DEBUG_ENABLED_KEY, DEBUG_SESSION_KEY, DEBUG_PERSISTENT_KEY],
+      (result) => {
+        if (chrome.runtime.lastError) return;
+        const alreadyEnabled = result[DEBUG_ENABLED_KEY] === true;
         const meta = result[DEBUG_SESSION_KEY] as DebugSessionMeta | undefined;
-        if (meta) {
+        const persistent = result[DEBUG_PERSISTENT_KEY] === true;
+
+        if (alreadyEnabled && meta && !enabled) {
           enabled = true;
           store = createDefaultStore();
           ringBuffer = new RingBuffer<DebugBaseEvent>(DEFAULT_RING_BUFFER_CAPACITY);
           redactionOptions = {};
           monotonicOrigin = Date.now();
           session = { ...meta, runtimeSessionId: getRuntimeSessionId() };
+        } else if (persistent && !enabled) {
+          void startDebugSession({ extensionVersion: manifestVersion() });
         }
       }
-    });
+    );
     chrome.storage.onChanged?.addListener((changes, area) => {
       if (area !== 'local') return;
       if (DEBUG_ENABLED_KEY in changes && changes[DEBUG_ENABLED_KEY]?.newValue === false) {
@@ -129,6 +148,19 @@ function persistEnabledFlag(enabledFlag: boolean, meta?: DebugSessionMeta): void
     const payload: Record<string, unknown> = { [DEBUG_ENABLED_KEY]: enabledFlag };
     if (meta) payload[DEBUG_SESSION_KEY] = meta;
     chrome.storage.local.set(payload);
+  } catch {
+    // ignore
+  }
+}
+
+/** Turn persistent auto-start on/off (`superduck debug enable` / `disable`). */
+export async function setPersistentDebug(flag: boolean): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+  try {
+    await chrome.storage.local.set({ [DEBUG_PERSISTENT_KEY]: flag });
+    if (!flag) {
+      persistEnabledFlag(false);
+    }
   } catch {
     // ignore
   }

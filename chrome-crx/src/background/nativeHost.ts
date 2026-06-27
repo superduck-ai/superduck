@@ -18,7 +18,8 @@ import {
   getDebugStatus,
   exportDebugBundle,
   serializeBundleForTransport,
-  recordEvent
+  recordEvent,
+  setPersistentDebug
 } from '../debug';
 
 const NATIVE_HOST_NAMES = [
@@ -245,6 +246,37 @@ export function createNativeHostManager(): NativeHostManager {
 
       // Debug control commands bypass executeTool to avoid recursive debug
       // events and the tool-runtime timeout.
+      if (params.tool === 'superduck_debug_enable') {
+        try {
+          await setPersistentDebug(true);
+          const manifest = chrome.runtime.getManifest();
+          const meta = await startDebugSession({ extensionVersion: manifest.version });
+          sendToolResponse({
+            content: JSON.stringify({ persistent: true, session: meta })
+          });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug enable failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_disable') {
+        try {
+          await setPersistentDebug(false);
+          const meta = await stopDebugSession();
+          sendToolResponse({ content: JSON.stringify({ persistent: false, session: meta }) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug disable failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
       if (params.tool === 'superduck_debug_start') {
         try {
           const manifest = chrome.runtime.getManifest();

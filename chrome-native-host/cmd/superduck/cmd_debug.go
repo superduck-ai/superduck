@@ -30,9 +30,31 @@ func cmdDebug(argv []string) error {
 		return cmdDebugCollect(rest)
 	case "doctor":
 		return cmdDebugDoctor(rest)
+	case "enable":
+		return cmdDebugEnable(rest)
+	case "disable":
+		return cmdDebugDisable(rest)
 	default:
 		return fmt.Errorf("unknown debug subcommand: %s", sub)
 	}
+}
+
+func cmdDebugEnable(_ []string) error {
+	out, err := cliclient.CallString("superduck_debug_enable", nil, clientOpts())
+	if err != nil {
+		return err
+	}
+	fmt.Println(out)
+	return nil
+}
+
+func cmdDebugDisable(_ []string) error {
+	out, err := cliclient.CallString("superduck_debug_disable", nil, clientOpts())
+	if err != nil {
+		return err
+	}
+	fmt.Println(out)
+	return nil
 }
 
 func cmdDebugStart(_ []string) error {

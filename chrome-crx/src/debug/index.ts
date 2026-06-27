@@ -18,6 +18,7 @@ export {
   getRedactionOptions,
   startDebugSession,
   stopDebugSession,
+  setPersistentDebug,
   recordEvent,
   recordError,
   recordArtifact,
