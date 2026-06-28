@@ -172,3 +172,8 @@ export async function takeSnapshotUnlocked(
 
   return { content, refMappings };
 }
+
+// Expose takeSnapshot for the e2e test bridge (same pattern as cdp/index.ts).
+if (typeof globalThis !== 'undefined') {
+  (globalThis as Record<string, unknown>).__superduckTakeSnapshot = takeSnapshot;
+}
