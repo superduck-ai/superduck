@@ -99,13 +99,23 @@ function manifestVersion(): string {
  * Cross-context enabled sync + persistent auto-start.
  *
  * Three cases:
- * 1. Another context (service worker) already started a session this SW
- *    lifetime — attach to its debugSessionId (sidepanel/content script case).
- * 2. Persistent mode is on (set via `superduck debug enable`) and no session
- *    is active — auto-start a fresh session so a crash/bug that happens
- *    before the user runs `debug start` is still captured.
+ * 1. Another context (service worker / options page) already started a session
+ *    — attach to its debugSessionId (sidepanel/content script case).
+ * 2. Persistent mode is on (set via `superduck debug enable` / UI toggle) and
+ *    no session is active — auto-start a fresh session so a crash/bug that
+ *    happens before the user runs `debug start` is still captured.
  * 3. Nothing configured — stay disabled (default, near-zero overhead).
  */
+function attachToSession(meta: DebugSessionMeta): void {
+  if (enabled) return;
+  enabled = true;
+  store = createDefaultStore();
+  ringBuffer = new RingBuffer<DebugBaseEvent>(DEFAULT_RING_BUFFER_CAPACITY);
+  redactionOptions = {};
+  monotonicOrigin = Date.now();
+  session = { ...meta, runtimeSessionId: getRuntimeSessionId() };
+}
+
 function tryInitFromStorage(): void {
   if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
   try {
@@ -118,12 +128,7 @@ function tryInitFromStorage(): void {
         const persistent = result[DEBUG_PERSISTENT_KEY] === true;
 
         if (alreadyEnabled && meta && !enabled) {
-          enabled = true;
-          store = createDefaultStore();
-          ringBuffer = new RingBuffer<DebugBaseEvent>(DEFAULT_RING_BUFFER_CAPACITY);
-          redactionOptions = {};
-          monotonicOrigin = Date.now();
-          session = { ...meta, runtimeSessionId: getRuntimeSessionId() };
+          attachToSession(meta);
         } else if (persistent && !enabled) {
           void startDebugSession({ extensionVersion: manifestVersion() });
         }
@@ -131,8 +136,21 @@ function tryInitFromStorage(): void {
     );
     chrome.storage.onChanged?.addListener((changes, area) => {
       if (area !== 'local') return;
-      if (DEBUG_ENABLED_KEY in changes && changes[DEBUG_ENABLED_KEY]?.newValue === false) {
-        enabled = false;
+      if (DEBUG_ENABLED_KEY in changes) {
+        const newValue = changes[DEBUG_ENABLED_KEY]?.newValue;
+        if (newValue === false) {
+          enabled = false;
+        } else if (newValue === true && !enabled) {
+          // Another context started a session — attach to it. Read the session
+          // meta synchronously from storage (the writer persists it before the
+          // enabled flag, but onChanged may fire in either order; re-read to be
+          // safe).
+          chrome.storage.local.get([DEBUG_SESSION_KEY], (r) => {
+            if (chrome.runtime.lastError) return;
+            const meta = r[DEBUG_SESSION_KEY] as DebugSessionMeta | undefined;
+            if (meta) attachToSession(meta);
+          });
+        }
       }
     });
   } catch {
@@ -164,6 +182,55 @@ export async function setPersistentDebug(flag: boolean): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+/**
+ * UI entry point: turn evidence recording on across every context.
+ * Starts a session in this context and persists the flag + session meta so
+ * the service worker / sidepanel attach via the storage.onChanged listener.
+ * Also enables persistent mode so the session survives a service-worker
+ * restart.
+ */
+export async function enableDebugEverywhere(extensionVersion?: string): Promise<DebugSessionMeta> {
+  await chrome.storage.local.set({ [DEBUG_PERSISTENT_KEY]: true });
+  const version = extensionVersion ?? manifestVersion();
+  const meta = await startDebugSession({ extensionVersion: version });
+  return meta;
+}
+
+/** UI entry point: turn evidence recording off everywhere. */
+export async function disableDebugEverywhere(): Promise<DebugSessionMeta | null> {
+  try {
+    await chrome.storage.local.set({ [DEBUG_PERSISTENT_KEY]: false });
+  } catch {
+    // ignore
+  }
+  return stopDebugSession();
+}
+
+/**
+ * Read the persisted debug state for UI display. Works from any context
+ * (the module-level `enabled` flag is per-context; this reads the shared
+ * storage flag that all contexts sync from).
+ */
+export async function getDebugStatusFromStorage(): Promise<{
+  enabled: boolean;
+  persistent: boolean;
+  session: DebugSessionMeta | null;
+}> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+    return { enabled: false, persistent: false, session: null };
+  }
+  const result = await chrome.storage.local.get([
+    DEBUG_ENABLED_KEY,
+    DEBUG_SESSION_KEY,
+    DEBUG_PERSISTENT_KEY
+  ]);
+  return {
+    enabled: result[DEBUG_ENABLED_KEY] === true,
+    persistent: result[DEBUG_PERSISTENT_KEY] === true,
+    session: (result[DEBUG_SESSION_KEY] as DebugSessionMeta | undefined) ?? null
+  };
 }
 
 function nowIso(): string {
