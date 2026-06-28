@@ -24,6 +24,14 @@ export function splitAnswerBlocks(blocks: ApiMessageBlock[]): {
   blocksBeforeAnswer: ApiMessageBlock[];
   blocksAfterAnswer: ApiMessageBlock[];
   hasFinalAnswer: boolean;
+  /**
+   * The answer's real start index in the original `blocks` array
+   * (`blocks.length - blocksAfterAnswer.length`). It is identical whether the
+   * boundary came from the dropped `turn_answer_start` marker or the
+   * trailing-text fallback, so callers can use it as a stable React key base
+   * that does not shift when the boundary flips between the two mid-stream.
+   */
+  answerStartIndex: number;
 } {
   // 1. Explicit `turn_answer_start` marker — the marker itself is dropped.
   const markerIdx = blocks.findIndex(
@@ -33,7 +41,8 @@ export function splitAnswerBlocks(blocks: ApiMessageBlock[]): {
     return {
       blocksBeforeAnswer: blocks.slice(0, markerIdx),
       blocksAfterAnswer: blocks.slice(markerIdx + 1),
-      hasFinalAnswer: true
+      hasFinalAnswer: true,
+      answerStartIndex: markerIdx + 1
     };
   }
 
@@ -51,10 +60,16 @@ export function splitAnswerBlocks(blocks: ApiMessageBlock[]): {
     return {
       blocksBeforeAnswer: blocks.slice(0, lastToolIdx + 1),
       blocksAfterAnswer: blocks.slice(lastToolIdx + 1),
-      hasFinalAnswer: true
+      hasFinalAnswer: true,
+      answerStartIndex: lastToolIdx + 1
     };
   }
 
   // 3. No answer boundary detectable.
-  return { blocksBeforeAnswer: blocks, blocksAfterAnswer: [], hasFinalAnswer: false };
+  return {
+    blocksBeforeAnswer: blocks,
+    blocksAfterAnswer: [],
+    hasFinalAnswer: false,
+    answerStartIndex: blocks.length
+  };
 }

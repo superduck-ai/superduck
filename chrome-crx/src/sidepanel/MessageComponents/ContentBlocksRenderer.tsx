@@ -1261,7 +1261,7 @@ export function ContentBlocksRenderer({
   // Lift math plugin loading to this level — called once per message instead of per-block
   const { remarkMath, rehypeKatex } = useMathPlugins();
 
-  const { blocksBeforeAnswer, blocksAfterAnswer, hasFinalAnswer } = useMemo(
+  const { blocksBeforeAnswer, blocksAfterAnswer, hasFinalAnswer, answerStartIndex } = useMemo(
     () => splitAnswerBlocks(blocks),
     [blocks]
   );
@@ -1332,7 +1332,7 @@ export function ContentBlocksRenderer({
           {/* Final answer blocks */}
           {blocksAfterAnswer.map((block, i) => (
             <BlockRenderer
-              key={`block-${blocksBeforeAnswer.length + i}`}
+              key={`block-${answerStartIndex + i}`}
               block={block}
               index={i}
               blocks={blocksAfterAnswer}
