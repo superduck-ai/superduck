@@ -61,6 +61,7 @@ import { getTextFromBlockContent, getBase64ImageBlocks } from '../sidepanelUtils
 import { getLocalizedBrowserBatchError } from '../browserBatchDisplay';
 import { StreamingTextBlock } from './StreamingTextBlock';
 import { UserMessageRow } from './UserMessageRow';
+import { splitAnswerBlocks } from '../answerBlocks';
 import type {
   MessageGroup,
   StreamingTextStore,
@@ -1260,24 +1261,10 @@ export function ContentBlocksRenderer({
   // Lift math plugin loading to this level — called once per message instead of per-block
   const { remarkMath, rehypeKatex } = useMathPlugins();
 
-  const { blocksBeforeAnswer, blocksAfterAnswer, hasFinalAnswer } = useMemo(() => {
-    let answerIdx = -1;
-    for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-      if (isToolUseContentBlock(block) && block.name === 'turn_answer_start') {
-        answerIdx = i;
-        break;
-      }
-    }
-    if (answerIdx === -1) {
-      return { blocksBeforeAnswer: blocks, blocksAfterAnswer: [], hasFinalAnswer: false };
-    }
-    return {
-      blocksBeforeAnswer: blocks.slice(0, answerIdx),
-      blocksAfterAnswer: blocks.slice(answerIdx + 1),
-      hasFinalAnswer: true
-    };
-  }, [blocks]);
+  const { blocksBeforeAnswer, blocksAfterAnswer, hasFinalAnswer, answerStartIndex } = useMemo(
+    () => splitAnswerBlocks(blocks),
+    [blocks]
+  );
 
   // Count tool_use blocks for collapse logic
   const toolUseCount = useMemo(() => {
@@ -1327,7 +1314,7 @@ export function ContentBlocksRenderer({
               >
                 {blocksBeforeAnswer.map((block, i) => (
                   <BlockRenderer
-                    key={`before-answer-${i}`}
+                    key={`block-${i}`}
                     block={block}
                     index={i}
                     blocks={blocksBeforeAnswer}
@@ -1345,7 +1332,7 @@ export function ContentBlocksRenderer({
           {/* Final answer blocks */}
           {blocksAfterAnswer.map((block, i) => (
             <BlockRenderer
-              key={`after-answer-${i}`}
+              key={`block-${answerStartIndex + i}`}
               block={block}
               index={i}
               blocks={blocksAfterAnswer}
@@ -1745,21 +1732,19 @@ export function AssistantMessageRow({
     });
   }, [blocks]);
 
-  // Compute the final answer text (text after turn_answer_start, or all text if no turn_answer_start)
+  // Compute the final answer text via the shared answer-boundary detector so
+  // the Copy button copies exactly what the renderer shows as the answer
+  // (trailing-text fallback included), joined consistently with
+  // extractTextFromContent (newline-separated).
   const finalAnswerText = useMemo(() => {
-    const content = processedBlocks;
-    let answerIdx = -1;
-    for (let i = 0; i < content.length; i++) {
-      const block = content[i];
-      if (isToolUseContentBlock(block) && block.name === 'turn_answer_start') {
-        answerIdx = i;
-        break;
-      }
-    }
-    return (answerIdx >= 0 ? content.slice(answerIdx + 1) : content)
+    const { blocksAfterAnswer, hasFinalAnswer } = splitAnswerBlocks(processedBlocks);
+    const relevantBlocks = hasFinalAnswer ? blocksAfterAnswer : processedBlocks;
+    return relevantBlocks
       .filter(isTextContentBlock)
       .map((block) => block.text)
-      .join('');
+      .filter(Boolean)
+      .join('\n')
+      .trim();
   }, [processedBlocks]);
 
   const handleCopy = async () => {

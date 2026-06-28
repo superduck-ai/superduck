@@ -1,4 +1,4 @@
-import type { ApiConversationMessage } from '../messageTypes';
+import type { ApiConversationMessage, ApiMessageBlock } from '../messageTypes';
 import {
   isImageContentBlock,
   isRecord,
@@ -7,6 +7,7 @@ import {
   isToolUseContentBlock
 } from '../messageTypes';
 import type { SessionSnapshot } from './types';
+import { splitAnswerBlocks } from './answerBlocks';
 
 function isApiUsage(value: unknown): value is ApiConversationMessage['usage'] {
   return (
@@ -23,16 +24,14 @@ export function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
 
-  let answerStartIndex = -1;
-  for (let index = 0; index < content.length; index += 1) {
-    const item = content[index];
-    if (isToolUseContentBlock(item) && item.name === 'turn_answer_start') {
-      answerStartIndex = index;
-      break;
-    }
-  }
+  // Reuse the shared answer-boundary detector so the extracted text matches
+  // what the renderer shows as the final answer (including the trailing-text
+  // fallback when turn_answer_start is absent). When no boundary is found
+  // (e.g. a pure-text message, or a user message with only tool_results) the
+  // whole content is the answer.
+  const { blocksAfterAnswer, hasFinalAnswer } = splitAnswerBlocks(content as ApiMessageBlock[]);
+  const relevantContent = hasFinalAnswer ? blocksAfterAnswer : content;
 
-  const relevantContent = answerStartIndex >= 0 ? content.slice(answerStartIndex + 1) : content;
   return relevantContent
     .filter(isTextContentBlock)
     .map((item) => item.text)
