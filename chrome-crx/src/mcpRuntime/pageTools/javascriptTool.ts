@@ -11,7 +11,14 @@ import type { NavigationPolicyContext } from '../navigationIsolation';
 import { wrapUserCode } from '../pageToolsSupport/wrapUserCode';
 import type { ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import type { JavaScriptToolInput } from './types';
-import { recordEvent, recordError, recordArtifact, redactCode, redactUrl } from '../../debug';
+import {
+  recordEvent,
+  recordError,
+  recordArtifact,
+  redactCode,
+  redactUrl,
+  type DebugArtifactRef
+} from '../../debug';
 
 export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
   name: 'javascript_tool',
@@ -48,22 +55,18 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       }
     });
 
-    let result: ToolResult;
-    try {
-      result = await executeJavascript(input, context, codeRedaction);
-    } catch (err) {
+    const exec = await executeJavascript(input, context, codeRedaction).catch((err: unknown) => {
       recordError(
         'javascript',
         'javascript.exec.end',
         err,
         { toolUseId, tabId: tabIdForIds },
-        {
-          resultType: 'exception',
-          durationMs: Date.now() - startTime
-        }
+        { resultType: 'exception', durationMs: Date.now() - startTime }
       );
       throw err;
-    }
+    });
+    const result = exec.result;
+    const jsArtifactRef = exec.artifactRef;
 
     const resultType: string = result.error
       ? 'is_error'
@@ -74,7 +77,8 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       domain: 'javascript',
       event: 'javascript.exec.end',
       ids: { toolUseId, tabId: tabIdForIds },
-      data: { resultType, durationMs: Date.now() - startTime }
+      data: { resultType, durationMs: Date.now() - startTime },
+      artifactRefs: jsArtifactRef ? [jsArtifactRef] : undefined
     });
     return result;
   },
@@ -106,7 +110,7 @@ async function executeJavascript(
   input: JavaScriptToolInput,
   context: Parameters<ToolDefinition<JavaScriptToolInput>['execute']>[1],
   _codeRedaction: ReturnType<typeof redactCode> | undefined
-): Promise<ToolResult> {
+): Promise<{ result: ToolResult; artifactRef: DebugArtifactRef | null }> {
   try {
     const { action, text: code, tabId } = input;
     if ('javascript_exec' !== action)
@@ -135,14 +139,20 @@ async function executeJavascript(
     if (!permissionResult.allowed) {
       if (permissionResult.needsPrompt) {
         return {
-          type: 'permission_required',
-          tool: PermissionTools.EXECUTE_JAVASCRIPT,
-          url: tabUrl,
-          toolUseId,
-          actionData: { text: code }
+          result: {
+            type: 'permission_required',
+            tool: PermissionTools.EXECUTE_JAVASCRIPT,
+            url: tabUrl,
+            toolUseId,
+            actionData: { text: code }
+          },
+          artifactRef: null
         };
       }
-      return { error: 'Permission denied for JavaScript execution on this domain' };
+      return {
+        result: { error: 'Permission denied for JavaScript execution on this domain' },
+        artifactRef: null
+      };
     }
 
     const securityCheck = await checkUrlSecurity(effectiveTabId, tabUrl, 'JavaScript execution');
@@ -152,7 +162,7 @@ async function executeJavascript(
       ids: { toolUseId, tabId: effectiveTabId },
       data: { passed: !securityCheck, urlOrigin }
     });
-    if (securityCheck) return securityCheck;
+    if (securityCheck) return { result: securityCheck, artifactRef: null };
 
     const wrappedCode = wrapUserCode(code);
     const navigationPolicy: NavigationPolicyContext = {
@@ -365,7 +375,7 @@ async function executeJavascript(
 
     if (isError) {
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
-      await recordArtifact({
+      const ref = await recordArtifact({
         type: 'js-result',
         ids: { toolUseId, tabId: effectiveTabId },
         mimeType: 'application/json',
@@ -378,13 +388,16 @@ async function executeJavascript(
         }
       });
       return {
-        error: `JavaScript execution error: ${errorMessage}`,
-        tabContext: {
-          currentTabId: context.tabId,
-          executedOnTabId: effectiveTabId,
-          availableTabs: validTabs,
-          tabCount: validTabs.length
-        }
+        result: {
+          error: `JavaScript execution error: ${errorMessage}`,
+          tabContext: {
+            currentTabId: context.tabId,
+            executedOnTabId: effectiveTabId,
+            availableTabs: validTabs,
+            tabCount: validTabs.length
+          }
+        },
+        artifactRef: ref
       };
     }
 
@@ -404,7 +417,7 @@ async function executeJavascript(
       });
     }
 
-    await recordArtifact({
+    const ref = await recordArtifact({
       type: 'js-result',
       ids: { toolUseId, tabId: effectiveTabId },
       mimeType: 'application/json',
@@ -422,17 +435,23 @@ async function executeJavascript(
     const executedOnTabId =
       openedTabIds.length > 0 ? openedTabIds[openedTabIds.length - 1] : effectiveTabId;
     return {
-      output,
-      tabContext: {
-        currentTabId: context.tabId,
-        executedOnTabId,
-        availableTabs: validTabs,
-        tabCount: validTabs.length
-      }
+      result: {
+        output,
+        tabContext: {
+          currentTabId: context.tabId,
+          executedOnTabId,
+          availableTabs: validTabs,
+          tabCount: validTabs.length
+        }
+      },
+      artifactRef: ref
     };
   } catch (err) {
     return {
-      error: `Failed to execute JavaScript: ${err instanceof Error ? err.message : 'Unknown error'}`
+      result: {
+        error: `Failed to execute JavaScript: ${err instanceof Error ? err.message : 'Unknown error'}`
+      },
+      artifactRef: null
     };
   }
 }

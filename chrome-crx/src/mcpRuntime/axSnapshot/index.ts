@@ -36,6 +36,16 @@ export async function takeSnapshot(
   recordEvent({ domain: 'screenshot-ref', event: 'ax.snapshot.start', ids: { tabId } });
   try {
     const result = await withSnapshotLock(tabId, () => takeSnapshotUnlocked(tabId, options));
+    const axRef = await recordArtifact({
+      type: 'ax-summary',
+      ids: { tabId },
+      mimeType: 'text/plain',
+      content: result.content,
+      data: {
+        refCount: result.refMappings?.length ?? 0,
+        contentLength: result.content.length
+      }
+    });
     recordEvent({
       domain: 'screenshot-ref',
       event: 'ax.snapshot.end',
@@ -45,17 +55,8 @@ export async function takeSnapshot(
         refCount: result.refMappings?.length ?? 0,
         interactiveRefCount:
           result.refMappings?.filter((r: RefMapping) => r.interactiveOnly).length ?? 0
-      }
-    });
-    void recordArtifact({
-      type: 'ax-summary',
-      ids: { tabId },
-      mimeType: 'text/plain',
-      content: result.content,
-      data: {
-        refCount: result.refMappings?.length ?? 0,
-        contentLength: result.content.length
-      }
+      },
+      artifactRefs: axRef ? [axRef] : undefined
     });
     return result;
   } catch (err) {

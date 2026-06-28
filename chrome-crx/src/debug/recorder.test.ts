@@ -234,4 +234,24 @@ describe('debug recorder', () => {
     const evt = getRingBufferEvents().find((e) => e.event === 'ax.snapshot.end') as DebugBaseEvent;
     expect(evt.artifactRefs?.[0]?.type).toBe('ax-summary');
   });
+
+  it('recordArtifact auto-emits artifact.recorded linking event', async () => {
+    await startDebugSession({ store });
+    const ref = await recordArtifact({
+      type: 'screenshot',
+      ids: { toolUseId: 'tu-9', tabId: 3 },
+      mimeType: 'image/png',
+      content: 'png-bytes'
+    });
+    expect(ref).not.toBeNull();
+    const events = getRingBufferEvents();
+    const recorded = events.find((e) => e.event === 'artifact.recorded') as DebugBaseEvent;
+    expect(recorded).toBeDefined();
+    expect(recorded.domain).toBe('diagnosis');
+    expect(recorded.ids.toolUseId).toBe('tu-9');
+    expect(recorded.ids.tabId).toBe(3);
+    expect(recorded.data?.artifactType).toBe('screenshot');
+    expect(recorded.artifactRefs?.[0]?.id).toBe(ref?.id);
+    expect(recorded.data?.sha256).toMatch(/^sha256-/);
+  });
 });

@@ -443,7 +443,24 @@ export async function recordArtifact(input: RecordArtifactInput): Promise<DebugA
     await s.putArtifact(artifact, contentToStorable(storedContent));
     session.artifactCount++;
     await persistSession();
-    return { id, type: input.type };
+    const ref: DebugArtifactRef = { id, type: input.type };
+    // Record a linking event so the event stream references this artifact.
+    // Without it, an agent reading events/*.jsonl has no way to discover that
+    // a screenshot / AX text / JS output artifact exists for a given toolUseId.
+    recordEvent({
+      domain: 'diagnosis',
+      event: 'artifact.recorded',
+      ids: input.ids,
+      data: {
+        artifactType: input.type,
+        mimeType: input.mimeType,
+        byteLength: artifact.byteLength,
+        sha256,
+        truncated
+      },
+      artifactRefs: [ref]
+    });
+    return ref;
   } catch {
     return null;
   }

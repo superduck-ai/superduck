@@ -10,7 +10,13 @@ import {
 } from '../navigationIsolation';
 import type { NavigationPolicyContext } from '../navigationIsolation';
 import { type ComputerToolParams } from './types';
-import { recordEvent, recordError, redactUrl, recordArtifact } from '../../debug';
+import {
+  recordEvent,
+  recordError,
+  redactUrl,
+  recordArtifact,
+  type DebugArtifactRef
+} from '../../debug';
 import {
   executeClick,
   executeScreenshot,
@@ -451,6 +457,17 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         afterUrl = undefined;
       }
       const beforeAfterUrlSame = !!beforeUrl && beforeUrl === afterUrl;
+
+      let screenshotArtifactRef: DebugArtifactRef | null = null;
+      if (inputAction === 'screenshot' && result?.base64Image) {
+        screenshotArtifactRef = await recordArtifact({
+          type: 'screenshot',
+          ids: { toolUseId: context.toolUseId, tabId: effectiveTabId },
+          mimeType: result.imageFormat ? `image/${result.imageFormat}` : 'image/png',
+          content: result.base64Image
+        });
+      }
+
       recordEvent({
         domain: 'input',
         event: 'input.action.end',
@@ -463,17 +480,9 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
           pageChanged: !beforeAfterUrlSame,
           beforeUrl: beforeUrl ? redactUrl(beforeUrl) : undefined,
           afterUrl: afterUrl ? redactUrl(afterUrl) : undefined
-        }
+        },
+        artifactRefs: screenshotArtifactRef ? [screenshotArtifactRef] : undefined
       });
-
-      if (inputAction === 'screenshot' && result?.base64Image) {
-        void recordArtifact({
-          type: 'screenshot',
-          ids: { toolUseId: context.toolUseId, tabId: effectiveTabId },
-          mimeType: result.imageFormat ? `image/${result.imageFormat}` : 'image/png',
-          content: result.base64Image
-        });
-      }
 
       return {
         ...result,
