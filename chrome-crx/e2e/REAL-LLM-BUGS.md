@@ -44,6 +44,11 @@
 2. agent loop 给 `executeToolUse` 加整体超时，挂死时中止并回填错误 tool_result 让模型恢复
 3. 大页面默认 `filter:'interactive'` 或更小 depth
 
+**STALL 检测到但无法打断挂死工具（2026-06-29 复现）：**
+`real-llm-interaction.spec.ts -g "Cross-site"`（完整日志 `e2e/debug-int-cross-marie.log`）精准复现 BUG-001：模型第 1 轮就调用 `read_page`（Bing 首页），工具静默挂起（`errs=0`，无 per-tool 超时），agent 卡死到 240s 超时（`done=false llm=2`，2 轮 LLM 后 160 秒无变化）。
+
+watchdog 在 +80s 触发 `STALL detected — firing onStall`，但 `onStall` 回调没能打断挂死的 read_page、也没让 agent 恢复/中止。**说明 stall 机制存在但不生效**——修复 BUG-001 时必须让 onStall 能强制中止 read_page（例如 AbortController + 工具执行支持取消），否则即使检测到挂死也无法恢复。
+
 **诊断过程：**
 - 用 `globalThis.__SD_DEBUG_MSGS` 受控 console.log 打点 `streamAndProcess` / `useAgentLoop` / `executeToolUses`
 - 用只读 fetch 观察器（`page.on('request')` 读 `postDataJSON`，**不** tee response 流）记录 LLM 请求
