@@ -87,6 +87,31 @@ headed 模式下 CDP 附加偶发成功，但后续 CDP 命令（`Runtime.evalua
 **修复方向：**
 加 `MAX_ITERATIONS`（如 15）或累计时长上限，超限后强制结束并提示用户"工具多次失败，请检查环境/权限"。
 
+## BUG-004: agent 低效挣扎后给含糊回复放弃，断言过松让 test 假通过
+
+**状态：** 未修复
+**严重度：** 中（任务未完成却显示成功，掩盖真实质量）
+**复现：** `e2e/specs/real-llm-navigation.spec.ts -g "GitHub"`（完整日志 `e2e/debug-nav-github.log`）
+
+**现象：**
+GitHub trending 测试 13 轮 LLM、10 个工具调用、2.6 分钟，`errs=0`（无 CDP 错误、未挂起），但 agent 在 tab 操作上反复挣扎（Get tabs / Tabs create mcp / Superduck open / background fetch 循环），最终模型主动给出含糊回复"可能需要重新加载...请确认以上情况后，我可以再次尝试为您导航到 GitHub Trending 页面"，`done=true` 结束。`finalUrl=https://github.com/`（根本没到 trending）。
+
+test 仍 passed——断言只检查 `done=true` + `finalUrl 含 github.com`，没验证真的到 trending 页 + 取到仓库名。
+
+**根因：**
+- 与 BUG-003 同根因：agent loop 无 `MAX_ITERATIONS`，允许低效挣扎很多轮（13 轮、10 工具）
+- 模型在 tab/导航类任务上反复尝试同类工具，无"明确告知失败"机制，选择含糊推脱回复而非失败信号
+- spec 断言过松：只检查 `done` + URL 域名，不验证任务实际完成
+
+**与 BUG-003 的区别：** BUG-003 是工具持续失败时死循环到超时（done=false）；BUG-004 是模型自己放弃给含糊回复（done=true），任务未完成但看起来成功。
+
+**修复方向：**
+1. agent loop 加 `MAX_ITERATIONS`（同 BUG-003）——超限时强制明确失败，而非让模型磨到放弃
+2. spec 断言加强：验证任务实际完成（`finalUrl` 含 `/trending`、回复含仓库名），而非只检查 `done` + 域名
+3. 系统提示引导模型卡住时明确报告失败，而非含糊推脱
+
+**诊断手段：** `[nav-github-trending +Ns]` watchdog 每 8 秒快照（tools/llm/roles/tail），node 侧 console.log 可被 playwright stdout 捕获；`[SD_DEBUG]` 是 sidepanel 页面 console，需 `page.on('console')` 转发才能捕获。
+
 ## 陷阱：LLM 观察器 Heisenbug（非产品 bug，已规避）
 
 最初用 `fetch wrap + response.body.tee()` 观察 LLM 流，tee 破坏了 Anthropic SDK 的流读取，每次抛 `Connection error.` → 触发重试 → 历史不增长 → 看起来像"每轮只发 1 条消息的死循环"。改成只读 `request.postDataJSON()` 后消失。详见 memory `e2e-llm-observer-heisenbug`。
