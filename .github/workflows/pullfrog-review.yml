@@ -1,0 +1,82 @@
+name: Pullfrog PR Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+      pr_url:
+        type: string
+        required: true
+      head_sha:
+        type: string
+        required: true
+      trigger_event:
+        type: string
+        required: true
+      model:
+        type: string
+        required: true
+      llm_base_url:
+        type: string
+        required: false
+      prompt:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+  checks: read
+  id-token: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head_sha }}
+
+      - name: Checkout private Pullfrog source
+        uses: actions/checkout@v6
+        with:
+          repository: superduck-ai/pullfrog-private
+          ref: main
+          token: ${{ secrets.PULLFROG_PRIVATE_REPO_TOKEN }}
+          path: .duckpr/pullfrog-private
+          persist-credentials: false
+
+      - name: Hide private Pullfrog checkout from git status
+        run: echo ".duckpr/" >> .git/info/exclude
+
+      - name: Create DuckPR GitHub App token
+        id: duckpr-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.DUCKPR_APP_ID }}
+          private-key: ${{ secrets.DUCKPR_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
+          permission-checks: read
+          permission-actions: read
+
+      - name: Run private Pullfrog review
+        uses: ./.duckpr/pullfrog-private
+        with:
+          prompt: ${{ inputs.prompt }}
+          model: ${{ inputs.model }}
+          token: ${{ steps.duckpr-token.outputs.token }}
+          push: disabled
+        env:
+          ANTHROPIC_BASE_URL: ${{ inputs.llm_base_url || secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          PULLFROG_MODEL: ${{ inputs.model }}
+          PULLFROG_AGENT: claude
+          PULLFROG_SELF_HOSTED: "1"
+          PULLFROG_FORCE_LOCAL_CLI: "1"
