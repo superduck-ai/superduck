@@ -78,3 +78,6 @@ chrome-crx/e2e/playwright-report/
 
 # Local-only documents (architecture audit, personal notes, etc.)
 docs/
+
+# Local agent instructions (not shared with team)
+AGENTS.local.md
