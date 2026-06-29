@@ -3,11 +3,11 @@
   "entryPoints": [
     "src/lib/utils.ts",
     "src/is-plan-event-enabled.ts",
-    "src/mcpRuntime/shared.ts",
-    "src/mcpRuntime/cdp.ts",
+    "src/mcpRuntime/index.ts",
+    "src/mcpRuntime/cdp/index.ts",
     "src/mcpServersStore.ts",
-    "src/PermissionManager.ts",
-    "src/extensionServices.ts"
+    "src/permissions/PermissionManager.ts",
+    "src/extensionServices/index.ts"
   ],
   "out": "docs/api",
   "tsconfig": "tsconfig.json",

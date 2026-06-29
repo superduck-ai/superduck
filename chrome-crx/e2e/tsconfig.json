@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -10,11 +10,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node"],
-    "baseUrl": ".",
-    "paths": {
-      "@fixtures/*": ["fixtures/*"]
-    }
+    "types": ["node"]
   },
   "include": ["**/*.ts"]
 }

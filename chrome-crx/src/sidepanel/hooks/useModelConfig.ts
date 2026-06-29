@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { StorageKeys, getStorageValue, setStorageValue } from '../../extensionServices';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
   loadProviderConfig
 } from '../../utils/providerStore';
+import { useModelStore } from '../stores/modelStore';
 
 export interface UseModelConfigReturn {
-  // providerId of the selected provider (empty string = nothing selected).
   selectedModel: string;
   selectedModelRef: React.MutableRefObject<string>;
   setSelectedModel: (model: string) => void;
@@ -15,14 +15,14 @@ export interface UseModelConfigReturn {
 }
 
 export function useModelConfig(): UseModelConfigReturn {
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  const selectedModel = useModelStore((s) => s.selectedModel);
+  const setSelectedModel = useModelStore((s) => s.setSelectedModel);
   const selectedModelRef = useRef(selectedModel);
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
 
-  // Keep the provider config cache fresh when Options saves a new config.
   useEffect(() => {
     const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== 'local') return;
@@ -47,7 +47,6 @@ export function useModelConfig(): UseModelConfigReturn {
     };
   }, []);
 
-  // Load selected provider id from storage on mount
   useEffect(() => {
     (async () => {
       const model = await getStorageValue(StorageKeys.SELECTED_MODEL, '');
@@ -55,16 +54,15 @@ export function useModelConfig(): UseModelConfigReturn {
         setSelectedModel(model);
       }
     })();
-  }, []);
+  }, [setSelectedModel]);
 
   const handleModelChange = useCallback(
     (nextModel: string) => {
       if (!nextModel || nextModel === selectedModel) return;
-
       setSelectedModel(nextModel);
       void setStorageValue(StorageKeys.SELECTED_MODEL, nextModel);
     },
-    [selectedModel]
+    [selectedModel, setSelectedModel]
   );
 
   return {

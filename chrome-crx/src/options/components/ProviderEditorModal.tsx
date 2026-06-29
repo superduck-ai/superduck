@@ -1,23 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { Button, Modal, ModalFooter, SimpleSelect, TextInput } from '@/components/ui';
-import {
-  DEFAULT_CONTEXT_LENGTH,
-  getPreferredConfiguredModelContextLength
-} from '@/constants/models';
+import { DEFAULT_CONTEXT_LENGTH } from '@/constants/models';
 import {
   DEFAULT_BASE_URL,
   PROVIDER_KIND_LABEL,
-  fetchProviderModelCatalog,
   isValidProviderBaseURL,
-  lookupCachedModelMetadata,
-  lookupModelMetadata,
   newProviderId,
   normalizeProviderBaseURL,
   type AiProvider,
-  type ProviderModelMetadata,
   type ProviderKind
 } from '@/utils/providerStore';
+import { useProviderModelCatalog } from './useProviderModelCatalog';
+import { useContextLengthResolution } from './useContextLengthResolution';
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -26,45 +21,6 @@ const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: 'openai-compatible', label: 'OpenAI Responses' }
 ];
 const DEFAULT_PROVIDER_KIND: ProviderKind = 'anthropic';
-const CONTEXT_LENGTH_DETECT_DELAY_MS = 350;
-
-type ContextLengthSource =
-  | 'none'
-  | 'saved'
-  | 'provider'
-  | 'cache'
-  | 'builtin'
-  | 'default'
-  | 'manual';
-
-function formatContextLengthInput(value: number | undefined): string {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '';
-  return String(Math.floor(value));
-}
-
-function parseContextLengthInput(value: string): number | undefined {
-  const normalized = value.replace(/[,_\s]/g, '');
-  if (!normalized) return undefined;
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
-  return Math.floor(parsed);
-}
-
-function normalizeProviderScopeBaseURL(kind: ProviderKind, baseURL: string): string {
-  return normalizeProviderBaseURL(kind, baseURL || DEFAULT_BASE_URL[kind]);
-}
-
-function isSameProviderScope(
-  provider: AiProvider | null | undefined,
-  kind: ProviderKind,
-  baseURL: string
-): boolean {
-  if (!provider || provider.kind !== kind) return false;
-  return (
-    normalizeProviderScopeBaseURL(provider.kind, provider.baseURL) ===
-    normalizeProviderScopeBaseURL(kind, baseURL)
-  );
-}
 
 export interface ProviderEditorValue {
   id: string;
@@ -98,17 +54,42 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const [modelId, setModelId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState('');
-  const [modelOptions, setModelOptions] = useState<string[]>([]);
-  const [modelMetadata, setModelMetadata] = useState<Record<string, ProviderModelMetadata>>({});
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const [contextLengthInput, setContextLengthInput] = useState('');
-  const [contextLengthSource, setContextLengthSource] = useState<ContextLengthSource>('none');
-  const [contextLengthTouched, setContextLengthTouched] = useState(false);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [isResolvingContextLength, setIsResolvingContextLength] = useState(false);
-  const modelInputContainerRef = useRef<HTMLDivElement>(null);
   const submitTokenRef = useRef(0);
   const isOpenRef = useRef(isOpen);
+
+  const {
+    modelMetadata,
+    modelDropdownOpen,
+    setModelDropdownOpen,
+    isLoadingModels,
+    filteredModelOptions,
+    modelInputContainerRef,
+    resetCatalog
+  } = useProviderModelCatalog({ isOpen, kind, apiKey, baseURL, modelId });
+
+  const {
+    contextLengthInput,
+    contextLengthSource,
+    contextLengthTouched,
+    isResolvingContextLength,
+    setIsResolvingContextLength,
+    parsedContextLength,
+    hasInvalidContextLength,
+    handleContextLengthChange,
+    resetContextLengthLookup,
+    resetForOpen,
+    resolveContextLengthForSubmit
+  } = useContextLengthResolution({
+    isOpen,
+    provider,
+    kind,
+    baseURL,
+    modelId,
+    modelMetadata,
+    apiKey,
+    submitTokenRef,
+    isOpenRef
+  });
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -119,80 +100,9 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
     setModelId(provider?.modelId ?? '');
     setApiKey(provider?.apiKey ?? '');
     setBaseURL(provider?.baseURL ?? '');
-    setContextLengthInput(formatContextLengthInput(provider?.contextLength));
-    setContextLengthSource(provider?.contextLength ? 'saved' : 'none');
-    setContextLengthTouched(false);
-    setModelOptions([]);
-    setModelMetadata({});
-    setModelDropdownOpen(false);
-    setIsLoadingModels(false);
-    setIsResolvingContextLength(false);
-  }, [isOpen, provider]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const clearModels = () => {
-      setModelOptions([]);
-      setModelMetadata({});
-      setModelDropdownOpen(false);
-      setIsLoadingModels(false);
-    };
-
-    const trimmedApiKey = apiKey.trim();
-    const trimmedBaseURL = baseURL.trim();
-    if (!trimmedApiKey && !trimmedBaseURL) {
-      clearModels();
-      return;
-    }
-    if (trimmedBaseURL && !isValidProviderBaseURL(baseURL)) {
-      clearModels();
-      return;
-    }
-
-    let cancelled = false;
-    setModelOptions([]);
-    setModelMetadata({});
-    setModelDropdownOpen(false);
-    setIsLoadingModels(true);
-
-    const timer = window.setTimeout(() => {
-      void fetchProviderModelCatalog({
-        kind,
-        apiKey: trimmedApiKey,
-        baseURL: normalizeProviderBaseURL(kind, baseURL)
-      })
-        .then((catalog) => {
-          if (!cancelled) {
-            setModelOptions(catalog.models);
-            setModelMetadata(catalog.metadata);
-            setIsLoadingModels(false);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) clearModels();
-        });
-    }, 500);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [apiKey, baseURL, isOpen, kind]);
-
-  useEffect(() => {
-    if (!modelDropdownOpen) return;
-    const handler = (event: MouseEvent) => {
-      if (
-        modelInputContainerRef.current &&
-        !modelInputContainerRef.current.contains(event.target as Node)
-      ) {
-        setModelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [modelDropdownOpen]);
+    resetForOpen(provider?.contextLength);
+    resetCatalog();
+  }, [isOpen, provider, resetCatalog, resetForOpen]);
 
   const placeholderBaseURL = useMemo(
     () => DEFAULT_BASE_URL[kind] || 'https://your-gateway.com',
@@ -205,132 +115,6 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
   const submitDisabled = !name.trim() && !PROVIDER_KIND_LABEL[kind];
   const hasInvalidBaseURL = !isValidProviderBaseURL(baseURL);
-  const filteredModelOptions = useMemo(() => {
-    const normalizedModelId = modelId.trim().toLowerCase();
-    if (!normalizedModelId) return modelOptions;
-    const filtered = modelOptions.filter((model) =>
-      model.toLowerCase().includes(normalizedModelId)
-    );
-    return filtered.length > 0 ? filtered : modelOptions;
-  }, [modelId, modelOptions]);
-  const parsedContextLength = parseContextLengthInput(contextLengthInput);
-  const hasInvalidContextLength = Boolean(contextLengthInput.trim()) && !parsedContextLength;
-
-  const resetContextLengthLookup = (nextModelId = modelId) => {
-    setContextLengthInput('');
-    setContextLengthSource('none');
-    setContextLengthTouched(false);
-    setIsResolvingContextLength(Boolean(nextModelId.trim()));
-  };
-
-  useEffect(() => {
-    if (!isOpen || contextLengthTouched) return;
-
-    const trimmedModelId = modelId.trim();
-    if (!trimmedModelId) {
-      setContextLengthInput('');
-      setContextLengthSource('none');
-      setIsResolvingContextLength(false);
-      return;
-    }
-    if (!isValidProviderBaseURL(baseURL)) {
-      setContextLengthInput('');
-      setContextLengthSource('none');
-      setIsResolvingContextLength(false);
-      return;
-    }
-
-    let cancelled = false;
-    const applyContextLength = (value: number, source: ContextLengthSource) => {
-      if (cancelled) return;
-      setContextLengthInput(formatContextLengthInput(value));
-      setContextLengthSource(source);
-    };
-
-    const existingContextLength =
-      isSameProviderScope(provider, kind, baseURL) &&
-      provider?.modelId?.trim() === trimmedModelId &&
-      typeof provider?.contextLength === 'number' &&
-      provider.contextLength > 0
-        ? provider.contextLength
-        : undefined;
-    if (existingContextLength) {
-      const preferredContextLength = getPreferredConfiguredModelContextLength(
-        trimmedModelId,
-        existingContextLength
-      );
-      applyContextLength(
-        preferredContextLength ?? existingContextLength,
-        preferredContextLength === existingContextLength ? 'saved' : 'builtin'
-      );
-      setIsResolvingContextLength(false);
-      return;
-    }
-
-    const detectedContextLength = lookupModelMetadata(modelMetadata, trimmedModelId)?.contextLength;
-    if (detectedContextLength) {
-      const preferredContextLength = getPreferredConfiguredModelContextLength(
-        trimmedModelId,
-        detectedContextLength
-      );
-      applyContextLength(
-        preferredContextLength ?? detectedContextLength,
-        preferredContextLength === detectedContextLength ? 'provider' : 'builtin'
-      );
-      setIsResolvingContextLength(false);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setIsResolvingContextLength(true);
-      void lookupCachedModelMetadata(
-        {
-          kind,
-          baseURL: normalizeProviderScopeBaseURL(kind, baseURL)
-        },
-        trimmedModelId
-      )
-        .then((cachedMetadata) => {
-          if (cancelled) return;
-          if (cachedMetadata?.contextLength) {
-            const preferredContextLength = getPreferredConfiguredModelContextLength(
-              trimmedModelId,
-              cachedMetadata.contextLength
-            );
-            applyContextLength(
-              preferredContextLength ?? cachedMetadata.contextLength,
-              preferredContextLength === cachedMetadata.contextLength ? 'cache' : 'builtin'
-            );
-            return;
-          }
-          const builtInContextLength = getPreferredConfiguredModelContextLength(trimmedModelId);
-          if (builtInContextLength) {
-            applyContextLength(builtInContextLength, 'builtin');
-            return;
-          }
-          applyContextLength(DEFAULT_CONTEXT_LENGTH, 'default');
-        })
-        .finally(() => {
-          if (!cancelled) setIsResolvingContextLength(false);
-        });
-    }, CONTEXT_LENGTH_DETECT_DELAY_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [
-    contextLengthTouched,
-    baseURL,
-    isOpen,
-    kind,
-    modelMetadata,
-    modelId,
-    provider?.baseURL,
-    provider?.contextLength,
-    provider?.kind,
-    provider?.modelId
-  ]);
 
   const handleBaseURLBlur = () => {
     setBaseURL((current) => {
@@ -349,72 +133,6 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const handleBaseURLChange = (nextBaseURL: string) => {
     setBaseURL(nextBaseURL);
     resetContextLengthLookup();
-  };
-
-  const handleContextLengthChange = (nextContextLength: string) => {
-    setContextLengthInput(nextContextLength);
-    setContextLengthSource('manual');
-    setContextLengthTouched(true);
-  };
-
-  const fetchContextLengthForModel = async (targetModelId: string): Promise<number | undefined> => {
-    const trimmedApiKey = apiKey.trim();
-    const normalizedBaseURL = normalizeProviderBaseURL(kind, baseURL);
-    if (!trimmedApiKey && !normalizedBaseURL) return undefined;
-    try {
-      const catalog = await fetchProviderModelCatalog({
-        kind,
-        apiKey: trimmedApiKey,
-        baseURL: normalizedBaseURL
-      });
-      return lookupModelMetadata(catalog.metadata, targetModelId)?.contextLength;
-    } catch {
-      return undefined;
-    }
-  };
-
-  const resolveContextLengthForSubmit = async (
-    trimmedModelId: string,
-    submitToken: number
-  ): Promise<number | undefined> => {
-    if (!trimmedModelId) return undefined;
-    const alreadyDetected = lookupModelMetadata(modelMetadata, trimmedModelId)?.contextLength;
-    if (alreadyDetected) {
-      return getPreferredConfiguredModelContextLength(trimmedModelId, alreadyDetected);
-    }
-
-    setIsResolvingContextLength(true);
-    try {
-      const fetched = await fetchContextLengthForModel(trimmedModelId);
-      if (fetched) return getPreferredConfiguredModelContextLength(trimmedModelId, fetched);
-      const cached = await lookupCachedModelMetadata(
-        {
-          kind,
-          baseURL: normalizeProviderScopeBaseURL(kind, baseURL)
-        },
-        trimmedModelId
-      );
-      if (cached?.contextLength) {
-        return getPreferredConfiguredModelContextLength(trimmedModelId, cached.contextLength);
-      }
-      const builtInContextLength = getPreferredConfiguredModelContextLength(trimmedModelId);
-      if (builtInContextLength) return builtInContextLength;
-      const isSameModelAsExisting =
-        isSameProviderScope(provider, kind, baseURL) &&
-        provider?.modelId?.trim() === trimmedModelId;
-      const existingContextLength =
-        typeof provider?.contextLength === 'number' && provider.contextLength > 0
-          ? provider.contextLength
-          : undefined;
-      if (isSameModelAsExisting && existingContextLength) {
-        return getPreferredConfiguredModelContextLength(trimmedModelId, existingContextLength);
-      }
-      return DEFAULT_CONTEXT_LENGTH;
-    } finally {
-      if (submitTokenRef.current === submitToken && isOpenRef.current) {
-        setIsResolvingContextLength(false);
-      }
-    }
   };
 
   const handleCancel = () => {
@@ -479,10 +197,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
                 if (!isValidProviderBaseURL(trimmed)) return trimmed;
                 return normalizeProviderBaseURL(next, trimmed);
               });
-              setModelOptions([]);
-              setModelMetadata({});
-              setModelDropdownOpen(false);
-              setIsLoadingModels(false);
+              resetCatalog();
               if (!baseURL && !isEditing) {
                 setBaseURL(DEFAULT_BASE_URL[next] ?? '');
               }

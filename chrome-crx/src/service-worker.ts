@@ -8,7 +8,7 @@ import {
   trackEvent,
 } from "./mcpRuntime";
 import { restoreActiveToolContextsFromStorage, restoreActiveToolCountFromStorage } from "./mcpRuntime/core";
-import { restoreGifFrameStorageFromStorage } from "./mcpRuntime/mediaTools";
+import { restoreGifFrameStorageFromStorage } from "./mcpRuntime/mediaTools/gifFrameStorage";
 import { createExtensionUrlHandler } from "./background/extensionUrl";
 import { createNativeHostManager } from "./background/nativeHost";
 import { registerExternalMessageListener } from "./background/externalMessages";

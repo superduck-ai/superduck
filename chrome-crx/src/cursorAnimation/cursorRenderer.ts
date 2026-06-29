@@ -401,7 +401,7 @@ export class CursorRenderer {
     setSpringTargetAngle(state.rotationSpring, angle);
     setSpringTargetAngle(state.scootAxisSpring, 0);
 
-    const { point, speed } = this.advancePositionSprings(state, dt);
+    const { speed } = this.advancePositionSprings(state, dt);
     state.stretchSpring.target = computeStretchFromSpeed(speed);
 
     if (
@@ -442,7 +442,7 @@ export class CursorRenderer {
     );
     state.scootRotationSpring.target = motion.rotationTarget * envelope;
 
-    const { point } = this.advancePositionSprings(state, dt);
+    this.advancePositionSprings(state, dt);
 
     if (
       progressVal >= 0.999 &&

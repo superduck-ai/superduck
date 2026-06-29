@@ -30,11 +30,9 @@ export function normalizeApiBaseUrl(raw: string | null | undefined): string | nu
   return trimmed.replace(/\/+$/, '');
 }
 
-export async function openOptionsTo(
-  section: 'permissions' | 'prompts' | 'internal' = 'permissions'
-) {
+export async function openOptionsTo(section?: 'permissions' | 'prompts' | 'internal') {
   const optionsBaseUrl = chrome.runtime.getURL('options.html');
-  const targetUrl = chrome.runtime.getURL(`options.html#${section}`);
+  const targetUrl = section ? chrome.runtime.getURL(`options.html#${section}`) : optionsBaseUrl;
   const tabs = await chrome.tabs.query({});
   const existingTab = tabs.find(
     (tab) => typeof tab.url === 'string' && tab.url.startsWith(optionsBaseUrl)

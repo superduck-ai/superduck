@@ -20,15 +20,40 @@
  * regressed in a user-visible way, even if individual unit tests still pass.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  calculateOptimalDimensions,
-  checkUrlSecurity,
-  extractAppName,
-  formatTabsOutput,
-  normalizeUrl,
-  screenshotContextManager
-} from '../../src/mcpRuntime/shared';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// domainPermissions transitively loads the tabState barrel → tabGroups.ts,
+// whose constructor calls chrome.tabs.onRemoved.addListener at module-eval
+// time. The chrome global must be hoisted ahead of the module imports.
+const chromeMock = vi.hoisted(() => {
+  const listener = { addListener: vi.fn() };
+  return {
+    tabs: {
+      onRemoved: listener,
+      onActivated: listener,
+      onUpdated: listener,
+      get: vi.fn()
+    },
+    runtime: { getURL: vi.fn((p: string) => p), onMessage: listener, onStartup: listener },
+    debugger: { onEvent: listener, onDetach: listener },
+    webNavigation: {
+      onBeforeNavigate: listener,
+      onCommitted: listener,
+      onHistoryStateUpdated: listener
+    },
+    storage: { onChanged: listener, local: { get: vi.fn(), set: vi.fn() } }
+  };
+});
+
+vi.stubGlobal('chrome', chromeMock);
+
+const { calculateOptimalDimensions, screenshotContextManager } = await import(
+  '../../src/mcpRuntime/cdp/screenshotContext'
+);
+const { checkUrlSecurity } = await import('../../src/mcpRuntime/domainPermissions');
+const { extractAppName, formatTabsOutput, normalizeUrl } = await import(
+  '../../src/mcpRuntime/core/urlUtils'
+);
 import { cn } from '../../src/lib/utils';
 import { isPlanEventEnabled } from '../../src/is-plan-event-enabled';
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { StorageKeys, getStorageValue, setStorageValue } from '../../extensionServices';
 import { CUSTOM_API_KEY_KEY, CUSTOM_API_URL_KEY } from '../sidepanelGuards';
 import { normalizeApiBaseUrl } from '../sidepanelUtils';
-import { getErrorMessage } from '../messageProcessing';
+import { getErrorMessage } from '../conversation/messageProcessing';
 
 export interface UseAuthProps {
   queryApiKey?: string;

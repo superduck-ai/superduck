@@ -1,5 +1,9 @@
 import type { ApiInputContentBlock } from '../../messageTypes';
-import { PROMPT_TEMPLATES, WORKFLOW_INPUT_PREFIX, type SupportedLocale } from '../prompts';
+import {
+  PROMPT_TEMPLATES,
+  WORKFLOW_INPUT_PREFIX,
+  type SupportedLocale
+} from '../conversation/prompts';
 
 export type AssistantRole = 'user' | 'assistant';
 

@@ -1,0 +1,121 @@
+import type { ApiConversationMessage, ApiMessageBlock } from '../../messageTypes';
+import {
+  isImageContentBlock,
+  isRecord,
+  isTextContentBlock,
+  isToolResultContentBlock,
+  isToolUseContentBlock
+} from '../../messageTypes';
+import type { SessionSnapshot } from '../types';
+import { splitAnswerBlocks } from '../answerBlocks';
+
+function isApiUsage(value: unknown): value is ApiConversationMessage['usage'] {
+  return (
+    isRecord(value) &&
+    typeof value.input_tokens === 'number' &&
+    typeof value.output_tokens === 'number' &&
+    (value.cache_creation_input_tokens === null ||
+      typeof value.cache_creation_input_tokens === 'number') &&
+    (value.cache_read_input_tokens === null || typeof value.cache_read_input_tokens === 'number')
+  );
+}
+
+export function extractTextFromContent(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+
+  // Reuse the shared answer-boundary detector so the extracted text matches
+  // what the renderer shows as the final answer (including the trailing-text
+  // fallback when turn_answer_start is absent). When no boundary is found
+  // (e.g. a pure-text message, or a user message with only tool_results) the
+  // whole content is the answer.
+  const { blocksAfterAnswer, hasFinalAnswer } = splitAnswerBlocks(content as ApiMessageBlock[]);
+  const relevantContent = hasFinalAnswer ? blocksAfterAnswer : content;
+
+  return relevantContent
+    .filter(isTextContentBlock)
+    .map((item) => item.text)
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function hasMeaningfulContentBlock(block: unknown): boolean {
+  if (isTextContentBlock(block)) return block.text.trim().length > 0;
+  if (isImageContentBlock(block) || isToolUseContentBlock(block)) return true;
+
+  if (isToolResultContentBlock(block)) {
+    const content = block.content;
+    if (typeof content === 'string') return content.trim().length > 0;
+    if (Array.isArray(content)) return content.some(hasMeaningfulContentBlock);
+  }
+
+  return false;
+}
+
+function hasMeaningfulApiContent(content: ApiConversationMessage['content']): boolean {
+  if (typeof content === 'string') return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some(hasMeaningfulContentBlock);
+}
+
+export function hasPersistableSessionContent(
+  snapshot: Pick<SessionSnapshot, 'uiMessages' | 'apiMessages'>
+): boolean {
+  const hasVisibleMessage = snapshot.uiMessages.some(
+    (message) =>
+      (message.role === 'user' || message.role === 'assistant') && message.text.trim().length > 0
+  );
+  if (hasVisibleMessage) return true;
+
+  return snapshot.apiMessages.some(
+    (message) => !message.isLocalOnlyMessage && hasMeaningfulApiContent(message.content)
+  );
+}
+
+export function getHistoryStorageKey(sessionId: string) {
+  return `sidepanel_session_${sessionId}`;
+}
+
+export function getConversationStorageKey(conversationUuid: string) {
+  return `sidepanel_conversation_${conversationUuid}`;
+}
+
+export function normalizeHistoricalMessage(raw: unknown): ApiConversationMessage | null {
+  if (!isRecord(raw) || (raw.role !== 'user' && raw.role !== 'assistant')) return null;
+
+  const content = raw.content;
+  if (typeof content === 'string') {
+    return { role: raw.role, content };
+  }
+
+  if (Array.isArray(content)) {
+    return {
+      role: raw.role,
+      content,
+      ...(typeof raw.id === 'string' ? { id: raw.id } : {}),
+      ...(isApiUsage(raw.usage) ? { usage: raw.usage } : {}),
+      ...(typeof raw.stop_reason === 'string'
+        ? { stop_reason: raw.stop_reason as ApiConversationMessage['stop_reason'] }
+        : {})
+    };
+  }
+
+  return null;
+}
+
+export function pickEventMessage(event: unknown): ApiConversationMessage | null {
+  const candidates = [
+    isRecord(event) ? event.message : undefined,
+    isRecord(event) && isRecord(event.data) ? event.data.message : undefined,
+    isRecord(event) && isRecord(event.payload) ? event.payload.message : undefined,
+    isRecord(event) && isRecord(event.item) ? event.item.message : undefined
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeHistoricalMessage(candidate);
+    if (normalized) return normalized;
+  }
+
+  return normalizeHistoricalMessage(event);
+}

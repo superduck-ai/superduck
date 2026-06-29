@@ -1,15 +1,14 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 import { MessagesClient } from '../../mcpServersStore';
-import { resolveEffectiveContextWindow } from '../contextWindow';
-import { CONTEXT_WINDOW } from '../messageLimits';
+import { resolveEffectiveContextWindow } from '../conversation/contextWindow';
+import { CONTEXT_WINDOW } from '../conversation/messageLimits';
 import {
   PROVIDER_CONFIG_BROADCAST,
   PROVIDER_STORAGE_KEYS,
-  fetchProviderModelCatalog,
   findProvider,
-  loadProviderConfig,
-  lookupModelMetadata
+  loadProviderConfig
 } from '../../utils/providerStore';
+import { fetchProviderModelCatalog, lookupModelMetadata } from '../../utils/providerModelCatalog';
 import { resolveClientForProvider } from '../../utils/providerClient';
 
 export interface UseProviderClientOptions {

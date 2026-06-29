@@ -1,0 +1,436 @@
+export interface MessageLimitState {
+  type: 'within_limit' | 'approaching_limit' | 'exceeded_limit';
+  percentUsed?: number;
+  resetsAt?: number;
+  windows?: Record<string, { status: string; resets_at?: number }>;
+  remaining?: number;
+  overageDisabledReason?: string;
+}
+
+export interface MessageLimitBannerState {
+  text: string;
+  isBlocking: boolean;
+  dismissible: boolean;
+  actionLabel?: string;
+  actionUrl?: string;
+  tone: 'warning' | 'danger';
+}
+
+import { DEFAULT_CONTEXT_LENGTH } from '../../constants/models';
+
+export const CONTEXT_WINDOW = DEFAULT_CONTEXT_LENGTH;
+export const MAX_TOKENS = 10000;
+
+export interface UsageStats {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+export interface ContextUsageMetrics {
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  totalUsed: number;
+  tokenBudget: number;
+  remaining: number;
+  percentUsed: number;
+}
+
+export function calculateUsageTokens(usage: UsageStats | null | undefined): number {
+  const inputTokens = usage?.input_tokens || 0;
+  const outputTokens = usage?.output_tokens || 0;
+  const cacheTokens =
+    (usage?.cache_creation_input_tokens || 0) + (usage?.cache_read_input_tokens || 0);
+  return inputTokens + outputTokens + cacheTokens;
+}
+
+export function calculateTokenBudget(contextWindow: number = CONTEXT_WINDOW): number {
+  return Math.max(1, contextWindow - MAX_TOKENS);
+}
+
+export function calculateContextUsageMetrics(
+  usage: UsageStats | null | undefined,
+  contextWindow: number = CONTEXT_WINDOW
+): ContextUsageMetrics {
+  const inputTokens = usage?.input_tokens || 0;
+  const outputTokens = usage?.output_tokens || 0;
+  const cacheTokens =
+    (usage?.cache_creation_input_tokens || 0) + (usage?.cache_read_input_tokens || 0);
+  const totalUsed = inputTokens + outputTokens + cacheTokens;
+  const tokenBudget = calculateTokenBudget(contextWindow);
+  const remaining = Math.max(0, tokenBudget - totalUsed);
+  const percentUsed = Math.round((totalUsed / tokenBudget) * 100);
+  return {
+    inputTokens,
+    outputTokens,
+    cacheTokens,
+    totalUsed,
+    tokenBudget,
+    remaining,
+    percentUsed
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseWindows(value: unknown): MessageLimitState['windows'] | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const windows: NonNullable<MessageLimitState['windows']> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!isRecord(entry) || typeof entry.status !== 'string') continue;
+    windows[key] = {
+      status: entry.status,
+      resets_at: typeof entry.resets_at === 'number' ? entry.resets_at : undefined
+    };
+  }
+  return windows;
+}
+
+export function calculateMessageLimitFromUsage(
+  usage: UsageStats | null | undefined,
+  contextWindow: number = CONTEXT_WINDOW
+): MessageLimitState {
+  const { percentUsed } = calculateContextUsageMetrics(usage, contextWindow);
+  if (percentUsed >= 95) {
+    return { type: 'exceeded_limit', percentUsed };
+  }
+  if (percentUsed >= 90) {
+    return { type: 'approaching_limit', percentUsed };
+  }
+  return { type: 'within_limit', percentUsed };
+}
+
+export function parseMessageLimit(value: unknown): MessageLimitState | null {
+  if (!isRecord(value)) return null;
+
+  const rawType = value.type;
+  if (
+    rawType !== 'within_limit' &&
+    rawType !== 'approaching_limit' &&
+    rawType !== 'exceeded_limit'
+  ) {
+    return null;
+  }
+  return {
+    type: rawType,
+    percentUsed: typeof value.percentUsed === 'number' ? value.percentUsed : undefined,
+    resetsAt: typeof value.resetsAt === 'number' ? value.resetsAt : undefined,
+    remaining: typeof value.remaining === 'number' ? value.remaining : undefined,
+    windows: parseWindows(value.windows),
+    overageDisabledReason:
+      typeof value.overageDisabledReason === 'string' ? value.overageDisabledReason : undefined
+  };
+}
+
+export function parseRateLimitFromError(error: unknown): MessageLimitState | null {
+  let raw: string;
+  if (typeof error === 'string') {
+    raw = error;
+  } else if (error instanceof Error) {
+    raw = error.message;
+  } else {
+    try {
+      raw = JSON.stringify(error);
+    } catch {
+      return null;
+    }
+  }
+  if (!raw) return null;
+
+  const parseCandidate = (candidate: string): MessageLimitState | null => {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      const rateLimit = parseMessageLimit(parsed);
+      if (rateLimit) return rateLimit;
+      if (isRecord(parsed) && isRecord(parsed.error) && typeof parsed.error.message === 'string') {
+        return parseCandidate(parsed.error.message);
+      }
+      if (isRecord(parsed) && typeof parsed.message === 'string') {
+        return parseCandidate(parsed.message);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = parseCandidate(raw);
+  if (direct) return direct;
+
+  const jsonStart = raw.indexOf('{');
+  if (jsonStart >= 0) {
+    return parseCandidate(raw.slice(jsonStart));
+  }
+  return null;
+}
+
+export function parseRateLimitHeaders(headers: Record<string, string>): MessageLimitState | null {
+  const unified = headers['anthropic-ratelimit-unified-status'];
+  if (!unified || unified === 'allowed') return { type: 'within_limit' };
+
+  const windows: NonNullable<MessageLimitState['windows']> = {};
+  const parseWindow = (key: string) => {
+    const status = headers[`anthropic-ratelimit-unified-${key}-status`];
+    const reset = headers[`anthropic-ratelimit-unified-${key}-reset`];
+    if (status) {
+      windows[key] = {
+        status:
+          status === 'rejected'
+            ? 'exceeded_limit'
+            : status === 'allowed_warning'
+              ? 'approaching_limit'
+              : 'within_limit',
+        resets_at: reset ? parseInt(reset, 10) : Math.floor(Date.now() / 1000)
+      };
+    }
+  };
+  parseWindow('5h');
+  parseWindow('7d');
+  parseWindow('7d_opus');
+  parseWindow('overage');
+
+  const resetHeader = headers['anthropic-ratelimit-unified-reset'];
+  const resetsAt = resetHeader ? parseInt(resetHeader, 10) : Math.floor(Date.now() / 1000) + 3600;
+  const type =
+    unified === 'rejected'
+      ? 'exceeded_limit'
+      : unified === 'allowed_warning'
+        ? 'approaching_limit'
+        : 'within_limit';
+
+  const result: MessageLimitState =
+    type === 'within_limit'
+      ? { type: 'within_limit', windows }
+      : type === 'approaching_limit'
+        ? { type: 'approaching_limit', resetsAt, windows, remaining: 5 }
+        : { type: 'exceeded_limit', resetsAt, windows };
+
+  const overageReason = headers['anthropic-ratelimit-unified-overage-disabled-reason'];
+  if (overageReason && result.type !== 'within_limit') {
+    result.overageDisabledReason = overageReason;
+  }
+  return result;
+}
+
+export function shouldUpdateMessageLimit(
+  current: MessageLimitState,
+  next: MessageLimitState
+): boolean {
+  if (current.type !== next.type) return true;
+  if (next.type !== 'within_limit' && current.type !== 'within_limit') {
+    if (current.resetsAt !== next.resetsAt) return true;
+    if (current.overageDisabledReason !== next.overageDisabledReason) return true;
+    const curOvg = current.windows?.overage?.status;
+    const nextOvg = next.windows?.overage?.status;
+    if (curOvg !== nextOvg) return true;
+    if (
+      current.type === 'approaching_limit' &&
+      next.type === 'approaching_limit' &&
+      current.remaining !== next.remaining
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function formatResetTime(resetSeconds: number, windowName?: string | null) {
+  const date = new Date(resetSeconds * 1000);
+  if (windowName === '7d' || windowName === '7d_opus') {
+    return date.toLocaleString(undefined, {
+      weekday: 'long',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }
+  return date.toLocaleString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function pickLimitWindow(messageLimit: MessageLimitState, currentModel: string) {
+  const windows = messageLimit.windows || {};
+  // currentModel is now a provider id; the legacy opus-specific window no
+  // longer maps cleanly, so treat any opus-styled model id heuristically only
+  // when the id itself looks like a canonical claude id.
+  const isOpus = currentModel.startsWith('claude-opus');
+  const is5hExceeded = windows['5h']?.status === 'exceeded_limit';
+  const is7dExceeded = windows['7d']?.status === 'exceeded_limit';
+  const is7dOpusExceeded = isOpus && windows['7d_opus']?.status === 'exceeded_limit';
+  const isOverageExceeded = windows.overage?.status === 'exceeded_limit';
+
+  if ((is5hExceeded || is7dExceeded || is7dOpusExceeded) && isOverageExceeded) {
+    return {
+      name: 'overage',
+      status: windows.overage.status,
+      resetsAt: windows.overage.resets_at
+    };
+  }
+
+  const exceededCandidates: Array<{ name: string; resetTime: number }> = [];
+  if (is5hExceeded && typeof windows['5h']?.resets_at === 'number') {
+    exceededCandidates.push({ name: '5h', resetTime: windows['5h'].resets_at });
+  }
+  if (is7dExceeded && typeof windows['7d']?.resets_at === 'number') {
+    exceededCandidates.push({ name: '7d', resetTime: windows['7d'].resets_at });
+  }
+  if (is7dOpusExceeded && typeof windows['7d_opus']?.resets_at === 'number') {
+    exceededCandidates.push({ name: '7d_opus', resetTime: windows['7d_opus'].resets_at });
+  }
+
+  if (exceededCandidates.length > 1) {
+    const latestReset = exceededCandidates.reduce((latest, current) =>
+      current.resetTime > latest.resetTime ? current : latest
+    );
+    return { name: latestReset.name, status: 'exceeded_limit', resetsAt: latestReset.resetTime };
+  }
+
+  if (is7dOpusExceeded) {
+    return {
+      name: '7d_opus',
+      status: windows['7d_opus']?.status,
+      resetsAt: windows['7d_opus']?.resets_at
+    };
+  }
+  if (is7dExceeded) {
+    return { name: '7d', status: windows['7d']?.status, resetsAt: windows['7d']?.resets_at };
+  }
+  if (is5hExceeded || windows['5h']?.status === 'approaching_limit') {
+    return { name: '5h', status: windows['5h']?.status, resetsAt: windows['5h']?.resets_at };
+  }
+  if (windows['7d']?.status === 'approaching_limit') {
+    return { name: '7d', status: windows['7d']?.status, resetsAt: windows['7d']?.resets_at };
+  }
+  if (windows.overage?.status === 'approaching_limit') {
+    return { name: 'overage', status: windows.overage.status, resetsAt: windows.overage.resets_at };
+  }
+  return null;
+}
+
+export function getMessageLimitBannerState(
+  messageLimit: MessageLimitState,
+  currentModel: string
+): MessageLimitBannerState | null {
+  if (messageLimit.type === 'within_limit') {
+    return null;
+  }
+
+  const windowLabelMap: Record<string, string> = {
+    '5h': '5-hour',
+    '7d': 'Weekly',
+    '7d_opus': 'Deep'
+  };
+  const selectedWindow = pickLimitWindow(messageLimit, currentModel);
+  const selectedWindowName = selectedWindow?.name || '';
+  const selectedWindowLabel = selectedWindowName
+    ? windowLabelMap[selectedWindowName] || null
+    : null;
+  const overageReason = messageLimit.overageDisabledReason || '';
+  const hasBlockingOverageReason = Boolean(
+    overageReason &&
+    overageReason !== 'overage_not_provisioned' &&
+    overageReason !== 'org_level_disabled'
+  );
+  const hasOverageWindow = Boolean(messageLimit.windows?.overage);
+  const isOverageScenario = hasOverageWindow || hasBlockingOverageReason;
+  const isOverageBlocking =
+    messageLimit.windows?.overage?.status === 'exceeded_limit' || hasBlockingOverageReason;
+  const isOverageActive = isOverageScenario && !isOverageBlocking;
+
+  const isHardBlocking =
+    messageLimit.type === 'exceeded_limit' ||
+    (messageLimit.type === 'approaching_limit' && messageLimit.remaining === 0) ||
+    isOverageBlocking;
+
+  if (isOverageScenario) {
+    if (isOverageBlocking) {
+      return {
+        text: 'Usage limit reached',
+        isBlocking: true,
+        dismissible: false,
+        tone: 'danger'
+      };
+    }
+
+    if (isOverageActive && typeof selectedWindow?.resetsAt === 'number') {
+      const resetText = formatResetTime(selectedWindow.resetsAt, selectedWindowName || null);
+      const label = selectedWindowLabel ? `${selectedWindowLabel} limit` : 'Limit';
+      return {
+        text: `${label} resets ${resetText} · continuing with extra usage`,
+        isBlocking: false,
+        dismissible: true,
+        tone: 'warning'
+      };
+    }
+  }
+
+  if (isHardBlocking) {
+    const reset = selectedWindow?.resetsAt || messageLimit.resetsAt;
+    if (typeof reset !== 'number') {
+      return {
+        text: 'Usage limit reached',
+        isBlocking: true,
+        dismissible: false,
+        tone: 'danger'
+      };
+    }
+
+    const resetText = formatResetTime(reset, selectedWindowName || null);
+    if (selectedWindowLabel) {
+      return {
+        text: `${selectedWindowLabel} limit reached · resets ${resetText}`,
+        isBlocking: true,
+        dismissible: false,
+        tone: 'danger'
+      };
+    }
+
+    return {
+      text: `Usage limit reached · resets ${resetText}`,
+      isBlocking: true,
+      dismissible: false,
+      tone: 'danger'
+    };
+  }
+
+  if (selectedWindowName === '5h') {
+    return {
+      text: 'Approaching 5-hour limit',
+      isBlocking: false,
+      dismissible: true,
+      tone: 'warning'
+    };
+  }
+  if (selectedWindowName === '7d' || selectedWindowName === '7d_opus') {
+    return {
+      text: 'Approaching weekly limit',
+      isBlocking: false,
+      dismissible: true,
+      tone: 'warning'
+    };
+  }
+  if (typeof messageLimit.remaining === 'number') {
+    return {
+      text:
+        messageLimit.remaining === 1
+          ? 'You have 1 message left before hitting usage limits.'
+          : `You have ${messageLimit.remaining} messages left before hitting usage limits.`,
+      isBlocking: false,
+      dismissible: true,
+      tone: 'warning'
+    };
+  }
+
+  return {
+    text: 'Usage limit warning',
+    isBlocking: false,
+    dismissible: true,
+    tone: 'warning'
+  };
+}

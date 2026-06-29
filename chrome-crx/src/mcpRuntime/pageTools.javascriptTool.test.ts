@@ -52,6 +52,10 @@ vi.mock('./cdp', () => ({
     enablePageEvents: fixtures.enablePageEvents,
     consumeWindowOpenEvents: fixtures.consumeWindowOpenEvents,
     sendCommand: fixtures.sendCommand
+  },
+  screenshotContextManager: {
+    getLastScreenshot: vi.fn(),
+    getContext: vi.fn(() => null)
   }
 }));
 
@@ -62,12 +66,16 @@ vi.mock('./axSnapshot', () => ({
   withSnapshotLock: vi.fn(async (_tabId: number, fn: () => Promise<unknown>) => fn())
 }));
 
-vi.mock('./refBridge', () => ({
+vi.mock('./screenshot/refBridge', () => ({
   registerRefsInPage: vi.fn(),
   pruneStaleRefs: vi.fn()
 }));
 
-vi.mock('./shared', () => ({
+vi.mock('./screenshot/annotatedScreenshot', () => ({
+  captureAnnotatedScreenshot: vi.fn()
+}));
+
+vi.mock('./domainPermissions', () => ({
   PermissionTools: {
     EXECUTE_JAVASCRIPT: 'execute_javascript'
   },

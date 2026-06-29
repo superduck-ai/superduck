@@ -57,14 +57,17 @@ export default defineConfig({
       include: [
         'src/lib/utils.ts',
         'src/is-plan-event-enabled.ts',
-        'src/mcpRuntime/shared.ts'
+        'src/mcpRuntime/cdp/input.ts',
+        'src/mcpRuntime/cdp/screenshotContext.ts',
+        'src/mcpRuntime/core/urlUtils.ts',
+        'src/mcpRuntime/tabState/tabLifecycle.ts'
       ],
       exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/vite-env.d.ts'],
       // CI gate: any drop in coverage on the tested modules fails the build.
       // Function coverage is set lower than line/statement coverage because
-      // shared.ts intentionally exposes a number of no-op stubs (e.g. the
-      // screenRecorder facade) that serve as injection points for the
-      // service-worker runtime and have no behavior to assert from node.
+      // some modules expose injection points for the service-worker runtime
+      // (e.g. the screenRecorder facade) that have no behavior to assert
+      // from node.
       thresholds: {
         lines: 85,
         statements: 85,

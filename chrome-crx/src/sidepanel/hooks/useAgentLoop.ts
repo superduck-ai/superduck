@@ -1,101 +1,58 @@
 import { useCallback, useRef } from 'react';
 import { type SupportedLocale, useIntlSafe } from '../../index-react-dom-intl';
-import {
-  tabGroupManager,
-  shouldShowPlanMode,
-  getPlanModeSystemReminder,
-  filterAndApproveDomains,
-  trackEvent
-} from '../../mcpRuntime';
+import { tabGroupManager, trackEvent } from '../../mcpRuntime';
 import {
   generateConversationTitle as generateConversationTitleFunction,
   resolveSpecialCommand,
   type ModelInvoker
-} from '../sessionPool';
-import { ConversationCompactor } from '../conversationCompaction';
-import { dispatchMessagesClient } from '../../utils/providerClient';
+} from '../session';
+import { ConversationCompactor } from '../conversation/conversationCompaction';
 import { MessagesClient } from '../../mcpServersStore';
-import {
-  MAX_TOKENS,
-  calculateMessageLimitFromUsage,
-  parseMessageLimit,
-  parseRateLimitFromError,
-  parseRateLimitHeaders,
-  shouldUpdateMessageLimit,
-  type MessageLimitState
-} from '../messageLimits';
-import { getErrorMessage, prepareMessagesForApi } from '../messageProcessing';
-import { resolveShortcutMarkersInMessages } from '../shortcutMarkers';
-import { extractTextFromContent } from '../sessionHistory';
+import { MAX_TOKENS } from '../conversation/messageLimits';
+import { getErrorMessage } from '../conversation/messageProcessing';
 import {
   createId,
   getTextFromBlockContent,
   type PermissionMode,
   type PromptAttachmentPayload
 } from '../sidepanelUtils';
-import {
-  getStreamHeaders,
-  normalizeImageMediaType,
-  createStreamingTextStore
-} from '../sidepanelGuards';
+import { createStreamingTextStore } from '../sidepanelGuards';
 import type {
   ApiConversationMessage,
-  ApiInputContentBlock,
   ApiResponseMessage,
   ApiToolResultBlock,
   CreateApiMessageParams
 } from '../../messageTypes';
-import { isToolUseContentBlock } from '../../messageTypes';
-import { checkToolAllowed, getPageType } from '../planMode';
-import { manageScreenshotHistory } from '../lightningCommands';
-import { getStatusSummaryLanguageInstruction } from '../StatusDisplay';
+import { getStatusSummaryLanguageInstruction } from '@/sidepanel/components/StatusDisplay';
 import { getStorageValue, StorageKeys } from '../../extensionServices';
-import type { PermissionManager } from '../../PermissionManager';
-import type { ToolProviderSchema } from '../../mcpRuntime/pageToolsSupport/types';
+import type { PermissionManager } from '@/permissions/PermissionManager';
 import type {
   ChatRole,
   VisibleChatRole,
   NotificationPreference,
-  ChatMessage,
-  ResponseWithMessageLimit,
   SendPromptOptions,
   ToolUseBlock
 } from '../types';
+import { useChatStore } from '../stores/chatStore';
+import { useAgentStore } from '../stores/agentStore';
+import { useAttachmentStore } from '../stores/attachmentStore';
+import { useModelStore } from '../stores/modelStore';
+import { useNotificationStore } from '../stores/notificationStore';
+import { useUIStore } from '../stores/uiStore';
+import { prepareUserMessage } from './agentLoop/prepareUserMessage';
+import { streamAndProcess, type RafState } from './agentLoop/streamAndProcess';
+import { executeToolUses, type ReminderState } from './agentLoop/executeToolUses';
+import { compactInLoop } from './agentLoop/compactInLoop';
+import { handleStreamError, type RetryState } from './agentLoop/handleStreamError';
+import { handleSendPromptError } from './agentLoop/handleSendPromptError';
 
 // ─── Hook interface ────────────────────────────────────────────────────────────
 
 export interface UseAgentLoopProps {
-  // Messages state
-  apiMessages: ApiConversationMessage[];
-  setApiMessages: React.Dispatch<React.SetStateAction<ApiConversationMessage[]>>;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setMessageHistory: React.Dispatch<React.SetStateAction<ApiConversationMessage[]>>;
-
-  // UI state setters
-  setIsAgentRunning: React.Dispatch<React.SetStateAction<boolean>>;
-  setHasInteractiveTools: React.Dispatch<React.SetStateAction<boolean>>;
-  setCurrentStatus: React.Dispatch<React.SetStateAction<string>>;
-  setAttachmentCount: React.Dispatch<React.SetStateAction<number>>;
-  setPendingAttachments: React.Dispatch<React.SetStateAction<PromptAttachmentPayload[]>>;
-  setPreviewAttachmentImage: React.Dispatch<React.SetStateAction<string | null>>;
-  setRuntimeError: React.Dispatch<React.SetStateAction<string | null>>;
-  setMessageLimit: React.Dispatch<React.SetStateAction<MessageLimitState>>;
-  setMessageLimitDismissed: React.Dispatch<React.SetStateAction<boolean>>;
-  setLastStopReason: React.Dispatch<
-    React.SetStateAction<{ reason: string; messageId?: string } | null>
-  >;
-  setShowNotificationBanner: React.Dispatch<React.SetStateAction<boolean>>;
-  setIsCompacting: React.Dispatch<React.SetStateAction<boolean>>;
-  setTokensSaved: React.Dispatch<React.SetStateAction<number | null>>;
-
-  // State values
-  selectedModel: string;
-  notificationsEnabled: NotificationPreference;
-  toolSchemas: ToolProviderSchema[];
+  // UI state values (still need to be passed — can't all come from stores due to callbacks)
   systemPrompt: string | Array<{ type: string; text: string; cache_control?: unknown }>;
-  isCompacting: boolean;
 
-  // Refs
+  // Refs (must be passed — refs can't be stored in Zustand)
   abortControllerRef: React.MutableRefObject<AbortController | null>;
   generationStartedAtRef: React.MutableRefObject<number | null>;
   completionNotificationSentRef: React.MutableRefObject<boolean>;
@@ -109,11 +66,12 @@ export interface UseAgentLoopProps {
   notificationBannerTimerRef: React.MutableRefObject<number | null>;
   notificationsEnabledRef: React.MutableRefObject<NotificationPreference>;
   selectedModelRef: React.MutableRefObject<string>;
+  selectedModel: string;
   permissionModeRef: React.MutableRefObject<PermissionMode>;
   hasApprovedPlanRef: React.MutableRefObject<boolean>;
   streamingTextStoreRef: React.MutableRefObject<ReturnType<typeof createStreamingTextStore>>;
 
-  // Callbacks
+  // Callbacks (complex business logic, can't be stored)
   pushMessage: (role: ChatRole | VisibleChatRole, text: string) => void;
   executeToolUse: (toolUse: ToolUseBlock) => Promise<ApiToolResultBlock>;
   createApiMessage: (params: CreateApiMessageParams) => Promise<ApiResponseMessage>;
@@ -146,46 +104,7 @@ export interface UseAgentLoopReturn {
   ) => Promise<void>;
 }
 
-const BATCH_REMINDER_ELIGIBLE_TOOLS = new Set([
-  'navigate',
-  'tabs_context',
-  'tabs_context_mcp',
-  'upload_image',
-  'update_plan',
-  'gif_creator',
-  'resize_window',
-  'file_upload',
-  'tabs_create',
-  'tabs_create_mcp'
-]);
-
-const BATCH_REMINDER_ELIGIBLE_COMPUTER_ACTIONS = new Set([
-  'left_click',
-  'right_click',
-  'double_click',
-  'triple_click',
-  'type',
-  'key',
-  'wait',
-  'scroll',
-  'scroll_to',
-  'left_click_drag',
-  'hover'
-]);
-
-const BROWSER_BATCH_SYSTEM_REMINDER =
-  '<system-reminder>You used a single browser tool call this turn. Prefer browser_batch to execute multiple actions in one call — it is significantly faster. Batch your next sequence of clicks, types, navigations, and screenshots together whenever you can predict two or more steps ahead.</system-reminder>';
-
-const NAVIGATION_OBSERVE_SYSTEM_REMINDER = BROWSER_BATCH_SYSTEM_REMINDER;
-
-const BROWSER_BATCH_FAILURE_SYSTEM_REMINDER =
-  '<system-reminder>The previous browser_batch failed. Do not retry it unchanged; completed actions may already have run. Continue from the current browser state, and use browser_batch again when you can predict the next sequence.</system-reminder>';
-
 const MAX_NOTIFICATION_ANSWER_LENGTH = 240;
-
-function isRecordValue(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function formatNotificationAnswer(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -193,90 +112,10 @@ function formatNotificationAnswer(text: string): string {
   return `${normalized.slice(0, MAX_NOTIFICATION_ANSWER_LENGTH - 3).trimEnd()}...`;
 }
 
-function isBrowserBatchReminderEligible(toolUse: ToolUseBlock): boolean {
-  if (BATCH_REMINDER_ELIGIBLE_TOOLS.has(toolUse.name)) return true;
-  if (toolUse.name !== 'computer' || !isRecordValue(toolUse.input)) return false;
-  const action = toolUse.input.action;
-  return typeof action === 'string' && BATCH_REMINDER_ELIGIBLE_COMPUTER_ACTIONS.has(action);
-}
-
-function appendBrowserBatchReminder(
-  result: ApiToolResultBlock,
-  reminder: string
-): ApiToolResultBlock {
-  if (result.is_error) return result;
-  return appendToolResultText(result, reminder);
-}
-
-function appendToolResultText(result: ApiToolResultBlock, text: string): ApiToolResultBlock {
-  if (typeof result.content === 'string') {
-    return {
-      ...result,
-      content: result.content
-        ? [
-            { type: 'text', text: result.content },
-            { type: 'text', text }
-          ]
-        : text
-    };
-  }
-  if (Array.isArray(result.content)) {
-    return {
-      ...result,
-      content: [...result.content, { type: 'text', text }]
-    };
-  }
-  return {
-    ...result,
-    content: text
-  };
-}
-
-function normalizeForSignature(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeForSignature);
-  if (!isRecordValue(value)) return value;
-  return Object.keys(value)
-    .sort()
-    .reduce<Record<string, unknown>>((acc, key) => {
-      acc[key] = normalizeForSignature(value[key]);
-      return acc;
-    }, {});
-}
-
-function getBrowserBatchSignature(toolUse: ToolUseBlock): string | null {
-  if (toolUse.name !== 'browser_batch' || !isRecordValue(toolUse.input)) return null;
-  try {
-    return JSON.stringify(normalizeForSignature(toolUse.input));
-  } catch {
-    return null;
-  }
-}
-
 // ─── Hook implementation ─────────────────────────────────────────────────────
 
 export function useAgentLoop({
-  apiMessages,
-  setApiMessages,
-  setMessages,
-  setMessageHistory,
-  setIsAgentRunning,
-  setHasInteractiveTools,
-  setCurrentStatus,
-  setAttachmentCount,
-  setPendingAttachments,
-  setPreviewAttachmentImage,
-  setRuntimeError,
-  setMessageLimit,
-  setMessageLimitDismissed,
-  setLastStopReason,
-  setShowNotificationBanner,
-  setIsCompacting,
-  setTokensSaved,
-  selectedModel,
-  notificationsEnabled,
-  toolSchemas,
   systemPrompt,
-  isCompacting,
   abortControllerRef,
   generationStartedAtRef,
   completionNotificationSentRef,
@@ -286,6 +125,7 @@ export function useAgentLoop({
   notificationBannerTimerRef,
   notificationsEnabledRef,
   selectedModelRef,
+  selectedModel,
   permissionModeRef,
   hasApprovedPlanRef,
   streamingTextStoreRef,
@@ -301,6 +141,28 @@ export function useAgentLoop({
   queryTabId,
   intl
 }: UseAgentLoopProps): UseAgentLoopReturn {
+  // ─── Read state from Zustand stores (no prop drilling) ───────────────────
+  const apiMessages = useChatStore((s) => s.apiMessages);
+  const setApiMessages = useChatStore((s) => s.setApiMessages);
+  const setMessages = useChatStore((s) => s.setMessages);
+  // setMessageHistory is unused
+  const _setMessageHistory = (_: ApiConversationMessage[]) => {};
+  const setIsAgentRunning = useAgentStore((s) => s.setIsAgentRunning);
+  const setHasInteractiveTools = useAgentStore((s) => s.setHasInteractiveTools);
+  const setCurrentStatus = useAgentStore((s) => s.setCurrentStatus);
+  const setRuntimeError = useAgentStore((s) => s.setRuntimeError);
+  const setLastStopReason = useAgentStore((s) => s.setLastStopReason);
+  const setIsCompacting = useAgentStore((s) => s.setIsCompacting);
+  const setTokensSaved = useAgentStore((s) => s.setTokensSaved);
+  const isCompacting = useAgentStore((s) => s.isCompacting);
+  const setAttachmentCount = useAttachmentStore((s) => s.setAttachmentCount);
+  const setPendingAttachments = useAttachmentStore((s) => s.setPendingAttachments);
+  const setPreviewAttachmentImage = useAttachmentStore((s) => s.setPreviewAttachmentImage);
+  const toolSchemas = useModelStore((s) => s.toolSchemas);
+  const notificationsEnabled = useNotificationStore((s) => s.notificationsEnabled);
+  const setMessageLimit = useNotificationStore((s) => s.setMessageLimit);
+  const setMessageLimitDismissed = useUIStore((s) => s.setIsMessageLimitDismissed);
+  const setShowNotificationBanner = useUIStore((s) => s.setShowNotificationBanner);
   const lastFailedBrowserBatchSignatureRef = useRef<string | null>(null);
 
   // ─── Compact conversation ─────────────────────────────────────────────────
@@ -353,7 +215,7 @@ export function useAgentLoop({
           manual,
           messages_before: messagesToCompact.length
         });
-        setMessageHistory(messagesToCompact);
+        _setMessageHistory(messagesToCompact);
         const visibleCommandMessage = visibleCommandText
           ? ({
               role: 'user',
@@ -504,9 +366,11 @@ export function useAgentLoop({
         return;
       }
       lastFailedBrowserBatchSignatureRef.current = null;
-      let browserBatchReminderInjected = false;
-      let navigationObserveReminderInjected = false;
-      let browserBatchFailureReminderInjected = false;
+      const reminderState: ReminderState = {
+        navigationObserve: false,
+        browserBatch: false,
+        browserBatchFailure: false
+      };
 
       // Capture the tab ID at the start of execution so that switching tabs
       // doesn't redirect tool calls or indicator messages to a different tab.
@@ -571,71 +435,20 @@ export function useAgentLoop({
       pushMessage('user', trimmed || '[Image input]');
 
       try {
-        let baseMessages = apiMessages;
-        if (
-          calculateMessageLimitFromUsage(
-            baseMessages[baseMessages.length - 1]?.usage,
-            serverContextLengthRef.current
-          ).type === 'exceeded_limit'
-        ) {
-          baseMessages = await compactConversation(false);
-        }
-
-        const userContent: ApiInputContentBlock[] = [];
-        if (trimmed) {
-          userContent.push({ type: 'text', text: trimmed });
-        }
-        for (const attachment of attachments) {
-          userContent.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: normalizeImageMediaType(attachment.mediaType),
-              data: attachment.base64
-            }
-          });
-        }
-        if (attachments.length > 0 && options?.isAnnotated) {
-          userContent.push({
-            type: 'text',
-            text: "<system-reminder>\nCONTEXT ABOUT ANNOTATIONS IN USER SCREENSHOTS:\n\nThe GLOWING BLUE OUTLINES you see are USER-SELECTED REGIONS on the user's screenshot. These markings:\n- Are regions selected by the user to point out specific areas\n- Are NOT part of the website/interface/UI\n- Will NOT appear in screenshots you take yourself\n- Have white outlines for visibility on all backgrounds\n\nUser screenshots may show a different viewport/responsive layout than what you see. Page elements may be in different positions due to:\n- Different screen sizes or browser window dimensions\n- Responsive design breakpoints\n- Mobile vs desktop views\n- Zoom levels or scaling\n\nINSTRUCTIONS FOR HANDLING ANNOTATED USER SCREENSHOTS:\n1. FIRST, take your own screenshot to see the current page state and layout\n2. Compare the user's annotated screenshot with your view to identify layout differences\n3. The blue outlines indicate regions the user selected - focus on what's inside or near these areas\n4. Look for what UI element the annotation is highlighting based on visual context\n5. Account for responsive changes - an element marked on the right might be below on your screen\n6. Use the user's description combined with the annotation to determine intent\n7. Find and interact with the actual UI element being indicated\n\nFor example: If a blue outline highlights a menu item that appears horizontally in the user's screenshot but is in a hamburger menu on your view, open the hamburger menu first to find the item.\n</system-reminder>"
-          });
-        }
-
-        // Inject system-reminder tab context on the user's message
-        if (typeof executionTabId === 'number') {
-          try {
-            const availableTabs = await tabGroupManager.getValidTabsWithMetadata(executionTabId);
-            if (availableTabs && availableTabs.length > 0) {
-              const tabInfo = {
-                availableTabs: availableTabs.map((t) => ({
-                  id: t.id,
-                  title: t.title,
-                  url: t.url
-                })),
-                ...(baseMessages.length === 0 ? { initialTabId: executionTabId } : {})
-              };
-              userContent.push({
-                type: 'text',
-                text: `<system-reminder>${JSON.stringify(tabInfo)}</system-reminder>`
-              });
-            }
-          } catch {
-            // silently fail tab context injection
-          }
-        }
-
-        // Inject plan mode system reminder if in follow_a_plan mode and no plan approved yet
-        if (shouldShowPlanMode(permissionModeRef.current, hasApprovedPlanRef.current)) {
-          userContent.push({
-            type: 'text',
-            text: getPlanModeSystemReminder()
-          });
-        }
-
-        const nextUserMessage: ApiConversationMessage = { role: 'user', content: userContent };
-        let workingMessages: ApiConversationMessage[] = [...baseMessages, nextUserMessage];
-        setApiMessages(workingMessages);
+        const prepared = await prepareUserMessage({
+          trimmed,
+          attachments,
+          isAnnotated: !!options?.isAnnotated,
+          executionTabId,
+          apiMessages,
+          serverContextLengthRef,
+          compactConversation,
+          permissionModeRef,
+          hasApprovedPlanRef,
+          setApiMessages
+        });
+        let workingMessages = prepared.workingMessages;
+        const baseMessages = prepared.baseMessages;
 
         const MAX_STREAM_RETRIES = 10;
         let continueLoop = true;
@@ -677,533 +490,92 @@ export function useAgentLoop({
             { id: createId(), role: 'assistant' as ChatRole, text: '' }
           ]);
 
-          let retryCount = 0;
+          const retryState: RetryState = { count: 0 };
           let shouldRetry = false;
-          // Track rAF state outside the try block so the catch block can cancel
-          // pending animations before retry (Issue 6.2 from UX audit).
-          let streamingRafId: number | null = null;
-          let streamingRafPending = false;
+          const rafState: RafState = { rafId: null, pending: false };
 
           do {
             shouldRetry = false;
             try {
-              let accumulatedText = '';
-
-              // Prepare messages with cache_control on last assistant msg
-              const preparedMessagesRaw = prepareMessagesForApi(workingMessages);
-              // Strip old screenshots — keep only the 2 most recent to prevent 413 payload bloat
-              const preparedMessagesPruned = manageScreenshotHistory(preparedMessagesRaw, 2);
-              // Resolve [[shortcut:id:name]] markers to actual prompt content before sending
-              const preparedMessages =
-                await resolveShortcutMarkersInMessages(preparedMessagesPruned);
-
-              // Add cache_control to the last tool schema
-              let preparedTools = toolSchemas.length ? [...toolSchemas] : undefined;
-              if (preparedTools && preparedTools.length > 0) {
-                const lastToolIndex = preparedTools.length - 1;
-                preparedTools = preparedTools.map((t, idx) =>
-                  idx === lastToolIndex ? { ...t, cache_control: { type: 'ephemeral' } } : t
-                );
-              }
-
-              // Dispatch to the selected provider (falls back to effectiveMessagesClient).
-              const dispatched = await dispatchMessagesClient(
+              const streamResult = await streamAndProcess({
+                workingMessages,
+                systemPrompt,
                 selectedModel,
-                effectiveMessagesClient
-              );
-
-              const stream = dispatched.runtime.stream(
-                {
-                  model: dispatched.modelId,
-                  max_tokens: MAX_TOKENS,
-                  system: systemPrompt,
-                  messages: preparedMessages,
-                  tools: preparedTools
-                },
-                { signal: controller.signal }
-              );
-
-              // Parse rate limit headers from connect event
-              stream.on('connect', () => {
-                const headersFromStream = getStreamHeaders(stream);
-                if (headersFromStream) {
-                  const headers: Record<string, string> = {};
-                  headersFromStream.forEach((value, name) => {
-                    if (name.startsWith('anthropic-ratelimit-')) {
-                      headers[name] = value;
-                    }
-                  });
-                  if (Object.keys(headers).length > 0) {
-                    const parsed = parseRateLimitHeaders(headers);
-                    if (parsed) {
-                      setMessageLimit((prev) => {
-                        if (shouldUpdateMessageLimit(prev, parsed)) return parsed;
-                        return prev;
-                      });
-                    }
-                  }
-                }
+                effectiveMessagesClient,
+                toolSchemas,
+                controller,
+                rafState,
+                serverContextLengthRef,
+                executionTabId,
+                updateLastAssistantMessage,
+                flushStreamingText,
+                setMessages,
+                setApiMessages,
+                setLastStopReason,
+                setMessageLimit,
+                setMessageLimitDismissed,
+                sendCompletionNotification
               });
+              if (streamResult.shouldBreak) break;
+              workingMessages = streamResult.workingMessages;
+              const { accumulatedText, toolUses } = streamResult;
 
-              // Stream text to UI in real-time (throttled to rAF to avoid re-render storms)
-              stream.on('text', (delta: string) => {
-                accumulatedText += delta;
-                if (!streamingRafPending) {
-                  streamingRafPending = true;
-                  streamingRafId = requestAnimationFrame(() => {
-                    streamingRafPending = false;
-                    streamingRafId = null;
-                    updateLastAssistantMessage(accumulatedText);
-                  });
-                }
+              const toolResult = await executeToolUses({
+                toolUses,
+                accumulatedText,
+                workingMessages,
+                controller,
+                executionTabId,
+                permissionModeRef,
+                hasApprovedPlanRef,
+                lastFailedBrowserBatchSignatureRef,
+                reminderState,
+                executeToolUse,
+                getPermissionManager,
+                pushMessage,
+                setHasInteractiveTools,
+                setCurrentStatus,
+                generateStatusSummary,
+                setApiMessages
               });
+              workingMessages = toolResult.workingMessages;
 
-              const response: ResponseWithMessageLimit = await stream.finalMessage();
-
-              // Cancel any pending RAF and flush final accumulated text
-              if (streamingRafId !== null) {
-                cancelAnimationFrame(streamingRafId);
-                streamingRafId = null;
-                streamingRafPending = false;
-              }
-              // Ensure the last accumulated text is applied before final update
-              if (accumulatedText) {
-                updateLastAssistantMessage(accumulatedText);
-              }
-
-              // Update with final extracted text (handles turn_answer_start filtering)
-              const assistantContent = Array.isArray(response.content) ? response.content : [];
-              const finalText = extractTextFromContent(assistantContent);
-              if (finalText) {
-                updateLastAssistantMessage(finalText);
-              }
-              // Flush streaming text store → messages state (single React state update)
-              flushStreamingText();
-              if (!finalText) {
-                // Remove empty assistant message placeholder
-                setMessages((prev) => {
-                  const lastIndex = prev.length - 1;
-                  if (
-                    lastIndex >= 0 &&
-                    prev[lastIndex].role === 'assistant' &&
-                    !prev[lastIndex].text.trim()
-                  ) {
-                    return prev.slice(0, lastIndex);
-                  }
-                  return prev;
-                });
-              }
-
-              const assistantMessage: ApiConversationMessage = {
-                role: 'assistant',
-                content: assistantContent,
-                usage: response.usage,
-                id: response.id,
-                stop_reason: response.stop_reason
-              };
-              workingMessages = [...workingMessages, assistantMessage];
-
-              // 实时更新状态，让 UI 能看到 tool_use
-              setApiMessages(workingMessages);
-
-              setLastStopReason({
-                reason: response.stop_reason || 'end_turn',
-                messageId: response.id
+              const compactResult = await compactInLoop({
+                workingMessages,
+                serverContextLengthRef,
+                createApiMessage,
+                locale: intl.locale,
+                setApiMessages,
+                pushMessage
               });
-              const parsedMessageLimit = parseMessageLimit(response.message_limit);
-              setMessageLimit(
-                parsedMessageLimit ??
-                  calculateMessageLimitFromUsage(
-                    response.usage || {},
-                    serverContextLengthRef.current
-                  )
-              );
-              setMessageLimitDismissed(false);
-
-              if (response.stop_reason !== 'tool_use') {
-                await sendCompletionNotification(executionTabId, finalText);
-                break;
-              }
-
-              const toolUses = assistantContent.filter(isToolUseContentBlock);
-              if (toolUses.length === 0) {
-                break;
-              }
-
-              // Separate turn_answer_start from real tool calls
-              const realToolUses = toolUses.filter((t) => t.name !== 'turn_answer_start');
-              const answerStartTools = toolUses.filter((t) => t.name === 'turn_answer_start');
-
-              const toolResults: ApiToolResultBlock[] = [];
-
-              // Return empty results for turn_answer_start
-              for (const toolUse of answerStartTools) {
-                toolResults.push({
-                  type: 'tool_result',
-                  tool_use_id: toolUse.id,
-                  content: ''
-                });
-              }
-
-              if (realToolUses.length > 0) {
-                // Set hasInteractiveTools for non-readonly tools
-                const readonlyTools = ['read_page', 'get_page_text', 'find', 'turn_answer_start'];
-                if (realToolUses.some((t) => !readonlyTools.includes(t.name))) {
-                  setHasInteractiveTools(true);
-                }
-
-                const toolNames = realToolUses.map((t) => t.name).join(', ');
-                pushMessage('system', `🔧 ${toolNames}`);
-
-                // Generate status summary from accumulated text
-                if (accumulatedText && !accumulatedText.toLowerCase().includes('<answer>')) {
-                  generateStatusSummary(accumulatedText).catch(() => {});
-                } else if (accumulatedText && accumulatedText.toLowerCase().includes('<answer>')) {
-                  setCurrentStatus('');
-                }
-
-                // Check if user cancelled before executing tools
-                if (controller.signal.aborted) {
-                  for (const toolUse of realToolUses) {
-                    toolResults.push({
-                      type: 'tool_result',
-                      tool_use_id: toolUse.id,
-                      content: 'Tool execution cancelled by user',
-                      is_error: true
-                    });
-                  }
-                } else {
-                  // Determine page type for checkToolAllowed
-                  let currentPageType = 'regular';
-                  if (typeof executionTabId === 'number') {
-                    try {
-                      const tab = await chrome.tabs.get(executionTabId);
-                      currentPageType = getPageType(tab.url);
-                    } catch {
-                      // tab may have been closed
-                    }
-                  }
-
-                  for (const toolUse of realToolUses) {
-                    // Check cancellation between individual tool executions
-                    if (controller.signal.aborted) {
-                      toolResults.push({
-                        type: 'tool_result',
-                        tool_use_id: toolUse.id,
-                        content: 'Tool execution cancelled by user',
-                        is_error: true
-                      });
-                      continue;
-                    }
-
-                    // checkToolAllowed
-                    const toolCheck = checkToolAllowed(
-                      toolUse.name,
-                      currentPageType,
-                      permissionModeRef.current,
-                      hasApprovedPlanRef.current,
-                      toolUse.input
-                    );
-                    if (!toolCheck.allowed) {
-                      toolResults.push({
-                        type: 'tool_result',
-                        tool_use_id: toolUse.id,
-                        content: `${toolCheck.errorMessage}\n\n${toolCheck.suggestedGuidance}`,
-                        is_error: true
-                      });
-                      continue;
-                    }
-
-                    // Special handling for update_plan
-                    if (toolUse.name === 'update_plan') {
-                      const { approach, domains } = toolUse.input as {
-                        approach?: string[];
-                        domains?: string[];
-                      };
-
-                      if (permissionModeRef.current !== 'follow_a_plan') {
-                        // Auto-approve update_plan when not in follow_a_plan mode
-                        let approvalMessage =
-                          'User has approved your plan. You can now start executing the plan.';
-                        if (approach && approach.length > 0) {
-                          approvalMessage +=
-                            '\n\nPlan steps:\n' +
-                            approach.map((step, i) => `${i + 1}. ${step}`).join('\n') +
-                            '\n\nStart by using the TodoWrite tool to track your progress through these steps.';
-                        } else {
-                          approvalMessage += ' Start with updating your todo list if applicable.';
-                        }
-                        hasApprovedPlanRef.current = true;
-                        if (domains) {
-                          const pm = getPermissionManager();
-                          await filterAndApproveDomains(domains, pm);
-                        }
-                        toolResults.push({
-                          type: 'tool_result',
-                          tool_use_id: toolUse.id,
-                          content: approvalMessage
-                        });
-                      } else {
-                        // In follow_a_plan mode, go through normal permission flow
-                        const result = await executeToolUse(toolUse);
-                        if (!result.is_error) {
-                          hasApprovedPlanRef.current = true;
-                          if (domains) {
-                            const pm = getPermissionManager();
-                            await filterAndApproveDomains(domains, pm);
-                          }
-                          let approvalMessage =
-                            'User has approved your plan. You can now start executing the plan.';
-                          if (approach && approach.length > 0) {
-                            approvalMessage +=
-                              '\n\nPlan steps:\n' +
-                              approach.map((step, i) => `${i + 1}. ${step}`).join('\n') +
-                              '\n\nStart by using the TodoWrite tool to track your progress through these steps.';
-                          } else {
-                            approvalMessage += ' Start with updating your todo list if applicable.';
-                          }
-                          toolResults.push({
-                            type: 'tool_result',
-                            tool_use_id: toolUse.id,
-                            content: approvalMessage
-                          });
-                        } else {
-                          toolResults.push(result);
-                        }
-                      }
-                      continue;
-                    }
-
-                    const batchSignature = getBrowserBatchSignature(toolUse);
-                    if (
-                      batchSignature &&
-                      batchSignature === lastFailedBrowserBatchSignatureRef.current
-                    ) {
-                      const content = browserBatchFailureReminderInjected
-                        ? 'The previous browser_batch already failed. Observe the current page or run only the failed action separately before retrying.'
-                        : BROWSER_BATCH_FAILURE_SYSTEM_REMINDER;
-                      browserBatchFailureReminderInjected = true;
-                      toolResults.push({
-                        type: 'tool_result',
-                        tool_use_id: toolUse.id,
-                        content,
-                        is_error: true
-                      });
-                      continue;
-                    }
-
-                    const result = await executeToolUse(toolUse);
-                    if (batchSignature) {
-                      if (result.is_error) {
-                        lastFailedBrowserBatchSignatureRef.current = batchSignature;
-                        if (!browserBatchFailureReminderInjected) {
-                          browserBatchFailureReminderInjected = true;
-                          toolResults.push(
-                            appendToolResultText(result, BROWSER_BATCH_FAILURE_SYSTEM_REMINDER)
-                          );
-                        } else {
-                          toolResults.push(result);
-                        }
-                      } else {
-                        lastFailedBrowserBatchSignatureRef.current = null;
-                        toolResults.push(result);
-                      }
-                      continue;
-                    }
-
-                    if (
-                      (toolUse.name === 'read_page' ||
-                        toolUse.name === 'find' ||
-                        toolUse.name === 'navigate') &&
-                      !result.is_error
-                    ) {
-                      lastFailedBrowserBatchSignatureRef.current = null;
-                    }
-                    toolResults.push(result);
-                  }
-                }
-              }
-
-              if (realToolUses.length === 1 && realToolUses[0].name === 'navigate') {
-                const toolUseId = realToolUses[0].id;
-                const resultIndex = toolResults.findIndex(
-                  (result) => result.tool_use_id === toolUseId
-                );
-                if (
-                  resultIndex >= 0 &&
-                  !toolResults[resultIndex].is_error &&
-                  !navigationObserveReminderInjected
-                ) {
-                  navigationObserveReminderInjected = true;
-                  toolResults[resultIndex] = appendToolResultText(
-                    toolResults[resultIndex],
-                    NAVIGATION_OBSERVE_SYSTEM_REMINDER
-                  );
-                }
-              } else if (
-                realToolUses.length === 1 &&
-                isBrowserBatchReminderEligible(realToolUses[0])
-              ) {
-                const toolUseId = realToolUses[0].id;
-                const resultIndex = toolResults.findIndex(
-                  (result) => result.tool_use_id === toolUseId
-                );
-                if (
-                  resultIndex >= 0 &&
-                  !toolResults[resultIndex].is_error &&
-                  !browserBatchReminderInjected
-                ) {
-                  browserBatchReminderInjected = true;
-                  toolResults[resultIndex] = appendBrowserBatchReminder(
-                    toolResults[resultIndex],
-                    BROWSER_BATCH_SYSTEM_REMINDER
-                  );
-                }
-              }
-
-              const toolResultMessage: ApiConversationMessage = {
-                role: 'user',
-                content: toolResults
-              };
-              workingMessages = [...workingMessages, toolResultMessage];
-
-              // 实时更新状态，让 UI 能看到 tool_result
-              setApiMessages(workingMessages);
-
-              // In-loop auto compaction: prevent token overflow during long agentic runs
-              const lastAssistantMsg = [...workingMessages]
-                .reverse()
-                .find((m): m is ApiConversationMessage => m.role === 'assistant' && !!m.usage);
-              if (lastAssistantMsg?.usage) {
-                const limitState = calculateMessageLimitFromUsage(
-                  lastAssistantMsg.usage,
-                  serverContextLengthRef.current
-                );
-                if (
-                  limitState.type === 'exceeded_limit' ||
-                  limitState.type === 'approaching_limit'
-                ) {
-                  try {
-                    const compactor = new ConversationCompactor(
-                      async (params: CreateApiMessageParams) => createApiMessage(params),
-                      intl.locale,
-                      serverContextLengthRef.current
-                    );
-                    const compactResult = await compactor.compactConversation(
-                      workingMessages,
-                      MAX_TOKENS,
-                      true
-                    );
-                    workingMessages = compactResult.messagesAfterCompacting;
-                    setApiMessages(workingMessages);
-                    pushMessage('system', 'Conversation compacted to save context.');
-                  } catch (compactError) {
-                    console.warn('[Agentic Loop] In-loop compaction failed:', compactError);
-                  }
-                }
-              }
+              workingMessages = compactResult.workingMessages;
 
               continueLoop = true;
             } catch (error) {
-              const message = getErrorMessage(error);
-              const lowerMessage = message.toLowerCase();
-
-              // Retry on transient errors with exponential backoff
-              if (
-                retryCount < MAX_STREAM_RETRIES &&
-                (lowerMessage.startsWith('overloaded') ||
-                  lowerMessage.startsWith('internal server error') ||
-                  lowerMessage.includes('network error') ||
-                  lowerMessage.includes('connection error') ||
-                  lowerMessage.includes('failed to fetch') ||
-                  lowerMessage.startsWith('499') ||
-                  lowerMessage.includes('this request would exceed the rate limit'))
-              ) {
-                retryCount++;
-                let delay = Math.pow(2, retryCount);
-                delay += Math.random() * delay;
-                void trackEvent('superduck.sidebar.api_retried', {
-                  attempt: retryCount,
-                  error_type: lowerMessage.startsWith('overloaded')
-                    ? 'overloaded'
-                    : lowerMessage.includes('rate limit')
-                      ? 'rate_limit'
-                      : 'network',
-                  delay_ms: Math.round(delay * 1000)
-                });
-                await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+              const { shouldRetry: shouldRetryAfterError } = await handleStreamError({
+                error,
+                retryState,
+                maxRetries: MAX_STREAM_RETRIES,
+                rafState,
+                streamingTextStoreRef,
+                setMessages
+              });
+              if (shouldRetryAfterError) {
                 shouldRetry = true;
-                // Cancel any pending rAF before clearing the store to prevent
-                // stale text from being written after the store is cleared
-                // (Issue 6.2 from UX audit — prevents flicker of old text).
-                if (streamingRafId !== null) {
-                  cancelAnimationFrame(streamingRafId);
-                  streamingRafId = null;
-                  streamingRafPending = false;
-                }
-                // Clear streaming store and remove the empty streaming placeholder before retry
-                streamingTextStoreRef.current.set('');
-                setMessages((prev) => {
-                  const lastIndex = prev.length - 1;
-                  if (lastIndex >= 0 && prev[lastIndex].role === 'assistant') {
-                    return prev.slice(0, lastIndex);
-                  }
-                  return prev;
-                });
                 continue;
               }
-
               throw error;
             }
           } while (shouldRetry);
         }
-
-        setApiMessages(workingMessages);
       } catch (error) {
-        const message = getErrorMessage(error);
-        const lowerMessage = message.toLowerCase();
-        const rateLimitState = parseRateLimitFromError(error);
-        if (rateLimitState) {
-          setMessageLimit(rateLimitState);
-        }
-        const errorType = lowerMessage.includes('abort')
-          ? 'abort'
-          : rateLimitState
-            ? 'rate_limit'
-            : lowerMessage.includes('connection error') ||
-                lowerMessage.includes('failed to fetch') ||
-                lowerMessage.includes('network error')
-              ? 'network'
-              : lowerMessage.startsWith('overloaded')
-                ? 'overloaded'
-                : 'other';
-        if (errorType !== 'abort') {
-          void trackEvent('superduck.sidebar.api_error', {
-            error_type: errorType,
-            model: selectedModelRef.current || ''
-          });
-        }
-        if (lowerMessage.includes('abort') || lowerMessage === 'request was aborted.') {
-          pushMessage('system', 'Generation stopped.');
-        } else {
-          let runtimeMessage = message;
-          const isNetworkLikeError =
-            lowerMessage.includes('connection error') ||
-            lowerMessage.includes('failed to fetch') ||
-            lowerMessage.includes('network error');
-          if (isNetworkLikeError) {
-            runtimeMessage = 'Network error — please check your internet connection and try again.';
-          } else if (lowerMessage.startsWith('overloaded')) {
-            runtimeMessage = 'Claude is currently overloaded. Please try again in a moment.';
-          } else if (rateLimitState) {
-            const retryText = rateLimitState.resetsAt
-              ? ` Please wait ~${Math.ceil((rateLimitState.resetsAt - Date.now()) / 1000)}s.`
-              : '';
-            runtimeMessage = `Rate limit reached.${retryText}`;
-          }
-          setRuntimeError(runtimeMessage);
-          pushMessage('system', `Error: ${runtimeMessage}`);
-        }
+        handleSendPromptError({
+          error,
+          selectedModelRef,
+          setMessageLimit,
+          pushMessage,
+          setRuntimeError
+        });
       } finally {
         if (notificationBannerTimerRef.current) {
           window.clearTimeout(notificationBannerTimerRef.current);

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { useIntl, FormattedMessage } from "react-intl";
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useIntl, FormattedMessage } from 'react-intl';
 
 type ClientType = string;
 
@@ -25,10 +25,10 @@ export function PairingPrompt({
   clientType,
   currentName,
   onConfirm,
-  onDismiss,
+  onDismiss
 }: PairingPromptProps) {
   const intl = useIntl();
-  const [name, setName] = useState(currentName || "");
+  const [name, setName] = useState(currentName || '');
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus input on mount
@@ -45,15 +45,14 @@ export function PairingPrompt({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
+      if (e.key === 'Enter') {
         handleConfirm();
       }
     },
-    [handleConfirm],
+    [handleConfirm]
   );
 
-  const clientLabel =
-    clientType.toLowerCase().includes("code") ? "Code Client" : "Desktop Client";
+  const clientLabel = clientType.toLowerCase().includes('code') ? 'Code Client' : 'Desktop Client';
 
   return (
     <div className="flex flex-col gap-4 p-5 bg-bg-100 rounded-xl border border-border-300 shadow-lg">
@@ -82,8 +81,8 @@ export function PairingPrompt({
         onChange={(e) => setName(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={intl.formatMessage({
-          id: "HnoThnsyPP",
-          defaultMessage: 'e.g., "Work laptop", "Personal Chrome"',
+          id: 'HnoThnsyPP',
+          defaultMessage: 'e.g., "Work laptop", "Personal Chrome"'
         })}
         className="w-full px-3 py-2 text-sm rounded-lg border border-border-300 bg-bg-000 text-text-000 placeholder:text-text-400 focus:outline-none focus:ring-2 focus:ring-accent-main-100 focus:border-transparent"
       />

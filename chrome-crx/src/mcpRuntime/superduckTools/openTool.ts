@@ -1,0 +1,55 @@
+import type { ToolDefinition } from '../pageTools';
+import type { OpenArgs } from './types';
+import { resolveActiveTab } from './helpers';
+
+export const superduckOpenTool: ToolDefinition<OpenArgs> = {
+  name: 'superduck_open',
+  description:
+    "SuperDuck CLI: navigate user's active Chrome tab to a URL. Pass newTab=true to open in a new tab instead.",
+  parameters: {
+    url: { type: 'string', description: 'URL to open (http(s) or chrome://...)' },
+    newTab: { type: 'boolean', description: 'Open in a new tab; default updates the active tab' },
+    tabId: { type: 'number', description: 'Override active-tab resolution' }
+  },
+  execute: async (args) => {
+    try {
+      const url = String(args?.url || '');
+      if (!url) return { error: 'url is required' };
+      let tab: chrome.tabs.Tab;
+      if (args?.newTab) {
+        tab = await chrome.tabs.create({ url, active: true });
+      } else {
+        const active = await resolveActiveTab(args?.tabId);
+        if (active.id === undefined) return { error: 'active tab has no id' };
+        const updated = await chrome.tabs.update(active.id, { url, active: true });
+        if (!updated) return { error: 'failed to update tab' };
+        tab = updated;
+      }
+      return {
+        output: JSON.stringify({
+          tabId: tab.id,
+          windowId: tab.windowId,
+          url,
+          newTab: !!args?.newTab
+        })
+      };
+    } catch (err) {
+      return {
+        error: `superduck_open failed: ${err instanceof Error ? err.message : String(err)}`
+      };
+    }
+  },
+  toProviderSchema: async () => ({
+    name: 'superduck_open',
+    description: 'SuperDuck CLI: navigate active tab (or open new tab)',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        newTab: { type: 'boolean' },
+        tabId: { type: 'number' }
+      },
+      required: ['url']
+    }
+  })
+};

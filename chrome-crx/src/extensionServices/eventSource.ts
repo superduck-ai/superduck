@@ -131,20 +131,20 @@ export function fetchEventSource(url: string, options: FetchEventSourceOptions):
     const fetchFn = customFetch ?? window.fetch;
     const openHandler = onopen ?? defaultOnOpen;
 
-	    async function connect() {
-	      controller = new AbortController();
-	      try {
+    async function connect() {
+      controller = new AbortController();
+      try {
         const response = await fetchFn(url, {
           ...rest,
           headers,
           signal: controller.signal
-	        });
-	        await openHandler(response);
-	        if (!response.body) {
-	          throw new Error('Expected event stream response to include a body');
-	        }
+        });
+        await openHandler(response);
+        if (!response.body) {
+          throw new Error('Expected event stream response to include a body');
+        }
 
-	        const decoder = new TextDecoder();
+        const decoder = new TextDecoder();
         let message: SSEMessage = {
           data: '',
           event: '',
@@ -183,25 +183,25 @@ export function fetchEventSource(url: string, options: FetchEventSourceOptions):
           }
         });
 
-	        const reader = response.body.getReader();
-	        let result: ReadableStreamReadResult<Uint8Array>;
-	        while (!(result = await reader.read()).done) {
-	          parser(result.value);
+        const reader = response.body.getReader();
+        let result: ReadableStreamReadResult<Uint8Array>;
+        while (!(result = await reader.read()).done) {
+          parser(result.value);
         }
 
         onclose?.();
         dispose();
         resolve();
       } catch (err) {
-	        if (!controller.signal.aborted) {
-	          try {
-	            const delay = onerror?.(err) ?? retryMs;
-	            const retryDelay = getRetryDelay(delay, retryMs);
-	            window.clearTimeout(retryTimer);
-	            retryTimer = window.setTimeout(connect, retryDelay);
-	          } catch (fatalErr) {
-	            dispose();
-	            reject(fatalErr);
+        if (!controller.signal.aborted) {
+          try {
+            const delay = onerror?.(err) ?? retryMs;
+            const retryDelay = getRetryDelay(delay, retryMs);
+            window.clearTimeout(retryTimer);
+            retryTimer = window.setTimeout(connect, retryDelay);
+          } catch (fatalErr) {
+            dispose();
+            reject(fatalErr);
           }
         }
       }

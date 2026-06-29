@@ -1,4 +1,4 @@
-import type { PermissionManager } from '../../PermissionManager';
+import type { PermissionManager } from '@/permissions/PermissionManager';
 import type {
   ApiConversationMessage,
   ApiResponseMessage,

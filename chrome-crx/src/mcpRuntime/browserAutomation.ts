@@ -22,6 +22,8 @@ export {
   parseArrayInput
 } from './pageTools';
 export type { ToolContext, ToolResult, ToolDefinition } from './pageTools';
-export { computerTool, formInputTool } from './inputTools';
-export { uploadImageTool, gifCreatorTool } from './mediaTools';
+export { computerTool } from './inputTools/computerTool';
+export { formInputTool } from './inputTools/formInputTool';
+export { uploadImageTool } from './mediaTools/uploadImageTool';
+export { gifCreatorTool } from './mediaTools/gifCreatorTool';
 export { batchTool } from './batchTool';

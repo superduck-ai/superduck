@@ -1,0 +1,40 @@
+name: Lint (Chrome CRX)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'chrome-crx/**'
+      - 'package.json'
+      - '.github/workflows/lint-ts.yml'
+  pull_request:
+    paths:
+      - 'chrome-crx/**'
+      - 'package.json'
+      - '.github/workflows/lint-ts.yml'
+
+jobs:
+  chrome-crx:
+    name: format, lint, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Check formatting
+        run: bun run format:check
+        working-directory: chrome-crx
+
+      - name: Run ESLint
+        run: bun run lint:ci
+        working-directory: chrome-crx
+
+      - name: Run TypeScript typecheck
+        run: bun run typecheck
+        working-directory: chrome-crx

@@ -7,7 +7,7 @@ import { SESSION_INDEX_KEY } from '../../src/sidepanel/sidepanelGuards';
 import {
   getConversationStorageKey,
   getHistoryStorageKey
-} from '../../src/sidepanel/sessionHistory';
+} from '../../src/sidepanel/session/history';
 import type { Page, BrowserContext, Worker } from '@playwright/test';
 
 /**

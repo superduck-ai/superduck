@@ -20,6 +20,9 @@ declare module '*.ttf?url' {
   export default src;
 }
 
+// Side-effect CSS imports (e.g. `import 'katex/dist/katex.min.css'`) — no exports.
+declare module '*.css';
+
 // Web Speech API (not in default lib.dom for older lib targets)
 interface SpeechRecognition extends EventTarget {
   lang: string;
@@ -45,7 +48,7 @@ interface SpeechRecognitionErrorEvent extends Event {
 declare var SpeechRecognition: { new (): SpeechRecognition } | undefined;
 declare let webkitSpeechRecognition: { new (): SpeechRecognition } | undefined;
 
-// CDP global state (initialized in src/mcpRuntime/cdp.ts)
+// CDP global state (initialized by src/mcpRuntime/cdp/)
 declare var __cdpDebuggerListenerRegistered: boolean;
 declare var __cdpConsoleMessagesByTab: Map<number, unknown>;
 declare var __cdpNetworkRequestsByTab: Map<number, unknown>;

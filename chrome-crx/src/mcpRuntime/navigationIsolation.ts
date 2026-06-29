@@ -1,4 +1,4 @@
-import { waitForTabLoading } from './shared';
+import { waitForTabLoading } from './tabState';
 import { domainCategoryCache, tabGroupManager } from './tabState';
 import type { ToolResult } from './pageToolsSupport/types';
 
