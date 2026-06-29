@@ -69,6 +69,18 @@ export async function streamAndProcess(params: StreamAndProcessParams) {
     params.effectiveMessagesClient
   );
 
+  if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+    console.log(
+      '[SD_DEBUG] streamAndProcess preparedMessages:',
+      preparedMessages.length,
+      JSON.stringify(preparedMessages.map((m) => m.role)),
+      'tools:',
+      preparedTools?.length ?? 0,
+      'model:',
+      dispatched.modelId
+    );
+  }
+
   const stream = dispatched.runtime.stream(
     {
       model: dispatched.modelId,
@@ -114,6 +126,20 @@ export async function streamAndProcess(params: StreamAndProcessParams) {
   });
 
   const response: ResponseWithMessageLimit = await stream.finalMessage();
+
+  if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+    const blockTypes = Array.isArray(response.content)
+      ? response.content.map((b: { type?: string }) => b?.type)
+      : [];
+    console.log(
+      '[SD_DEBUG] streamAndProcess finalMessage stop_reason:',
+      response.stop_reason,
+      'blocks:',
+      JSON.stringify(blockTypes),
+      'usage:',
+      JSON.stringify(response.usage)
+    );
+  }
 
   if (params.rafState.rafId !== null) {
     cancelAnimationFrame(params.rafState.rafId);

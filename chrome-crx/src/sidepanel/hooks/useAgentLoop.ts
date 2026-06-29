@@ -508,6 +508,14 @@ export function useAgentLoop({
           let shouldRetry = false;
           const rafState: RafState = { rafId: null, pending: false };
 
+          if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+            console.log(
+              '[SD_DEBUG] iter-start workingMessages:',
+              workingMessages.length,
+              JSON.stringify(workingMessages.map((m) => m.role))
+            );
+          }
+
           do {
             shouldRetry = false;
             try {
@@ -532,6 +540,13 @@ export function useAgentLoop({
               });
               if (streamResult.shouldBreak) break;
               workingMessages = streamResult.workingMessages;
+              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+                console.log(
+                  '[SD_DEBUG] after-stream workingMessages:',
+                  workingMessages.length,
+                  JSON.stringify(workingMessages.map((m) => m.role))
+                );
+              }
               const { accumulatedText, toolUses } = streamResult;
 
               const toolResult = await executeToolUses({
@@ -553,6 +568,13 @@ export function useAgentLoop({
                 setApiMessages
               });
               workingMessages = toolResult.workingMessages;
+              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+                console.log(
+                  '[SD_DEBUG] after-exec workingMessages:',
+                  workingMessages.length,
+                  JSON.stringify(workingMessages.map((m) => m.role))
+                );
+              }
 
               const compactResult = await compactInLoop({
                 workingMessages,
@@ -563,9 +585,22 @@ export function useAgentLoop({
                 pushMessage
               });
               workingMessages = compactResult.workingMessages;
+              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+                console.log(
+                  '[SD_DEBUG] after-compact workingMessages:',
+                  workingMessages.length,
+                  JSON.stringify(workingMessages.map((m) => m.role))
+                );
+              }
 
               continueLoop = true;
             } catch (error) {
+              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+                console.log(
+                  '[SD_DEBUG] streamAndProcess THREW:',
+                  error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+                );
+              }
               const { shouldRetry: shouldRetryAfterError } = await handleStreamError({
                 error,
                 retryState,

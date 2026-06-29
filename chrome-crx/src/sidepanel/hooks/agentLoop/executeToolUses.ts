@@ -183,6 +183,9 @@ export async function executeToolUses(
       }
 
       for (const toolUse of realToolUses) {
+        if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+          console.log('[SD_DEBUG] executeToolUses start:', toolUse.name, 'id:', toolUse.id);
+        }
         if (params.controller.signal.aborted) {
           toolResults.push({
             type: 'tool_result',
@@ -286,6 +289,22 @@ export async function executeToolUses(
         }
 
         const result = await params.executeToolUse(toolUse);
+        if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+          const resultStr =
+            typeof result.content === 'string'
+              ? result.content
+              : Array.isArray(result.content)
+                ? JSON.stringify(result.content)
+                : '';
+          console.log(
+            '[SD_DEBUG] executeToolUses done:',
+            toolUse.name,
+            'is_error:',
+            !!result.is_error,
+            'result:',
+            resultStr.slice(0, 400)
+          );
+        }
         if (batchSignature) {
           if (result.is_error) {
             params.lastFailedBrowserBatchSignatureRef.current = batchSignature;
