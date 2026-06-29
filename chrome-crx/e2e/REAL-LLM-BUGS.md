@@ -12,6 +12,16 @@
 
 约 85% 的测试挂起，根因都是 BUG-002（CDP 附加）+ BUG-003（无迭代上限）叠加。完成的 2 个测试都恰好让模型选了 content-script 工具（`get_page_text`）。
 
+## 2026-06-29 重跑确认（docs/debug-capability-plan 分支，headed）
+
+重跑 `real-llm-navigation.spec.ts`：4 failed / 1 passed（13.8 分钟），三个 bug 均仍存在：
+- BUG-002：`tabs_create_mcp` CDP 附加超时（`Failed to attach debugger to tab: Timed out attaching debugger`）
+- BUG-003：agent loop 迭代 `workingMessages` 27→30+，工具失败后持续重试到 200s 超时（`agent did not finish`）
+- sidepanel 被关闭（`page closed`，疑似 OOM/崩溃，BUG-001 影子）
+- 1 个通过的是模型恰好选 content-script 工具
+
+将另开分支修复。
+
 ## BUG-001: read_page 在大页面上挂起并崩溃 sidepanel
 
 **状态：** 未修复
