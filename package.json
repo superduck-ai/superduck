@@ -22,7 +22,8 @@
     ],
     "chrome-native-host/**/*.go": [
       "gofmt -w",
-      "bash scripts/lint-staged-govet.sh"
+      "bash scripts/lint-staged-govet.sh",
+      "bash scripts/lint-staged-golangci-lint.sh"
     ]
   }
 }
