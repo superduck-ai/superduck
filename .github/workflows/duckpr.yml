@@ -150,7 +150,7 @@ jobs:
       - name: Get OpenCodeReview PR context
         id: ocr-context
         if: matrix.reviewer == 'ocr' && inputs.pr_number != '0' && inputs.trigger_event != 'duckpr_installation_test'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ steps.duckpr-token.outputs.token }}
           script: |
@@ -216,7 +216,7 @@ jobs:
 
       - name: Post OpenCodeReview PR review
         if: matrix.reviewer == 'ocr' && inputs.pr_number != '0' && inputs.trigger_event != 'duckpr_installation_test'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           OCR_PR_NUMBER: ${{ inputs.pr_number }}
           OCR_HEAD_SHA: ${{ steps.ocr-context.outputs.head_sha }}
