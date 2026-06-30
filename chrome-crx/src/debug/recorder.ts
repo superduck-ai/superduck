@@ -476,9 +476,10 @@ export async function recordArtifact(input: RecordArtifactInput): Promise<DebugA
     const dataBytes = measureBytes(redactedData);
     const totalBytes = contentBytes || dataBytes;
     const truncated = totalBytes > MAX_ARTIFACT_BYTES;
+    const isBinary = input.content instanceof ArrayBuffer || ArrayBuffer.isView(input.content);
     const shaInput =
       input.content != null
-        ? input.content instanceof ArrayBuffer
+        ? isBinary
           ? input.content
           : typeof input.content === 'string'
             ? input.content

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -235,6 +236,7 @@ func (s *Server) WriteFileToDisk(id, targetPath string) error {
 // validateWritePath ensures the target path is safe to write to:
 // - Must be absolute
 // - No path traversal (..)
+// - Must be within the user's home directory
 func validateWritePath(p string) (string, error) {
 	// Reject path traversal attempts before cleaning (Clean would resolve them).
 	for _, seg := range strings.Split(filepath.ToSlash(p), "/") {
@@ -247,6 +249,15 @@ func validateWritePath(p string) (string, error) {
 
 	if !filepath.IsAbs(clean) {
 		return "", fmt.Errorf("path must be absolute: %s", p)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	homeClean := filepath.Clean(home)
+	if !strings.HasPrefix(clean, homeClean+string(filepath.Separator)) && clean != homeClean {
+		return "", fmt.Errorf("path must be within home directory (%s): %s", homeClean, p)
 	}
 
 	return clean, nil

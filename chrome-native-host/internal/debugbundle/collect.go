@@ -1,6 +1,7 @@
 package debugbundle
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -149,8 +150,8 @@ func artifactExt(t string) string {
 }
 
 // writeArtifactContents writes each artifact's content payload to
-// artifacts/<subdir>/<id>.<ext>. Content that is a JSON string (base64 PNG)
-// is decoded so the file is a real PNG, not a quoted JSON string.
+// artifacts/<subdir>/<id>.<ext>. Screenshot content is base64-decoded so the
+// file is a real PNG, not a text file containing base64.
 func writeArtifactContents(artifacts []Artifact, artDir string) error {
 	for _, a := range artifacts {
 		if len(a.Content) == 0 {
@@ -165,13 +166,19 @@ func writeArtifactContents(artifacts []Artifact, artDir string) error {
 			return err
 		}
 		data := a.Content
-		// If content is a JSON string, unquote it so binary payloads (base64
-		// screenshots are NOT base64 here — CRX stores raw base64 as a string)
-		// land on disk verbatim.
+		// If content is a JSON string, unquote it.
 		if len(data) > 0 && data[0] == '"' {
 			var s string
 			if err := json.Unmarshal(data, &s); err == nil {
 				data = []byte(s)
+			}
+		}
+		// Screenshot artifacts store base64-encoded PNG data; decode it.
+		if a.Type == "screenshot" || a.Type == "annotated-screenshot" {
+			if decoded, err := base64.StdEncoding.DecodeString(string(data)); err == nil {
+				data = decoded
+			} else if decoded, err := base64.RawStdEncoding.DecodeString(string(data)); err == nil {
+				data = decoded
 			}
 		}
 		fname := sanitizeFilename(a.ID) + artifactExt(a.Type)

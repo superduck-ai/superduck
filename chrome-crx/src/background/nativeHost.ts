@@ -17,6 +17,7 @@ import {
   startDebugSession,
   stopDebugSession,
   getDebugStatus,
+  isDebugEnabled,
   exportDebugBundle,
   serializeBundleForTransport,
   recordEvent,
@@ -129,6 +130,7 @@ export function createNativeHostManager(): NativeHostManager {
   let pendingNativeResponse: {
     type: string;
     resolve: (msg: NativeMessage) => void;
+    reject: (err: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
 
@@ -148,6 +150,7 @@ export function createNativeHostManager(): NativeHostManager {
       }
       if (pendingNativeResponse) {
         clearTimeout(pendingNativeResponse.timer);
+        pendingNativeResponse.reject(new Error('request superseded by newer call'));
         pendingNativeResponse = null;
       }
       const timer = setTimeout(() => {
@@ -156,7 +159,7 @@ export function createNativeHostManager(): NativeHostManager {
           reject(new Error(`timeout waiting for ${responseType}`));
         }
       }, timeoutMs);
-      pendingNativeResponse = { type: responseType, resolve, timer };
+      pendingNativeResponse = { type: responseType, resolve, reject, timer };
       try {
         nativePort.postMessage(msg);
       } catch (err) {
@@ -360,7 +363,10 @@ export function createNativeHostManager(): NativeHostManager {
       }
       if (params.tool === 'superduck_debug_collect') {
         try {
-          const bundle = await exportDebugBundle();
+          if (!isDebugEnabled()) {
+            sendToolResponse({ content: JSON.stringify({ error: 'no active debug session' }) });
+            return;
+          }
 
           // Pull Go-side events and audit log from native host so the bundle
           // contains the complete picture (CRX events + Go events + audit log).
@@ -373,7 +379,7 @@ export function createNativeHostManager(): NativeHostManager {
                 'go_debug_events_response'
               );
               const events = goEventsResp?.events as unknown[] | undefined;
-              if (bundle && Array.isArray(events)) {
+              if (Array.isArray(events)) {
                 for (const evt of events) {
                   const e = evt as Record<string, unknown>;
                   recordEvent({
@@ -395,7 +401,7 @@ export function createNativeHostManager(): NativeHostManager {
                 'audit_log_response'
               );
               const lines = auditResp?.lines as string[] | undefined;
-              if (bundle && Array.isArray(lines)) {
+              if (Array.isArray(lines)) {
                 for (const line of lines) {
                   try {
                     const auditData = JSON.parse(line);

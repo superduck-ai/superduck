@@ -64,12 +64,15 @@ func (s *Server) injectGoEvents(bundle *debugbundle.Bundle) {
 	if err := json.Unmarshal(goEventsJSON, &goEvents); err != nil || len(goEvents) == 0 {
 		return
 	}
+	if bundle.EventsByDomain == nil {
+		bundle.EventsByDomain = make(map[string][]json.RawMessage)
+	}
 	bundle.EventsByDomain["mcp-server"] = append(bundle.EventsByDomain["mcp-server"], goEvents...)
 	slog.Info("enriched bundle with native host events", "count", len(goEvents))
 }
 
 // injectAuditLog reads recent audit log lines and appends them as debug events
-// in the mcp-server domain.
+// in the mcp-server domain. URL query strings are redacted before bundling.
 func (s *Server) injectAuditLog(bundle *debugbundle.Bundle) {
 	auditLines, err := readAuditLines(200)
 	if err != nil {
@@ -79,7 +82,11 @@ func (s *Server) injectAuditLog(bundle *debugbundle.Bundle) {
 	if len(auditLines) == 0 {
 		return
 	}
+	if bundle.EventsByDomain == nil {
+		bundle.EventsByDomain = make(map[string][]json.RawMessage)
+	}
 	for _, line := range auditLines {
+		redactedData := redactAuditLine(line)
 		auditEvent := map[string]any{
 			"schemaVersion":  1,
 			"eventId":        debugrec.GenID(),
@@ -88,7 +95,7 @@ func (s *Server) injectAuditLog(bundle *debugbundle.Bundle) {
 			"domain":         "mcp-server",
 			"event":          "cli.audit_record",
 			"level":          "debug",
-			"data":           json.RawMessage(line),
+			"data":           redactedData,
 		}
 		eventJSON, marshalErr := json.Marshal(auditEvent)
 		if marshalErr == nil {
@@ -97,6 +104,35 @@ func (s *Server) injectAuditLog(bundle *debugbundle.Bundle) {
 		}
 	}
 	slog.Info("enriched bundle with audit log lines", "count", len(auditLines))
+}
+
+// redactAuditLine parses a raw audit JSON line and redacts URL query strings
+// in known URL-carrying fields before the data enters the debug bundle.
+func redactAuditLine(line string) json.RawMessage {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		return json.RawMessage(line)
+	}
+	for _, key := range []string{"url", "href", "src", "targetUrl"} {
+		raw, ok := m[key]
+		if !ok || len(raw) == 0 {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			continue
+		}
+		redacted := debugbundle.RedactURL(s)
+		if redacted != s {
+			b, _ := json.Marshal(redacted)
+			m[key] = b
+		}
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return json.RawMessage(line)
+	}
+	return out
 }
 
 // handleGetGoDebugEvents responds to a CRX request for native-host debug events.

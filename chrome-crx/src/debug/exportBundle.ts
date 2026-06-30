@@ -197,8 +197,19 @@ export function buildReadme(): string {
 const MAX_BUNDLE_BYTES = 32 * 1024 * 1024; // 32MB — Chrome allows 64MiB CRX→host; leave headroom
 const MAX_EVENTS_PER_DOMAIN_TRUNCATED = 5000; // match ring buffer capacity
 
+function byteLength(s: string): number {
+  try {
+    return new TextEncoder().encode(s).byteLength;
+  } catch {
+    return s.length;
+  }
+}
+
 /**
- * Serialize a bundle for transport over Chrome native messaging (1MB limit).
+ * Serialize a bundle for transport over the file server bridge (32MB limit).
+ * CRX→native-host direction allows up to 64MiB; we cap at 32MB to leave headroom
+ * for Go-side enrichment (events + audit log injected after receiving).
+ *
  * If the full bundle exceeds the budget, events are truncated to the most
  * recent N per domain and a truncation marker is appended to the summary.
  *
@@ -230,7 +241,7 @@ export function serializeBundleForTransport(
   }
 
   const serialized = JSON.stringify(bundle);
-  if (serialized.length <= MAX_BUNDLE_BYTES) return serialized;
+  if (byteLength(serialized) <= MAX_BUNDLE_BYTES) return serialized;
 
   const truncated: DebugBundle = {
     ...bundle,
@@ -248,7 +259,7 @@ export function serializeBundleForTransport(
     `\n\n[events truncated for transport — kept ${totalKept} most recent across domains]`;
 
   let result = JSON.stringify(truncated);
-  if (result.length > MAX_BUNDLE_BYTES) {
+  if (byteLength(result) > MAX_BUNDLE_BYTES) {
     // Still too big — drop screenshot image content (keep metadata + ref).
     // Text artifacts (ax-summary, js-result, ref-registry, tab-snapshot) are
     // kept because they are what the agent actually consumed.

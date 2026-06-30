@@ -1,8 +1,9 @@
 /**
  * Test-only bridge that exposes the debug recorder to Playwright e2e tests
  * via globalThis.__superduckDebugBridge. Loaded as a side-effect of index.ts.
- * Production code never reads this; it exists so e2e specs can drive the
- * recorder from the service worker without a native-host round-trip.
+ * The bridge is sandboxed within the extension context and never accessed by
+ * production code — it exists so e2e specs can drive the recorder from the
+ * service worker without a native-host round-trip.
  *
  * realAttachDebugger / realTakeSnapshot read production singletons off
  * globalThis (populated by cdp/index.ts and axSnapshot/index.ts) rather than

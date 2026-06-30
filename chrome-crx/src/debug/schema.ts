@@ -108,7 +108,9 @@ export interface DebugArtifact {
   sha256: string;
   redacted: boolean;
   path?: string;
+  /** Small inline metadata (≤64 KB), stored directly in the artifact record. */
   data?: unknown;
+  /** Large payload stored in a separate content store, merged at export time. */
   content?: unknown;
   truncated?: boolean;
 }

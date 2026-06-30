@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -231,14 +233,19 @@ func TestSanitizeFilename(t *testing.T) {
 }
 
 func TestValidateWritePath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("cannot get home dir: %v", err)
+	}
 	tests := []struct {
 		path    string
 		wantErr bool
 	}{
-		{"/home/user/doc.md", false},
-		{"/tmp/output.txt", false},
+		{filepath.Join(home, "doc.md"), false},
+		{filepath.Join(home, "subdir", "file.txt"), false},
+		{"/tmp/output.txt", true}, // outside home
 		{"relative/path.md", true},
-		{"/home/user/../etc/passwd", true},
+		{filepath.Join(home, "..", "etc", "passwd"), true},
 		{"../escape", true},
 	}
 	for _, tt := range tests {

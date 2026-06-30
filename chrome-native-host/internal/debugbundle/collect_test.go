@@ -122,8 +122,10 @@ func TestWriteBundleArtifactContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("screenshot file: %v", err)
 	}
-	if string(shot) != "iVBORw0KGgo=" {
-		t.Errorf("screenshot content (should be unquoted): %q", shot)
+	// base64 "iVBORw0KGgo=" decodes to PNG magic bytes
+	expectedPNG := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	if string(shot) != string(expectedPNG) {
+		t.Errorf("screenshot content (should be decoded PNG): %q", shot)
 	}
 	ax, err := os.ReadFile(filepath.Join(out, "artifacts", "ax", "ax1.txt"))
 	if err != nil {

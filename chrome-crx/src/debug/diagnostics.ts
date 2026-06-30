@@ -67,7 +67,10 @@ function nativeToolTimeoutNoCrxStart(events: DebugBaseEvent[]): DiagnosisFinding
           'chrome-crx/src/background/nativeHost.ts',
           'chrome-crx/src/mcpRuntime/toolExecution/toolExecution.ts'
         ],
-        data: { nativeRequestId: nativeId, toolName: f.data?.toolName }
+        data: {
+          nativeRequestId: nativeId,
+          toolName: (f.data?.toolName ?? f.data?.tool) as string | undefined
+        }
       });
     }
   }
@@ -231,16 +234,17 @@ function annotatedScreenshotNoRefs(events: DebugBaseEvent[]): DiagnosisFinding[]
     const refMetaEmpty = e.data?.refMetaEmpty === true;
     const quadsAllFailed = e.data?.contentQuadsAllFailed === true;
     if (annotationCount === 0 || refMetaEmpty || quadsAllFailed) {
+      let cause: string;
+      if (refMetaEmpty) cause = 'refMeta was empty — no refs were registered before annotation.';
+      else if (quadsAllFailed)
+        cause = 'DOM.getContentQuads failed for every ref — the page may have detached the nodes.';
+      else cause = 'Annotation produced zero labels.';
       findings.push({
         id: 'annotated_screenshot_no_refs',
         severity: 'warn',
         domain: 'screenshot-ref',
         evidence: [e.eventId],
-        likelyCause: refMetaEmpty
-          ? 'refMeta was empty — no refs were registered before annotation.'
-          : quadsAllFailed
-            ? 'DOM.getContentQuads failed for every ref — the page may have detached the nodes.'
-            : 'Annotation produced zero labels.',
+        likelyCause: cause,
         nextFiles: [
           'chrome-crx/src/mcpRuntime/screenshot/annotatedScreenshot.ts',
           'chrome-crx/src/mcpRuntime/screenshot/refBridge.ts'
@@ -285,7 +289,8 @@ function jsChildTabAdoptionMismatch(events: DebugBaseEvent[]): DiagnosisFinding[
   );
   const findings: DiagnosisFinding[] = [];
   for (const e of windowOpens) {
-    const adopted = (e.data?.adoptedTabIds as unknown[]) ?? [];
+    const raw = e.data?.adoptedTabIds;
+    const adopted = Array.isArray(raw) ? raw : [];
     if (adopted.length === 0) {
       findings.push({
         id: 'js_child_tab_adoption_mismatch',

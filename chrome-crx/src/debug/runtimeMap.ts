@@ -9,6 +9,18 @@
 import type { DebugArtifact, DebugBaseEvent, DebugSessionMeta } from './schema';
 import type { DebugIds } from './schema';
 
+const SUMMARY_KEYS = [
+  'toolName',
+  'source',
+  'url',
+  'origin',
+  'permissionMode',
+  'commandType',
+  'pageType',
+  'errorType',
+  'resultType'
+] as const;
+
 export interface RuntimeMapEntity {
   id: string;
   firstSeenTs: string;
@@ -88,21 +100,12 @@ function accumulate(
     }
   }
   if (event.data) {
-    const summaryKeys = [
-      'toolName',
-      'source',
-      'url',
-      'origin',
-      'permissionMode',
-      'commandType',
-      'pageType',
-      'errorType',
-      'resultType'
-    ];
-    for (const k of summaryKeys) {
-      if (k in event.data && entity.summary?.[k] === undefined) {
+    for (const k of SUMMARY_KEYS) {
+      if (k in event.data) {
         entity.summary = entity.summary ?? {};
-        entity.summary[k] = event.data[k];
+        if (entity.summary[k] === undefined) {
+          entity.summary[k] = event.data[k];
+        }
       }
     }
   }
