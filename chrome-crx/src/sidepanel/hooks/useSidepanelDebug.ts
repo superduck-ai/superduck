@@ -11,6 +11,10 @@ import { useEffect, useRef } from 'react';
 import { recordEvent } from '../../debug';
 import { newDebugSessionId } from '../../debug/session';
 
+export function isDebugMsgs(): boolean {
+  return !!(globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS;
+}
+
 const RENDER_SPIKE_THRESHOLD = 30;
 const FLUSH_INTERVAL_MS = 1000;
 

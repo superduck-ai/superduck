@@ -1,3 +1,4 @@
+import { isDebugMsgs } from './useSidepanelDebug';
 import { useCallback, useRef } from 'react';
 import { type SupportedLocale, useIntlSafe } from '../../index-react-dom-intl';
 import { tabGroupManager, trackEvent } from '../../mcpRuntime';
@@ -508,7 +509,7 @@ export function useAgentLoop({
           let shouldRetry = false;
           const rafState: RafState = { rafId: null, pending: false };
 
-          if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+          if (isDebugMsgs()) {
             console.log(
               '[SD_DEBUG] iter-start workingMessages:',
               workingMessages.length,
@@ -540,7 +541,7 @@ export function useAgentLoop({
               });
               if (streamResult.shouldBreak) break;
               workingMessages = streamResult.workingMessages;
-              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+              if (isDebugMsgs()) {
                 console.log(
                   '[SD_DEBUG] after-stream workingMessages:',
                   workingMessages.length,
@@ -568,7 +569,7 @@ export function useAgentLoop({
                 setApiMessages
               });
               workingMessages = toolResult.workingMessages;
-              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+              if (isDebugMsgs()) {
                 console.log(
                   '[SD_DEBUG] after-exec workingMessages:',
                   workingMessages.length,
@@ -585,7 +586,7 @@ export function useAgentLoop({
                 pushMessage
               });
               workingMessages = compactResult.workingMessages;
-              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+              if (isDebugMsgs()) {
                 console.log(
                   '[SD_DEBUG] after-compact workingMessages:',
                   workingMessages.length,
@@ -595,7 +596,7 @@ export function useAgentLoop({
 
               continueLoop = true;
             } catch (error) {
-              if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+              if (isDebugMsgs()) {
                 console.log(
                   '[SD_DEBUG] streamAndProcess THREW:',
                   error instanceof Error ? `${error.name}: ${error.message}` : String(error)

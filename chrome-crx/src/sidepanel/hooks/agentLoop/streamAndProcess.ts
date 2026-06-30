@@ -1,3 +1,4 @@
+import { isDebugMsgs } from '../useSidepanelDebug';
 import type { MutableRefObject } from 'react';
 import { dispatchMessagesClient } from '../../../utils/providerClient';
 import { MessagesClient } from '../../../mcpServersStore';
@@ -69,7 +70,7 @@ export async function streamAndProcess(params: StreamAndProcessParams) {
     params.effectiveMessagesClient
   );
 
-  if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+  if (isDebugMsgs()) {
     console.log(
       '[SD_DEBUG] streamAndProcess preparedMessages:',
       preparedMessages.length,
@@ -127,7 +128,7 @@ export async function streamAndProcess(params: StreamAndProcessParams) {
 
   const response: ResponseWithMessageLimit = await stream.finalMessage();
 
-  if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+  if (isDebugMsgs()) {
     const blockTypes = Array.isArray(response.content)
       ? response.content.map((b: { type?: string }) => b?.type)
       : [];

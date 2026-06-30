@@ -1,3 +1,4 @@
+import { isDebugMsgs } from '../useSidepanelDebug';
 import type { MutableRefObject } from 'react';
 import { filterAndApproveDomains } from '../../../mcpRuntime';
 import { checkToolAllowed, getPageType } from '../../conversation/planMode';
@@ -183,7 +184,7 @@ export async function executeToolUses(
       }
 
       for (const toolUse of realToolUses) {
-        if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+        if (isDebugMsgs()) {
           console.log('[SD_DEBUG] executeToolUses start:', toolUse.name, 'id:', toolUse.id);
         }
         if (params.controller.signal.aborted) {
@@ -289,7 +290,7 @@ export async function executeToolUses(
         }
 
         const result = await params.executeToolUse(toolUse);
-        if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
+        if (isDebugMsgs()) {
           let resultStr = '';
           if (typeof result.content === 'string') resultStr = result.content;
           else if (Array.isArray(result.content)) resultStr = JSON.stringify(result.content);
