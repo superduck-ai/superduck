@@ -128,9 +128,8 @@ export default defineConfig({
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          // Content scripts and service worker go to root level
+          // Manifest content scripts and service worker go to root level.
           const noHashEntries = [
-            'content-script',
             'accessibility-tree',
             'agent-visual-indicator',
             'service-worker-loader'

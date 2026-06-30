@@ -1,8 +1,8 @@
 import { type AnnouncementFeatureValue, PermissionActionType } from '../extensionServices';
 import type { PermissionMode } from './sidepanelUtils';
 import type { PromptAttachmentPayload } from './sidepanelUtils';
-import type { PlanStructure } from './planMode';
-import type { LightningMessage, ParsedCommand } from './lightningCommands';
+import type { PlanStructure } from './conversation/planMode';
+import type { LightningMessage, ParsedCommand } from './lightningMode/commands';
 import type {
   ApiConversationMessage,
   ApiImageContentBlock,

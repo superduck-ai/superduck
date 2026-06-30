@@ -27,10 +27,7 @@ function findExistingRef(
   return null;
 }
 
-function createRef(
-  elementMap: Record<string, WeakRef<Element>>,
-  element: Element
-): string {
+function createRef(elementMap: Record<string, WeakRef<Element>>, element: Element): string {
   const nextRefCounter = getOrCreateRefCounter() + 1;
   window.__superduckRefCounter = nextRefCounter;
 

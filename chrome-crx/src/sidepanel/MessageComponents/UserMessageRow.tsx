@@ -6,9 +6,9 @@ import {
   hasShortcutMarkers,
   renderTextWithShortcutChips,
   resolveShortcutMarkersForCopy
-} from '../shortcutMarkers';
-import { ImagePreviewModal } from '../MessageViews';
-import { Tooltip } from '../Tooltip';
+} from '../shortcutsMenu/shortcutMarkers';
+import { ImagePreviewModal } from '@/sidepanel/components/MessageViews';
+import { Tooltip } from '@/sidepanel/components/Tooltip';
 import { getTextFromBlockContent, getBase64ImageBlocks } from '../sidepanelUtils';
 import { isRecord } from '../../messageTypes';
 import type { ApiConversationMessage, ApiToolResultBlock } from '../../messageTypes';

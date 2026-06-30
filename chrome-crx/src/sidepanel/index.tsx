@@ -1,6 +1,6 @@
 import ReactDOM from 'react-dom/client';
 import { IntlMessageLoaderProvider } from '../index-react-dom-intl';
-import { SidepanelApp } from './SidepanelApp';
+import SidepanelApp from './SidepanelApp';
 import 'katex/dist/katex.min.css';
 import '../styles/scheduling.css';
 

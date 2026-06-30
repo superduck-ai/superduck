@@ -1,7 +1,7 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useStorageState } from '@/hooks/useStorageState';
-import { PermissionManager } from '@/PermissionManager';
+import { PermissionManager } from '@/permissions/PermissionManager';
 import { StorageKeys } from '@/extensionServices';
 import { trackEvent } from '@/mcpRuntime/analytics';
 import { ProviderConfigSection } from './ProviderConfigSection';

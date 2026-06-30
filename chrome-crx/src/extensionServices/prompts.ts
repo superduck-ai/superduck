@@ -126,7 +126,9 @@ export class PromptService {
 
   static async exportPrompts(ids?: string[]): Promise<string> {
     const allPrompts = await this.getAllPrompts();
-    const filteredPrompts = ids ? allPrompts.filter((prompt) => ids.includes(prompt.id)) : allPrompts;
+    const filteredPrompts = ids
+      ? allPrompts.filter((prompt) => ids.includes(prompt.id))
+      : allPrompts;
     return JSON.stringify(filteredPrompts, null, 2);
   }
 
@@ -141,7 +143,9 @@ export class PromptService {
       lastUsedAt: undefined
     }));
     const combinedPrompts = [...existingPrompts, ...newPrompts];
-    const commands = combinedPrompts.filter((prompt) => prompt.command).map((prompt) => prompt.command);
+    const commands = combinedPrompts
+      .filter((prompt) => prompt.command)
+      .map((prompt) => prompt.command);
     if (commands.length !== new Set(commands).size) {
       throw new Error('Import contains duplicate command shortcuts');
     }

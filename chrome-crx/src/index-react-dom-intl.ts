@@ -12,10 +12,7 @@ import { FormattedMessage, IntlProvider, useIntl, type IntlShape } from 'react-i
 
 export const DEFAULT_LOCALE = 'en-US';
 
-export const SUPPORTED_LOCALES = [
-  'en-US',
-  'zh-CN'
-] as const;
+export const SUPPORTED_LOCALES = ['en-US', 'zh-CN'] as const;
 
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 

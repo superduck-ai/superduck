@@ -1,112 +1,36 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { getStorageValue, removeStorageValues, setStorageValue } from '../../extensionServices';
+import { getStorageValue, setStorageValue } from '../../extensionServices';
 import { type ApiConversationMessage } from '../../messageTypes';
 import { ensureToolResultPairs } from '../../utils/conversationProtocol';
 import {
-  extractTextFromContent,
   getConversationStorageKey,
   getHistoryStorageKey,
-  hasPersistableSessionContent,
-  pickEventMessage
-} from '../sessionHistory';
-import { createId, isPermissionMode, type PermissionMode } from '../sidepanelUtils';
+  hasPersistableSessionContent
+} from '../session/history';
+import { isPermissionMode, type PermissionMode } from '../sidepanelUtils';
 import { isSessionSnapshot, isStringRecord } from '../sidepanelGuards';
+import { SESSION_CONVERSATION_MAP_KEY, SESSION_REMOTE_MAP_KEY } from '../sidepanelGuards';
+import type { SessionSnapshot } from '../types';
+import { useSessionStore } from '../stores/sessionStore';
+import { useChatStore } from '../stores/chatStore';
+import { useModelStore } from '../stores/modelStore';
+import { usePermissionStore } from '../stores/permissionStore';
+import { useAgentStore } from '../stores/agentStore';
 import {
-  SESSION_CONVERSATION_MAP_KEY,
-  SESSION_REMOTE_MAP_KEY,
-  SESSION_INDEX_KEY
-} from '../sidepanelGuards';
-import type { ChatMessage, SessionIndexEntry, SessionSnapshot } from '../types';
-
-// ─── Helper functions ─────────────────────────────────────────────────────────
-
-export async function upsertSessionIndex(entry: SessionIndexEntry) {
-  const raw = await getStorageValue(SESSION_INDEX_KEY, []);
-  const current = Array.isArray(raw) ? (raw as SessionIndexEntry[]) : [];
-  const existing = current.find((item) => item.sessionId === entry.sessionId);
-  const next = existing
-    ? current.map((item) =>
-        item.sessionId === entry.sessionId
-          ? {
-              ...entry,
-              conversationUuid: entry.conversationUuid || item.conversationUuid,
-              remoteSessionId: entry.remoteSessionId || item.remoteSessionId
-            }
-          : item
-      )
-    : [entry, ...current];
-  next.sort((a, b) => b.updatedAt - a.updatedAt);
-  await setStorageValue(SESSION_INDEX_KEY, next.slice(0, 200));
-}
-
-export async function removeSessionIndexEntry(sessionId: string) {
-  const raw = await getStorageValue(SESSION_INDEX_KEY, []);
-  const current = Array.isArray(raw) ? (raw as SessionIndexEntry[]) : [];
-  const next = current.filter((item) => item.sessionId !== sessionId);
-  if (next.length !== current.length) {
-    await setStorageValue(SESSION_INDEX_KEY, next);
-  }
-}
-
-async function removeEmptySessionArtifacts(sessionId: string, snapshot: SessionSnapshot) {
-  const keysToRemove = [getHistoryStorageKey(sessionId)];
-  let ownsConversationSnapshot = false;
-
-  if (snapshot.conversationUuid) {
-    const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-    const currentMap = isStringRecord(rawMap) ? rawMap : {};
-    ownsConversationSnapshot = currentMap[snapshot.conversationUuid] === sessionId;
-    if (ownsConversationSnapshot) {
-      keysToRemove.push(getConversationStorageKey(snapshot.conversationUuid));
-    }
-  }
-
-  await removeStorageValues(keysToRemove);
-  await removeSessionIndexEntry(sessionId);
-
-  if (snapshot.conversationUuid && ownsConversationSnapshot) {
-    const rawMap = await getStorageValue(SESSION_CONVERSATION_MAP_KEY, {});
-    const currentMap = isStringRecord(rawMap) ? rawMap : {};
-    if (currentMap[snapshot.conversationUuid] === sessionId) {
-      const nextMap = { ...currentMap };
-      delete nextMap[snapshot.conversationUuid];
-      await setStorageValue(SESSION_CONVERSATION_MAP_KEY, nextMap);
-    }
-  }
-}
-
-function withValidApiMessages(snapshot: SessionSnapshot): SessionSnapshot {
-  return {
-    ...snapshot,
-    apiMessages: ensureToolResultPairs(snapshot.apiMessages)
-  };
-}
+  removeEmptySessionArtifacts,
+  upsertSessionIndex,
+  withValidApiMessages
+} from './sessionPersistence/sessionIndexPersistence';
+import { restoreRemoteSession } from './sessionPersistence/restoreRemoteSession';
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export interface UseSessionPersistenceProps {
   activeSessionId: string;
-  activeConversationUuid: string | null;
-  activeRemoteSessionId: string | null;
-  messages: ChatMessage[];
-  apiMessages: ApiConversationMessage[];
-  selectedModel: string;
+  // Refs still need to be passed (can't be stored in Zustand)
   selectedModelRef: React.MutableRefObject<string>;
-  permissionMode: PermissionMode;
   permissionModeRef: React.MutableRefObject<PermissionMode>;
   sessionCreatedAtRef: React.MutableRefObject<number>;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setApiMessages: React.Dispatch<React.SetStateAction<ApiConversationMessage[]>>;
-  setMessageHistory: React.Dispatch<React.SetStateAction<ApiConversationMessage[]>>;
-  setRuntimeError: React.Dispatch<React.SetStateAction<string | null>>;
-  setLastStopReason: React.Dispatch<
-    React.SetStateAction<{ reason: string; messageId?: string } | null>
-  >;
-  setTokensSaved: React.Dispatch<React.SetStateAction<number | null>>;
-  setSelectedModel: (model: string) => void;
-  setPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
-  setActiveConversationUuid: React.Dispatch<React.SetStateAction<string | null>>;
-  setActiveRemoteSessionId: React.Dispatch<React.SetStateAction<string | null>>;
   hasLoadedSessionRef: React.MutableRefObject<boolean>;
   activeConversationUuidRef: React.MutableRefObject<string | null>;
   activeRemoteSessionIdRef: React.MutableRefObject<string | null>;
@@ -117,25 +41,9 @@ export interface UseSessionPersistenceProps {
 
 export function useSessionPersistence({
   activeSessionId,
-  activeConversationUuid,
-  activeRemoteSessionId,
-  messages,
-  apiMessages,
-  selectedModel,
   selectedModelRef,
-  permissionMode,
   permissionModeRef,
   sessionCreatedAtRef,
-  setMessages,
-  setApiMessages,
-  setMessageHistory,
-  setRuntimeError,
-  setLastStopReason,
-  setTokensSaved,
-  setSelectedModel,
-  setPermissionMode,
-  setActiveConversationUuid,
-  setActiveRemoteSessionId,
   hasLoadedSessionRef,
   activeConversationUuidRef,
   activeRemoteSessionIdRef,
@@ -143,6 +51,26 @@ export function useSessionPersistence({
   apiBaseUrl,
   shouldDisableSkipPermissions
 }: UseSessionPersistenceProps) {
+  // ─── Read state from Zustand stores (no prop drilling) ───────────────────
+  const activeConversationUuid = useSessionStore((s) => s.activeConversationUuid);
+  const setActiveConversationUuid = useSessionStore((s) => s.setActiveConversationUuid);
+  const activeRemoteSessionId = useSessionStore((s) => s.activeRemoteSessionId);
+  const setActiveRemoteSessionId = useSessionStore((s) => s.setActiveRemoteSessionId);
+  const messages = useChatStore((s) => s.messages);
+  const setMessages = useChatStore((s) => s.setMessages);
+  const apiMessages = useChatStore((s) => s.apiMessages);
+  const setApiMessages = useChatStore((s) => s.setApiMessages);
+  const selectedModel = useModelStore((s) => s.selectedModel);
+  const setSelectedModel = useModelStore((s) => s.setSelectedModel);
+  const permissionMode = usePermissionStore((s) => s.permissionMode);
+  const setPermissionMode = usePermissionStore((s) => s.setPermissionMode);
+  const setRuntimeError = useAgentStore((s) => s.setRuntimeError);
+  const setLastStopReason = useAgentStore((s) => s.setLastStopReason);
+  const setTokensSaved = useAgentStore((s) => s.setTokensSaved);
+  // setMessageHistory is kept local to SidepanelApp (unused field)
+  const setMessageHistory = (_messages: ApiConversationMessage[]) => {
+    // no-op for now; _messageHistory is unused
+  };
   const historyStorageKey = getHistoryStorageKey(activeSessionId);
 
   // Holds the latest persistSnapshot function so flushSession() can
@@ -207,95 +135,6 @@ export function useSessionPersistence({
     []
   );
 
-  // ─── Restore snapshot from remote session ───────────────────────────────────
-
-  const restoreSnapshotFromRemoteSession = useCallback(
-    async (
-      remoteSessionId: string,
-      conversationUuid?: string | null
-    ): Promise<SessionSnapshot | undefined> => {
-      if (!apiKey) return undefined;
-      try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'ccr-byoc-2025-07-29'
-        };
-        if (apiKey) {
-          headers['x-api-key'] = apiKey;
-        }
-
-        const [eventsResponse, sessionResponse] = await Promise.all([
-          fetch(`${apiBaseUrl}/v1/sessions/${encodeURIComponent(remoteSessionId)}/events`, {
-            method: 'GET',
-            headers
-          }),
-          fetch(`${apiBaseUrl}/v1/sessions/${encodeURIComponent(remoteSessionId)}`, {
-            method: 'GET',
-            headers
-          })
-        ]);
-
-        if (!eventsResponse.ok) {
-          return undefined;
-        }
-
-        const eventsPayload = await eventsResponse.json();
-        const events = Array.isArray(eventsPayload?.data)
-          ? eventsPayload.data
-          : Array.isArray(eventsPayload)
-            ? eventsPayload
-            : [];
-
-        const apiMessages: ApiConversationMessage[] = [];
-        const uiMessages: ChatMessage[] = [];
-        for (const event of events) {
-          const message = pickEventMessage(event);
-          if (!message) continue;
-          apiMessages.push(message);
-
-          const text =
-            typeof message.content === 'string'
-              ? message.content.trim()
-              : extractTextFromContent(message.content);
-          if (!text) continue;
-          uiMessages.push({
-            id: createId(),
-            role: message.role,
-            text
-          });
-        }
-
-        if (apiMessages.length === 0) {
-          return undefined;
-        }
-
-        let restoredModel = selectedModelRef.current;
-        if (sessionResponse.ok) {
-          const sessionPayload = await sessionResponse.json();
-          const sessionModel = sessionPayload?.session_context?.model;
-          if (typeof sessionModel === 'string' && sessionModel) {
-            restoredModel = sessionModel;
-          }
-        }
-
-        return {
-          uiMessages,
-          apiMessages: ensureToolResultPairs(apiMessages),
-          selectedModel: restoredModel,
-          permissionMode: permissionModeRef.current,
-          createdAt: Date.now(),
-          conversationUuid: conversationUuid || undefined,
-          remoteSessionId
-        };
-      } catch (error) {
-        console.error('[sidepanel] failed to restore remote session', error);
-        return undefined;
-      }
-    },
-    [apiBaseUrl, apiKey, selectedModelRef, permissionModeRef]
-  );
-
   // ─── Session-loading effect ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -328,10 +167,14 @@ export function useSessionPersistence({
 
       let snapshot = await loadSnapshotForSession(activeSessionId, currentConversationUuid);
       if (!snapshot && resolvedRemoteSessionId) {
-        const restoredSnapshot = await restoreSnapshotFromRemoteSession(
-          resolvedRemoteSessionId,
-          currentConversationUuid
-        );
+        const restoredSnapshot = await restoreRemoteSession({
+          apiKey,
+          apiBaseUrl,
+          selectedModel: selectedModelRef.current,
+          permissionMode: permissionModeRef.current,
+          remoteSessionId: resolvedRemoteSessionId,
+          conversationUuid: currentConversationUuid
+        });
         if (restoredSnapshot) {
           snapshot = restoredSnapshot;
           await setStorageValue(getHistoryStorageKey(activeSessionId), restoredSnapshot);
@@ -411,7 +254,7 @@ export function useSessionPersistence({
     return () => {
       active = false;
     };
-  }, [activeSessionId, loadSnapshotForSession, restoreSnapshotFromRemoteSession]);
+  }, [activeSessionId, apiBaseUrl, apiKey, loadSnapshotForSession]);
 
   // ─── Session persistence effect (debounced) ─────────────────────────────────
   // Reads the snapshot from snapshotRef (updated during render) instead of
@@ -569,9 +412,6 @@ export function useSessionPersistence({
 
   return {
     loadSnapshotForSession,
-    restoreSnapshotFromRemoteSession,
-    upsertSessionIndex,
-    flushSession,
-    historyStorageKey
+    flushSession
   };
 }

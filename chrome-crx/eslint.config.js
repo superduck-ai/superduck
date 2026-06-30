@@ -25,14 +25,27 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-expressions': 'off',
       'no-useless-catch': 'off',
       '@typescript-eslint/no-unused-vars': [
-        'warn',
+        'error',
         {
           argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_'
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_?(err|e|error)$'
         }
       ],
       '@typescript-eslint/naming-convention': [
-        'warn',
+        'error',
+        // Some globals and injected props intentionally use a double-underscore
+        // prefix to mirror runtime/global names.
+        {
+          selector: 'variable',
+          filter: { regex: '^__', match: true },
+          format: null
+        },
+        {
+          selector: 'parameter',
+          filter: { regex: '^__', match: true },
+          format: null
+        },
         // Variables: camelCase / UPPER_CASE (constants) / PascalCase (React components, classes assigned to vars)
         {
           selector: 'variable',
@@ -69,7 +82,7 @@ export default tseslint.config(
         // Imports: allow any format (dependent on the upstream package)
         {
           selector: 'import',
-          format: ['camelCase', 'PascalCase']
+          format: null
         }
       ]
     }

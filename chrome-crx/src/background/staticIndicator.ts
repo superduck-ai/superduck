@@ -1,4 +1,4 @@
-import { tabGroupManager } from "../mcpRuntime";
+import { tabGroupManager } from '../mcpRuntime';
 
 type SuccessResponse = { success: boolean };
 
@@ -7,7 +7,7 @@ export function createStaticIndicatorController() {
 
   async function handleHeartbeat(
     sender: chrome.runtime.MessageSender,
-    sendResponse: (response: SuccessResponse) => void,
+    sendResponse: (response: SuccessResponse) => void
   ) {
     const senderTabId = sender.tab?.id;
     if (!senderTabId) {
@@ -58,10 +58,10 @@ export function createStaticIndicatorController() {
 
         chrome.runtime.sendMessage(
           {
-            type: "MAIN_TAB_ACK_REQUEST",
+            type: 'MAIN_TAB_ACK_REQUEST',
             secondaryTabId: senderTabId,
             mainTabId: candidateTabId,
-            timestamp: now,
+            timestamp: now
           },
           async (response) => {
             const isAlive = response?.success ?? false;
@@ -71,7 +71,7 @@ export function createStaticIndicatorController() {
             } else {
               await checkTab(index + 1);
             }
-          },
+          }
         );
       };
 
@@ -83,7 +83,7 @@ export function createStaticIndicatorController() {
 
   async function dismissForSenderGroup(
     sender: chrome.runtime.MessageSender,
-    sendResponse: (response: SuccessResponse) => void,
+    sendResponse: (response: SuccessResponse) => void
   ) {
     const senderTabId = sender.tab?.id;
     if (!senderTabId) {
@@ -110,6 +110,6 @@ export function createStaticIndicatorController() {
 
   return {
     handleHeartbeat,
-    dismissForSenderGroup,
+    dismissForSenderGroup
   };
 }

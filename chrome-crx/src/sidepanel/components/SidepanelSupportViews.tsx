@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { MemoizedFormattedMessage, useIntlSafe } from '@/index-react-dom-intl';
-import type { ScrollContainerHandle } from '@/sidepanel/ScrollContainer';
+import type { ScrollContainerHandle } from '@/sidepanel/components/ScrollContainer';
 
 function BrowserPermissionGate({ onAccept }: { onAccept: () => Promise<void> }) {
   return (

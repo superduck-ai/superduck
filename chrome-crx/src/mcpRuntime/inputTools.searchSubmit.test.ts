@@ -87,17 +87,21 @@ vi.mock('./cdp', () => ({
   checkDomainSecurity: vi.fn(async () => null),
   generateUniqueId: vi.fn(() => 'id-1'),
   screenshotToViewportCoords: vi.fn(),
-  scrollViaContentScript: vi.fn()
+  scrollViaContentScript: vi.fn(),
+  screenshotContextManager: {
+    getLastScreenshot: vi.fn(),
+    getContext: vi.fn(() => null)
+  }
 }));
 
-vi.mock('./refBridge', () => ({
+vi.mock('./screenshot/refBridge', () => ({
   resolveStaleRef: vi.fn(),
   getRefBackendNodeId: vi.fn(() => null),
   getRefRole: vi.fn(() => null),
   getRefMetaByTab: vi.fn()
 }));
 
-vi.mock('./annotatedScreenshot', () => ({
+vi.mock('./screenshot/annotatedScreenshot', () => ({
   captureAnnotatedScreenshot: vi.fn()
 }));
 
@@ -119,7 +123,7 @@ const chromeMock = vi.hoisted(() => ({
 
 vi.stubGlobal('chrome', chromeMock);
 
-const { computerTool } = await import('./inputTools');
+const { computerTool } = await import('./inputTools/computerTool');
 
 const context: ToolContext = {
   tabId: 10,

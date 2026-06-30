@@ -1,5 +1,5 @@
-import * as ReactModule from "react";
-import * as JsxRuntimeModule from "react/jsx-runtime";
+import * as ReactModule from 'react';
+import * as JsxRuntimeModule from 'react/jsx-runtime';
 
 type ModuleRecord = Record<string, unknown>;
 type CallableModuleRecord = ModuleRecord &
@@ -11,13 +11,13 @@ function mergeModuleExports<T extends object>(target: T, modules: unknown[]): T 
   for (let index = 0; index < modules.length; index += 1) {
     const module = modules[index];
 
-    if (typeof module === "string" || Array.isArray(module) || !module) {
+    if (typeof module === 'string' || Array.isArray(module) || !module) {
       continue;
     }
 
     const moduleRecord = module as ModuleRecord;
     for (const key in moduleRecord) {
-      if (key === "default" || key in target) {
+      if (key === 'default' || key in target) {
         continue;
       }
 
@@ -39,27 +39,27 @@ function mergeModuleExports<T extends object>(target: T, modules: unknown[]): T 
     }
   }
 
-  Object.defineProperty(target, Symbol.toStringTag, { value: "Module" });
+  Object.defineProperty(target, Symbol.toStringTag, { value: 'Module' });
   return Object.freeze(target);
 }
 
 const globalScope: typeof globalThis | Record<string, unknown> =
-  typeof globalThis !== "undefined"
+  typeof globalThis !== 'undefined'
     ? globalThis
-    : typeof window !== "undefined"
+    : typeof window !== 'undefined'
       ? window
-      : typeof global !== "undefined"
+      : typeof global !== 'undefined'
         ? global
-        : typeof self !== "undefined"
+        : typeof self !== 'undefined'
           ? self
           : {};
 
 function interopDefault<T>(module: T): unknown {
   if (
     module &&
-    typeof module === "object" &&
-    "__esModule" in module &&
-    Object.prototype.hasOwnProperty.call(module, "default")
+    typeof module === 'object' &&
+    '__esModule' in module &&
+    Object.prototype.hasOwnProperty.call(module, 'default')
   ) {
     return (module as ModuleRecord).default;
   }
@@ -68,14 +68,14 @@ function interopDefault<T>(module: T): unknown {
 }
 
 function interopNamespaceCompat<T extends ModuleRecord>(module: T): T | ModuleRecord {
-  if (Object.prototype.hasOwnProperty.call(module, "__esModule")) {
+  if (Object.prototype.hasOwnProperty.call(module, '__esModule')) {
     return module;
   }
 
   const defaultExport = module.default;
   let namespaceProxy: ModuleRecord;
 
-  if (typeof defaultExport === "function") {
+  if (typeof defaultExport === 'function') {
     const callable = function namespaceCallable(this: unknown, ...args: unknown[]): unknown {
       let isConstructCall: boolean;
       try {
@@ -88,7 +88,9 @@ function interopNamespaceCompat<T extends ModuleRecord>(module: T): T | ModuleRe
         return Reflect.construct(
           defaultExport as (...callArgs: unknown[]) => unknown,
           args,
-          (this as { constructor?: unknown })?.constructor as new (...ctorArgs: unknown[]) => unknown
+          (this as { constructor?: unknown })?.constructor as new (
+            ...ctorArgs: unknown[]
+          ) => unknown
         );
       }
 
@@ -101,7 +103,7 @@ function interopNamespaceCompat<T extends ModuleRecord>(module: T): T | ModuleRe
     namespaceProxy = {};
   }
 
-  Object.defineProperty(namespaceProxy, "__esModule", { value: true });
+  Object.defineProperty(namespaceProxy, '__esModule', { value: true });
 
   Object.keys(module).forEach((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(module, key);

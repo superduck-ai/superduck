@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { StorageKeys, getStorageValue, setStorageValue } from '../../extensionServices';
-import { getConversationStorageKey, getHistoryStorageKey } from '../sessionHistory';
+import { getConversationStorageKey, getHistoryStorageKey } from '../session/history';
 import {
   isPermissionMode,
-  type PermissionMode,
   type PromptAttachmentPayload,
   decodeBase64ToFile
 } from '../sidepanelUtils';
 import { isSessionSnapshot, isStringRecord } from '../sidepanelGuards';
 import { SESSION_CONVERSATION_MAP_KEY, SESSION_REMOTE_MAP_KEY } from '../sidepanelGuards';
-import type { PairingPromptState, PendingPromptPayload, SendPromptOptions } from '../types';
+import type { SendPromptOptions } from '../types';
+import { useSessionStore } from '../stores/sessionStore';
+import { useChatStore } from '../stores/chatStore';
+import { useModelStore } from '../stores/modelStore';
+import { usePermissionStore } from '../stores/permissionStore';
+import { useAgentStore } from '../stores/agentStore';
+import { useAttachmentStore } from '../stores/attachmentStore';
+import { useTabStore } from '../stores/tabStore';
 
 const TARGET_SESSION_READY_TIMEOUT_MS = 2000;
 const TARGET_SESSION_READY_POLL_MS = 50;
@@ -20,20 +26,6 @@ export interface UseRuntimeMessagesProps {
   querySessionId: string | undefined;
   querySkipPermissions: boolean | undefined;
   activeSessionId: string;
-  setActiveConversationUuid: React.Dispatch<React.SetStateAction<string | null>>;
-  setActiveRemoteSessionId: React.Dispatch<React.SetStateAction<string | null>>;
-  setActiveSessionId: React.Dispatch<React.SetStateAction<string>>;
-  setPairingPrompt: React.Dispatch<React.SetStateAction<PairingPromptState | null>>;
-  setPairingName: React.Dispatch<React.SetStateAction<string>>;
-  setInput: React.Dispatch<React.SetStateAction<string>>;
-  setPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
-  setSelectedModel: (model: string) => void;
-  setAttachmentCount: React.Dispatch<React.SetStateAction<number>>;
-  setPendingAttachments: React.Dispatch<React.SetStateAction<PromptAttachmentPayload[]>>;
-  setPreviewAttachmentImage: React.Dispatch<React.SetStateAction<string | null>>;
-  setPopulatedInputTargetTabId: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setPendingPrompt: React.Dispatch<React.SetStateAction<PendingPromptPayload | null>>;
-  setIsAgentRunning: React.Dispatch<React.SetStateAction<boolean>>;
   loadSnapshotForSession: (sessionId: string, conversationUuid?: string | null) => Promise<any>;
   sessionCreatedAtRef: React.MutableRefObject<number>;
   hasLoadedSessionRef: React.MutableRefObject<boolean>;
@@ -71,20 +63,6 @@ export function useRuntimeMessages({
   querySessionId,
   querySkipPermissions,
   activeSessionId,
-  setActiveConversationUuid,
-  setActiveRemoteSessionId,
-  setActiveSessionId,
-  setPairingPrompt,
-  setPairingName,
-  setInput,
-  setPermissionMode,
-  setSelectedModel,
-  setAttachmentCount,
-  setPendingAttachments,
-  setPreviewAttachmentImage,
-  setPopulatedInputTargetTabId,
-  setPendingPrompt,
-  setIsAgentRunning,
   loadSnapshotForSession,
   sessionCreatedAtRef,
   hasLoadedSessionRef,
@@ -96,6 +74,21 @@ export function useRuntimeMessages({
   shouldDisableSkipPermissions,
   clearPreservedTranscriptForTarget
 }: UseRuntimeMessagesProps) {
+  // ─── Read setters from Zustand stores (no prop drilling) ───────────────────
+  const setActiveConversationUuid = useSessionStore((s) => s.setActiveConversationUuid);
+  const setActiveRemoteSessionId = useSessionStore((s) => s.setActiveRemoteSessionId);
+  const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
+  const setPairingPrompt = useAgentStore((s) => s.setPairingPrompt);
+  const setPairingName = useAgentStore((s) => s.setPairingName);
+  const setInput = useChatStore((s) => s.setInput);
+  const setPermissionMode = usePermissionStore((s) => s.setPermissionMode);
+  const setSelectedModel = useModelStore((s) => s.setSelectedModel);
+  const setAttachmentCount = useAttachmentStore((s) => s.setAttachmentCount);
+  const setPendingAttachments = useAttachmentStore((s) => s.setPendingAttachments);
+  const setPreviewAttachmentImage = useAttachmentStore((s) => s.setPreviewAttachmentImage);
+  const setPopulatedInputTargetTabId = useTabStore((s) => s.setPopulatedInputTargetTabId);
+  const setPendingPrompt = useAgentStore((s) => s.setPendingPrompt);
+  const setIsAgentRunning = useAgentStore((s) => s.setIsAgentRunning);
   // Track the current activeSessionId in a ref so async callbacks (like the
   // POPULATE_INPUT_TEXT timeout) can detect stale sessions without re-running
   // the effect on every session change.

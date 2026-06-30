@@ -12,7 +12,8 @@ const SNAPSHOT_CACHE_MAX = 20;
 const snapshotCache = new Map<string, SnapshotCacheEntry>();
 
 export const DIFF_NO_CHANGES = '(no changes since last read_page)';
-export const DIFF_NO_BASELINE_PREFIX = '(no previous snapshot for this URL, returning full content)';
+export const DIFF_NO_BASELINE_PREFIX =
+  '(no previous snapshot for this URL, returning full content)';
 
 export interface SnapshotVariant {
   filter: 'all' | 'interactive';
@@ -21,6 +22,7 @@ export interface SnapshotVariant {
   urls: boolean;
 }
 
+// sessionId isolates sidepanels sharing a tab from each other's baselines
 function snapshotCacheKey(sessionId: string | undefined, tabId: number): string {
   return `${sessionId ?? '_nosession'}:${tabId}`;
 }

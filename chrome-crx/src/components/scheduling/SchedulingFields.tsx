@@ -45,11 +45,11 @@ interface SchedulingFieldsProps {
 type SchedulingModelOption =
   | string
   | {
-  model?: string;
-  value?: string;
-  name?: string;
-  label?: string;
-};
+      model?: string;
+      value?: string;
+      name?: string;
+      label?: string;
+    };
 
 interface SchedulingModelConfig {
   options?: SchedulingModelOption[];
@@ -168,11 +168,11 @@ function SchedulingFields({
               value:
                 typeof modelOption === 'string'
                   ? modelOption
-                  : modelOption.model ?? modelOption.value,
+                  : (modelOption.model ?? modelOption.value),
               label:
                 typeof modelOption === 'string'
                   ? modelOption
-                  : modelOption.name ?? modelOption.label
+                  : (modelOption.name ?? modelOption.label)
             }))
             .filter(
               (
@@ -194,7 +194,11 @@ function SchedulingFields({
   const renderScheduleFields = () => (
     <div className="flex gap-2 items-end flex-wrap">
       <div className="flex-1 min-w-[140px]">
-        <SimpleSelect value={repeatType || 'once'} onChange={setRepeatType} options={repeatOptions} />
+        <SimpleSelect
+          value={repeatType || 'once'}
+          onChange={setRepeatType}
+          options={repeatOptions}
+        />
       </div>
       {repeatType === 'once' && (
         <div className="flex-1 min-w-[140px]">

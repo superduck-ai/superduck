@@ -39,7 +39,9 @@ bun run dev          # 监听模式
 bun run models:refresh # 从 OpenRouter 刷新内置模型元数据快照
 bun run typecheck    # tsc --noEmit
 bun run lint         # eslint
+bun run lint:ci      # eslint --max-warnings=0, 用于 CI 门禁
 bun run format       # prettier
+bun run format:check # prettier --check, 用于 CI 门禁
 bun run test         # vitest run (单元 + 集成)
 bun run test:coverage # vitest 覆盖率 + 阈值门禁 (lines/statements/branches ≥ 90%, functions ≥ 55%)
 bun run test:perf    # 运行测试并写出 JUnit XML 报告 (test-results.junit.xml)
@@ -81,6 +83,11 @@ bun install      # 或 npm install — 触发 husky `prepare` 脚本,在 .git �
 - 对暂存的 `chrome-native-host/**/*.go` / `coworkd/**/*.go` 跑 `gofmt -w` 与 `go vet ./...`
 
 钩子失败时提交会被中止;修复后重新 `git add` 再 `git commit`。如需绕过(不推荐),可加 `--no-verify`。
+
+CI 侧对应门禁:
+
+- [`.github/workflows/lint-ts.yml`](.github/workflows/lint-ts.yml) 对 `chrome-crx` 跑 `bun run format:check`、`bun run lint:ci`、`bun run typecheck`
+- [`.github/workflows/lint-go.yml`](.github/workflows/lint-go.yml) 对 `chrome-native-host` 跑 `golangci-lint`
 
 ## 依赖最小发布年龄 (min-release-age)
 
@@ -193,8 +200,10 @@ node scripts/validate-agents-md.mjs
 
 ## 目录入口速查
 
-- 扩展 MCP runtime / CDP 桥: [chrome-crx/src/mcpRuntime/cdp.ts](chrome-crx/src/mcpRuntime/cdp.ts)
-- 扩展视觉指示器(含 blocking overlay): [chrome-crx/src/agent-visual-indicator.ts](chrome-crx/src/agent-visual-indicator.ts)
+- 扩展 MCP runtime 公开入口: [chrome-crx/src/mcpRuntime/index.ts](chrome-crx/src/mcpRuntime/index.ts)
+- CDP 桥与调试器: [chrome-crx/src/mcpRuntime/cdp/](chrome-crx/src/mcpRuntime/cdp/)
+- Content script 入口: [chrome-crx/src/accessibility-tree.ts](chrome-crx/src/accessibility-tree.ts)、[chrome-crx/src/agent-visual-indicator.ts](chrome-crx/src/agent-visual-indicator.ts)
+- 扩展视觉指示器实现(含 blocking overlay): [chrome-crx/src/agentIndicator/](chrome-crx/src/agentIndicator/)
 - CLI 入口与 usage 文本: [chrome-native-host/cmd/superduck/main.go](chrome-native-host/cmd/superduck/main.go)
 - Tab group 子命令: [chrome-native-host/cmd/superduck/cmd_tabs_mcp.go](chrome-native-host/cmd/superduck/cmd_tabs_mcp.go)
 - 端到端测试脚本: [chrome-native-host/testdata/](chrome-native-host/testdata/)

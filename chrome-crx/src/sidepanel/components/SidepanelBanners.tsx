@@ -1,89 +1,80 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Bell } from 'lucide-react';
-import {
-  ModelFallbackConfig,
-  ModelsConfigFeatureValue,
-  StorageKeys,
-  setStorageValue
-} from '../../extensionServices';
+import { StorageKeys, setStorageValue } from '../../extensionServices';
 import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
-import { getModelDisplayName } from '../sidepanelUtils';
-import type { AnnouncementConfig, NotificationPreference } from '../types';
-import {
-  AnnouncementIcon,
-  CompactBanner,
-  ModelFallbackCard,
-  SAFE_USE_TIPS_URL
-} from './SidepanelSupportViews';
+import { CompactBanner, SAFE_USE_TIPS_URL } from './SidepanelSupportViews';
+import { useUIStore } from '../stores/uiStore';
+import { useAgentStore } from '../stores/agentStore';
+import { useNotificationStore } from '../stores/notificationStore';
+import { usePermissionStore } from '../stores/permissionStore';
+import { useModelStore } from '../stores/modelStore';
+import { useChatActionsStore } from '../stores/chatActionsStore';
+import { useSidepanelViewState } from '../contexts/SidepanelViewStateContext';
+import { trackEvent } from '../../mcpRuntime';
+import { getMessageLimitBannerState } from '../conversation/messageLimits';
 
-export interface SidepanelBannersProps {
-  // Banner state
-  activeBanner:
-    | 'error'
-    | 'refusal'
-    | 'messageLimit'
-    | 'highRisk'
-    | 'notification'
-    | 'announcement'
-    | null;
-  effectiveRuntimeError: string | null;
-  effectiveClearError: () => void;
-  setRuntimeError: React.Dispatch<React.SetStateAction<string | null>>;
+/**
+ * SidepanelBanners — 直接从 stores 读取状态，无 props
+ */
+export function SidepanelBanners() {
+  // ─── Read state from stores ────────────────────────────────────────────
+  const runtimeError = useSidepanelViewState().effectiveRuntimeError;
+  const lastStopReason = useAgentStore((s) => s.lastStopReason);
 
-  // Message limit
-  messageLimitBanner: {
-    text: string;
-    isBlocking: boolean;
-    dismissible: boolean;
-    actionLabel?: string;
-    actionUrl?: string;
-  } | null;
-  setMessageLimitDismissed: React.Dispatch<React.SetStateAction<boolean>>;
+  const messageLimit = useNotificationStore((s) => s.messageLimit);
+  const messageLimitDismissed = useUIStore((s) => s.isMessageLimitDismissed);
+  const setMessageLimitDismissed = useUIStore((s) => s.setIsMessageLimitDismissed);
+  const skipWarningDismissed = useUIStore((s) => s.skipPermissionsWarningDismissed);
+  const setSkipWarningDismissed = useUIStore((s) => s.setSkipPermissionsWarningDismissed);
+  const showNotificationBanner = useUIStore((s) => s.showNotificationBanner);
+  const setShowNotificationBanner = useUIStore((s) => s.setShowNotificationBanner);
 
-  // High risk
-  setSkipWarningDismissed: React.Dispatch<React.SetStateAction<boolean>>;
+  const notificationsEnabled = useNotificationStore((s) => s.notificationsEnabled);
+  const setNotificationsEnabled = useNotificationStore((s) => s.setNotificationsEnabled);
 
-  // Notifications
-  setNotificationsEnabled: React.Dispatch<React.SetStateAction<NotificationPreference>>;
-  setShowNotificationBanner: React.Dispatch<React.SetStateAction<boolean>>;
+  const permissionMode = usePermissionStore((s) => s.permissionMode);
+  const selectedModel = useModelStore((s) => s.selectedModel);
 
-  // Announcement
-  announcementConfig: AnnouncementConfig;
-  dismissAnnouncement: () => void;
+  // ─── Compute banner state ──────────────────────────────────────────────
+  // Feature flags removed — fallbackConfig and announcementConfig are always empty
+  const messageLimitBanner = useMemo(() => {
+    if (messageLimit.type !== 'within_limit') {
+      return getMessageLimitBannerState(messageLimit, selectedModel);
+    }
+    return null;
+  }, [messageLimit, selectedModel]);
 
-  // Model fallback (legacy — no longer wired; kept optional for prop compat)
-  lastStopReason: { reason: string; messageId?: string } | null;
-  fallbackConfig: ModelFallbackConfig | undefined;
-  selectedModel: string;
-  modelConfig: ModelsConfigFeatureValue;
-  retryWithFallback: () => Promise<void>;
-  sendRefusalFeedback: () => void;
+  const activeBanner = useMemo(() => {
+    if (runtimeError) return 'error' as const;
+    if (lastStopReason?.reason === 'refusal') {
+      return 'refusal' as const;
+    }
+    if (messageLimitBanner && !messageLimitDismissed) {
+      return 'messageLimit' as const;
+    }
+    if (permissionMode === 'skip_all_permission_checks' && !skipWarningDismissed) {
+      return 'highRisk' as const;
+    }
+    if (showNotificationBanner && notificationsEnabled === undefined) {
+      return 'notification' as const;
+    }
+    // Feature flags removed — announcement banner never shows
+    return null;
+  }, [
+    runtimeError,
+    lastStopReason,
+    messageLimitBanner,
+    messageLimitDismissed,
+    permissionMode,
+    skipWarningDismissed,
+    showNotificationBanner,
+    notificationsEnabled
+  ]);
 
-  // Utils
-  trackEvent: (event: string, properties?: any) => void;
-}
+  // ─── Callbacks ──────────────────────────────────────────────────────────
+  const effectiveClearError = useChatActionsStore((s) => s.effectiveClearError);
 
-export function SidepanelBanners({
-  activeBanner,
-  effectiveRuntimeError,
-  effectiveClearError,
-  setRuntimeError,
-  messageLimitBanner,
-  setMessageLimitDismissed,
-  setSkipWarningDismissed,
-  setNotificationsEnabled,
-  setShowNotificationBanner,
-  announcementConfig,
-  dismissAnnouncement,
-  lastStopReason,
-  fallbackConfig,
-  selectedModel,
-  modelConfig,
-  retryWithFallback,
-  sendRefusalFeedback,
-  trackEvent
-}: SidepanelBannersProps) {
   return (
     <>
       {/* Banner area — matches bundle placement inside input area */}
@@ -92,9 +83,9 @@ export function SidepanelBanners({
           {(() => {
             if (activeBanner === 'error') {
               const isNetworkError =
-                effectiveRuntimeError?.toLowerCase().includes('connection error') ||
-                effectiveRuntimeError?.toLowerCase().includes('network error') ||
-                effectiveRuntimeError?.toLowerCase().includes('failed to fetch');
+                runtimeError?.toLowerCase().includes('connection error') ||
+                runtimeError?.toLowerCase().includes('network error') ||
+                runtimeError?.toLowerCase().includes('failed to fetch');
               return (
                 <CompactBanner
                   key="error"
@@ -102,13 +93,13 @@ export function SidepanelBanners({
                   onDismiss={() => effectiveClearError()}
                   dismissWithGradient
                 >
-                  {effectiveRuntimeError}
+                  {runtimeError}
                   {isNetworkError && (
                     <>
                       {' '}
                       <button
                         onClick={() => {
-                          setRuntimeError(null);
+                          effectiveClearError();
                           // Retry is not available in simplified source
                         }}
                         className="underline hover:opacity-80 transition-opacity"
@@ -126,11 +117,7 @@ export function SidepanelBanners({
                   <span className="font-small">
                     SuperDuck is unable to respond to this request, which appears to violate our{' '}
                     <button
-                      onClick={() =>
-                        chrome.tabs.create({
-                          url: 'https://superduck-ai.github.io/superduck/'
-                        })
-                      }
+                      onClick={() => chrome.tabs.create({ url: SAFE_USE_TIPS_URL })}
                       className="inline-link"
                     >
                       Usage Policy
@@ -144,28 +131,23 @@ export function SidepanelBanners({
               return (
                 <CompactBanner
                   key="messageLimit"
-                  type={messageLimitBanner.isBlocking ? 'danger' : 'info'}
+                  type={messageLimitBanner.isBlocking ? 'error' : 'danger'}
                   onDismiss={
                     messageLimitBanner.dismissible
                       ? () => setMessageLimitDismissed(true)
                       : undefined
                   }
+                  dismissWithGradient
+                  actionText={messageLimitBanner.actionLabel}
+                  onAction={
+                    messageLimitBanner.actionUrl
+                      ? () => {
+                          window.open(messageLimitBanner.actionUrl, '_blank');
+                        }
+                      : undefined
+                  }
                 >
                   {messageLimitBanner.text}
-                  {messageLimitBanner.actionLabel && messageLimitBanner.actionUrl && (
-                    <>
-                      {' · '}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          chrome.tabs.create({ url: messageLimitBanner.actionUrl! });
-                        }}
-                        className="underline cursor-pointer text-text-100 opacity-90 hover:opacity-100"
-                      >
-                        {messageLimitBanner.actionLabel}
-                      </button>
-                    </>
-                  )}
                 </CompactBanner>
               );
             }
@@ -178,21 +160,8 @@ export function SidepanelBanners({
                   dismissWithGradient
                 >
                   <MemoizedFormattedMessage
-                    id="high_risk_superduck_can_take_most_actions_on"
-                    defaultMessage="<bold>HIGH RISK:</bold> SuperDuck can take most actions on the internet now. This setting could put your data at risk. <link>See safe use tips</link>"
-                    values={{
-                      bold: (chunks: React.ReactNode) => (
-                        <span className="font-bold">{chunks}</span>
-                      ),
-                      link: (chunks: React.ReactNode) => (
-                        <button
-                          onClick={() => chrome.tabs.create({ url: SAFE_USE_TIPS_URL })}
-                          className="underline hover:opacity-80 transition-colors"
-                        >
-                          {chunks}
-                        </button>
-                      )
-                    }}
+                    defaultMessage="High-risk mode: all permission checks disabled."
+                    id="high_risk_banner_message"
                   />
                 </CompactBanner>
               );
@@ -202,6 +171,16 @@ export function SidepanelBanners({
                 <CompactBanner
                   key="notification"
                   type="notification"
+                  onDismiss={async () => {
+                    setNotificationsEnabled('disabled');
+                    void trackEvent('superduck.sidebar.notification_toggled', {
+                      enabled: false
+                    });
+                    await setStorageValue(StorageKeys.NOTIFICATIONS_ENABLED, 'disabled');
+                    setShowNotificationBanner(false);
+                  }}
+                  actionText="Notify me"
+                  actionIcon={<Bell size={16} />}
                   onAction={async () => {
                     setNotificationsEnabled('enabled');
                     void trackEvent('superduck.sidebar.notification_toggled', {
@@ -210,33 +189,8 @@ export function SidepanelBanners({
                     await setStorageValue(StorageKeys.NOTIFICATIONS_ENABLED, 'enabled');
                     setShowNotificationBanner(false);
                   }}
-                  onDismiss={() => {
-                    setNotificationsEnabled('disabled');
-                    void trackEvent('superduck.sidebar.notification_toggled', {
-                      enabled: false
-                    });
-                    void setStorageValue(StorageKeys.NOTIFICATIONS_ENABLED, 'disabled');
-                    setShowNotificationBanner(false);
-                  }}
-                  actionText="Notify me"
-                  actionIcon={<Bell size={16} />}
                 >
                   Get notified when tasks complete or need input
-                </CompactBanner>
-              );
-            }
-            if (activeBanner === 'announcement') {
-              const text = announcementConfig.text ?? '';
-              return (
-                <CompactBanner
-                  key="announcement"
-                  type="announcement"
-                  onDismiss={dismissAnnouncement}
-                >
-                  <div className="flex items-start gap-2">
-                    <AnnouncementIcon size={16} />
-                    {text}
-                  </div>
                 </CompactBanner>
               );
             }
@@ -244,9 +198,6 @@ export function SidepanelBanners({
           })()}
         </AnimatePresence>
       </div>
-      {/* Model fallback card — shown when safety filters pause the chat.
-          Disabled: tier/model-fallback config is no longer wired. */}
-      {lastStopReason?.reason === 'refusal' && fallbackConfig ? null : null}
     </>
   );
 }

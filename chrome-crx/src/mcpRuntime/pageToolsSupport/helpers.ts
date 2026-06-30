@@ -1,5 +1,5 @@
 import { domainCategoryCache } from '../tabState';
-import type { PermissionManager } from '../../PermissionManager';
+import type { PermissionManager } from '@/permissions/PermissionManager';
 import type { ToolContext, ToolDefinition, ToolProviderSchema } from './types';
 
 type TabSummary = Pick<chrome.tabs.Tab, 'id' | 'title' | 'url'>;

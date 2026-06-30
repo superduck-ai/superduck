@@ -14,10 +14,10 @@ interface FeatureFlagWithDefault {
  */
 export function isPlanEventEnabled(
   l: FeatureFlagWithDefault | undefined,
-  e: FeatureFlag | undefined,
+  e: FeatureFlag | undefined
 ): boolean {
   // If override has an explicit boolean enabled value, use it
-  if (typeof e?.enabled === "boolean") {
+  if (typeof e?.enabled === 'boolean') {
     return e.enabled;
   }
 

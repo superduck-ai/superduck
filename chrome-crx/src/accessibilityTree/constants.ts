@@ -1,11 +1,4 @@
-export const EXCLUDED_TAGS = new Set([
-  'script',
-  'style',
-  'meta',
-  'link',
-  'title',
-  'noscript'
-]);
+export const EXCLUDED_TAGS = new Set(['script', 'style', 'meta', 'link', 'title', 'noscript']);
 
 export const INTERACTIVE_TAGS = new Set([
   'a',
