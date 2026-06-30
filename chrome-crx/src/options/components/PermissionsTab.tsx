@@ -297,15 +297,15 @@ const PermissionsTab: React.FC = () => {
   }, []);
 
   const toggleEvidence = useCallback(async (checked: boolean) => {
-    if (checked) {
-      const manifest = chrome.runtime.getManifest();
-      const meta = await enableDebugEverywhere(manifest.version);
-      setEvidenceEnabled(true);
-      setEvidenceSessionId(meta.debugSessionId);
-    } else {
-      await disableDebugEverywhere();
-      setEvidenceEnabled(false);
-      setEvidenceSessionId(null);
+    try {
+      if (checked) {
+        const manifest = chrome.runtime.getManifest();
+        await enableDebugEverywhere(manifest.version);
+      } else {
+        await disableDebugEverywhere();
+      }
+    } catch (err) {
+      console.error('[options] toggle evidence failed:', err);
     }
   }, []);
 

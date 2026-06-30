@@ -439,8 +439,8 @@ export function diagnose(
   for (const rule of RULES) {
     try {
       findings.push(...rule(events, artifacts));
-    } catch {
-      // a broken rule must never break diagnosis
+    } catch (err) {
+      console.error(`[diagnostics] rule threw:`, err);
     }
   }
   findings.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);

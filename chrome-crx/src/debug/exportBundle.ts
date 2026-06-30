@@ -205,6 +205,12 @@ function byteLength(s: string): number {
   }
 }
 
+function stripScreenshotContent(artifacts: DebugArtifact[]): DebugArtifact[] {
+  return artifacts.map((a) =>
+    a.type === 'screenshot' || a.type === 'annotated-screenshot' ? { ...a, content: undefined } : a
+  );
+}
+
 /**
  * Serialize a bundle for transport over the file server bridge (32MB limit).
  * CRX→native-host direction allows up to 64MiB; we cap at 32MB to leave headroom
@@ -229,11 +235,7 @@ export function serializeBundleForTransport(
   if (options?.lightweight) {
     bundle = {
       ...bundle,
-      artifacts: bundle.artifacts.map((a) =>
-        a.type === 'screenshot' || a.type === 'annotated-screenshot'
-          ? { ...a, content: undefined }
-          : a
-      ),
+      artifacts: stripScreenshotContent(bundle.artifacts),
       summaryMarkdown:
         bundle.summaryMarkdown +
         '\n\n[screenshot image content stripped for transport — Go-side events and audit log injected by native host]'
@@ -261,13 +263,7 @@ export function serializeBundleForTransport(
   let result = JSON.stringify(truncated);
   if (byteLength(result) > MAX_BUNDLE_BYTES) {
     // Still too big — drop screenshot image content (keep metadata + ref).
-    // Text artifacts (ax-summary, js-result, ref-registry, tab-snapshot) are
-    // kept because they are what the agent actually consumed.
-    truncated.artifacts = truncated.artifacts.map((a) =>
-      a.type === 'screenshot' || a.type === 'annotated-screenshot'
-        ? { ...a, content: undefined }
-        : a
-    );
+    truncated.artifacts = stripScreenshotContent(truncated.artifacts);
     truncated.summaryMarkdown +=
       '\n\n[screenshot image content dropped for transport — artifact metadata retained]';
     result = JSON.stringify(truncated);

@@ -75,18 +75,23 @@ export function wrapSetWithDebug<T extends object>(
   return (partial) => {
     let changedKeys: string[] | undefined;
     try {
-      if (typeof partial !== 'function' && partial !== null && typeof partial === 'object') {
+      if (
+        typeof partial !== 'function' &&
+        partial !== null &&
+        typeof partial === 'object' &&
+        !Array.isArray(partial)
+      ) {
         changedKeys = Object.keys(partial);
       }
     } catch {
       // ignore
     }
+    set(partial);
     recordEvent({
       domain: 'sidepanel',
       event: 'sidepanel.store.set_state',
       level: 'debug',
       data: { store: storeName, changedKeys }
     });
-    set(partial);
   };
 }

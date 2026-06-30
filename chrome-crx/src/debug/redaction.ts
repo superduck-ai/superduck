@@ -43,8 +43,16 @@ export function defaultRedactKeys(): ReadonlySet<string> {
 
 export function truncateText(s: string, opts: RedactionOptions = {}): string {
   const max = opts.maxTextFieldBytes ?? DEFAULT_MAX_TEXT_FIELD_BYTES;
-  if (s.length <= max) return s;
-  return s.slice(0, max) + `…[truncated ${s.length - max} chars]`;
+  let byteLen: number;
+  try {
+    byteLen = new TextEncoder().encode(s).byteLength;
+  } catch {
+    byteLen = s.length;
+  }
+  if (byteLen <= max) return s;
+  // Approximate character limit from byte budget (safe for ASCII, conservative for multi-byte).
+  const charLimit = Math.max(1, Math.floor((max / byteLen) * s.length));
+  return s.slice(0, charLimit) + `…[truncated ${byteLen - max} bytes]`;
 }
 
 /**

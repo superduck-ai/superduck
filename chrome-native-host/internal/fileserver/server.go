@@ -2,6 +2,7 @@ package fileserver
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -266,7 +267,9 @@ func validateWritePath(p string) (string, error) {
 // writeFileAtomic writes data to path atomically by writing to a temp file
 // first and renaming.
 func writeFileAtomic(path string, data []byte) error {
-	tmpPath := path + ".superduck-tmp"
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	tmpPath := fmt.Sprintf("%s.tmp-%x", path, b[:])
 
 	if err := writeFileWithDir(tmpPath, data); err != nil {
 		return err

@@ -70,6 +70,7 @@ yarn-error.log*
 test-results.junit.xml
 chrome-native-host/test-results.json
 chrome-crx/test-results.junit.xml
+chrome-crx/test-results/
 coverage/
 
 # E2E test artifacts

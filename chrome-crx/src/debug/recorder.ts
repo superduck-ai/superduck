@@ -639,7 +639,8 @@ export async function exportDebugBundle(): Promise<DebugBundle | null> {
     try {
       const sessions = await s.listSessions();
       if (sessions.length === 0) return null;
-      meta = sessions[sessions.length - 1];
+      sessions.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+      meta = sessions[0];
     } catch {
       return null;
     }

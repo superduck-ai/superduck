@@ -451,7 +451,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
 
       let afterUrl: string | undefined;
       try {
-        const afterTab = await chrome.tabs.get(effectiveTabId);
+        const afterTab = await chrome.tabs.get(executedOnTabId);
         afterUrl = afterTab?.url;
       } catch {
         afterUrl = undefined;

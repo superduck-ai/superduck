@@ -20,7 +20,7 @@ import (
 // This is distinct from `superduck upload` which uploads an image to a web
 // page's file input (browser automation).
 func cmdUploadFile(argv []string) error {
-	fs := flag.NewFlagSet("upload-file", flag.ContinueOnError)
+	fs := flag.NewFlagSet("push-file", flag.ContinueOnError)
 	path := fs.String("path", "", "Path to the file to upload")
 	mime := fs.String("mime", "", "MIME type (auto-detected if omitted)")
 	if err := fs.Parse(reorderFlagsFirst(argv)); err != nil {
@@ -33,6 +33,14 @@ func cmdUploadFile(argv []string) error {
 	absPath, err := filepath.Abs(*path)
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("not a regular file: %s", absPath)
 	}
 
 	data, err := os.ReadFile(absPath)
