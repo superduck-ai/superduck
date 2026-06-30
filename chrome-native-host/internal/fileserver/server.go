@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const maxHeaderOverhead = 1024 // bytes of header/metadata overhead above MaxFileSize
+
 // Server is a localhost-only HTTP file server with Bearer token auth.
 type Server struct {
 	store    *FileStore
@@ -117,11 +119,11 @@ type PutFileResponse struct {
 // Body: raw file bytes (max 64 MB).
 func (s *Server) handlePutFile(w http.ResponseWriter, r *http.Request) {
 	if !s.checkAuth(r) {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, s.store.config.MaxFileSize+1024) // small header overhead
+	r.Body = http.MaxBytesReader(w, r.Body, s.store.config.MaxFileSize+maxHeaderOverhead)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
@@ -164,7 +166,7 @@ func (s *Server) handlePutFile(w http.ResponseWriter, r *http.Request) {
 // handleGetFile serves a stored file via GET /f/{id}.
 func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	if !s.checkAuth(r) {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -182,7 +184,8 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", entry.MIMEType)
 	if entry.Filename != "" {
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename=%q`, entry.Filename))
+		safe := sanitizeHeaderValue(entry.Filename)
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename=%q`, safe))
 	}
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", entry.Size))
 	w.Header().Set("Cache-Control", "no-store")
@@ -193,7 +196,7 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 // handleDeleteFile removes a stored file via DELETE /f/{id}.
 func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	if !s.checkAuth(r) {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -332,4 +335,10 @@ func sanitizeFilename(name string) string {
 		return "unnamed"
 	}
 	return base
+}
+
+func sanitizeHeaderValue(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
 }

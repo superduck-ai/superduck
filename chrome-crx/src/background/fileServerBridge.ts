@@ -78,9 +78,17 @@ export function createFileServerBridge(): FileServerBridge {
     if (!url || !token) {
       throw new Error('file server not ready — native host has not sent file_server_ready');
     }
-    const resp = await fetch(`${url}/f/${encodeURIComponent(id)}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    let resp: Response;
+    try {
+      resp = await fetch(`${url}/f/${encodeURIComponent(id)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (err) {
+      throw new Error(
+        `fetch file ${id} from host failed: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err }
+      );
+    }
     if (!resp.ok) {
       throw new Error(`fetch file ${id}: ${resp.status} ${resp.statusText}`);
     }

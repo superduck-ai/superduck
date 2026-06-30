@@ -149,27 +149,22 @@ export class ToolExecutor {
             data: { toolName, action }
           });
           const result = await tool.execute(coercedInput, executionContext);
+          const failed =
+            result.type === 'permission_required' || !!result.error || result.is_error === true;
+          let resultType: string;
+          if (result.type === 'permission_required') resultType = 'permission_required';
+          else if (result.error) resultType = 'is_error';
+          else resultType = 'success';
           recordEvent({
             domain: 'tool-runtime',
             event: 'tool.execute.end',
             ids: { toolUseId, tabId: this.context.tabId },
             data: {
               toolName,
-              success: !(
-                result.type === 'permission_required' ||
-                !!result.error ||
-                result.is_error === true
-              ),
-              resultType:
-                result.type === 'permission_required'
-                  ? 'permission_required'
-                  : result.error
-                    ? 'is_error'
-                    : 'success'
+              success: !failed,
+              resultType
             }
           });
-          const failed =
-            result.type === 'permission_required' || !!result.error || result.is_error === true;
 
           if (result.type === 'permission_required') {
             trackData.success = false;

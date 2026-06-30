@@ -188,9 +188,12 @@ export async function captureAnnotatedScreenshot(tabId: number): Promise<{
       data: {
         annotationCount: 0,
         refMetaEmpty: false,
-        contentQuadsAllFailed: false,
-        error: err instanceof Error ? err.message : String(err)
-      }
+        contentQuadsAllFailed: false
+      },
+      error:
+        err instanceof Error
+          ? { message: err.message, name: err.name, stack: err.stack }
+          : { message: String(err) }
     });
     return null;
   }

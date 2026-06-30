@@ -186,6 +186,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
     }
   },
   execute: async (params: ComputerToolParams, context: ToolContext): Promise<ToolResult> => {
+    const inputStartTime = Date.now();
     try {
       const toolParams = params || ({} as ComputerToolParams);
       if (!toolParams.action) throw new Error('Action parameter is required');
@@ -199,7 +200,6 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
       if (!tab.id) throw new Error('Active tab has no ID');
 
       const inputAction = toolParams.action;
-      const inputStartTime = Date.now();
       const refSource = toolParams.ref ? 'ref' : toolParams.coordinate ? 'coordinate' : 'none';
       const beforeUrl = tab.url;
       recordEvent({
@@ -499,7 +499,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         'input.action.end',
         error,
         { toolUseId: context?.toolUseId, tabId: context?.tabId },
-        { action: params?.action, durationMs: 0 }
+        { action: params?.action, durationMs: Date.now() - inputStartTime }
       );
       return {
         error: `Failed to execute action: ${error instanceof Error ? error.message : 'Unknown error'}`
