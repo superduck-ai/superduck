@@ -77,7 +77,7 @@ jobs:
 
       - name: Setup Node.js for OpenCodeReview
         if: matrix.reviewer == 'ocr' && inputs.pr_number != '0' && inputs.trigger_event != 'duckpr_installation_test'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "24"
 
