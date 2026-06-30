@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: chrome-native-host/go.sum
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@v9.2.1
         with:
           version: v2.6.0
           working-directory: chrome-native-host
