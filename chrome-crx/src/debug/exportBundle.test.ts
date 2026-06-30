@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { InMemoryDebugStore } from './store';
-import { buildBundle, buildReadme, groupEventsByDomain } from './exportBundle';
+import {
+  buildBundle,
+  buildReadme,
+  groupEventsByDomain,
+  serializeBundleForTransport
+} from './exportBundle';
 import {
   startDebugSession,
   stopDebugSession,
@@ -192,5 +197,79 @@ describe('exportDebugBundle via recorder', () => {
     expect(bundle).not.toBeNull();
     expect(bundle!.session.endedAt).toBeTruthy();
     expect(bundle!.eventsByDomain.cdp.length).toBeGreaterThan(0);
+  });
+});
+
+describe('serializeBundleForTransport lightweight mode', () => {
+  const SESSION: DebugSessionMeta = {
+    debugSessionId: 'sess-lw',
+    runtimeSessionId: 'rt-lw',
+    startedAt: '2026-06-30T10:00:00Z',
+    extensionVersion: '0.1.0',
+    eventCount: 1,
+    artifactCount: 1
+  };
+
+  it('strips screenshot content when lightweight=true', () => {
+    const events = [mk({ domain: 'tool-runtime', event: 'tool.request.received' })];
+    const artifacts = [
+      {
+        id: 'ss-1',
+        type: 'screenshot' as const,
+        createdAt: '2026-06-30T10:00:00Z',
+        ids: {},
+        mimeType: 'image/png',
+        byteLength: 100,
+        sha256: 'abc',
+        redacted: false,
+        content: 'base64-screenshot-data-that-is-very-long'
+      },
+      {
+        id: 'ax-1',
+        type: 'ax-summary' as const,
+        createdAt: '2026-06-30T10:00:00Z',
+        ids: {},
+        mimeType: 'text/plain',
+        byteLength: 50,
+        sha256: 'def',
+        redacted: false,
+        content: 'ax-tree-text-content'
+      }
+    ];
+    const bundle = buildBundle(events, artifacts as any, SESSION);
+    const json = serializeBundleForTransport(bundle, { lightweight: true });
+    const parsed = JSON.parse(json);
+    const ss = parsed.artifacts.find((a: any) => a.id === 'ss-1');
+    const ax = parsed.artifacts.find((a: any) => a.id === 'ax-1');
+    expect(ss.content).toBeUndefined();
+    expect(ax.content).toBe('ax-tree-text-content');
+    expect(parsed.summaryMarkdown).toContain('screenshot image content stripped');
+  });
+
+  it('keeps screenshot content when lightweight=false (under size limit)', () => {
+    const events = [mk({ domain: 'tool-runtime', event: 'tool.request.received' })];
+    const artifacts = [
+      {
+        id: 'ss-2',
+        type: 'screenshot' as const,
+        createdAt: '2026-06-30T10:00:00Z',
+        ids: {},
+        mimeType: 'image/png',
+        byteLength: 10,
+        sha256: 'xyz',
+        redacted: false,
+        content: 'small-png'
+      }
+    ];
+    const bundle = buildBundle(events, artifacts as any, SESSION);
+    const json = serializeBundleForTransport(bundle);
+    const parsed = JSON.parse(json);
+    const ss = parsed.artifacts.find((a: any) => a.id === 'ss-2');
+    expect(ss.content).toBe('small-png');
+  });
+
+  it('returns error JSON for null bundle', () => {
+    const json = serializeBundleForTransport(null, { lightweight: true });
+    expect(JSON.parse(json).error).toBe('no active debug session');
   });
 });

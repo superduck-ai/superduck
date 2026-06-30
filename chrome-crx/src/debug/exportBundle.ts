@@ -194,16 +194,41 @@ export function buildReadme(): string {
   ].join('\n');
 }
 
-const MAX_BUNDLE_BYTES = 900 * 1024;
-const MAX_EVENTS_PER_DOMAIN_TRUNCATED = 200;
+const MAX_BUNDLE_BYTES = 32 * 1024 * 1024; // 32MB — Chrome allows 64MiB CRX→host; leave headroom
+const MAX_EVENTS_PER_DOMAIN_TRUNCATED = 5000; // match ring buffer capacity
 
 /**
  * Serialize a bundle for transport over Chrome native messaging (1MB limit).
  * If the full bundle exceeds the budget, events are truncated to the most
  * recent N per domain and a truncation marker is appended to the summary.
+ *
+ * @param bundle  the bundle to serialise
+ * @param options.lightweight  when true, screenshot/annotated-screenshot binary
+ *   content is stripped BEFORE the size check — the native host uses this mode
+ *   so the freed budget can be spent on Go-side events and audit log it injects
+ *   after receiving the response.
  */
-export function serializeBundleForTransport(bundle: DebugBundle | null): string {
+export function serializeBundleForTransport(
+  bundle: DebugBundle | null,
+  options?: { lightweight?: boolean }
+): string {
   if (!bundle) return JSON.stringify({ error: 'no active debug session' });
+
+  // Lightweight mode: drop screenshot binary content upfront to free budget.
+  if (options?.lightweight) {
+    bundle = {
+      ...bundle,
+      artifacts: bundle.artifacts.map((a) =>
+        a.type === 'screenshot' || a.type === 'annotated-screenshot'
+          ? { ...a, content: undefined }
+          : a
+      ),
+      summaryMarkdown:
+        bundle.summaryMarkdown +
+        '\n\n[screenshot image content stripped for transport — Go-side events and audit log injected by native host]'
+    };
+  }
+
   const serialized = JSON.stringify(bundle);
   if (serialized.length <= MAX_BUNDLE_BYTES) return serialized;
 

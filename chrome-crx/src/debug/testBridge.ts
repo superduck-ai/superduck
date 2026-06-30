@@ -19,6 +19,7 @@ import {
   recordArtifact,
   resetDebugRecorder
 } from './recorder';
+import { serializeBundleForTransport } from './exportBundle';
 
 if (typeof globalThis !== 'undefined') {
   const g = globalThis as Record<string, unknown>;
@@ -30,6 +31,7 @@ if (typeof globalThis !== 'undefined') {
     recordEvent,
     recordArtifact,
     resetDebugRecorder,
+    serializeBundleForTransport,
     realAttachDebugger: (tabId: number) => {
       const dbg = (
         globalThis as { __superduckCdpDebugger?: { attachDebugger: (t: number) => Promise<void> } }

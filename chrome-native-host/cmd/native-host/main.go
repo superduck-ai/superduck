@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/bridge"
+	"chrome-native-host/internal/cliclient"
+	"chrome-native-host/internal/debugbundle"
+	"chrome-native-host/internal/debugrec"
 	"chrome-native-host/internal/protocol"
 	"chrome-native-host/internal/udsauth"
 	"encoding/json"
@@ -57,6 +61,8 @@ type Server struct {
 	chromeTimeout    time.Duration
 	skipIdentitySync bool
 	identitySyncOnce sync.Once
+
+	recorder *debugrec.Recorder
 }
 
 func NewServer() (*Server, error) {
@@ -116,6 +122,7 @@ func NewServer() (*Server, error) {
 		closed:         make(chan struct{}),
 		startedAt:      time.Now(),
 		chromeReady:    true,
+		recorder:       debugrec.New(),
 	}, nil
 }
 
@@ -519,6 +526,16 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 		})
 	}
 
+	var reqTool string
+	var req protocol.ToolRequest
+	if err := json.Unmarshal(raw, &req); err == nil && req.Type == "tool_request" {
+		reqTool = req.Params.Tool
+	}
+
+	isDebugCollect := reqTool == "superduck_debug_collect"
+
+	startTime := time.Now()
+
 	// Serialize: only one request-response pair in flight at a time
 	s.chromeMu.Lock()
 	defer s.chromeMu.Unlock()
@@ -528,6 +545,11 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 		logRaw = logRaw[:500] + "...(truncated)"
 	}
 	slog.Debug("forwarding to Chrome", "message", logRaw)
+
+	if reqTool != "" && s.recorder != nil {
+		s.recorder.Record(reqTool, "native.tool_request.forwarded",
+			map[string]any{"clientId": req.Params.ClientID}, nil, nil)
+	}
 
 	chromeWriter := s.chromeWriter
 	if chromeWriter == nil {
@@ -555,10 +577,28 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 			sendToolError(responseWriter, "chrome connection closed")
 			return
 		}
+
+		elapsed := time.Since(startTime).Milliseconds()
+		if reqTool != "" && s.recorder != nil {
+			s.recorder.Record(reqTool, "native.tool_response.received",
+				map[string]any{"durationMs": elapsed}, &elapsed, nil)
+		}
+
+		// Enrich debug collect bundle with Go-side events and audit log.
+		if isDebugCollect {
+			response = s.enrichDebugBundle(response)
+		}
+
 		if err := protocol.SendMessage(responseWriter, json.RawMessage(response)); err != nil {
 			slog.Error("failed to send response to MCP", "error", err)
 		}
 	case <-timer.C:
+		elapsed := time.Since(startTime).Milliseconds()
+		timeoutErr := fmt.Errorf("chrome extension did not respond within %s", chromeTimeout)
+		if reqTool != "" && s.recorder != nil {
+			s.recorder.Record(reqTool, "native.tool_response.received",
+				map[string]any{"durationMs": elapsed, "timedOut": true}, &elapsed, timeoutErr)
+		}
 		slog.Error("Chrome tool response timeout", "timeout", chromeTimeout)
 		sendToolError(responseWriter, fmt.Sprintf("chrome extension did not respond to tool request within %s; reload the extension if this repeats", chromeTimeout))
 		_ = s.Close()
@@ -620,6 +660,10 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 		slog.Debug("notification", "method", msg.Method, "params", msg.Params)
 	case "tool_request":
 		handleIncomingToolRequest(raw, os.Stdout)
+	case "get_go_debug_events":
+		s.handleGetGoDebugEvents(raw)
+	case "get_audit_log":
+		s.handleGetAuditLog(raw)
 	default:
 		slog.Warn("unknown message type", "type", msg.Type)
 	}
@@ -644,6 +688,165 @@ func (s *Server) Close() error {
 		s.connMu.Unlock()
 	})
 	return nil
+}
+
+// enrichDebugBundle injects Go-side recorder events and recent audit log lines
+// into the CRX debug bundle JSON before it is forwarded to the UDS client.
+func (s *Server) enrichDebugBundle(rawResponse []byte) []byte {
+	if s.recorder == nil {
+		return rawResponse
+	}
+	var toolResp protocol.ToolResponseMsg
+	if err := json.Unmarshal(rawResponse, &toolResp); err != nil {
+		slog.Error("enrich: unmarshal tool_response failed", "error", err)
+		return rawResponse
+	}
+	if toolResp.Result == nil || toolResp.Result.Content == nil {
+		return rawResponse
+	}
+
+	contentStr, ok := toolResp.Result.Content.(string)
+	if !ok {
+		return rawResponse
+	}
+
+	bundle, err := debugbundle.ParseBundleJSON(contentStr)
+	if err != nil {
+		slog.Error("enrich: parse bundle failed", "error", err)
+		return rawResponse
+	}
+
+	// Inject Go-side native host events into mcp-server domain.
+	goEventsJSON := s.recorder.RawJSON()
+	var goEvents []json.RawMessage
+	if err := json.Unmarshal(goEventsJSON, &goEvents); err == nil && len(goEvents) > 0 {
+		existing := bundle.EventsByDomain["mcp-server"]
+		bundle.EventsByDomain["mcp-server"] = append(existing, goEvents...)
+		slog.Info("enriched bundle with native host events", "count", len(goEvents))
+	}
+
+	// Inject recent audit log lines as events in mcp-server domain.
+	auditLines, err := readAuditLines(200)
+	if err != nil {
+		slog.Warn("enrich: read audit log failed", "error", err)
+	} else if len(auditLines) > 0 {
+		for _, line := range auditLines {
+			auditEvent := map[string]any{
+				"schemaVersion":  1,
+				"eventId":        debugrec.GenID(),
+				"ts":             time.Now().UTC().Format(time.RFC3339Nano),
+				"debugSessionId": bundle.Session.DebugSessionID,
+				"domain":         "mcp-server",
+				"event":          "cli.audit_record",
+				"level":          "debug",
+				"data":           json.RawMessage(line),
+			}
+			eventJSON, marshalErr := json.Marshal(auditEvent)
+			if marshalErr == nil {
+				bundle.EventsByDomain["mcp-server"] = append(
+					bundle.EventsByDomain["mcp-server"], eventJSON)
+			}
+		}
+		slog.Info("enriched bundle with audit log lines", "count", len(auditLines))
+	}
+
+	// Re-serialise bundle and rebuild tool_response.
+	newBundleJSON, err := json.Marshal(bundle)
+	if err != nil {
+		slog.Error("enrich: marshal bundle failed", "error", err)
+		return rawResponse
+	}
+	toolResp.Result.Content = string(newBundleJSON)
+	newResp, err := json.Marshal(toolResp)
+	if err != nil {
+		slog.Error("enrich: marshal response failed", "error", err)
+		return rawResponse
+	}
+	return newResp
+}
+
+// handleGetGoDebugEvents responds to a CRX request for native-host debug events.
+// Called from handleChromeMessage (CRX-initiated, not forwarded via chromeMu).
+func (s *Server) handleGetGoDebugEvents(raw []byte) {
+	var req struct {
+		Limit int `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &req)
+	events := s.recorder.Events()
+	if req.Limit > 0 && len(events) > req.Limit {
+		events = events[len(events)-req.Limit:]
+	}
+	s.sendToChrome(map[string]any{
+		"type":   "go_debug_events_response",
+		"events": events,
+		"count":  len(events),
+	})
+}
+
+// handleGetAuditLog responds to a CRX request for recent audit log lines.
+func (s *Server) handleGetAuditLog(raw []byte) {
+	var req struct {
+		Limit int `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &req)
+	if req.Limit <= 0 {
+		req.Limit = 200
+	}
+	lines, err := readAuditLines(req.Limit)
+	if err != nil {
+		s.sendToChrome(map[string]any{
+			"type":  "audit_log_response",
+			"error": err.Error(),
+		})
+		return
+	}
+	s.sendToChrome(map[string]any{
+		"type":  "audit_log_response",
+		"lines": lines,
+	})
+}
+
+// readAuditLines returns the last n lines from ~/.superduck/audit.jsonl.
+func readAuditLines(n int) ([]string, error) {
+	path, err := cliclient.AuditPath()
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	// Read all lines into a ring buffer of size n.
+	buf := make([]string, n)
+	head, count := 0, 0
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		buf[head] = line
+		head = (head + 1) % n
+		if count < n {
+			count++
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, count)
+	start := (head - count + n) % n
+	for i := 0; i < count; i++ {
+		out = append(out, buf[(start+i)%n])
+	}
+	return out, nil
 }
 
 func main() {

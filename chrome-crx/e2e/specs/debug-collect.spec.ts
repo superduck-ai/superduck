@@ -153,4 +153,94 @@ test.describe('debug evidence bundle', () => {
     expect(ax).toBeDefined();
     expect(ax.content).toContain('button');
   });
+
+  test('native messaging limit probe: bundle > 1MB', async ({ serviceWorker }) => {
+    await serviceWorker.evaluate(async () => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      await bridge.startDebugSession({ extensionVersion: '0.1.0-limit-test' });
+    });
+
+    // Record enough events with large data to push the bundle past 1MB.
+    // Each event ~10KB × 150 events ≈ 1.5MB raw.
+    await serviceWorker.evaluate(() => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      const padding = 'x'.repeat(10_000);
+      for (let i = 0; i < 150; i++) {
+        bridge.recordEvent({
+          domain: 'tool-runtime',
+          event: 'tool.request.received',
+          ids: { requestId: `r${i}`, toolUseId: `tu-${i}`, tabId: 1 },
+          data: { toolName: 'computer_screenshot', iteration: i, payload: padding }
+        });
+      }
+    });
+
+    // 1. Direct export from CRX (IndexedDB) — no size limit, should be complete.
+    const directBundle = await serviceWorker.evaluate(async () => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      return await bridge.exportDebugBundle();
+    });
+    expect(directBundle).not.toBeNull();
+    const directEvents = directBundle.eventsByDomain['tool-runtime'];
+    expect(directEvents.length).toBe(150);
+
+    const directSize = JSON.stringify(directBundle).length;
+    expect(directSize).toBeGreaterThan(1_000_000);
+
+    // 2. serializeBundleForTransport with 150 events (< 200/domain cap):
+    //    The 900KB budget is a soft target — truncation only kicks in when
+    //    events exceed 200/domain. With 150 events the bundle passes through
+    //    at full size (~1.69 MB). Chrome docs say CRX → native host allows
+    //    64 MiB, so this is fine for the CRX → native host direction.
+    const transportJson = await serviceWorker.evaluate(async () => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      const bundle = await bridge.exportDebugBundle();
+      return bridge.serializeBundleForTransport(bundle);
+    });
+    const transportSize = transportJson.length;
+    const transportBundle = JSON.parse(transportJson);
+    const transportEvents = transportBundle.eventsByDomain['tool-runtime'];
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[limit-probe] direct: ${directSize} bytes, ${directEvents.length} events | ` +
+      `transport: ${transportSize} bytes, ${transportEvents.length} events`
+    );
+
+    // With < 200 events, transport preserves all events despite exceeding 900KB.
+    expect(transportEvents.length).toBe(150);
+
+    // 3. Now test with 250 events — previously this triggered truncation at 200.
+    // After raising the cap to 5000 events / 32MB (matching the real Chrome
+    // native messaging limit of 64 MiB CRX→host), 250 events should pass intact.
+    await serviceWorker.evaluate(() => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      const padding = 'x'.repeat(10_000);
+      for (let i = 150; i < 250; i++) {
+        bridge.recordEvent({
+          domain: 'tool-runtime',
+          event: 'tool.request.received',
+          ids: { requestId: `r${i}`, toolUseId: `tu-${i}`, tabId: 1 },
+          data: { toolName: 'computer_screenshot', iteration: i, payload: padding }
+        });
+      }
+    });
+
+    const truncatedJson = await serviceWorker.evaluate(async () => {
+      const bridge = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      const bundle = await bridge.exportDebugBundle();
+      return bridge.serializeBundleForTransport(bundle);
+    });
+    const truncatedBundle = JSON.parse(truncatedJson);
+    const truncatedEvents = truncatedBundle.eventsByDomain['tool-runtime'];
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[limit-probe] after 250 events: transport has ${truncatedEvents.length} events, ` +
+      `size ${truncatedJson.length} bytes`
+    );
+
+    // All 250 events should be preserved (cap is now 5000/domain, 32MB total).
+    expect(truncatedEvents.length).toBe(250);
+  });
 });

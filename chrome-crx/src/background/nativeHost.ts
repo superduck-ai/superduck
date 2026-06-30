@@ -117,6 +117,50 @@ export function createNativeHostManager(): NativeHostManager {
   let connectionGeneration = 0;
   let connectAttemptId = 0;
 
+  // Tracks one pending request→response pair to the native host (non-tool_request
+  // messages like get_go_debug_events / get_audit_log). Sequential callers wait
+  // on this promise; the chromeMu lock on the Go side guarantees ordering.
+  let pendingNativeResponse: {
+    type: string;
+    resolve: (msg: NativeMessage) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+
+  /**
+   * Send a non-tool request to the native host and wait for the matching response.
+   * Used by superduck_debug_collect to pull Go-side events and audit log.
+   */
+  function requestFromNativeHost(
+    msg: NativeMessage,
+    responseType: string,
+    timeoutMs = 5000
+  ): Promise<NativeMessage> {
+    return new Promise((resolve, reject) => {
+      if (!nativePort) {
+        reject(new Error('native port not connected'));
+        return;
+      }
+      if (pendingNativeResponse) {
+        clearTimeout(pendingNativeResponse.timer);
+        pendingNativeResponse = null;
+      }
+      const timer = setTimeout(() => {
+        if (pendingNativeResponse?.type === responseType) {
+          pendingNativeResponse = null;
+          reject(new Error(`timeout waiting for ${responseType}`));
+        }
+      }, timeoutMs);
+      pendingNativeResponse = { type: responseType, resolve, timer };
+      try {
+        nativePort.postMessage(msg);
+      } catch (err) {
+        clearTimeout(timer);
+        pendingNativeResponse = null;
+        reject(err);
+      }
+    });
+  }
+
   const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
     // Don't gate on nativeHostInstalled — after a service worker restart
     // it resets to false, which would silently kill the retry chain.
@@ -311,7 +355,63 @@ export function createNativeHostManager(): NativeHostManager {
       if (params.tool === 'superduck_debug_collect') {
         try {
           const bundle = await exportDebugBundle();
-          sendToolResponse({ content: serializeBundleForTransport(bundle) });
+
+          // Pull Go-side events and audit log from native host so the bundle
+          // contains the complete picture (CRX events + Go events + audit log).
+          // CRX → native host allows 64 MiB per Chrome docs, so the full bundle
+          // (including screenshots) goes through without truncation.
+          if (nativePort) {
+            try {
+              const goEventsResp = await requestFromNativeHost(
+                { type: 'get_go_debug_events', limit: 500 },
+                'go_debug_events_response'
+              );
+              const events = goEventsResp?.events as unknown[] | undefined;
+              if (bundle && Array.isArray(events)) {
+                for (const evt of events) {
+                  const e = evt as Record<string, unknown>;
+                  recordEvent({
+                    domain: 'mcp-server',
+                    event: (e.event as string) ?? 'native.event',
+                    level: ((e.level as string) ?? 'info') as 'debug' | 'info' | 'warn' | 'error',
+                    data: (e.data as Record<string, unknown>) ?? {},
+                    durationMs: e.durationMs as number | undefined
+                  });
+                }
+              }
+            } catch {
+              /* native host not reachable — non-fatal */
+            }
+
+            try {
+              const auditResp = await requestFromNativeHost(
+                { type: 'get_audit_log', limit: 200 },
+                'audit_log_response'
+              );
+              const lines = auditResp?.lines as string[] | undefined;
+              if (bundle && Array.isArray(lines)) {
+                for (const line of lines) {
+                  try {
+                    const auditData = JSON.parse(line);
+                    recordEvent({
+                      domain: 'mcp-server',
+                      event: 'cli.audit_record',
+                      level: 'debug',
+                      data: auditData
+                    });
+                  } catch {
+                    /* skip malformed audit lines */
+                  }
+                }
+              }
+            } catch {
+              /* non-fatal */
+            }
+          }
+
+          // Re-export to capture Go events + audit log just recorded above.
+          const finalBundle = await exportDebugBundle();
+          sendToolResponse({ content: serializeBundleForTransport(finalBundle) });
         } catch (err) {
           sendToolResponse(
             createErrorResponse(
@@ -390,6 +490,20 @@ export function createNativeHostManager(): NativeHostManager {
 
       case 'mcp_disconnected':
         await setMcpConnectionState(false);
+        break;
+
+      case 'go_debug_events_response':
+        if (pendingNativeResponse?.type === 'go_debug_events_response') {
+          pendingNativeResponse.resolve(message);
+          pendingNativeResponse = null;
+        }
+        break;
+
+      case 'audit_log_response':
+        if (pendingNativeResponse?.type === 'audit_log_response') {
+          pendingNativeResponse.resolve(message);
+          pendingNativeResponse = null;
+        }
         break;
     }
   }
