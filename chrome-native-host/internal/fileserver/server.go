@@ -276,8 +276,8 @@ var (
 		}
 		return writeFile(path, data, 0o644)
 	}
-	renameFile = func(old, new string) error {
-		return rename(old, new)
+	renameFile = func(old, newPath string) error {
+		return rename(old, newPath)
 	}
 	removeFile = func(path string) error {
 		return remove(path)
@@ -296,8 +296,8 @@ func writeFileImpl(path string, data []byte, perm uint32) error {
 	return writeFileOS(path, data, perm)
 }
 
-func renameImpl(old, new string) error {
-	return renameOS(old, new)
+func renameImpl(old, newPath string) error {
+	return renameOS(old, newPath)
 }
 
 func removeImpl(path string) error {

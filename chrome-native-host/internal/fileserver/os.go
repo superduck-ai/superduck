@@ -10,8 +10,8 @@ func writeFileOS(path string, data []byte, perm uint32) error {
 	return os.WriteFile(path, data, os.FileMode(perm))
 }
 
-func renameOS(old, new string) error {
-	return os.Rename(old, new)
+func renameOS(old, newPath string) error {
+	return os.Rename(old, newPath)
 }
 
 func removeOS(path string) error {
