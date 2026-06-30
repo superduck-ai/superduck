@@ -268,5 +268,12 @@ export function serializeBundleForTransport(
       '\n\n[screenshot image content dropped for transport — artifact metadata retained]';
     result = JSON.stringify(truncated);
   }
+  if (byteLength(result) > MAX_BUNDLE_BYTES) {
+    // Last resort: hard-truncate the JSON string to fit within the byte limit.
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(result);
+    const decoder = new TextDecoder();
+    result = decoder.decode(bytes.slice(0, MAX_BUNDLE_BYTES)) + '\n...[hard-truncated]';
+  }
   return result;
 }

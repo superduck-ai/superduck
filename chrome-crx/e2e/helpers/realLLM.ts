@@ -41,6 +41,14 @@ export async function attachLlmObserver(page: Page): Promise<{ llmCalls: LlmCall
   const llmCalls: LlmCallRecord[] = [];
   const consoleErrors: string[] = [];
   const inflight = new Map<string, { url: string; start: number; model?: string; roles?: string[]; tools?: number; sysLen?: number }>();
+  const INFLIGHT_MAX_AGE_MS = 5 * 60 * 1000;
+
+  function evictStaleInflight() {
+    const now = Date.now();
+    for (const [k, v] of inflight) {
+      if (now - v.start > INFLIGHT_MAX_AGE_MS) inflight.delete(k);
+    }
+  }
 
   page.on('request', (req) => {
     const url = req.url();
@@ -60,6 +68,7 @@ export async function attachLlmObserver(page: Page): Promise<{ llmCalls: LlmCall
       // ignore
     }
     const key = `${url}:${Date.now()}:${Math.random()}`;
+    evictStaleInflight();
     inflight.set(key, { url, start: Date.now(), model, roles, tools, sysLen });
   });
 
@@ -168,7 +177,9 @@ export async function runAgentTask(
     if (!stallFired && Date.now() - lastProgressT > 45_000 && state.stopBtnVisible && !state.sendBtnVisible) {
       stallFired = true;
       console.log(`[${opts.label} +${elapsed}s] STALL detected — firing onStall`);
-      if (opts.onStall) await opts.onStall();
+      if (opts.onStall) {
+        try { await opts.onStall(); } catch (e) { console.error(`[${opts.label}] onStall threw:`, e); }
+      }
     }
   }
 
@@ -181,10 +192,15 @@ export async function runAgentTask(
   return { done, snapshots, combinedText, llmCalls, consoleErrors };
 }
 
+interface DebugBridge {
+  exportDebugBundle: () => Promise<unknown>;
+}
+
 export async function dumpDebugBundle(serviceWorker: Worker, label: string): Promise<void> {
   try {
     const bundle = await serviceWorker.evaluate(async () => {
-      const b = (globalThis as { __superduckDebugBridge?: any }).__superduckDebugBridge;
+      const b = (globalThis as { __superduckDebugBridge?: DebugBridge }).__superduckDebugBridge;
+      if (!b) return null;
       return await b.exportDebugBundle();
     });
     const out = `/tmp/sd_real_llm_${label}_${Date.now()}.json`;

@@ -109,15 +109,15 @@ export async function runRealAgentTest(
     if (opts.withDebug) await dumpDebugBundle(opts.serviceWorker, opts.label);
     console.log(`[${opts.label}] sdDebug tail:\n${sdDebug.slice(-15).join('\n')}`);
     throw err;
-  }
-
-  await sidepanel.close().catch(() => {});
-  await targetPage.close().catch(() => {});
-  if (opts.withDebug) {
-    await opts.serviceWorker.evaluate(() => {
-      const b = (globalThis as { __superduckDebugBridge?: { resetDebugRecorder: () => void } }).__superduckDebugBridge;
-      b?.resetDebugRecorder();
-    });
+  } finally {
+    await sidepanel.close().catch(() => {});
+    await targetPage.close().catch(() => {});
+    if (opts.withDebug) {
+      await opts.serviceWorker.evaluate(() => {
+        const b = (globalThis as { __superduckDebugBridge?: { resetDebugRecorder: () => void } }).__superduckDebugBridge;
+        b?.resetDebugRecorder();
+      });
+    }
   }
 }
 

@@ -61,7 +61,7 @@ type EntityKind =
 
 interface Accumulator {
   byKey: Map<string, RuntimeMapEntity>;
-  order: string[];
+  order: Map<EntityKind, string[]>;
 }
 
 function keyFor(kind: EntityKind, id: string): string {
@@ -87,7 +87,12 @@ function accumulate(
       related: {}
     };
     acc.byKey.set(key, entity);
-    acc.order.push(key);
+    let kindOrder = acc.order.get(kind);
+    if (!kindOrder) {
+      kindOrder = [];
+      acc.order.set(kind, kindOrder);
+    }
+    kindOrder.push(key);
   }
   entity.lastSeenTs = event.ts;
   entity.eventCount++;
@@ -116,7 +121,7 @@ export function buildRuntimeMap(
   artifacts: DebugArtifact[],
   session: DebugSessionMeta
 ): RuntimeMap {
-  const acc: Accumulator = { byKey: new Map(), order: [] };
+  const acc: Accumulator = { byKey: new Map(), order: new Map() };
   for (const event of events) {
     accumulate(acc, 'sidepanel', event.ids.sidepanelInstanceId, event);
     accumulate(acc, 'agentRun', event.ids.agentRunId, event);
@@ -132,7 +137,7 @@ export function buildRuntimeMap(
     accumulate(acc, 'workflowRecording', event.ids.workflowRecordingId, event);
   }
 
-  const artifactAcc: Accumulator = { byKey: new Map(), order: [] };
+  const artifactAcc: Accumulator = { byKey: new Map(), order: new Map() };
   for (const a of artifacts) {
     const fakeEvent: DebugBaseEvent = {
       schemaVersion: 1,
@@ -149,13 +154,15 @@ export function buildRuntimeMap(
   }
 
   const collect = (kind: EntityKind): RuntimeMapEntity[] => {
-    const out: RuntimeMapEntity[] = [];
-    for (const key of acc.order) {
-      if (key.startsWith(`${kind}:`)) {
-        out.push(acc.byKey.get(key)!);
-      }
-    }
-    return out;
+    const keys = acc.order.get(kind);
+    if (!keys) return [];
+    return keys.map((key) => acc.byKey.get(key)!);
+  };
+
+  const collectArtifacts = (): RuntimeMapEntity[] => {
+    const keys = artifactAcc.order.get('artifact');
+    if (!keys) return [];
+    return keys.map((key) => artifactAcc.byKey.get(key)!);
   };
 
   return {
@@ -173,6 +180,6 @@ export function buildRuntimeMap(
     tabs: collect('tab'),
     nativeRequests: collect('nativeRequest'),
     workflowRecordings: collect('workflowRecording'),
-    artifacts: [...artifactAcc.byKey.values()]
+    artifacts: collectArtifacts()
   };
 }

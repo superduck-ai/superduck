@@ -114,7 +114,11 @@ func (s *FileStore) Get(id string) *FileEntry {
 	}
 	if time.Now().After(entry.ExpiresAt) {
 		s.mu.Lock()
-		delete(s.files, id)
+		// Re-check under write lock to avoid TOCTOU: another goroutine
+		// may have already deleted this entry.
+		if e, exists := s.files[id]; exists && time.Now().After(e.ExpiresAt) {
+			delete(s.files, id)
+		}
 		s.mu.Unlock()
 		return nil
 	}

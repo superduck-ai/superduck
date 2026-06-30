@@ -146,6 +146,7 @@ export class IndexedDbDebugStore implements DebugStore {
       const req = fn(tx.objectStore(store));
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
+      tx.onabort = () => reject(tx.error ?? new Error('transaction aborted'));
     });
   }
 
@@ -161,6 +162,7 @@ export class IndexedDbDebugStore implements DebugStore {
       const req = fn(target);
       req.onsuccess = () => resolve(req.result as T);
       req.onerror = () => reject(req.error);
+      tx.onabort = () => reject(tx.error ?? new Error('transaction aborted'));
     });
   }
 
@@ -239,19 +241,16 @@ export class IndexedDbDebugStore implements DebugStore {
   }
   close(): void {
     if (this.dbPromise) {
-      this.dbPromise.then((db) => db.close()).catch(() => {});
+      const p = this.dbPromise;
       this.dbPromise = null;
+      p.then((db) => db.close()).catch(() => {});
     }
   }
 }
 
 export function createDefaultStore(): DebugStore {
   if (typeof indexedDB !== 'undefined') {
-    try {
-      return new IndexedDbDebugStore();
-    } catch {
-      // fall through to in-memory
-    }
+    return new IndexedDbDebugStore();
   }
   return new InMemoryDebugStore();
 }

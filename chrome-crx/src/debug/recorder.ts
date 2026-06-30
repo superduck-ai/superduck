@@ -504,6 +504,10 @@ export async function recordArtifact(input: RecordArtifactInput): Promise<DebugA
     if (truncated) {
       if (typeof input.content === 'string') {
         storedContent = input.content.slice(0, MAX_ARTIFACT_BYTES);
+      } else if (input.content instanceof ArrayBuffer) {
+        storedContent = input.content.slice(0, MAX_ARTIFACT_BYTES);
+      } else if (ArrayBuffer.isView(input.content)) {
+        storedContent = (input.content as ArrayBufferView).buffer.slice(0, MAX_ARTIFACT_BYTES);
       } else {
         storedContent = `[truncated: content exceeded ${MAX_ARTIFACT_BYTES} bytes]`;
       }

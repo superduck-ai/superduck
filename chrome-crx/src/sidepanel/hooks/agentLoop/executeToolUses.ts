@@ -290,12 +290,9 @@ export async function executeToolUses(
 
         const result = await params.executeToolUse(toolUse);
         if ((globalThis as { __SD_DEBUG_MSGS?: boolean }).__SD_DEBUG_MSGS) {
-          const resultStr =
-            typeof result.content === 'string'
-              ? result.content
-              : Array.isArray(result.content)
-                ? JSON.stringify(result.content)
-                : '';
+          let resultStr = '';
+          if (typeof result.content === 'string') resultStr = result.content;
+          else if (Array.isArray(result.content)) resultStr = JSON.stringify(result.content);
           console.log(
             '[SD_DEBUG] executeToolUses done:',
             toolUse.name,
