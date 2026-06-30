@@ -7,6 +7,7 @@ import (
 	"chrome-native-host/internal/cliclient"
 	"chrome-native-host/internal/debugbundle"
 	"chrome-native-host/internal/debugrec"
+	"chrome-native-host/internal/fileserver"
 	"chrome-native-host/internal/protocol"
 	"chrome-native-host/internal/udsauth"
 	"encoding/json"
@@ -62,7 +63,8 @@ type Server struct {
 	skipIdentitySync bool
 	identitySyncOnce sync.Once
 
-	recorder *debugrec.Recorder
+	recorder   *debugrec.Recorder
+	fileServer *fileserver.Server
 }
 
 func NewServer() (*Server, error) {
@@ -512,6 +514,12 @@ func (s *Server) handleUDSControlMessage(raw []byte, writer io.Writer) bool {
 			slog.Error("failed to send health response", "error", err)
 		}
 		return true
+	case "upload_file":
+		s.handleUploadFile(raw, writer)
+		return true
+	case "file_server_info":
+		s.handleFileServerInfo(writer)
+		return true
 	default:
 		return false
 	}
@@ -765,6 +773,79 @@ func (s *Server) enrichDebugBundle(rawResponse []byte) []byte {
 	return newResp
 }
 
+// handleUploadFile receives a file from CLI/MCP via UDS and stores it in the
+// file server. Sends back the file metadata + URL so the caller can pass it
+// to CRX.
+func (s *Server) handleUploadFile(raw []byte, writer io.Writer) {
+	if s.fileServer == nil {
+		_ = protocol.SendMessage(writer, map[string]any{
+			"type": "upload_file_response", "error": "file server not available",
+		})
+		return
+	}
+
+	var req struct {
+		Filename string `json:"filename"`
+		MIMEType string `json:"mimeType"`
+		Data     []byte `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		_ = protocol.SendMessage(writer, map[string]any{
+			"type": "upload_file_response", "error": fmt.Sprintf("invalid request: %v", err),
+		})
+		return
+	}
+	if req.MIMEType == "" {
+		req.MIMEType = "application/octet-stream"
+	}
+
+	id, err := s.fileServer.Store().Put(req.Filename, req.MIMEType, req.Data)
+	if err != nil {
+		_ = protocol.SendMessage(writer, map[string]any{
+			"type": "upload_file_response", "error": err.Error(),
+		})
+		return
+	}
+
+	url := fmt.Sprintf("%s/f/%s", s.fileServer.BaseURL(), id)
+	slog.Info("file uploaded via UDS", "id", id, "filename", req.Filename, "size", len(req.Data))
+
+	_ = protocol.SendMessage(writer, map[string]any{
+		"type":     "upload_file_response",
+		"id":       id,
+		"url":      url,
+		"filename": req.Filename,
+		"mimeType": req.MIMEType,
+		"size":     len(req.Data),
+	})
+
+	// Notify CRX that a file is ready for retrieval.
+	s.sendToChrome(map[string]any{
+		"type":     "file_ready",
+		"id":       id,
+		"url":      url,
+		"filename": req.Filename,
+		"mimeType": req.MIMEType,
+		"size":     len(req.Data),
+	})
+}
+
+// handleFileServerInfo returns the file server URL and auth token to the caller.
+func (s *Server) handleFileServerInfo(writer io.Writer) {
+	if s.fileServer == nil {
+		_ = protocol.SendMessage(writer, map[string]any{
+			"type": "file_server_info_response", "error": "file server not available",
+		})
+		return
+	}
+	_ = protocol.SendMessage(writer, map[string]any{
+		"type":  "file_server_info_response",
+		"url":   s.fileServer.BaseURL(),
+		"port":  s.fileServer.Port(),
+		"token": s.udsAuth,
+	})
+}
+
 // handleGetGoDebugEvents responds to a CRX request for native-host debug events.
 // Called from handleChromeMessage (CRX-initiated, not forwarded via chromeMu).
 func (s *Server) handleGetGoDebugEvents(raw []byte) {
@@ -884,6 +965,29 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("UDS auth token written", "path", udsauth.TokenPath())
+
+	// Start localhost HTTP file server for large file transfers.
+	// Reuses the UDS auth token for Bearer authentication.
+	fileStore := fileserver.NewFileStore(fileserver.DefaultStoreConfig())
+	defer fileStore.Close()
+	fs, err := fileserver.NewServer(fileStore, token)
+	if err != nil {
+		slog.Error("failed to start file server", "error", err)
+		os.Exit(1)
+	}
+	server.fileServer = fs
+	defer fs.Close()
+	slog.Info("file server started", "url", fs.BaseURL(), "port", fs.Port())
+
+	// Notify CRX immediately that the file server is available.
+	// CRX receives this as the first message after the native host starts.
+	if err := protocol.SendMessage(os.Stdout, map[string]any{
+		"type":  "file_server_ready",
+		"url":   fs.BaseURL(),
+		"token": token,
+	}); err != nil {
+		slog.Error("failed to send file_server_ready", "error", err)
+	}
 
 	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)

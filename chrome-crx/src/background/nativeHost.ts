@@ -93,6 +93,14 @@ export interface NativeHostResetResult {
   reconnecting?: boolean;
 }
 
+export interface FileReadyInfo {
+  id: string;
+  url: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface NativeHostManager {
   connect: () => Promise<boolean>;
   disconnect: () => Promise<boolean>;
@@ -100,6 +108,9 @@ export interface NativeHostManager {
   getStatus: () => Promise<NativeHostStatus>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   handleHeartbeatAlarm: () => Promise<void>;
+  fetchFileFromHost: (id: string) => Promise<Blob>;
+  onFileReady: (callback: (info: FileReadyInfo) => void) => void;
+  getFileServerInfo: () => { url: string; token: string };
 }
 
 export function createNativeHostManager(): NativeHostManager {
@@ -116,6 +127,10 @@ export function createNativeHostManager(): NativeHostManager {
   let disconnectHandler: (() => void) | null = null;
   let connectionGeneration = 0;
   let connectAttemptId = 0;
+
+  // File server connection info received from native host on startup.
+  let fileServerURL = '';
+  let fileServerToken = '';
 
   // Tracks one pending request→response pair to the native host (non-tool_request
   // messages like get_go_debug_events / get_audit_log). Sequential callers wait
@@ -505,6 +520,27 @@ export function createNativeHostManager(): NativeHostManager {
           pendingNativeResponse = null;
         }
         break;
+
+      case 'file_server_ready':
+        if (typeof message.url === 'string' && typeof message.token === 'string') {
+          fileServerURL = message.url;
+          fileServerToken = message.token;
+        }
+        break;
+
+      case 'file_ready':
+        // Native host notifies CRX that a file was uploaded via CLI/MCP.
+        // Consumers can subscribe to this via the onFileReady callback.
+        if (fileReadyCallback) {
+          fileReadyCallback({
+            id: message.id as string,
+            url: message.url as string,
+            filename: message.filename as string,
+            mimeType: message.mimeType as string,
+            size: message.size as number
+          });
+        }
+        break;
     }
   }
 
@@ -854,12 +890,39 @@ export function createNativeHostManager(): NativeHostManager {
     }
   }
 
+  // File server helpers.
+  let fileReadyCallback: ((info: FileReadyInfo) => void) | null = null;
+
+  function onFileReady(callback: (info: FileReadyInfo) => void) {
+    fileReadyCallback = callback;
+  }
+
+  function getFileServerInfo() {
+    return { url: fileServerURL, token: fileServerToken };
+  }
+
+  async function fetchFileFromHost(id: string): Promise<Blob> {
+    if (!fileServerURL || !fileServerToken) {
+      throw new Error('file server not ready — native host has not sent file_server_ready');
+    }
+    const resp = await fetch(`${fileServerURL}/f/${id}`, {
+      headers: { Authorization: `Bearer ${fileServerToken}` }
+    });
+    if (!resp.ok) {
+      throw new Error(`fetch file ${id}: ${resp.status} ${resp.statusText}`);
+    }
+    return await resp.blob();
+  }
+
   return {
     connect,
     disconnect,
     reset,
     getStatus,
     sendMcpNotification,
-    handleHeartbeatAlarm
+    handleHeartbeatAlarm,
+    fetchFileFromHost,
+    onFileReady,
+    getFileServerInfo
   };
 }
