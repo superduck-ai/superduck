@@ -7,8 +7,9 @@ import (
 )
 
 // cmdExec: superduck exec --tab <id> <js-code>
-//          superduck exec --tab <id> --file <path>
-//          echo "expr" | superduck exec --tab <id> --stdin
+//
+//	superduck exec --tab <id> --file <path>
+//	echo "expr" | superduck exec --tab <id> --stdin
 //
 // Runs JavaScript in the page context via the extension's `javascript_tool`
 // (action "javascript_exec"). The result of the last expression is returned.
