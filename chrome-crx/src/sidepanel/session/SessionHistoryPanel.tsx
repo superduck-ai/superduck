@@ -101,8 +101,7 @@ export function SessionHistoryPanel({
 
   const intl = useIntl();
 
-  const translate = useCallback((key: string) => intl.formatMessage({ id: key }), [intl]);
-  const translateValues = useCallback(
+  const translate = useCallback(
     (key: string, values?: Record<string, string | number>) =>
       intl.formatMessage({ id: key }, values),
     [intl]
@@ -286,7 +285,7 @@ export function SessionHistoryPanel({
             type="button"
             onClick={onClose}
             className="p-1 rounded-md text-text-300 hover:bg-bg-300 hover:text-text-100 transition-colors"
-            aria-label={intl.formatMessage({ id: 'chat_history_close' })}
+            aria-label={translate('chat_history_close')}
           >
             <X size={14} />
           </button>
@@ -361,12 +360,7 @@ export function SessionHistoryPanel({
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[11px] text-text-500">
-                          {formatRelativeTime(
-                            entry.updatedAt,
-                            undefined,
-                            translateValues,
-                            intl.locale
-                          )}
+                          {formatRelativeTime(entry.updatedAt, undefined, translate, intl.locale)}
                         </span>
                         {modelLabel && (
                           <span className="text-[10px] text-text-500 bg-bg-300 px-1 py-0.5 rounded truncate max-w-[80px]">
@@ -389,10 +383,8 @@ export function SessionHistoryPanel({
                           type="button"
                           onClick={(e) => handleDelete(entry, e)}
                           className="p-1 rounded-md text-text-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          aria-label={intl.formatMessage({
-                            id: 'chat_history_delete_conversation'
-                          })}
-                          title={intl.formatMessage({ id: 'chat_history_delete_conversation' })}
+                          aria-label={translate('chat_history_delete_conversation')}
+                          title={translate('chat_history_delete_conversation')}
                         >
                           <Trash2 size={12} />
                         </button>
