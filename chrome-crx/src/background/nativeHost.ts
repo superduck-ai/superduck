@@ -12,6 +12,7 @@ import {
   executeTool
 } from '../mcpRuntime';
 import { ReconnectScheduler } from './ReconnectScheduler';
+import { createFileServerBridge, type FileReadyInfo } from './fileServerBridge';
 
 const NATIVE_HOST_NAMES = [
   'com.me.superduck_browser_extension',
@@ -91,6 +92,9 @@ export interface NativeHostManager {
   getStatus: () => Promise<NativeHostStatus>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   handleHeartbeatAlarm: () => Promise<void>;
+  fetchFileFromHost: (id: string) => Promise<Blob>;
+  onFileReady: (callback: (info: FileReadyInfo) => void) => void;
+  getFileServerInfo: () => { url: string; token: string };
 }
 
 export function createNativeHostManager(): NativeHostManager {
@@ -107,6 +111,8 @@ export function createNativeHostManager(): NativeHostManager {
   let disconnectHandler: (() => void) | null = null;
   let connectionGeneration = 0;
   let connectAttemptId = 0;
+
+  const fileServerBridge = createFileServerBridge();
 
   const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
     // Don't gate on nativeHostInstalled — after a service worker restart
@@ -296,6 +302,12 @@ export function createNativeHostManager(): NativeHostManager {
 
       case 'mcp_disconnected':
         await setMcpConnectionState(false);
+        break;
+
+      default:
+        // Delegate file server messages (file_server_ready, file_ready) to the
+        // file server bridge. Returns false for non-file-server messages.
+        fileServerBridge.handleMessage(message);
         break;
     }
   }
@@ -564,6 +576,7 @@ export function createNativeHostManager(): NativeHostManager {
     explicitDisconnect = false;
     reconnectScheduler.enable();
     reconnectScheduler.reset();
+    fileServerBridge.reset();
     isConnecting = false;
     await recycleNativePort({
       detachDebugger: true,
@@ -652,6 +665,9 @@ export function createNativeHostManager(): NativeHostManager {
     reset,
     getStatus,
     sendMcpNotification,
-    handleHeartbeatAlarm
+    handleHeartbeatAlarm,
+    fetchFileFromHost: fileServerBridge.fetchFileFromHost,
+    onFileReady: fileServerBridge.onFileReady,
+    getFileServerInfo: fileServerBridge.getFileServerInfo
   };
 }

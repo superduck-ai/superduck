@@ -263,6 +263,8 @@ func main() {
 		err = cmdNavigate(rest)
 	case "upload":
 		err = cmdUpload(rest)
+	case "push-file":
+		err = cmdUploadFile(rest)
 	case "shortcuts":
 		err = cmdShortcuts(rest)
 	case "gif":

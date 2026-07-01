@@ -406,4 +406,94 @@ describe('createNativeHostManager', () => {
       params: {}
     });
   });
+
+  it('stores file server URL and token from file_server_ready message', async () => {
+    const manager = await connectManager();
+
+    expect(manager.getFileServerInfo()).toEqual({ url: '', token: '' });
+
+    messageEvent.emit({
+      type: 'file_server_ready',
+      url: 'http://127.0.0.1:54321',
+      token: 'secret-token-abc'
+    });
+
+    expect(manager.getFileServerInfo()).toEqual({
+      url: 'http://127.0.0.1:54321',
+      token: 'secret-token-abc'
+    });
+  });
+
+  it('calls onFileReady callback when file_ready message arrives', async () => {
+    const manager = await connectManager();
+
+    const received: unknown[] = [];
+    manager.onFileReady((info) => received.push(info));
+
+    messageEvent.emit({
+      type: 'file_ready',
+      id: 'file-123',
+      url: 'http://127.0.0.1:54321/f/file-123',
+      filename: 'report.md',
+      mimeType: 'text/markdown',
+      size: 1024
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({
+      id: 'file-123',
+      url: 'http://127.0.0.1:54321/f/file-123',
+      filename: 'report.md',
+      mimeType: 'text/markdown',
+      size: 1024
+    });
+  });
+
+  it('fetchFileFromHost throws when file server is not ready', async () => {
+    const manager = await connectManager();
+    await expect(manager.fetchFileFromHost('test-id')).rejects.toThrow('file server not ready');
+  });
+
+  it('fetchFileFromHost fetches with Bearer auth and returns blob', async () => {
+    const manager = await connectManager();
+
+    messageEvent.emit({
+      type: 'file_server_ready',
+      url: 'http://127.0.0.1:54321',
+      token: 'secret-token-abc'
+    });
+
+    const mockBlob = new Blob(['file content'], { type: 'text/plain' });
+    const fetchMock = vi.fn(
+      async () => new Response(mockBlob, { status: 200, headers: { 'Content-Type': 'text/plain' } })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const blob = await manager.fetchFileFromHost('file-123');
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:54321/f/file-123', {
+      headers: { Authorization: 'Bearer secret-token-abc' }
+    });
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.size).toBe(mockBlob.size);
+  });
+
+  it('fetchFileFromHost throws on HTTP error status', async () => {
+    const manager = await connectManager();
+
+    messageEvent.emit({
+      type: 'file_server_ready',
+      url: 'http://127.0.0.1:54321',
+      token: 'secret-token-abc'
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404, statusText: 'Not Found' }))
+    );
+
+    await expect(manager.fetchFileFromHost('missing-id')).rejects.toThrow(
+      'fetch file missing-id: 404'
+    );
+  });
 });

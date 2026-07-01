@@ -3,6 +3,7 @@ package main
 import (
 	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/bridge"
+	"chrome-native-host/internal/fileserver"
 	"chrome-native-host/internal/protocol"
 	"chrome-native-host/internal/udsauth"
 	"encoding/json"
@@ -57,6 +58,8 @@ type Server struct {
 	chromeTimeout    time.Duration
 	skipIdentitySync bool
 	identitySyncOnce sync.Once
+
+	fileServer *fileserver.Server
 }
 
 func NewServer() (*Server, error) {
@@ -505,6 +508,12 @@ func (s *Server) handleUDSControlMessage(raw []byte, writer io.Writer) bool {
 			slog.Error("failed to send health response", "error", err)
 		}
 		return true
+	case "upload_file":
+		s.handleUploadFile(raw, writer)
+		return true
+	case "file_server_info":
+		s.handleFileServerInfo(writer)
+		return true
 	default:
 		return false
 	}
@@ -555,6 +564,7 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 			sendToolError(responseWriter, "chrome connection closed")
 			return
 		}
+
 		if err := protocol.SendMessage(responseWriter, json.RawMessage(response)); err != nil {
 			slog.Error("failed to send response to MCP", "error", err)
 		}
@@ -681,6 +691,29 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("UDS auth token written", "path", udsauth.TokenPath())
+
+	// Start localhost HTTP file server for large file transfers.
+	// Reuses the UDS auth token for Bearer authentication.
+	fileStore := fileserver.NewFileStore(fileserver.DefaultStoreConfig())
+	defer fileStore.Close()
+	fs, err := fileserver.NewServer(fileStore, token)
+	if err != nil {
+		slog.Error("failed to start file server", "error", err)
+		os.Exit(1)
+	}
+	server.fileServer = fs
+	defer fs.Close()
+	slog.Info("file server started", "url", fs.BaseURL(), "port", fs.Port())
+
+	// Notify CRX immediately that the file server is available.
+	// CRX receives this as the first message after the native host starts.
+	if err := protocol.SendMessage(os.Stdout, map[string]any{
+		"type":  "file_server_ready",
+		"url":   fs.BaseURL(),
+		"token": token,
+	}); err != nil {
+		slog.Error("failed to send file_server_ready", "error", err)
+	}
 
 	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
