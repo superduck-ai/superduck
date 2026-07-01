@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Trash2, X, MessageSquare, ChevronRight } from 'lucide-react';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { getStorageValue, setStorageValue } from '../../extensionServices';
 import { loadProviderConfig } from '../../utils/providerStore';
 import {
@@ -21,26 +22,48 @@ import type { SessionIndexEntry } from '../types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
+export type RelativeTimeFormatter = (
+  key: string,
+  values?: Record<string, string | number>
+) => string;
+
+export function formatRelativeTime(
+  timestamp: number,
+  now: number = Date.now(),
+  t: RelativeTimeFormatter | undefined = undefined
+): string {
   const diff = now - timestamp;
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
 
-  if (seconds < 60) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
-  if (hours < 24) return `${hours} 小时前`;
-  if (days < 7) return `${days} 天前`;
+  // 不传 t 时走中文兜底：formatRelativeTime/truncatePreview 是导出的纯函数，
+  // 既有单元测试直接断言中文输出；面板渲染时会传入翻译器走 i18n 分支。
+  if (!t) {
+    if (seconds < 60) return '刚刚';
+    if (minutes < 60) return `${minutes} 分钟前`;
+    if (hours < 24) return `${hours} 小时前`;
+    if (days < 7) return `${days} 天前`;
+  } else {
+    if (seconds < 60) return t('chat_history_just_now');
+    if (minutes < 60) return t('chat_history_minutes_ago', { count: minutes });
+    if (hours < 24) return t('chat_history_hours_ago', { count: hours });
+    if (days < 7) return t('chat_history_days_ago', { count: days });
+  }
 
   const date = new Date(timestamp);
   return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
 
-export function truncatePreview(text: string | undefined, maxLen: number): string {
-  if (!text) return '空对话';
+export function truncatePreview(
+  text: string | undefined,
+  maxLen: number,
+  t: RelativeTimeFormatter | undefined = undefined
+): string {
+  if (!text) return t ? t('chat_history_empty_preview') : '空对话';
   const trimmed = text.trim();
-  if (!trimmed) return '空对话';
+  if (!trimmed) return t ? t('chat_history_empty_preview') : '空对话';
   if (trimmed.length <= maxLen) return trimmed;
   return trimmed.slice(0, maxLen) + '…';
 }
@@ -73,6 +96,15 @@ export function SessionHistoryPanel({
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [providerNameById, setProviderNameById] = useState<Record<string, string>>({});
+
+  const intl = useIntl();
+
+  const translate = useCallback((key: string) => intl.formatMessage({ id: key }), [intl]);
+  const translateValues = useCallback(
+    (key: string, values?: Record<string, string | number>) =>
+      intl.formatMessage({ id: key }, values),
+    [intl]
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -239,7 +271,9 @@ export function SessionHistoryPanel({
         <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border-300">
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-text-300" />
-            <h2 className="text-sm font-medium text-text-100">历史对话</h2>
+            <h2 className="text-sm font-medium text-text-100">
+              <FormattedMessage id="chat_history_title" defaultMessage="Chat history" />
+            </h2>
             {displayEntries.length > 0 && (
               <span className="text-xs text-text-400 bg-bg-300 px-1.5 py-0.5 rounded-full">
                 {displayEntries.length}
@@ -250,7 +284,7 @@ export function SessionHistoryPanel({
             type="button"
             onClick={onClose}
             className="p-1 rounded-md text-text-300 hover:bg-bg-300 hover:text-text-100 transition-colors"
-            aria-label="关闭历史"
+            aria-label={intl.formatMessage({ id: 'chat_history_close' })}
           >
             <X size={14} />
           </button>
@@ -260,13 +294,22 @@ export function SessionHistoryPanel({
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="text-sm text-text-400">加载中…</div>
+              <div className="text-sm text-text-400">
+                <FormattedMessage id="loading" defaultMessage="Loading..." />
+              </div>
             </div>
           ) : displayEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
               <MessageSquare size={24} className="text-text-500 mb-3" />
-              <p className="text-sm text-text-400">还没有历史对话</p>
-              <p className="text-xs text-text-500 mt-1">开始聊天后会在这里保存记录</p>
+              <p className="text-sm text-text-400">
+                <FormattedMessage id="chat_history_empty" defaultMessage="No chat history yet" />
+              </p>
+              <p className="text-xs text-text-500 mt-1">
+                <FormattedMessage
+                  id="chat_history_empty_hint"
+                  defaultMessage="Conversations will be saved here once you start chatting"
+                />
+              </p>
             </div>
           ) : (
             <div className="py-1">
@@ -283,7 +326,7 @@ export function SessionHistoryPanel({
                     role="button"
                     tabIndex={isDeleting ? -1 : 0}
                     aria-disabled={isDeleting}
-                    aria-label={`${isActive ? '当前会话' : '加载会话'} ${truncatePreview(entry.preview, 30)}`}
+                    aria-label={`${isActive ? translate('chat_history_current_session') : translate('chat_history_load_session')} ${truncatePreview(entry.preview, 30, translate)}`}
                     onClick={() => {
                       if (!isDeleting) handleLoad(entry);
                     }}
@@ -310,11 +353,13 @@ export function SessionHistoryPanel({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-text-200 truncate leading-snug">
-                        {isDeleting ? '删除中…' : truncatePreview(entry.preview, 60)}
+                        {isDeleting
+                          ? translate('chat_history_deleting')
+                          : truncatePreview(entry.preview, 60, translate)}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[11px] text-text-500">
-                          {formatRelativeTime(entry.updatedAt)}
+                          {formatRelativeTime(entry.updatedAt, undefined, translateValues)}
                         </span>
                         {modelLabel && (
                           <span className="text-[10px] text-text-500 bg-bg-300 px-1 py-0.5 rounded truncate max-w-[80px]">
@@ -323,7 +368,10 @@ export function SessionHistoryPanel({
                         )}
                         {isActive && (
                           <span className="text-[10px] text-text-400 bg-bg-300 px-1 py-0.5 rounded">
-                            当前
+                            <FormattedMessage
+                              id="chat_history_current_badge"
+                              defaultMessage="Current"
+                            />
                           </span>
                         )}
                       </div>
@@ -334,8 +382,10 @@ export function SessionHistoryPanel({
                           type="button"
                           onClick={(e) => handleDelete(entry, e)}
                           className="p-1 rounded-md text-text-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          aria-label="删除对话"
-                          title="删除对话"
+                          aria-label={intl.formatMessage({
+                            id: 'chat_history_delete_conversation'
+                          })}
+                          title={intl.formatMessage({ id: 'chat_history_delete_conversation' })}
                         >
                           <Trash2 size={12} />
                         </button>

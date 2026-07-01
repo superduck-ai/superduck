@@ -1032,5 +1032,19 @@
   "native_host_copy_failed": "失败",
   "native_host_copy": "复制",
   "agent.noHistoryToCompact": "没有可清理的对话历史",
-  "agent.shareNotImplemented": "分享功能尚未实现。"
+  "agent.shareNotImplemented": "分享功能尚未实现。",
+  "chat_history_title": "历史对话",
+  "chat_history_close": "关闭历史",
+  "chat_history_empty": "还没有历史对话",
+  "chat_history_empty_hint": "开始聊天后会在这里保存记录",
+  "chat_history_deleting": "删除中…",
+  "chat_history_delete_conversation": "删除对话",
+  "chat_history_current_session": "当前会话",
+  "chat_history_load_session": "加载会话",
+  "chat_history_current_badge": "当前",
+  "chat_history_empty_preview": "空对话",
+  "chat_history_just_now": "刚刚",
+  "chat_history_minutes_ago": "{count} 分钟前",
+  "chat_history_hours_ago": "{count} 小时前",
+  "chat_history_days_ago": "{count} 天前"
 }

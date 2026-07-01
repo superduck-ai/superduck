@@ -1039,5 +1039,19 @@
   "native_host_copy_failed": "Failed",
   "native_host_copy": "Copy",
   "agent.noHistoryToCompact": "No conversation history to clear",
-  "agent.shareNotImplemented": "Share feature is not yet implemented."
+  "agent.shareNotImplemented": "Share feature is not yet implemented.",
+  "chat_history_title": "Chat history",
+  "chat_history_close": "Close history",
+  "chat_history_empty": "No chat history yet",
+  "chat_history_empty_hint": "Conversations will be saved here once you start chatting",
+  "chat_history_deleting": "Deleting…",
+  "chat_history_delete_conversation": "Delete conversation",
+  "chat_history_current_session": "Current chat",
+  "chat_history_load_session": "Load chat",
+  "chat_history_current_badge": "Current",
+  "chat_history_empty_preview": "Empty chat",
+  "chat_history_just_now": "Just now",
+  "chat_history_minutes_ago": "{count, plural, one {# min ago} other {# min ago}}",
+  "chat_history_hours_ago": "{count, plural, one {# hour ago} other {# hours ago}}",
+  "chat_history_days_ago": "{count, plural, one {# day ago} other {# days ago}}"
 }
