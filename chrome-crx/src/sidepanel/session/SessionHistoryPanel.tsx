@@ -30,7 +30,8 @@ export type RelativeTimeFormatter = (
 export function formatRelativeTime(
   timestamp: number,
   now: number = Date.now(),
-  t: RelativeTimeFormatter | undefined = undefined
+  t: RelativeTimeFormatter | undefined = undefined,
+  locale: string | undefined = undefined
 ): string {
   const diff = now - timestamp;
   const seconds = Math.floor(diff / 1000);
@@ -53,7 +54,8 @@ export function formatRelativeTime(
   }
 
   const date = new Date(timestamp);
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  const dateLocale = t ? (locale ?? 'en-US') : 'zh-CN';
+  return date.toLocaleDateString(dateLocale, { month: 'short', day: 'numeric' });
 }
 
 export function truncatePreview(
@@ -359,7 +361,12 @@ export function SessionHistoryPanel({
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[11px] text-text-500">
-                          {formatRelativeTime(entry.updatedAt, undefined, translateValues)}
+                          {formatRelativeTime(
+                            entry.updatedAt,
+                            undefined,
+                            translateValues,
+                            intl.locale
+                          )}
                         </span>
                         {modelLabel && (
                           <span className="text-[10px] text-text-500 bg-bg-300 px-1 py-0.5 rounded truncate max-w-[80px]">

@@ -1051,7 +1051,7 @@
   "chat_history_current_badge": "Current",
   "chat_history_empty_preview": "Empty chat",
   "chat_history_just_now": "Just now",
-  "chat_history_minutes_ago": "{count, plural, one {# min ago} other {# min ago}}",
+  "chat_history_minutes_ago": "{count, plural, one {# min ago} other {# mins ago}}",
   "chat_history_hours_ago": "{count, plural, one {# hour ago} other {# hours ago}}",
   "chat_history_days_ago": "{count, plural, one {# day ago} other {# days ago}}"
 }
