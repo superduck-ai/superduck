@@ -236,14 +236,28 @@ the request or refresh the page, then call it again to inspect captured entries.
 
 ## Image Uploads, Shortcuts, and GIFs
 
-The remaining upload command is image-oriented. It drops a previously
-captured/generated image onto a file input or coordinate target; it does not
-upload arbitrary local file paths such as PDFs.
+`upload` is image-oriented: it drops a previously captured/generated image onto
+a file input or coordinate target. For arbitrary local filesystem paths (PDFs,
+spreadsheets, etc.), use `upload_file` instead.
 
 ```bash
 superduck --session "$SID" --tab "$TAB" upload --image-id <id> --ref ref_9 --filename image.png
 superduck --session "$SID" --tab "$TAB" upload --image-id <id> --coord 500,400
 ```
+
+Upload local files from disk (the browser reads them directly — no content is transferred):
+
+```bash
+# Target a known <input type=file> via ref
+superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/report.pdf --ref ref_9
+
+# Click a button/label that opens the native file picker (intercepted automatically)
+superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/photo.png --coord 500,400
+
+# Multiple files
+superduck --session "$SID" --tab "$TAB" upload_file --path /abs/a.pdf --path /abs/b.pdf --ref ref_9
+```
+
 
 Shortcuts are saved prompts, not directly executed workflows:
 

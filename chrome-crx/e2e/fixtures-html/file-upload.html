@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>File Upload Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    .section { margin-bottom: 32px; padding: 16px; border: 1px solid #ddd; border-radius: 8px; }
+    h2 { margin-top: 0; }
+    #explicit-input { display: block; margin: 8px 0; }
+    #picker-status, #explicit-status { min-height: 20px; color: #555; font-size: 14px; }
+    .picked { color: #16a34a; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>File Upload Fixture</h1>
+
+  <div class="section">
+    <h2>Explicit file input</h2>
+    <input id="explicit-input" type="file" multiple />
+    <div id="explicit-status">No file selected yet</div>
+  </div>
+
+  <div class="section">
+    <h2>Hidden input triggered by button (picker)</h2>
+    <button id="picker-trigger" style="padding:8px 16px;">Choose file to upload</button>
+    <div id="picker-status">No file selected yet</div>
+  </div>
+
+  <script>
+    // Visible input — reflects selected file name on change.
+    const explicit = document.getElementById('explicit-input');
+    const explicitStatus = document.getElementById('explicit-status');
+    explicit.addEventListener('change', () => {
+      const name = explicit.files && explicit.files[0] ? explicit.files[0].name : '(none)';
+      explicitStatus.textContent = 'Selected: ' + name;
+      explicitStatus.classList.add('picked');
+    });
+
+    // Hidden input opened by the button — exercises the native picker path.
+    const hidden = document.createElement('input');
+    hidden.type = 'file';
+    hidden.style.display = 'none';
+    document.body.appendChild(hidden);
+    const pickerStatus = document.getElementById('picker-status');
+    document.getElementById('picker-trigger').addEventListener('click', () => { hidden.click(); });
+    hidden.addEventListener('change', () => {
+      const name = hidden.files && hidden.files[0] ? hidden.files[0].name : '(none)';
+      pickerStatus.textContent = 'Selected: ' + name;
+      pickerStatus.classList.add('picked');
+    });
+
+    // Expose for test assertions.
+    window.__getFileNames = function () {
+      return {
+        explicit: explicit.files && explicit.files[0] ? explicit.files[0].name : null,
+        hidden: hidden.files && hidden.files[0] ? hidden.files[0].name : null,
+        explicitCount: explicit.files ? explicit.files.length : 0,
+        hiddenCount: hidden.files ? hidden.files.length : 0
+      };
+    };
+  </script>
+</body>
+</html>

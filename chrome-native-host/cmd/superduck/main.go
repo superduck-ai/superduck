@@ -129,6 +129,11 @@ UPLOAD / SHORTCUTS / GIF (require --tab <id>):
   upload --image-id <id> (--ref R | --coord x,y) [--filename N]
                              Drop a previously captured image onto a file input or drag target
                              (works for hidden <input type=file>).
+  upload_file --path <p1> [--path <p2> ...] (--ref R | --coord x,y)
+                             Upload local files from disk to a file input. The browser reads
+                             files directly from the given absolute paths (no content transfer).
+                             --ref targets a known <input type=file>; --coord clicks a button
+                             that opens the native file picker (intercepted automatically).
   shortcuts list             List saved shortcuts (use --json for machine output).
   shortcuts get <name|id>    Fetch a shortcut's prompt (with vars filled) to stdout.
                              Pipe into your local agent — the CLI does NOT run it.
@@ -294,6 +299,8 @@ func main() {
 		err = cmdNavigate(rest)
 	case "upload":
 		err = cmdUpload(rest)
+	case "upload_file":
+		err = cmdUploadFile(rest)
 	case "shortcuts":
 		err = cmdShortcuts(rest)
 	case "gif":

@@ -31,3 +31,4 @@ export function getDefaultProviderConfig() {
     browserControlPermissionAccepted: true,
   };
 }
+

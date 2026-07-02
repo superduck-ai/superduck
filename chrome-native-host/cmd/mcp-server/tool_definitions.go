@@ -241,6 +241,16 @@ var toolDefinitions = []toolDefinition{
 		}, "imageId", "tabId"),
 	},
 	{
+		name:        "file_upload",
+		description: "Upload one or multiple files from the local filesystem to a file input on the page. The browser reads files directly from the given absolute paths — no file content is transferred over the wire. Two modes: (1) pass `ref` to target a known <input type=file> located via read_page/find; (2) pass `coordinate` to click a button/label that opens the native file picker — the picker is intercepted automatically. Provide either ref or coordinate, not both.",
+		inputSchema: objectSchema(map[string]any{
+			"paths":      arraySchema("Absolute local filesystem paths to the files to upload.", map[string]any{"type": "string"}),
+			"ref":        stringSchema("Element reference ID of a <input type=file> from read_page/find (mode 1). Either ref or coordinate is required."),
+			"coordinate": arraySchema("Viewport [x, y] of a button/label that opens the native file picker (mode 2). Either ref or coordinate is required.", map[string]any{"type": "number"}),
+			"tabId":      numberSchema("Tab ID where the target element is located."),
+		}, "paths", "tabId"),
+	},
+	{
 		name:        "read_console_messages",
 		description: "Read browser console messages (console.log, console.error, console.warn, etc.) from a specific tab. Useful for debugging JavaScript errors, viewing application logs, or understanding what's happening in the browser console. Returns console messages from the current domain only. If you don't have a valid tab ID, use tabs_context_mcp first to get available tabs. IMPORTANT: Always provide a pattern to filter messages - without a pattern, you may get too many irrelevant messages.",
 		inputSchema: objectSchema(map[string]any{
