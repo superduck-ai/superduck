@@ -70,6 +70,8 @@ export type NavigatorWithUserAgentData = Navigator & {
 export interface ToolInputRecord extends Record<string, unknown> {
   action?: string;
   coordinate?: unknown;
+  sessionId?: unknown;
+  session_id?: unknown;
   start_coordinate?: unknown;
   tabGroupId?: unknown;
   tabId?: unknown;

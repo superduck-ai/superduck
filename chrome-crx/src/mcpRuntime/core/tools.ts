@@ -1,6 +1,7 @@
 import {
   computerTool,
   findTool,
+  fileUploadTool,
   formInputTool,
   getPageTextTool,
   gifCreatorTool,
@@ -21,7 +22,12 @@ import {
   type ToolResult
 } from '../browserAutomation';
 import { superduckTools, superduckToolNames } from '../superduckTools';
-import { tabsContextMcpTool, tabsCreateMcpTool, tabsFinalizeMcpTool } from './mcpTools';
+import {
+  tabsContextMcpTool,
+  tabsCreateMcpTool,
+  tabsFinalizeMcpTool,
+  tabsNameSessionMcpTool
+} from './mcpTools';
 import { shortcutsListTool, shortcutsGetTool, shortcutsExecuteTool } from './shortcutTools';
 
 type RuntimeToolExecute = {
@@ -49,12 +55,14 @@ export function getAllTools(): ToolRegistryEntry[] {
       turnAnswerStartTool,
       updatePlanTool,
       uploadImageTool,
+      fileUploadTool,
       readConsoleMessagesTool,
       readNetworkRequestsTool,
       gifCreatorTool,
       tabsContextMcpTool,
       tabsCreateMcpTool,
       tabsFinalizeMcpTool,
+      tabsNameSessionMcpTool,
       shortcutsListTool,
       shortcutsGetTool,
       shortcutsExecuteTool,
@@ -79,12 +87,14 @@ export const allTools: ToolRegistryEntry[] = [
   turnAnswerStartTool,
   updatePlanTool,
   uploadImageTool,
+  fileUploadTool,
   readConsoleMessagesTool,
   readNetworkRequestsTool,
   gifCreatorTool,
   tabsContextMcpTool,
   tabsCreateMcpTool,
   tabsFinalizeMcpTool,
+  tabsNameSessionMcpTool,
   shortcutsListTool,
   shortcutsGetTool,
   shortcutsExecuteTool,
@@ -96,6 +106,7 @@ export const mcpToolNames = [
   'tabs_context_mcp',
   'tabs_create_mcp',
   'tabs_finalize_mcp',
+  'tabs_name_session_mcp',
   'shortcuts_list',
   'shortcuts_get',
   ...superduckToolNames
