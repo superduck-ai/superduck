@@ -153,7 +153,10 @@ export async function handleTabGroupChange(
       }
 }
 
-export async function reconcileWithChrome(mgr: TabGroupManager): Promise<void> {
+export async function reconcileWithChrome(
+  mgr: TabGroupManager,
+  clearStalePulsing = false
+): Promise<void> {
   const allTabs = await chrome.tabs.query({});
   const activeGroupIds = new Set<number>();
   for (const tab of allTabs)
@@ -192,6 +195,20 @@ export async function reconcileWithChrome(mgr: TabGroupManager): Promise<void> {
   for (const id of toRemove) {
     const meta = mgr.groupMetadata.get(id);
     if (meta) await removeManagedGroupMetadata(mgr, meta);
+  }
+  if (clearStalePulsing) {
+    for (const [, meta] of mgr.groupMetadata.entries()) {
+      for (const [memberId, memberState] of meta.memberStates) {
+        if (memberState.indicatorState !== 'pulsing') continue;
+        memberState.indicatorState = 'none';
+        try {
+          await mgr.sendIndicatorMessage(memberId, 'HIDE_AGENT_INDICATORS');
+        } catch {
+          // ignore
+        }
+        changed = true;
+      }
+    }
   }
   (toRemove.length > 0 || changed) && (await mgr.saveToStorage());
 }

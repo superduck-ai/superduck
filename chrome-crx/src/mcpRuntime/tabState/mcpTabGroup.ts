@@ -1,6 +1,20 @@
 import type { TabGroupManager } from './tabGroups';
 import { StorageKeys } from '../../extensionServices';
-import { TAB_GROUP_TITLE, type GroupMetadata } from './types';
+import {
+  DEFAULT_SESSION_KEY,
+  TAB_GROUP_MARKER,
+  TAB_GROUP_TITLE,
+  type GroupMetadata
+} from './types';
+import {
+  BrowserSessionConflictError,
+  tabLeaseManager,
+  type TabLease,
+  type TabLeaseOrigin
+} from './tabLeases';
+import { resolveBrowserSessionScope, type BrowserSessionScope } from '../sessionScope';
+import { buildSessionContextFromLeases, collectSessionLeases } from './sessionLeaseContext';
+import { removeManagedGroupMetadata } from './tabGroupFinalize';
 
 export async function addTabToIndicatorGroup(
   mgr: TabGroupManager,
@@ -14,79 +28,82 @@ export async function addTabToIndicatorGroup(
 export async function getTabForMcp(
   mgr: TabGroupManager,
   tabId?: number,
-  tabGroupId?: number
+  tabGroupId?: number,
+  options: { sessionId?: string } = {}
 ): Promise<{ tabId: number | undefined; domain?: string; url?: string }> {
-  if ((await mgr.initialize(), await loadMcpTabGroupId(mgr), void 0 !== tabId))
+  const scope = resolveBrowserSessionScope(options);
+  await mgr.initialize();
+  await loadMcpTabGroupId(mgr);
+
+  if (void 0 !== tabId)
     try {
       const tab = await chrome.tabs.get(tabId);
-      if (tab) {
-        const group = await mgr.findGroupByTab(tabId);
-        let domain: string | undefined;
-        group &&
-          ((mgr.mcpTabGroupId = group.chromeGroupId),
-          await saveMcpTabGroupId(mgr),
-          await ensureMcpGroupCharacteristics(mgr, group.chromeGroupId));
-        const tabUrl =
-          tab.url &&
-          !tab.url.startsWith('chrome://') &&
-          !tab.url.startsWith('edge://') &&
-          !tab.url.startsWith('brave://')
-            ? tab.url
-            : void 0;
-        if (tabUrl)
-          try {
-            domain = new URL(tabUrl).hostname || void 0;
-          } catch {
-            // ignore
-          }
-        return { tabId, domain, url: tabUrl };
+      const group = await mgr.findGroupByTab(tabId);
+      const groupId =
+        group?.chromeGroupId ??
+        (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? tab.groupId : undefined);
+      if (typeof groupId === 'number') {
+        mgr.mcpTabGroupId = groupId;
+        await saveMcpTabGroupId(mgr);
+        await ensureMcpGroupCharacteristics(mgr, groupId, scope?.sessionId);
       }
-    } catch {
-      throw new Error(`Tab ${tabId} does not exist`);
-    }
-  if (void 0 !== tabGroupId) {
-    for (const [mainId, meta] of mgr.groupMetadata.entries())
-      if (meta.chromeGroupId === tabGroupId)
-        try {
-          const tab = await chrome.tabs.get(mainId);
-          if (tab) {
-            const tabUrl =
-              tab.url &&
-              !tab.url.startsWith('chrome://') &&
-              !tab.url.startsWith('edge://') &&
-              !tab.url.startsWith('brave://')
-                ? tab.url
-                : void 0;
-            return { tabId: mainId, domain: meta.domain, url: tabUrl };
-          }
-        } catch {
-          break;
+      if (scope) {
+        const existingLease = await tabLeaseManager.getLease(tabId);
+        if (existingLease && existingLease.sessionId !== scope.sessionId) {
+          throw new BrowserSessionConflictError(tabId, existingLease.sessionId);
         }
-    try {
-      const tabs = await chrome.tabs.query({ groupId: tabGroupId });
-      if (tabs.length > 0 && tabs[0].id) {
-        let domain: string | undefined;
-        const tabUrl = tabs[0].url;
-        const url =
-          tabUrl &&
-          !tabUrl.startsWith('chrome://') &&
-          !tabUrl.startsWith('edge://') &&
-          !tabUrl.startsWith('brave://')
-            ? tabUrl
-            : void 0;
-        if (url)
-          try {
-            domain = new URL(url).hostname || void 0;
-          } catch {
-            // ignore
-          }
-        return { tabId: tabs[0].id, domain, url };
+        const memberOrigin = group?.memberStates.get(tabId)?.origin;
+        const shouldClaimUnleased = !existingLease && (!isInternalBrowserUrl(tab.url) || group);
+        if (existingLease) {
+          await tabLeaseManager.claimTab(scope.sessionId, tabId, existingLease.origin, {
+            groupId
+          });
+        } else if (shouldClaimUnleased) {
+          await tabLeaseManager.claimTab(
+            scope.sessionId,
+            tabId,
+            (memberOrigin ?? 'user') as TabLeaseOrigin,
+            { groupId }
+          );
+        }
       }
-    } catch {
-      // ignore
+      return { tabId, ...getTabRuntimeInfo(tab) };
+    } catch (err) {
+      if (err instanceof BrowserSessionConflictError) throw err;
+      throw new Error(`Tab ${tabId} does not exist`, { cause: err });
+    }
+
+  if (void 0 !== tabGroupId) {
+    try {
+      const tabs = (await chrome.tabs.query({ groupId: tabGroupId }))
+        .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
+        .sort((a, b) => {
+          if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+          return (a.index ?? 0) - (b.index ?? 0);
+        });
+      if (tabs.length > 0) {
+        if (scope) {
+          for (const tab of tabs) {
+            await tabLeaseManager.assertTabAvailableForSession(scope.sessionId, tab.id);
+          }
+        }
+        return await getTabForMcp(mgr, tabs[0].id, undefined, options);
+      }
+    } catch (err) {
+      if (err instanceof BrowserSessionConflictError) throw err;
     }
     throw new Error(`Could not find tab group ${tabGroupId}`);
   }
+
+  if (scope) {
+    const context = await getSessionMcpTabContext(mgr, scope, false);
+    if (context) {
+      const tab = await chrome.tabs.get(context.currentTabId);
+      return { tabId: context.currentTabId, ...getTabRuntimeInfo(tab) };
+    }
+    return { tabId: undefined };
+  }
+
   if (mgr.mcpTabGroupId !== null) {
     try {
       await chrome.tabGroups.get(mgr.mcpTabGroupId);
@@ -98,24 +115,7 @@ export async function getTabForMcp(
           return (a.index ?? 0) - (b.index ?? 0);
         });
       const tab = tabs[0];
-      if (tab) {
-        let domain: string | undefined;
-        const tabUrl = tab.url;
-        const url =
-          tabUrl &&
-          !tabUrl.startsWith('chrome://') &&
-          !tabUrl.startsWith('edge://') &&
-          !tabUrl.startsWith('brave://')
-            ? tabUrl
-            : void 0;
-        if (url)
-          try {
-            domain = new URL(url).hostname || void 0;
-          } catch {
-            // ignore
-          }
-        return { tabId: tab.id, domain, url };
-      }
+      if (tab) return { tabId: tab.id, ...getTabRuntimeInfo(tab) };
     } catch {
       await clearMcpTabGroup(mgr);
     }
@@ -139,15 +139,19 @@ export async function isTabMcp(mgr: TabGroupManager, tabId: number): Promise<boo
 
 export async function ensureMcpGroupCharacteristics(
   mgr: TabGroupManager,
-  chromeGroupId: number
+  chromeGroupId: number,
+  sessionId?: string
 ): Promise<void> {
   try {
     const group = await chrome.tabGroups.get(chromeGroupId);
-    (group.title === TAB_GROUP_TITLE && group.color === chrome.tabGroups.Color.ORANGE) ||
-      (await chrome.tabGroups.update(chromeGroupId, {
-        title: TAB_GROUP_TITLE,
-        color: chrome.tabGroups.Color.ORANGE
-      }));
+    const hasMarker = typeof group.title === 'string' && group.title.includes(TAB_GROUP_MARKER);
+    const titleOk = hasMarker || group.title === resolveGroupTitle(mgr, sessionId);
+    const colorOk = group.color === chrome.tabGroups.Color.ORANGE;
+    if (titleOk && colorOk) return;
+    await chrome.tabGroups.update(chromeGroupId, {
+      ...(titleOk ? {} : { title: resolveGroupTitle(mgr, sessionId) }),
+      ...(colorOk ? {} : { color: chrome.tabGroups.Color.ORANGE })
+    });
   } catch {
     // ignore
   }
@@ -161,7 +165,7 @@ export async function clearMcpTabGroup(mgr: TabGroupManager): Promise<void> {
 
 export async function getOrCreateMcpTabContext(
   mgr: TabGroupManager,
-  options?: { createIfEmpty?: boolean }
+  options?: { createIfEmpty?: boolean; name?: string; sessionId?: string }
 ): Promise<
   | {
       currentTabId: number;
@@ -171,7 +175,11 @@ export async function getOrCreateMcpTabContext(
     }
   | undefined
 > {
-  const { createIfEmpty = false } = options || {};
+  const { createIfEmpty = false, name } = options || {};
+  const scope = resolveBrowserSessionScope(options);
+  if (scope) {
+    return await getSessionMcpTabContext(mgr, scope, createIfEmpty, name);
+  }
   if ((await loadMcpTabGroupId(mgr), null !== mgr.mcpTabGroupId))
     try {
       await chrome.tabGroups.get(mgr.mcpTabGroupId);
@@ -193,19 +201,45 @@ export async function getOrCreateMcpTabContext(
       await saveMcpTabGroupId(mgr);
     }
   if (createIfEmpty) {
-    return await createMcpTabGroup(mgr, { active: false });
+    return await createMcpTabGroup(mgr, { active: false, name });
   }
 }
 
 export async function createMcpTabGroup(
   mgr: TabGroupManager,
-  options?: { active?: boolean }
+  options?: {
+    active?: boolean;
+    sessionId?: string;
+    replaceExisting?: boolean;
+    name?: string;
+  }
 ): Promise<{
   currentTabId: number;
   availableTabs: { id: number; title: string; url: string }[];
   tabCount: number;
   tabGroupId: number;
 }> {
+  const scope = resolveBrowserSessionScope(options);
+  if (scope) {
+    const existing = await getSessionMcpTabContext(mgr, scope, false);
+    if (existing && options?.replaceExisting !== true) {
+      throw new Error(
+        `Session already has MCP tab group ${existing.tabGroupId}; use tab_group list --create-if-empty to reuse tab ${existing.currentTabId}, or pass --force to replace it.`
+      );
+    }
+    if (options?.replaceExisting === true) {
+      if (existing) {
+        await disposeSessionGroup(mgr, existing.tabGroupId);
+      }
+      await tabLeaseManager.releaseSession(scope.sessionId);
+    }
+  }
+  const trimmedName = (options?.name ?? '').trim();
+  if (trimmedName) {
+    mgr.sessionGroupTitles.set(scope?.sessionId ?? DEFAULT_SESSION_KEY, trimmedName);
+    await mgr.saveToStorage();
+  }
+
   const newTab = await chrome.tabs.create({
     url: 'chrome://newtab',
     active: options?.active ?? false
@@ -216,6 +250,12 @@ export async function createMcpTabGroup(
   const group = await mgr.createGroup(newTabId, { origin: 'agent' });
   mgr.mcpTabGroupId = group.chromeGroupId;
   await saveMcpTabGroupId(mgr);
+  await applyGroupTitle(group.chromeGroupId, resolveGroupTitle(mgr, scope?.sessionId));
+  if (scope) {
+    await tabLeaseManager.claimTab(scope.sessionId, newTabId, 'agent', {
+      groupId: group.chromeGroupId
+    });
+  }
 
   const availableTabs = (await chrome.tabs.query({ groupId: group.chromeGroupId })).flatMap(
     (tab) =>
@@ -362,11 +402,144 @@ export async function findMcpTabGroupByCharacteristics(
   try {
     const groups = await chrome.tabGroups.query({});
     for (const group of groups)
-      if (group.color === chrome.tabGroups.Color.ORANGE && group.title?.includes(TAB_GROUP_TITLE)) {
+      if (
+        group.color === chrome.tabGroups.Color.ORANGE &&
+        group.title?.includes(TAB_GROUP_MARKER)
+      ) {
         if ((await chrome.tabs.query({ groupId: group.id })).length > 0) return group.id;
       }
     return null;
   } catch {
     return null;
   }
+}
+
+export function resolveGroupTitle(mgr: TabGroupManager, sessionId?: string): string {
+  const named = sessionId
+    ? mgr.sessionGroupTitles.get(sessionId)
+    : mgr.sessionGroupTitles.get(DEFAULT_SESSION_KEY);
+  return named ? `${TAB_GROUP_MARKER} ${named}` : TAB_GROUP_TITLE;
+}
+
+export async function nameSession(
+  mgr: TabGroupManager,
+  sessionId: string,
+  name: string
+): Promise<{ title: string } | undefined> {
+  const trimmed = name.trim();
+  await mgr.initialize();
+  if (trimmed) mgr.sessionGroupTitles.set(sessionId, trimmed);
+  else mgr.sessionGroupTitles.delete(sessionId);
+  await mgr.saveToStorage();
+  const leases = await tabLeaseManager.getSessionActiveLeases(sessionId);
+  if (leases.length === 0) return undefined;
+  const groupId = await resolveLeaseGroupId(leases[0]);
+  if (typeof groupId !== 'number') return undefined;
+  await applyGroupTitle(groupId, resolveGroupTitle(mgr, sessionId));
+  return { title: resolveGroupTitle(mgr, sessionId) };
+}
+
+export async function nameActiveMcpGroup(
+  mgr: TabGroupManager,
+  name: string
+): Promise<{ title: string } | undefined> {
+  const trimmed = name.trim();
+  await mgr.initialize();
+  await loadMcpTabGroupId(mgr);
+  if (trimmed) mgr.sessionGroupTitles.set(DEFAULT_SESSION_KEY, trimmed);
+  else mgr.sessionGroupTitles.delete(DEFAULT_SESSION_KEY);
+  await mgr.saveToStorage();
+  if (mgr.mcpTabGroupId === null) return undefined;
+  try {
+    await chrome.tabGroups.get(mgr.mcpTabGroupId);
+  } catch {
+    return undefined;
+  }
+  await applyGroupTitle(mgr.mcpTabGroupId, resolveGroupTitle(mgr));
+  return { title: resolveGroupTitle(mgr) };
+}
+
+export async function applyGroupTitle(chromeGroupId: number, title: string): Promise<void> {
+  try {
+    await chrome.tabGroups.update(chromeGroupId, {
+      title,
+      color: chrome.tabGroups.Color.ORANGE
+    });
+  } catch {
+    // ignore
+  }
+}
+
+async function disposeSessionGroup(mgr: TabGroupManager, chromeGroupId: number): Promise<void> {
+  try {
+    const groupTabs = await chrome.tabs.query({ groupId: chromeGroupId });
+    const tabIds = groupTabs.flatMap((tab) => (typeof tab.id === 'number' ? [tab.id] : []));
+    if (tabIds.length > 0 && chrome.tabs.ungroup) {
+      await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
+    }
+  } catch {
+    // group may already be gone
+  }
+  const meta = findMetadataByChromeGroupId(mgr, chromeGroupId);
+  if (meta) await removeManagedGroupMetadata(mgr, meta);
+  await mgr.saveToStorage();
+}
+
+async function getSessionMcpTabContext(
+  mgr: TabGroupManager,
+  scope: BrowserSessionScope,
+  createIfEmpty: boolean,
+  name?: string
+): Promise<
+  | {
+      currentTabId: number;
+      availableTabs: { id: number; title: string; url: string }[];
+      tabCount: number;
+      tabGroupId: number;
+    }
+  | undefined
+> {
+  const leases = await collectSessionLeases(scope.sessionId);
+  const context = await buildSessionContextFromLeases(leases);
+  if (context) {
+    if (name?.trim()) {
+      mgr.sessionGroupTitles.set(scope.sessionId, name.trim());
+      await mgr.saveToStorage();
+    }
+    await ensureMcpGroupCharacteristics(mgr, context.tabGroupId, scope.sessionId);
+    return context;
+  }
+  if (createIfEmpty) {
+    return await createMcpTabGroup(mgr, {
+      active: false,
+      sessionId: scope.sessionId,
+      name
+    });
+  }
+}
+
+async function resolveLeaseGroupId(lease: TabLease): Promise<number | undefined> {
+  if (typeof lease.groupId === 'number') return lease.groupId;
+  try {
+    const tab = await chrome.tabs.get(lease.tabId);
+    return tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? tab.groupId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getTabRuntimeInfo(tab: chrome.tabs.Tab): { domain?: string; url?: string } {
+  const tabUrl = isInternalBrowserUrl(tab.url) ? undefined : tab.url;
+  if (!tabUrl) return {};
+  try {
+    return { domain: new URL(tabUrl).hostname || undefined, url: tabUrl };
+  } catch {
+    return { url: tabUrl };
+  }
+}
+
+function isInternalBrowserUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  const internalPrefixes = ['chrome://', 'edge://', 'brave://', 'about:'];
+  return internalPrefixes.some((prefix) => url.startsWith(prefix));
 }
