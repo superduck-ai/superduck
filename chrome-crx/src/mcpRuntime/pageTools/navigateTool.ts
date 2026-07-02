@@ -1,5 +1,5 @@
 import { PermissionTools } from '../domainPermissions';
-import { tabGroupManager } from '../tabState';
+import { tabGroupManager, tabLeaseManager } from '../tabState';
 import { checkDomainCategoryForNavigation } from '../navigationIsolation';
 import type { ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import type { NavigateToolInput } from './types';
@@ -63,6 +63,10 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
 
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
+      const browserScope = context.browserSessionScope;
+      if (browserScope) {
+        await tabLeaseManager.assertTabAvailableForSession(browserScope.sessionId, effectiveTabId);
+      }
 
       if ('back' === url.toLowerCase()) {
         await chrome.tabs.goBack(tab.id);
@@ -123,7 +127,10 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
         if (!createdTab.id) throw new Error('Failed to create tab - no tab ID returned');
         const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
         if (mainTabId) {
-          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id, { origin: 'agent' });
+          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id, {
+            origin: 'agent',
+            sessionId: browserScope?.sessionId
+          });
         } else if (tab.groupId && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
           await chrome.tabs.group({ tabIds: createdTab.id, groupId: tab.groupId });
         }

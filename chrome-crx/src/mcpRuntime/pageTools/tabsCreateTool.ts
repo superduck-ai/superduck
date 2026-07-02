@@ -60,7 +60,11 @@ export const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
 
       const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
       if (mainTabId) {
-        await tabGroupManager.addTabToGroup(mainTabId, newTab.id, { origin: 'agent' });
+        const browserScope = context.browserSessionScope;
+        await tabGroupManager.addTabToGroup(mainTabId, newTab.id, {
+          origin: 'agent',
+          sessionId: browserScope?.sessionId
+        });
       } else if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
         await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
       }

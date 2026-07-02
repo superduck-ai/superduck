@@ -5,8 +5,6 @@ import { gifFrameStorage, getGifFrameDelay } from './gifFrameStorage';
 import type { GifCreatorToolInput, GifGenerationResult } from './types';
 import { isScriptOutputResult } from './types';
 
-const MCP_NATIVE_SESSION = 'mcp-native-session';
-
 export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
   name: 'gif_creator',
   description:
@@ -51,7 +49,7 @@ export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
       if (!tab) throw new Error(`Tab ${params.tabId} not found`);
       const groupId = tab.groupId ?? -1;
 
-      if (context.sessionId === MCP_NATIVE_SESSION) {
+      if (context.browserSessionScope) {
         const isManaged = await tabGroupManager.isInGroup(params.tabId);
         if (!isManaged) {
           return {
