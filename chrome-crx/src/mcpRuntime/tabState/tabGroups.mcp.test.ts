@@ -12,99 +12,120 @@ type MockTab = {
   status?: string;
 };
 
-const chromeMock = vi.hoisted(() => ({
-  tabs: {
-    create: vi.fn(
-      async (): Promise<MockTab> => ({
-        id: 7,
-        windowId: 1,
-        groupId: -1,
-        url: 'chrome://newtab',
-        title: 'New Tab',
-        index: 2
-      })
-    ),
-    group: vi.fn(async () => 123),
-    ungroup: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
-    update: vi.fn(async () => ({})),
-    get: vi.fn(
-      async (id: number): Promise<MockTab> => ({
-        id,
-        windowId: 1,
-        groupId: id === 7 ? -1 : 123,
-        url: id === 10 ? 'https://example.com/' : 'chrome://newtab',
-        title: `Tab ${id}`,
-        index: id === 10 ? 0 : 1
-      })
-    ),
-    query: vi.fn(async (queryInfo?: { groupId?: number; active?: boolean }): Promise<MockTab[]> => {
-      if (queryInfo?.active) {
-        return [
-          {
-            id: 99,
-            windowId: 1,
-            groupId: -1,
-            url: 'https://user.example/',
-            title: 'User Tab',
-            index: 3,
-            active: true
+const chromeMock = vi.hoisted(() => {
+  const sessionStore = new Map<string, unknown>();
+
+  return {
+    sessionStore,
+    tabs: {
+      create: vi.fn(
+        async (): Promise<MockTab> => ({
+          id: 7,
+          windowId: 1,
+          groupId: -1,
+          url: 'chrome://newtab',
+          title: 'New Tab',
+          index: 2
+        })
+      ),
+      group: vi.fn(async () => 123),
+      ungroup: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+      update: vi.fn(async () => ({})),
+      get: vi.fn(
+        async (id: number): Promise<MockTab> => ({
+          id,
+          windowId: 1,
+          groupId: id === 7 ? -1 : 123,
+          url: id === 10 ? 'https://example.com/' : 'chrome://newtab',
+          title: `Tab ${id}`,
+          index: id === 10 ? 0 : 1
+        })
+      ),
+      query: vi.fn(
+        async (queryInfo?: { groupId?: number; active?: boolean }): Promise<MockTab[]> => {
+          if (queryInfo?.active) {
+            return [
+              {
+                id: 99,
+                windowId: 1,
+                groupId: -1,
+                url: 'https://user.example/',
+                title: 'User Tab',
+                index: 3,
+                active: true
+              }
+            ];
           }
-        ];
-      }
-      if (queryInfo?.groupId === 123) {
-        return [
-          {
-            id: 20,
-            windowId: 1,
-            groupId: 123,
-            url: 'https://later.example/',
-            title: 'Later',
-            index: 1
-          },
-          {
-            id: 10,
-            windowId: 1,
-            groupId: 123,
-            url: 'https://example.com/',
-            title: 'First',
-            index: 0
+          if (queryInfo?.groupId === 123) {
+            return [
+              {
+                id: 20,
+                windowId: 1,
+                groupId: 123,
+                url: 'https://later.example/',
+                title: 'Later',
+                index: 1
+              },
+              {
+                id: 10,
+                windowId: 1,
+                groupId: 123,
+                url: 'https://example.com/',
+                title: 'First',
+                index: 0
+              }
+            ];
           }
-        ];
+          return [];
+        }
+      ),
+      sendMessage: vi.fn(async () => {}),
+      onCreated: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
+      onRemoved: { addListener: vi.fn() }
+    },
+    tabGroups: {
+      TAB_GROUP_ID_NONE: -1,
+      Color: { ORANGE: 'orange' },
+      update: vi.fn(async () => {}),
+      query: vi.fn(async () => [{ id: 123, title: '🦆SuperDuck', color: 'orange' }]),
+      get: vi.fn(async () => ({ id: 123, title: '🦆SuperDuck', color: 'orange' }))
+    },
+    storage: {
+      session: {
+        get: vi.fn(async (key: string | string[]) => {
+          const keys = Array.isArray(key) ? key : [key];
+          return Object.fromEntries(keys.map((item) => [item, sessionStore.get(item)]));
+        }),
+        set: vi.fn(async (values: Record<string, unknown>) => {
+          for (const [key, value] of Object.entries(values)) sessionStore.set(key, value);
+        }),
+        remove: vi.fn(async (key: string | string[]) => {
+          const keys = Array.isArray(key) ? key : [key];
+          for (const item of keys) sessionStore.delete(item);
+        })
+      },
+      local: {
+        get: vi.fn(async () => ({})),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {})
       }
-      return [];
-    }),
-    sendMessage: vi.fn(async () => {}),
-    onCreated: { addListener: vi.fn() },
-    onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
-    onRemoved: { addListener: vi.fn() }
-  },
-  tabGroups: {
-    TAB_GROUP_ID_NONE: -1,
-    Color: { ORANGE: 'orange' },
-    update: vi.fn(async () => {}),
-    query: vi.fn(async () => [{ id: 123, title: '🦆SuperDuck', color: 'orange' }]),
-    get: vi.fn(async () => ({ id: 123, title: '🦆SuperDuck', color: 'orange' }))
-  },
-  storage: {
-    local: {
-      get: vi.fn(async () => ({})),
-      set: vi.fn(async () => {}),
-      remove: vi.fn(async () => {})
-    }
-  },
-  windows: {
-    create: vi.fn(async () => {
-      throw new Error('MCP group creation should not create or focus a new window');
-    }),
-    get: vi.fn(async () => ({}))
-  },
-  runtime: { getManifest: vi.fn(() => ({ version: '0.0.0-test' })) }
-}));
+    },
+    windows: {
+      create: vi.fn(async () => {
+        throw new Error('MCP group creation should not create or focus a new window');
+      }),
+      get: vi.fn(async () => ({}))
+    },
+    runtime: { getManifest: vi.fn(() => ({ version: '0.0.0-test' })) }
+  };
+});
 
 vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
+const { tabLeaseManager } = await import('./tabLeases');
 const { createPolicyCheckedChildTab, moveSearchNavigationToNewTab, filterPolicyAllowedTabs } =
   await import('../navigationIsolation');
 
@@ -121,6 +142,13 @@ beforeEach(() => {
   manager.groupMetadata.clear();
   manager.initialized = true;
   manager.mcpTabGroupId = null;
+  chromeMock.sessionStore.clear();
+  (
+    tabLeaseManager as unknown as { leases: Map<number, unknown>; initialized: boolean }
+  ).leases.clear();
+  (
+    tabLeaseManager as unknown as { leases: Map<number, unknown>; initialized: boolean }
+  ).initialized = false;
   for (const policy of manager.childTabNavigationPoliciesByOpener.values()) {
     if (policy.timeoutId) clearTimeout(policy.timeoutId);
   }
@@ -140,6 +168,9 @@ beforeEach(() => {
   chromeMock.storage.local.get.mockClear();
   chromeMock.storage.local.set.mockClear();
   chromeMock.storage.local.remove.mockClear();
+  chromeMock.storage.session.get.mockClear();
+  chromeMock.storage.session.set.mockClear();
+  chromeMock.storage.session.remove.mockClear();
   chromeMock.windows.create.mockClear();
 });
 
@@ -156,6 +187,18 @@ describe('TabGroupManager MCP tab groups', () => {
     expect(context.currentTabId).toBe(7);
     expect(context.tabGroupId).toBe(123);
     expect(manager.mcpTabGroupId).toBe(123);
+  });
+
+  it('records the user tab as protected without activating the agent tab', async () => {
+    await tabGroupManager.withPreservedActiveTab(7, async () => {
+      return 'done';
+    });
+
+    // The user's active tab (99) is recorded as protected so child tabs can
+    // restore it later, but the agent tab itself is never activated — agent
+    // actions must never yank focus away from what the user is doing.
+    expect(tabGroupManager.protectedActiveTabsByWindow.get(1)?.tabId).toBe(99);
+    expect(chromeMock.tabs.update).not.toHaveBeenCalledWith(7, { active: true });
   });
 
   it('uses the current MCP group when an MCP tool omits tabId', async () => {

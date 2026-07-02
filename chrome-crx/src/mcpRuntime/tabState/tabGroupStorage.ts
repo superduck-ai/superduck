@@ -26,6 +26,15 @@ export async function loadFromStorage(mgr: TabGroupManager): Promise<void> {
           return [parseInt(key, 10), entry];
         })
       ));
+    const titles = (await chrome.storage.local.get(mgr.SESSION_TITLES_KEY))[mgr.SESSION_TITLES_KEY];
+    mgr.sessionGroupTitles =
+      titles && typeof titles === 'object'
+        ? new Map(
+            Object.entries(titles as Record<string, string>).filter(
+              ([, value]) => typeof value === 'string' && value.trim()
+            )
+          )
+        : new Map();
   } catch (err) {
     // ignore
   }
@@ -46,6 +55,9 @@ export async function saveToStorage(mgr: TabGroupManager): Promise<void> {
       })
     );
     await chrome.storage.local.set({ [mgr.STORAGE_KEY]: serialized });
+    await chrome.storage.local.set({
+      [mgr.SESSION_TITLES_KEY]: Object.fromEntries(mgr.sessionGroupTitles.entries())
+    });
   } catch (err) {
     // ignore
   }
@@ -96,6 +108,9 @@ export async function isGroupDismissed(
 }
 
 export async function initialize(mgr: TabGroupManager, force = false): Promise<void> {
-  (mgr.initialized && !force) ||
-    (await loadFromStorage(mgr), await mgr.reconcileWithChrome(), (mgr.initialized = true));
+  if (mgr.initialized && !force) return;
+  const firstInitOfLifetime = !mgr.initialized;
+  await loadFromStorage(mgr);
+  await mgr.reconcileWithChrome(firstInitOfLifetime);
+  mgr.initialized = true;
 }
