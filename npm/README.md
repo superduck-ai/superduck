@@ -2,7 +2,7 @@
 
 > Your browser's session, callable as a tool.
 
-`superduck` is a CLI that lets agents (Claude Code, Codex, etc.) read from and fetch as the user's currently-running Chrome — same login state, same cookies, same active tab.
+`superduck` is a CLI that lets browser-capable agents inspect and operate the user's currently-running Chrome - same login state, same cookies, managed browser tabs.
 
 ## Install
 
@@ -23,7 +23,9 @@ All green → you're ready.
 
 ```bash
 superduck context                       # see what the user is reading
-superduck fetch https://api.example.com # using their cookies
+TAB=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+superduck --tab "$TAB" navigate https://example.com/
+superduck --tab "$TAB" read_page --filter interactive
 superduck tabs
 ```
 

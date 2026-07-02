@@ -12,6 +12,8 @@ cookies and logins.
 
 This skill is tested against `superduck 0.2.6`. If behavior looks wrong, run
 `superduck version` and `superduck --help` before trusting older examples.
+`tab_group list --json` wraps its report in `output`; newer CLIs also expose a
+top-level `tabContext` — the tab-id examples below handle both.
 
 ## Core Workflow
 
@@ -20,37 +22,86 @@ fallback for canvas, custom widgets, or elements that do not expose a useful ref
 
 ```bash
 superduck doctor
-TAB=$(superduck tab_group new | grep -o 'Tab ID: [0-9]*' | grep -o '[0-9]*')
-superduck --tab "$TAB" navigate https://example.com/
-superduck --tab "$TAB" context
-superduck --tab "$TAB" read_page --filter interactive
-superduck --tab "$TAB" left_click --ref ref_1
-superduck tab_group finalize
+# Mint one session id per task and pass it to every browser command so this
+# task owns its own tab group and does not collide with other concurrent tasks.
+SID=$(superduck session new)
+# Create (or reuse) the session's tab group and name it in one step; the 🦆
+# marker is auto-prepended. --name is ignored if the group already exists.
+# `.tabContext.currentTabId` is the canonical field (matches `superduck --help`);
+# the `// .output | capture(...)` arm parses the wrapped text on CLI builds that
+# don't yet promote tabContext (e.g. released 0.2.6).
+TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty --name "🔎 <short task name>" \
+  | jq -r '(.tabContext.currentTabId // empty) // (.output | capture("tabId (?<id>[0-9]+)").id)')
+superduck --session "$SID" --tab "$TAB" navigate https://example.com/
+superduck --session "$SID" --tab "$TAB" context
+superduck --session "$SID" --tab "$TAB" read_page --filter interactive
+superduck --session "$SID" --tab "$TAB" left_click --ref ref_1
+# Before ending a turn that did any browser work, run finalize — it must be
+# the last browser action of the turn. Do not call browser tools after it.
+superduck --session "$SID" tab_group finalize --deliverable "$TAB"
 ```
+
+If you skip `--session`, all CLI calls fall back to one shared session
+(`~/.superduck/cli-session-id`), so concurrent tasks would step on each other's
+tabs. Mint a fresh `SID` per task with `superduck session new` instead. Pass
+`--name "🔎 <task>"` to `tab_group list --create-if-empty` to title the group at
+creation; the 🦆 marker is always prepended automatically (do not add it
+yourself), so every SuperDuck-opened group is identifiable at a glance. To
+rename a group mid-task, run `superduck --session "$SID" session name "<text>"`.
 
 New tabs usually start on a Chrome internal page. Navigate to an `https://`
 page before using `exec`, `read_page`, or screenshots. `about:` and `data:`
 URLs may be rejected by `navigate`.
 
-## Tab Cleanup
+## Tab Lifecycle
 
-Before ending a turn after SuperDuck browser work, call
-`superduck tab_group finalize`. Treat it as the final SuperDuck browser action
-of the turn. Do not call more SuperDuck browser commands after finalizing; if
-more browser work is needed, do it first and finalize once at the end.
+Start by reusing the current session group:
 
-Omit tabs by default. A tab is worth keeping only when the user needs that live
-page after the turn; otherwise leave it out of the finalize flags. Omit
-research, search, source, intermediate, duplicate, blank, error, and
-login/navigation tabs after extracting what you need. If the user asked a
-question and the answer can be given in the chat, omit the tab even if it
-helped you answer.
+```bash
+superduck tab_group list --create-if-empty
+```
+
+Capture the tab id from the JSON envelope. `tab_group list --json` wraps a
+human-readable report in `output`; a newer CLI also promotes a top-level
+`tabContext.currentTabId` (the canonical field — matches `superduck --help`).
+Prefer that field and fall back to parsing `output` on CLI builds that don't
+yet promote it (e.g. released 0.2.6, where `tabContext` is absent):
+
+```bash
+TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty \
+  | jq -r '(.tabContext.currentTabId // empty) // (.output | capture("tabId (?<id>[0-9]+)").id)')
+```
+
+Do not run `tab_group new` after `tab_group list --create-if-empty`. That creates
+an unused group before the real work starts. Use exactly one tab acquisition
+command for a task: normally `tab_group list --create-if-empty`. Use
+`superduck tab_group new --force` only when you intentionally want to discard the
+current session group and start a separate context.
+
+Same-session continuation is automatic while you are doing the browser work.
+Before ending any turn that did browser work, run exactly one
+`superduck tab_group finalize` command so the managed group is released. Treat
+finalize as the last browser action of the turn: do not call any SuperDuck
+browser tool after finalizing. If more browser work is needed in a later turn,
+do it then and finalize again at the end of that turn. Do not answer the user,
+ask a follow-up, or inspect the repo for cleanup details before running
+finalize; decide the tab disposition from the task outcome.
+
+Omit tabs by default. `finalize` never closes a tab — it only releases the
+managed tab group. Omitted tabs are ungrouped (removed from the managed group)
+and left open in the window, so the user's pages are never lost. Omit research,
+search, source, intermediate, duplicate, blank, error, and login/navigation
+tabs once you have what you need; they will simply leave the managed group and
+stay open. If the user asked a question and the answer can be given in the
+chat, omit the tab even if it helped you answer. Do not ask the user whether to
+clean up ordinary intermediate tabs; make the disposition decision from the
+task outcome.
 
 Use `--deliverable TAB` when the tab itself is a user-facing output or a page
 the user explicitly asked to keep open or inspect directly. Examples include a
 created/edited document, dashboard, checkout/cart, submitted form result, or a
-requested open page. Deliverable tabs stay open but leave the managed tab
-group:
+requested open page. Deliverable tabs stay open, leave the managed tab group,
+and get a ✓ badge so the user can spot them:
 
 ```bash
 superduck tab_group finalize --deliverable "$TAB"
@@ -65,22 +116,22 @@ continuation:
 superduck tab_group finalize --handoff "$TAB"
 ```
 
-Omitted SuperDuck-created tabs are closed. Omitted user-origin tabs are left
-open and released from the managed group.
+Omitted tabs (SuperDuck-created or user-origin) are ungrouped and left open —
+finalize releases the managed group, it never closes your pages.
 
 ## Tab Management
 
 ```bash
 superduck tab_group list --create-if-empty
-superduck tab_group new
 superduck tab_group finalize
 superduck tabs
 superduck --tab "$TAB" context
 ```
 
-`tab_group new` prints human-readable output, so extract the tab id with a
-regex. `tabs --json` and `context --json` are structured; many other `--json`
-commands still wrap human-readable output in an `output` string.
+`tab_group list --create-if-empty` is the normal reuse path. `tab_group new`
+requires `--force` after a session group exists and should not be part of normal
+browser work. `tabs --json` and `context --json` are structured; many other
+`--json` commands still wrap human-readable output in an `output` string.
 
 ## Navigation and Waiting
 
