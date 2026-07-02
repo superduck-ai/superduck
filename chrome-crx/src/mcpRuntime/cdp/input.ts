@@ -41,6 +41,55 @@ export function requiresShift(char: string): boolean {
 export function createCdpInput(deps: CdpInputDeps) {
   const { sendCommand, isMac } = deps;
 
+  async function hidePointerBlockingOverlaysForToolUse(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          const overlay = document.getElementById('superduck-agent-blocking-overlay');
+          if (!(overlay instanceof HTMLElement)) return;
+
+          if (overlay.dataset.superduckToolHidden !== 'true') {
+            overlay.dataset.superduckToolHidden = 'true';
+            overlay.dataset.superduckPreviousDisplay = overlay.style.display;
+            overlay.dataset.superduckPreviousVisibility = overlay.style.visibility;
+            overlay.dataset.superduckPreviousPointerEvents = overlay.style.pointerEvents;
+          }
+
+          overlay.style.display = 'none';
+          overlay.style.visibility = 'hidden';
+          overlay.style.pointerEvents = 'none';
+        }
+      });
+    } catch {
+      // Best-effort only. The normal indicator message path still runs.
+    }
+  }
+
+  async function restorePointerBlockingOverlaysAfterToolUse(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          const overlay = document.getElementById('superduck-agent-blocking-overlay');
+          if (!(overlay instanceof HTMLElement)) return;
+          if (overlay.dataset.superduckToolHidden !== 'true') return;
+
+          overlay.style.display = overlay.dataset.superduckPreviousDisplay ?? '';
+          overlay.style.visibility = overlay.dataset.superduckPreviousVisibility ?? '';
+          overlay.style.pointerEvents = overlay.dataset.superduckPreviousPointerEvents ?? '';
+
+          delete overlay.dataset.superduckToolHidden;
+          delete overlay.dataset.superduckPreviousDisplay;
+          delete overlay.dataset.superduckPreviousVisibility;
+          delete overlay.dataset.superduckPreviousPointerEvents;
+        }
+      });
+    } catch {
+      // The tab may have navigated as a result of the tool action.
+    }
+  }
+
   async function dispatchMouseEvent(tabId: number, eventParams: MouseEventParams): Promise<void> {
     const params: DispatchMouseEventParams = {
       type: eventParams.type,
@@ -97,6 +146,7 @@ export function createCdpInput(deps: CdpInputDeps) {
   ): Promise<void> {
     if (!options?.skipIndicator) {
       await tabGroupManager.hideIndicatorForToolUse(tabId);
+      await hidePointerBlockingOverlaysForToolUse(tabId);
     }
     try {
       let buttonsBitmask = 0;
@@ -152,6 +202,7 @@ export function createCdpInput(deps: CdpInputDeps) {
       }
     } finally {
       if (!options?.skipIndicator) {
+        await restorePointerBlockingOverlaysAfterToolUse(tabId);
         await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
       }
     }
@@ -284,6 +335,8 @@ export function createCdpInput(deps: CdpInputDeps) {
   return {
     dispatchMouseEvent,
     dispatchKeyEvent,
+    hidePointerBlockingOverlaysForToolUse,
+    restorePointerBlockingOverlaysAfterToolUse,
     insertText,
     click,
     type,

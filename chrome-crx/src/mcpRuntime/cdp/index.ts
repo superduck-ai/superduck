@@ -5,6 +5,7 @@ export {
   screenshotToViewportCoords,
   scrollViaContentScript
 } from './debugger';
+export { mapCoordinateToViewport } from './helpers';
 export { processScreenshotInContentScript } from './contentScriptScreenshot';
 export { KEY_DEFINITIONS, MAC_KEYBOARD_COMMANDS } from './keyboard';
 export { calculateOptimalDimensions, screenshotContextManager } from './screenshotContext';
