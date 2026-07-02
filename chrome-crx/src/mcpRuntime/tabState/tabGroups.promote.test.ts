@@ -39,7 +39,7 @@ const chromeMock = vi.hoisted(() => ({
       index: 0
     })),
     query: vi.fn(async (_queryInfo?: unknown): Promise<MockTab[]> => []),
-    sendMessage: vi.fn(async (_tabId: number, _message?: unknown) => {}),
+    sendMessage: vi.fn(async (_tabId: number, _message?: unknown) => ({ success: true })),
     onRemoved: { addListener: vi.fn() }
   },
   tabGroups: {
