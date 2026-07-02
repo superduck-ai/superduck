@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { setStorageValue } from '../../extensionServices';
-import { tabGroupManager } from '../../mcpRuntime/tabState/tabGroups';
 import { trackEvent } from '../../mcpRuntime';
 import { getTabSessionKey } from '../sidepanelGuards';
 import { createId } from '../sidepanelUtils';
@@ -78,8 +77,9 @@ export function useChatActions({
     abortControllerRef.current?.abort();
     setIsAgentRunning(false);
     if (typeof conversationTabId === 'number') {
-      chrome.tabs.sendMessage(conversationTabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(conversationTabId, 'none').catch(() => {});
+      chrome.runtime
+        .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: conversationTabId, active: false })
+        .catch(() => {});
     }
     setApiMessages([]);
     setTokensSaved(null);
@@ -138,10 +138,9 @@ export function useChatActions({
       abortControllerRef.current?.abort();
       setIsAgentRunning(false);
       if (typeof conversationTabId === 'number') {
-        chrome.tabs
-          .sendMessage(conversationTabId, { type: 'HIDE_AGENT_INDICATORS' })
+        chrome.runtime
+          .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: conversationTabId, active: false })
           .catch(() => {});
-        tabGroupManager.setTabIndicatorState(conversationTabId, 'none').catch(() => {});
       }
       setMessages([]);
       setApiMessages([]);

@@ -1,6 +1,13 @@
 import { tabGroupManager } from '../mcpRuntime';
+import { hasActiveToolContext } from '../mcpRuntime/toolExecution/toolContextState';
 
 type SuccessResponse = { success: boolean };
+type AgentTurnActiveMessage = {
+  type?: string;
+  tabId?: unknown;
+  active?: unknown;
+  completed?: unknown;
+};
 
 export function createStaticIndicatorController() {
   const mainTabAckCache = new Map<number, { timestamp: number; isAlive: boolean }>();
@@ -108,8 +115,113 @@ export function createStaticIndicatorController() {
     }
   }
 
+  const turnActiveTimers = new Map<
+    number,
+    { timer: ReturnType<typeof setTimeout>; turnKey: string }
+  >();
+  const TURN_ACTIVE_TIMEOUT_MS = 2 * 60 * 1000;
+  const TURN_CLEAR_RETRY_MS = 100;
+  const TURN_CLEAR_RETRY_ATTEMPTS = 20;
+
+  function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function clearTurnIndicators(
+    tabId: number,
+    options: { turnKey?: string; completed?: boolean; force?: boolean } = {}
+  ): Promise<boolean> {
+    const activeTimer = turnActiveTimers.get(tabId);
+    if (options.turnKey && activeTimer && activeTimer.turnKey !== options.turnKey) return true;
+
+    const group = await tabGroupManager.findGroupByTab(tabId);
+    if (group) {
+      // Sidepanel-driven turns run their tools in the sidepanel context, so
+      // this (service worker) instance's group metadata can be stale or empty
+      // for the group — clearIndicatorsForGroup would then silently send
+      // nothing. Hide directly on the live member tabs as well; that path
+      // does not depend on in-memory member states.
+      const liveMemberIds = (group.memberTabs ?? []).map((member) => member.tabId);
+      const hideTargets = liveMemberIds.length > 0 ? liveMemberIds : [tabId];
+      const gateIds = new Set([
+        ...tabGroupManager.getGroupMemberIds(group.mainTabId),
+        ...hideTargets
+      ]);
+      if (!options.force && [...gateIds].some((id) => hasActiveToolContext(id))) return false;
+      await tabGroupManager.clearIndicatorsForGroup(group.mainTabId);
+      for (const memberTabId of hideTargets) {
+        await tabGroupManager.hideAgentIndicatorsForTab(memberTabId);
+      }
+      if (options.completed) {
+        await tabGroupManager.addCompletionPrefix(group.mainTabId);
+        await tabGroupManager.setGroupColor(group.mainTabId, chrome.tabGroups.Color.GREEN);
+      }
+    } else {
+      await tabGroupManager.hideAgentIndicatorsForTab(tabId);
+    }
+    return true;
+  }
+
+  async function clearTurnIndicatorsWithRetry(
+    tabId: number,
+    options: { completed?: boolean } = {}
+  ): Promise<boolean> {
+    const attempts = options.completed ? TURN_CLEAR_RETRY_ATTEMPTS : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const cleared = await clearTurnIndicators(tabId, {
+        completed: options.completed,
+        force: options.completed && attempt === attempts - 1
+      });
+      if (cleared) return true;
+      await delay(TURN_CLEAR_RETRY_MS);
+    }
+    return false;
+  }
+
+  async function handleAgentTurnActive(
+    message: AgentTurnActiveMessage,
+    sendResponse: (response: SuccessResponse) => void
+  ) {
+    const tabId = typeof message.tabId === 'number' ? message.tabId : undefined;
+    const active = message.active === true;
+    const completed = message.completed === true;
+    if (typeof tabId !== 'number') {
+      sendResponse({ success: false });
+      return;
+    }
+    try {
+      await tabGroupManager.initialize();
+      const prev = turnActiveTimers.get(tabId);
+      if (prev) {
+        clearTimeout(prev.timer);
+        turnActiveTimers.delete(tabId);
+      }
+      if (active) {
+        if (hasActiveToolContext(tabId)) {
+          sendResponse({ success: true });
+          return;
+        }
+        await tabGroupManager.setTabIndicatorState(tabId, 'pulsing', true, false);
+        const turnKey = `${tabId}-${Date.now()}`;
+        const timer = setTimeout(() => {
+          turnActiveTimers.delete(tabId);
+          void clearTurnIndicators(tabId, { turnKey });
+        }, TURN_ACTIVE_TIMEOUT_MS);
+        turnActiveTimers.set(tabId, { timer, turnKey });
+      } else {
+        const cleared = await clearTurnIndicatorsWithRetry(tabId, { completed });
+        sendResponse({ success: cleared });
+        return;
+      }
+      sendResponse({ success: true });
+    } catch {
+      sendResponse({ success: false });
+    }
+  }
+
   return {
     handleHeartbeat,
-    dismissForSenderGroup
+    dismissForSenderGroup,
+    handleAgentTurnActive
   };
 }
