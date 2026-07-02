@@ -1,4 +1,6 @@
+export const TAB_GROUP_MARKER = '🦆';
 export const TAB_GROUP_TITLE = '🦆SuperDuck';
+export const DEFAULT_SESSION_KEY = '__default__';
 
 export type TabMemberOrigin = 'agent' | 'user';
 export type TabMemberDisposition = 'active' | 'handoff';
@@ -72,6 +74,7 @@ export interface CreateGroupOptions {
 
 export interface AddTabToGroupOptions {
   origin?: TabMemberOrigin;
+  sessionId?: string;
 }
 
 export interface FinalizeTabsKeep {
@@ -83,6 +86,11 @@ export interface FinalizeManagedGroupOptions {
   mainTabId?: number;
   chromeGroupId?: number;
   keep?: FinalizeTabsKeep[];
+}
+
+export interface FinalizeMcpTabGroupOptions {
+  keep?: FinalizeTabsKeep[];
+  sessionId?: string;
 }
 
 export interface FinalizedTabContext {
