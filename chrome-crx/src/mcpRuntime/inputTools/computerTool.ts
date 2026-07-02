@@ -73,8 +73,6 @@ async function createTabsForWindowOpenEvents(
     if (!url || seenUrls.has(url)) continue;
     seenUrls.add(url);
 
-    await tabGroupManager.awaitOpenerChildTabId(openerTabId, url, 400);
-
     const tabId = await createPolicyCheckedChildTab(openerTabId, url, policy);
     if (typeof tabId === 'number') createdTabIds.push(tabId);
   }
@@ -379,12 +377,10 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
           // Page.windowOpen is a best-effort fallback; normal input still runs without it.
         }
 
-        const browserScope = context.browserSessionScope;
         const navigationPolicy: NavigationPolicyContext = {
           permissionManager: context.permissionManager,
           toolUseId: context.toolUseId,
-          toolName: 'computer',
-          sessionId: browserScope?.sessionId
+          toolName: 'computer'
         };
         tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
         // Run the real interaction first (so SPA/onsubmit handlers and the actual
@@ -394,9 +390,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
         await new Promise((resolve) => setTimeout(resolve, 150));
         let adoptedTabIds = await filterPolicyAllowedTabs(
-          await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
-            sessionId: browserScope?.sessionId
-          }),
+          await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
           navigationPolicy
         );
         if (adoptedTabIds.length === 0) {
