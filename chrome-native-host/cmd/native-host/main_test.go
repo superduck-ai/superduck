@@ -123,6 +123,107 @@ func TestForwardToChromeTimesOutWhenExtensionDoesNotRespond(t *testing.T) {
 	}
 }
 
+func TestForwardToChromePreservesSessionAndStructuredContent(t *testing.T) {
+	t.Parallel()
+
+	var chromeOut bytes.Buffer
+	var clientOut bytes.Buffer
+	server := &Server{
+		chromeCh:         make(chan []byte, 1),
+		chromeWriter:     &chromeOut,
+		chromeTimeout:    time.Second,
+		skipIdentitySync: true,
+		closed:           make(chan struct{}),
+	}
+
+	raw := []byte(`{"type":"tool_request","method":"execute_tool","params":{"tool":"tabs_context_mcp","args":{"createIfEmpty":true},"client_id":"superduck-cli","session_id":"session-a"}}`)
+	done := make(chan struct{})
+	go func() {
+		server.forwardToChrome(raw, &clientOut)
+		close(done)
+	}()
+
+	waitForBuffer(t, &chromeOut)
+	forwarded, err := protocol.ReadMessage(&chromeOut)
+	if err != nil {
+		t.Fatalf("failed to read forwarded message: %v", err)
+	}
+	var forwardedReq protocol.ToolRequest
+	if err := json.Unmarshal(forwarded, &forwardedReq); err != nil {
+		t.Fatalf("failed to parse forwarded request: %v", err)
+	}
+	if got, want := forwardedReq.Params.Tool, "tabs_context_mcp"; got != want {
+		t.Fatalf("forwarded tool = %q, want %q", got, want)
+	}
+	if got, want := forwardedReq.Params.ClientID, "superduck-cli"; got != want {
+		t.Fatalf("forwarded client_id = %q, want %q", got, want)
+	}
+	if got, want := forwardedReq.Params.SessionID, "session-a"; got != want {
+		t.Fatalf("forwarded session_id = %q, want %q", got, want)
+	}
+	if got, want := forwardedReq.Params.Args["createIfEmpty"], true; got != want {
+		t.Fatalf("forwarded args.createIfEmpty = %v, want %v", got, want)
+	}
+
+	response := protocol.ToolResponseMsg{
+		Type: "tool_response",
+		Result: &protocol.ContentWrap{
+			Content: []map[string]any{{"type": "text", "text": "Tab Group 7"}},
+			StructuredContent: map[string]any{
+				"tabContext": map[string]any{"currentTabId": 42, "tabGroupId": 7},
+			},
+		},
+	}
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("Marshal(response) error = %v", err)
+	}
+	server.chromeCh <- responseBytes
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("forwardToChrome did not finish")
+	}
+
+	responseRaw, err := protocol.ReadMessage(&clientOut)
+	if err != nil {
+		t.Fatalf("failed to read client response: %v", err)
+	}
+	var clientResponse protocol.ToolResponseMsg
+	if err := json.Unmarshal(responseRaw, &clientResponse); err != nil {
+		t.Fatalf("failed to parse client response: %v", err)
+	}
+	if clientResponse.Result == nil {
+		t.Fatalf("client response missing result: %s", responseRaw)
+	}
+	structured, ok := clientResponse.Result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent has type %T, want map[string]any", clientResponse.Result.StructuredContent)
+	}
+	tabContext, ok := structured["tabContext"].(map[string]any)
+	if !ok {
+		t.Fatalf("tabContext has type %T, want map[string]any", structured["tabContext"])
+	}
+	if got, want := tabContext["currentTabId"], float64(42); got != want {
+		t.Fatalf("tabContext.currentTabId = %v, want %v", got, want)
+	}
+}
+
+func waitForBuffer(t *testing.T, buffer *bytes.Buffer) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if buffer.Len() > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for buffer to receive data")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestHandleUDSControlMessageRespondsToHealthCheckLocally(t *testing.T) {
 	t.Parallel()
 

@@ -143,6 +143,102 @@ func TestReconnectAuthenticatesBeforeToolRequest(t *testing.T) {
 	}
 }
 
+func TestExecuteToolWithContextSendsClientSessionOutsideArgs(t *testing.T) {
+	path, token := prepareBridgeAuthTest(t)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	serverErr := make(chan error, 1)
+	requestCh := make(chan protocol.ToolRequest, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+
+		raw, err := protocol.ReadMessage(conn)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var auth struct {
+			Type  string `json:"type"`
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(raw, &auth); err != nil {
+			serverErr <- err
+			return
+		}
+		if auth.Type != "auth" || auth.Token != token {
+			t.Errorf("auth = (%q, %q), want (auth, %q)", auth.Type, auth.Token, token)
+		}
+		if err := protocol.SendMessage(conn, map[string]string{"type": "auth_response", "ok": "true"}); err != nil {
+			serverErr <- err
+			return
+		}
+
+		raw, err = protocol.ReadMessage(conn)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var req protocol.ToolRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			serverErr <- err
+			return
+		}
+		requestCh <- req
+		serverErr <- protocol.SendMessage(conn, protocol.ToolResponseMsg{
+			Type:   "tool_response",
+			Result: &protocol.ContentWrap{Content: "ok"},
+		})
+	}()
+
+	bridge := &NativeHostBridge{udsPath: path}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := bridge.ExecuteToolWithContext(
+		ctx,
+		"tabs_context_mcp",
+		map[string]interface{}{"createIfEmpty": true},
+		ToolContext{ClientID: "superduck-mcp-server", SessionID: "session-a"},
+	)
+	if err != nil {
+		t.Fatalf("ExecuteToolWithContext() error = %v", err)
+	}
+	if result != "ok" {
+		t.Fatalf("ExecuteToolWithContext() result = %v, want ok", result)
+	}
+
+	req := <-requestCh
+	if got, want := req.Params.Tool, "tabs_context_mcp"; got != want {
+		t.Fatalf("tool = %q, want %q", got, want)
+	}
+	if got, want := req.Params.ClientID, "superduck-mcp-server"; got != want {
+		t.Fatalf("client_id = %q, want %q", got, want)
+	}
+	if got, want := req.Params.SessionID, "session-a"; got != want {
+		t.Fatalf("session_id = %q, want %q", got, want)
+	}
+	if got, want := req.Params.Args["createIfEmpty"], true; got != want {
+		t.Fatalf("args.createIfEmpty = %v, want %v", got, want)
+	}
+	if _, ok := req.Params.Args["session_id"]; ok {
+		t.Fatalf("session_id leaked into args: %v", req.Params.Args)
+	}
+	if _, ok := req.Params.Args["turn_id"]; ok {
+		t.Fatalf("turn_id leaked into args: %v", req.Params.Args)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server error = %v", err)
+	}
+}
+
 func TestCheckHealthConnectsAndMarksHealthy(t *testing.T) {
 	path, token := prepareBridgeAuthTest(t)
 	listener, err := net.Listen("unix", path)
