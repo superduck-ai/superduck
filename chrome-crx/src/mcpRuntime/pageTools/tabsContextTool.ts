@@ -3,8 +3,6 @@ import { formatTabsContext } from '../pageToolsSupport/helpers';
 import type { ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import type { EmptyToolInput } from './types';
 
-export const MCP_NATIVE_SESSION = 'mcp-native-session';
-
 export const tabsContextTool: ToolDefinition<EmptyToolInput> = {
   name: 'tabs_context',
   description: 'Get context information about all tabs in the current tab group',
@@ -13,7 +11,7 @@ export const tabsContextTool: ToolDefinition<EmptyToolInput> = {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const isMcpNative = context.sessionId === MCP_NATIVE_SESSION;
+      const hasBrowserSessionScope = context.browserSessionScope !== undefined;
       const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
       const tabContext = {
         currentTabId: context.tabId,
@@ -22,7 +20,7 @@ export const tabsContextTool: ToolDefinition<EmptyToolInput> = {
       };
 
       let tabGroupId: number | undefined;
-      if (isMcpNative) {
+      if (hasBrowserSessionScope) {
         tabGroupId = await (async (currentTabId: number) => {
           try {
             const tab = await chrome.tabs.get(currentTabId);

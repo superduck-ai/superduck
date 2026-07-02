@@ -60,10 +60,12 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       if (securityCheck) return securityCheck;
 
       const wrappedCode = wrapUserCode(code);
+      const browserScope = context.browserSessionScope;
       const navigationPolicy: NavigationPolicyContext = {
         permissionManager: context.permissionManager,
         toolUseId,
-        toolName: 'javascript_tool'
+        toolName: 'javascript_tool',
+        sessionId: browserScope?.sessionId
       };
       tabGroupManager.rememberChildTabNavigationPolicy(effectiveTabId, navigationPolicy);
 
@@ -88,7 +90,9 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       });
 
       const openedTabIds = await filterPolicyAllowedTabs(
-        await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId),
+        await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
+          sessionId: browserScope?.sessionId
+        }),
         navigationPolicy
       );
       if (openedTabIds.length === 0) {
