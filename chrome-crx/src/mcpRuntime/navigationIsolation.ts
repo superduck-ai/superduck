@@ -23,6 +23,7 @@ export interface NavigationPolicyContext {
   };
   toolUseId?: string;
   toolName: string;
+  sessionId?: string;
 }
 
 export const ORG_BLOCKED_CATEGORY = 'category_org_blocked';
