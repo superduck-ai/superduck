@@ -247,3 +247,13 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
 - Label 命名使用 `<group>: <slug>`,例如 `type: bug`、`area: chrome-crx`、`priority: P1`、`status: ready`。
 - 新建 issue 至少添加一个 `type:` 和一个 `area:`;bug / agent-task 还应添加 `priority:`。
 - 代理挑任务时优先看 `agent: ready` + `status: ready`,再按 `priority:` 和 `area:` 过滤。
+
+## Cursor Cloud specific instructions
+
+面向在已跑过启动脚本(`bun install` + `go -C chrome-native-host mod download`)的云端环境里工作的后续代理。工具链(Bun、Go 1.25、golangci-lint、Playwright + Chromium 及其系统依赖)已固化在 VM 快照里,常规构建 / lint / test / run 命令见上文「构建命令」小节,这里只补充非显而易见的坑:
+
+- **Bun 版本**:仓库根 `bun.lock` 用的是较新的 lockfile 格式,devcontainer 里 pin 的 `bun@1.1.42` 无法解析(报 `Unknown lockfile version`)。快照里装的是新版 Bun(`bun --version` 应 ≥ 1.3);不要降级到 1.1.42。
+- **扩展没有本地 dev server**:`bun run dev` 只是 `vite build --watch`,产物写进 `chrome-crx/dist/`。要在真实浏览器里验证得把 `dist/` 作为「加载已解压的扩展」载入 Chrome。
+- **端到端验证扩展**:`cd chrome-crx && bun run test:e2e` 会用 Playwright 把真实的 `dist/` 加载进**完整版 Chromium**(不是 `chrome-headless-shell`,后者会静默禁用 `--load-extension`)。用 `SKIP_BUILD=1 bun run test:e2e` 复用已有 `dist/` 跳过重复构建。少数 `p0-*` / `06-browser-batch` 用例在并行满载下偶发失败,但单独重跑必过——属已知 flaky,非环境问题。
+- **Go 侧 lint**:`golangci-lint` 由 `make lint-install` 装到 `~/go/bin`(已在快照内),不在 PATH 时 `make lint` 会自动回退到该路径。
+- **superduck CLI 的完整链路**(CLI → native host → 已登录的真实 Chrome + 扩展 native messaging)在云端 VM 里没有接好;要端到端验证浏览器自动化,用上面的 Playwright e2e 套件,而不是 `chrome-native-host/testdata/` 里那些需要真实 Chrome 的冒烟脚本。
