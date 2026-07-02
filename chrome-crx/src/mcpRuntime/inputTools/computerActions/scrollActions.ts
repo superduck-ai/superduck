@@ -1,6 +1,6 @@
 import { screenshotContextManager } from '../../cdp';
 import { tabGroupManager } from '../../tabState';
-import { cdpDebugger, screenshotToViewportCoords, scrollViaContentScript } from '../../cdp';
+import { cdpDebugger, mapCoordinateToViewport, scrollViaContentScript } from '../../cdp';
 import type { ToolResult } from '../../pageTools';
 import { type ComputerToolParams, type ClickOptions, type PermissionManagerLike } from '../types';
 import { scrollToElementByRef } from '../frameUtils';
@@ -19,8 +19,8 @@ export async function executeScroll(
 
   let [x, y] = params.coordinate;
   const context = screenshotContextManager.getContext(tabId);
-  if (context) {
-    const [mappedX, mappedY] = screenshotToViewportCoords(x, y, context);
+  const [mappedX, mappedY] = mapCoordinateToViewport(x, y, context, params.coordinate_space);
+  if (context && (mappedX !== x || mappedY !== y)) {
     console.info(
       `[Scroll] screenshot coords=(${x}, ${y}) → viewport coords=(${mappedX}, ${mappedY}) ` +
         `scale=${(context.viewportWidth / context.screenshotWidth).toFixed(4)}`

@@ -4,12 +4,11 @@ import type { ConsoleMessage, SendCommand } from './types';
 export function addConsoleMessage(tabId: number, domain: string, message: ConsoleMessage): void {
   let tabData = getConsoleMessagesByTab().get(tabId);
 
-  if (tabData && tabData.domain !== domain) {
+  if (!tabData) {
     tabData = { domain, messages: [] };
     getConsoleMessagesByTab().set(tabId, tabData);
-  } else if (!tabData) {
-    tabData = { domain, messages: [] };
-    getConsoleMessagesByTab().set(tabId, tabData);
+  } else {
+    tabData.domain = domain;
   }
 
   if (tabData.messages.length > 0) {
@@ -47,7 +46,9 @@ export function getConsoleMessages(
   const tabData = getConsoleMessagesByTab().get(tabId);
   if (!tabData) return [];
 
-  let messages = tabData.messages;
+  let messages = tabData.messages.filter(
+    (msg) => !msg.url || !msg.url.startsWith('chrome-extension://')
+  );
 
   if (errorsOnly) {
     messages = messages.filter((msg) => msg.type === 'error' || msg.type === 'exception');

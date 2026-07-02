@@ -23,6 +23,7 @@ export interface NavigationPolicyContext {
   };
   toolUseId?: string;
   toolName: string;
+  sessionId?: string;
 }
 
 export const ORG_BLOCKED_CATEGORY = 'category_org_blocked';
@@ -103,7 +104,9 @@ export async function createPolicyCheckedChildTab(
   policy: NavigationPolicyContext
 ): Promise<number | null> {
   if (!(await isNavigationAllowedByPolicy(url, policy))) return null;
-  const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url);
+  const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url, {
+    sessionId: policy.sessionId
+  });
   if (typeof tabId !== 'number') return null;
   const detachGuard = guardChildNavigation(tabId, policy);
   let currentUrl: string | undefined;
