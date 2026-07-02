@@ -16,13 +16,12 @@ fi
 URL="$1"
 shift
 
-# Create tab
-echo "Creating tab..."
-TAB_OUTPUT=$(superduck tab_group new)
-TAB_ID=$(echo "$TAB_OUTPUT" | grep -o 'Tab ID: [0-9]*' | grep -o '[0-9]*')
+# Reuse the current session tab group, creating it only if needed.
+echo "Resolving session tab..."
+TAB_ID=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
 
 if [ -z "$TAB_ID" ]; then
-  echo "Error: Failed to create tab"
+  echo "Error: Failed to resolve tab"
   exit 1
 fi
 

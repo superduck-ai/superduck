@@ -24,13 +24,14 @@ function stripTabContext(stdout) {
 
 async function extractData(url, selector, outputFile = null) {
   try {
-    // Create a new tab
-    const tabOutput = await runSuperduck(['tab_group', 'new']);
-    const tabMatch = tabOutput.match(/Tab ID:\s*(\d+)/);
-    if (!tabMatch) {
-      throw new Error('Failed to create tab');
+    // Reuse the current session tab group, creating it only if needed.
+    const tabPayload = JSON.parse(
+      await runSuperduck(['--json', 'tab_group', 'list', '--create-if-empty'])
+    );
+    const tabId = tabPayload?.tabContext?.currentTabId;
+    if (!tabId) {
+      throw new Error('Failed to resolve session tab');
     }
-    const tabId = tabMatch[1];
 
     // Navigate to URL
     await runSuperduck(['--tab', tabId, 'navigate', url]);

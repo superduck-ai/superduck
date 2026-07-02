@@ -288,7 +288,7 @@ JSON.stringify(
 ### Node.js Data Extractor
 
 ```bash
-SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
 node "$SKILL_DIR/scripts/extract-data.mjs" \
   https://example.com \
   ".item" \
@@ -301,8 +301,8 @@ Create a custom script for your specific use case:
 
 ```javascript
 // my-extractor.mjs
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { execFile } from "child_process";
+import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 
@@ -311,12 +311,17 @@ function stripTabContext(stdout) {
 }
 
 async function extractMyData(url) {
-  const { stdout: tabOutput } = await execFileAsync('superduck', ['tab_group', 'new']);
-  const tabId = tabOutput.match(/Tab ID:\s*(\d+)/)?.[1];
-  if (!tabId) throw new Error('Failed to create SuperDuck tab');
+  const { stdout: tabJson } = await execFileAsync("superduck", [
+    "--json",
+    "tab_group",
+    "list",
+    "--create-if-empty",
+  ]);
+  const tabId = JSON.parse(tabJson)?.tabContext?.currentTabId;
+  if (!tabId) throw new Error("Failed to resolve SuperDuck session tab");
 
-  await execFileAsync('superduck', ['--tab', tabId, 'navigate', url]);
-  await execFileAsync('superduck', ['--tab', tabId, 'context']);
+  await execFileAsync("superduck", ["--tab", tabId, "navigate", url]);
+  await execFileAsync("superduck", ["--tab", tabId, "context"]);
 
   const js = `JSON.stringify({
     title: document.title,
@@ -325,7 +330,12 @@ async function extractMyData(url) {
       href: a.href
     }))
   })`;
-  const { stdout } = await execFileAsync('superduck', ['--tab', tabId, 'exec', js]);
+  const { stdout } = await execFileAsync("superduck", [
+    "--tab",
+    tabId,
+    "exec",
+    js,
+  ]);
   return JSON.parse(stripTabContext(stdout));
 }
 ```
@@ -333,26 +343,30 @@ async function extractMyData(url) {
 ## Best Practices
 
 1. **Always verify page loaded** before extraction:
+
    ```bash
    superduck --tab $TAB context
    ```
 
 2. **Use defensive selectors** with `?.` operator:
+
    ```javascript
-   document.querySelector('.maybe-exists')?.textContent
+   document.querySelector(".maybe-exists")?.textContent;
    ```
 
 3. **Trim whitespace** from extracted text:
+
    ```javascript
-   element.textContent.trim()
+   element.textContent.trim();
    ```
 
 4. **Handle arrays safely**:
+
    ```javascript
    Array.from(elements).map(...)
    ```
 
 5. **Return JSON** for structured data, then strip trailing `Tab Context` before parsing:
    ```javascript
-   JSON.stringify(data)
+   JSON.stringify(data);
    ```

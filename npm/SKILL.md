@@ -1,6 +1,6 @@
 ---
 name: SuperDuck
-description: When the user is doing something in their Chrome browser and needs an agent (Claude Code/Codex) to read or fetch from it as the logged-in user — use the `superduck` CLI to read the active tab's url/title/selection/visible text, or to fetch a URL using the user's existing cookies/session.
+description: When the user is doing something in their Chrome browser and needs an agent to inspect or control it as the logged-in user - use the `superduck` CLI to reuse a managed tab group, read page context, navigate, and interact with the live browser using the user's existing cookies/session.
 metadata:
   internal: true
 ---
@@ -8,8 +8,9 @@ metadata:
 # SuperDuck
 
 Use the `superduck` CLI when:
+
 - You need to know **what the user is currently looking at** in Chrome (URL, page title, selection, visible text).
-- You need to **fetch data from an authenticated endpoint** that the user is already logged into in Chrome (Jira, Gmail, internal OA, GitHub Enterprise, etc.) — you do not need to ask for credentials.
+- You need to **inspect or operate an authenticated page** that the user is already logged into in Chrome (Jira, Gmail, internal OA, GitHub Enterprise, etc.) - you do not need to ask for credentials.
 
 The CLI talks to the user's own Chrome through a small browser extension. It is **not** a headless browser; it borrows the user's session.
 
@@ -20,20 +21,23 @@ superduck context              # url + title + selection + viewport text from ac
 superduck context --full       # whole-page innerText (large; head/less recommended)
 superduck context --json       # machine-readable
 
-superduck fetch <url>          # GET; cookies of the active tab's origin auto-included
-superduck fetch <url> -X POST -H 'Content-Type: application/json' -d '{"x":1}'
-superduck fetch <url> --allow-cross-origin    # fetch outside current eTLD+1
-
-superduck open <url>                          # navigate active tab; --new-tab to open new
-superduck click "Login"                       # click by visible text
-superduck click --selector 'button[type=submit]'
-superduck fill 'input[name=q]' "claude code"  # set value + dispatch input/change
-superduck press Enter --selector 'input[name=q]'
-
 superduck tabs                 # list all Chrome tabs (debug; rarely needed)
-superduck tab_group list --create-if-empty    # show or create the MCP tab group
-superduck tab_group new                       # create an MCP tab group tab
-superduck tab_group finalize                  # finalize the MCP tab group
+SID=$(superduck session new)  # mint one session id per task for tab isolation
+superduck --session "$SID" session name "🔎 task name"  # optional: label the tab group
+TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '(.tabContext.currentTabId // empty) // (.output | capture("tabId (?<id>[0-9]+)").id)')  # tabContext (newer CLI) else parse .output (0.2.6)
+superduck --session "$SID" --tab "$TAB" navigate https://example.com/
+superduck --session "$SID" --tab "$TAB" read_page --filter interactive
+superduck --session "$SID" --tab "$TAB" left_click --ref ref_1
+superduck --session "$SID" --tab "$TAB" form_input --ref ref_2 --value "search text"
+superduck --session "$SID" --tab "$TAB" key "Enter"
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/
+superduck --session "$SID" tab_group finalize --deliverable "$TAB"
+
+superduck session new                         # mint a fresh per-task session id
+superduck session name "🔎 text"              # label this session's tab group
+superduck tab_group list --create-if-empty    # show or create and reuse the session group
+superduck tab_group new --force               # rare: replace the session group with a fresh one
+superduck tab_group finalize                  # explicitly decide tab disposition
 superduck tab_group finalize --deliverable 123
 superduck tab_group finalize --handoff 123
 superduck doctor               # health check
@@ -42,10 +46,11 @@ superduck log --tail 20        # ~/.superduck/audit.jsonl
 
 ## Conventions
 
-- **Default same-domain:** `fetch` rejects targets outside the active tab's eTLD+1. Add `--allow-cross-origin` if the user is OK with it.
-- **Active tab semantics:** "active tab" = the focused tab of the last focused Chrome window. Override with `--tab <id>`.
-- **Act commands act on the live page** the user can see — be explicit with the user before running `open`/`click`/`fill`/`press` if the action is irreversible (submitting forms, sending messages, deleting). For `press Enter` on search forms, prefer `click` on the submit button: synthetic KeyboardEvents are untrusted and many sites ignore them.
-- **Tab cleanup:** before ending a turn after SuperDuck tab-group browser work, call `superduck tab_group finalize` as the final SuperDuck browser action and do not call more SuperDuck browser commands after it. Omit tabs by default, including research/search/source/intermediate/blank/error tabs once you have extracted what you need. Use `--deliverable TAB` only when the tab itself is a user-facing output or requested open page, and `--handoff TAB` only when a later turn should continue from that live page. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs are left open and released from the managed group.
+- **One session per task:** mint `SID=$(superduck session new)` at the start of each browser task and pass `--session "$SID"` to every command, so concurrent tasks keep separate tab groups. Without `--session`, all calls share one global session and step on each other's tabs.
+- **Reuse first:** start browser work with `superduck --session "$SID" tab_group list --create-if-empty`, store the returned tab id, and pass `--tab "$TAB"` to navigation, observation, and action commands.
+- **Active tab semantics:** commands without `--tab`, such as `context`, read the focused tab of the last focused Chrome window. Browser automation commands should use the tab id from the managed group.
+- **Act commands act on the live page** the user can see - be explicit with the user before running `navigate`/`left_click`/`form_input`/`key` if the action is irreversible (submitting forms, sending messages, deleting).
+- **Tab lifecycle:** use `superduck tab_group list --create-if-empty` to reuse the current session group. Do not run `tab_group new` after `list --create-if-empty`; use `tab_group new --force` only when you intentionally want to replace the current session group with a fresh one. Same-session continuation is automatic while browser work is in progress. When the requested browser work is done, run exactly one `superduck tab_group finalize` before your final response; do not ask a follow-up before finalizing. `finalize` never closes a tab — omitted tabs are ungrouped and left open. Use `--deliverable TAB` to mark a final page the user should keep open (✓ badge), and use `--handoff TAB` only when a later turn must continue from that live page.
 - **No headless:** if `superduck doctor` says the native host is not reachable, ask the user to open Chrome / install the SuperDuck extension. Do not fall back to other browser automation.
 
 ## Self-bootstrap
