@@ -3,15 +3,21 @@ import type { MessagesClient } from '../../mcpServersStore';
 import { cdpDebugger } from '../browserAutomation';
 import { trackEvent } from '../analytics';
 import { tabGroupManager } from '../tabState';
+import { BrowserSessionConflictError } from '../tabState/tabLeases';
 import { beginTool, endTool } from '../agentActivity';
 import { showPermissionPrompt } from './permissionPrompt';
 import { createBridgePermissionManager } from '../domainPermissions';
 import { startToolContext, cleanupAfterToolExecution } from './toolContextState';
 import { getSelectedModel, invalidateCachedClient } from '../providerClient';
-import { getOrCreateToolExecutor, createErrorResponse } from './toolExecutor';
+import {
+  getOrCreateToolExecutor,
+  createErrorResponse,
+  MCP_NATIVE_SESSION_ID
+} from './toolExecutor';
 import { mcpToolNames } from '../core/tools';
 import { withTimeout } from '../core/utils';
 import { extractAppName } from '../core/urlUtils';
+import { resolveToolExecutionSession } from '../sessionScope';
 import type {
   ExecuteToolResponse,
   PermissionPromptHandler,
@@ -37,6 +43,7 @@ export interface ExecuteToolOptions {
   args: unknown;
   tabId?: number;
   tabGroupId?: number;
+  sessionId?: string;
   clientId?: string;
   source?: string;
   permissionMode?: string;
@@ -72,6 +79,12 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   const clientId = options.clientId;
   const startTime = Date.now();
   const model = await getSelectedModel();
+  const argsRecord = isRecord(options.args) ? options.args : {};
+  const { sessionId, browserScope } = resolveToolExecutionSession({
+    defaultSessionId: MCP_NATIVE_SESSION_ID,
+    args: argsRecord,
+    sessionId: options.sessionId
+  });
 
   if (navigationBlockedError && navigationBlockedTime) {
     if (Date.now() - navigationBlockedTime < NAVIGATION_BLOCK_TIMEOUT) {
@@ -100,22 +113,28 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   try {
     const skipTabLookup = mcpToolNames.includes(options.toolName) && options.tabId === undefined;
     if (!skipTabLookup) {
-      const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId);
+      const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId, {
+        sessionId: browserScope?.sessionId
+      });
       tabId = tabInfo.tabId;
       domain = tabInfo.domain;
       url = tabInfo.url;
     }
-  } catch {
+  } catch (err) {
+    const isBrowserSessionConflict = err instanceof BrowserSessionConflictError;
+    const message = err instanceof Error ? err.message : String(err);
     trackEvent('superduck.mcp.tool_called', {
       tool_name: options.toolName,
       client_id: clientId,
       model,
       success: false,
-      error_type: 'no_tabs_available',
+      error_type: isBrowserSessionConflict ? 'browser_session_conflict' : 'no_tabs_available',
       duration_ms: Date.now() - startTime
     });
     return createErrorResponse(
-      'No tabs available. Please open a new tab or window in your browser.'
+      isBrowserSessionConflict
+        ? message
+        : 'No tabs available. Please open a new tab or window in your browser.'
     );
   }
 
@@ -186,7 +205,12 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       });
     }
 
-    const executor = await getOrCreateToolExecutor(tabId, options.tabGroupId);
+    const executor = await getOrCreateToolExecutor(
+      tabId,
+      options.tabGroupId,
+      sessionId,
+      browserScope
+    );
 
     if (options.messagesClient) {
       executor.context.messagesClient = options.messagesClient;
@@ -234,7 +258,10 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     isError = true === toolResult?.is_error;
   } catch (err) {
     isError = true;
-    if (
+    if (err instanceof BrowserSessionConflictError) {
+      errorType = 'browser_session_conflict';
+      toolResult = createErrorResponse(err.message);
+    } else if (
       err instanceof Error &&
       (err.message.includes('401') ||
         err.message.includes('authentication') ||
@@ -257,7 +284,7 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
 
   const appName = url ? extractAppName(url) : undefined;
 
-  const mcpArgs = isRecord(options.args) ? options.args : {};
+  const mcpArgs = argsRecord;
   const mcpInputFields: Record<string, unknown> = {};
   if (typeof mcpArgs.action === 'string') mcpInputFields.action = mcpArgs.action;
   if (typeof mcpArgs.filter === 'string') mcpInputFields.input_filter = mcpArgs.filter;

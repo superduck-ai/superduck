@@ -19,12 +19,18 @@ const activeToolContexts = new Map<number, ActiveToolContext>();
 
 const pendingPrefixTimeouts = new Map<number, ReturnType<typeof setTimeout> | null>();
 const PREFIX_CLEANUP_DELAY = 20000;
+// Debuggers are detached lazily: "thinking" pauses between tool calls must not
+// tear down the CDP session (re-attaching is slow and re-flashes Chrome's
+// debugging info-bar). Explicit finalize detaches immediately via
+// releaseToolContextsForTabs.
+const DEBUGGER_IDLE_DETACH_DELAY = 5 * 60 * 1000;
 
 const groupFinalizationState = new Map<
   number,
   {
     lastActiveTabId: number;
     timer: ReturnType<typeof setTimeout> | null;
+    detachTimer: ReturnType<typeof setTimeout> | null;
   }
 >();
 
@@ -121,25 +127,65 @@ function hasActiveToolsInGroup(mainTabId: number): boolean {
   return false;
 }
 
-async function finalizeGroup(mainTabId: number): Promise<void> {
-  const state = groupFinalizationState.get(mainTabId);
-  if (!state) return;
-
-  const memberIds = tabGroupManager.getGroupMemberIds(mainTabId);
-  if (memberIds.length === 0) {
-    groupFinalizationState.delete(mainTabId);
-    return;
-  }
-
+/**
+ * Idle ≠ done. The agent is often just "thinking" between tool calls (this can
+ * take minutes), so an idle group must NOT be decorated as completed: no ✅
+ * prefix, no GREEN color. We only clear the per-tab visual indicators so the
+ * user is not locked out of the pages while the agent thinks. GREEN + ✅ are
+ * applied exclusively on explicit completion signals: tabs_finalize_mcp
+ * (tabGroupFinalize.markGroupCompleted) or sidepanel turn completion
+ * (staticIndicator).
+ */
+async function cleanupIdleGroupIndicators(mainTabId: number): Promise<void> {
   await tabGroupManager.clearIndicatorsForGroup(mainTabId).catch(() => {});
-  await tabGroupManager.addCompletionPrefix(mainTabId).catch(() => {});
-  await tabGroupManager.setGroupColor(mainTabId, chrome.tabGroups.Color.GREEN).catch(() => {});
+}
 
-  for (const tabId of memberIds) {
+async function detachIdleDebuggers(mainTabId: number, memberSnapshot: number[]): Promise<void> {
+  // Group metadata may have been rekeyed or removed (e.g. by finalize) since
+  // the timer was scheduled, so detach the union of the snapshot and the
+  // current membership.
+  const tabIds = new Set([...memberSnapshot, ...tabGroupManager.getGroupMemberIds(mainTabId)]);
+  for (const tabId of tabIds) {
+    if (activeToolContexts.has(tabId)) continue;
     await cdpDebugger.detachDebugger(tabId).catch(() => {});
   }
+  const state = groupFinalizationState.get(mainTabId);
+  if (state && state.timer === null && state.detachTimer === null) {
+    groupFinalizationState.delete(mainTabId);
+  }
+}
 
-  groupFinalizationState.delete(mainTabId);
+function clearGroupTimers(state: {
+  timer: ReturnType<typeof setTimeout> | null;
+  detachTimer: ReturnType<typeof setTimeout> | null;
+}): void {
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+  if (state.detachTimer) {
+    clearTimeout(state.detachTimer);
+    state.detachTimer = null;
+  }
+}
+
+function scheduleIdleCleanup(mainTabId: number): void {
+  const state = groupFinalizationState.get(mainTabId);
+  if (!state) return;
+  clearGroupTimers(state);
+  const memberSnapshot = tabGroupManager.getGroupMemberIds(mainTabId);
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    if (!hasActiveToolsInGroup(mainTabId)) {
+      void cleanupIdleGroupIndicators(mainTabId);
+    }
+  }, PREFIX_CLEANUP_DELAY);
+  state.detachTimer = setTimeout(() => {
+    state.detachTimer = null;
+    if (!hasActiveToolsInGroup(mainTabId)) {
+      void detachIdleDebuggers(mainTabId, memberSnapshot);
+    }
+  }, DEBUGGER_IDLE_DETACH_DELAY);
 }
 
 export function migrateGroupFinalizationState(oldMainTabId: number, newMainTabId: number): void {
@@ -148,24 +194,17 @@ export function migrateGroupFinalizationState(oldMainTabId: number, newMainTabId
   if (!state) return;
 
   const existingState = groupFinalizationState.get(newMainTabId);
-  if (existingState?.timer) clearTimeout(existingState.timer);
+  if (existingState) clearGroupTimers(existingState);
 
-  const hadTimer = state.timer !== null;
-  if (state.timer) {
-    clearTimeout(state.timer);
-    state.timer = null;
-  }
+  const hadTimers = state.timer !== null || state.detachTimer !== null;
+  clearGroupTimers(state);
   state.lastActiveTabId = newMainTabId;
 
   groupFinalizationState.delete(oldMainTabId);
   groupFinalizationState.set(newMainTabId, state);
 
-  if (hadTimer && !hasActiveToolsInGroup(newMainTabId)) {
-    state.timer = setTimeout(() => {
-      if (!hasActiveToolsInGroup(newMainTabId)) {
-        void finalizeGroup(newMainTabId);
-      }
-    }, PREFIX_CLEANUP_DELAY);
+  if (hadTimers && !hasActiveToolsInGroup(newMainTabId)) {
+    scheduleIdleCleanup(newMainTabId);
   }
 }
 
@@ -192,15 +231,20 @@ export async function startToolContext(
 
   const mainTabId = findGroupMainTab(tabId);
   if (mainTabId !== undefined) {
-    const state = groupFinalizationState.get(mainTabId);
-    if (state?.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
+    // A new tool call makes the group active again: cancel any pending idle
+    // cleanup (indicator clear / debugger detach) and reassert ORANGE so a
+    // previous explicit-completion GREEN is cleared for the new turn.
+    const existing = groupFinalizationState.get(mainTabId);
+    if (existing) {
+      clearGroupTimers(existing);
+      existing.lastActiveTabId = tabId;
+    } else {
+      groupFinalizationState.set(mainTabId, {
+        lastActiveTabId: tabId,
+        timer: null,
+        detachTimer: null
+      });
     }
-    groupFinalizationState.set(mainTabId, {
-      lastActiveTabId: tabId,
-      timer: null
-    });
     tabGroupManager.setGroupColor(mainTabId, chrome.tabGroups.Color.ORANGE).catch(() => {});
   }
 
@@ -222,30 +266,37 @@ export function cleanupAfterToolExecution(tabId: number, _clientId?: string): vo
   void persistActiveToolContexts();
 
   const mainTabId = findGroupMainTab(tabId);
-  if (mainTabId !== undefined && !hasActiveToolsInGroup(mainTabId)) {
-    const state = groupFinalizationState.get(mainTabId);
-    if (state) {
-      if (state.timer) clearTimeout(state.timer);
-      state.timer = setTimeout(() => {
-        if (!hasActiveToolsInGroup(mainTabId)) {
-          void finalizeGroup(mainTabId);
-        }
-      }, PREFIX_CLEANUP_DELAY);
-    }
-  } else if (mainTabId === undefined) {
-    const timeout = setTimeout(async () => {
-      if (!activeToolContexts.has(tabId) && pendingPrefixTimeouts.has(tabId)) {
-        tabGroupManager.addCompletionPrefix(tabId).catch(() => {});
-        pendingPrefixTimeouts.set(tabId, null);
-        try {
-          await cdpDebugger.detachDebugger(tabId);
-        } catch {
-          // silently fail
-        }
+  if (mainTabId !== undefined) {
+    // Grouped tab went idle. Idle ≠ done (the agent is often just "thinking"
+    // between tool calls, sometimes for minutes), so do NOT decorate the
+    // group as completed: schedule a gentle indicator clear + lazy debugger
+    // detach only. GREEN + ✅ come exclusively from an explicit finalize
+    // (tabGroupFinalize.markGroupCompleted) or sidepanel turn end.
+    if (!hasActiveToolsInGroup(mainTabId)) {
+      if (!groupFinalizationState.has(mainTabId)) {
+        groupFinalizationState.set(mainTabId, {
+          lastActiveTabId: tabId,
+          timer: null,
+          detachTimer: null
+        });
       }
-    }, PREFIX_CLEANUP_DELAY);
-    pendingPrefixTimeouts.set(tabId, timeout);
+      scheduleIdleCleanup(mainTabId);
+    }
+    return;
   }
+
+  // Ungrouped tab went idle: the same "idle ≠ done" rule applies. Clear its
+  // indicator promptly so the page stays usable, and detach the debugger
+  // lazily. No completion decoration — there is no group to decorate.
+  const idleIndicatorTimer = setTimeout(() => {
+    if (!activeToolContexts.has(tabId)) {
+      tabGroupManager.hideAgentIndicatorsForTab(tabId).catch(() => {});
+    }
+  }, PREFIX_CLEANUP_DELAY);
+  pendingPrefixTimeouts.set(tabId, idleIndicatorTimer);
+  setTimeout(() => {
+    if (!activeToolContexts.has(tabId)) cdpDebugger.detachDebugger(tabId).catch(() => {});
+  }, DEBUGGER_IDLE_DETACH_DELAY);
 }
 
 function clearPrefixForTab(tabId: number): void {
@@ -256,7 +307,7 @@ function clearPrefixForTab(tabId: number): void {
 
   const mainTabId = findGroupMainTab(tabId) ?? tabId;
   const state = groupFinalizationState.get(mainTabId);
-  if (state?.timer) clearTimeout(state.timer);
+  if (state) clearGroupTimers(state);
   groupFinalizationState.delete(mainTabId);
 }
 
