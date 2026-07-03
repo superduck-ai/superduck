@@ -1,3 +1,4 @@
+import { isDebugMsgs } from '../useSidepanelDebug';
 import type { MutableRefObject } from 'react';
 import { dispatchMessagesClient } from '../../../utils/providerClient';
 import { MessagesClient } from '../../../mcpServersStore';
@@ -69,6 +70,18 @@ export async function streamAndProcess(params: StreamAndProcessParams) {
     params.effectiveMessagesClient
   );
 
+  if (isDebugMsgs()) {
+    console.log(
+      '[SD_DEBUG] streamAndProcess preparedMessages:',
+      preparedMessages.length,
+      JSON.stringify(preparedMessages.map((m) => m.role)),
+      'tools:',
+      preparedTools?.length ?? 0,
+      'model:',
+      dispatched.modelId
+    );
+  }
+
   const stream = dispatched.runtime.stream(
     {
       model: dispatched.modelId,
@@ -114,6 +127,20 @@ export async function streamAndProcess(params: StreamAndProcessParams) {
   });
 
   const response: ResponseWithMessageLimit = await stream.finalMessage();
+
+  if (isDebugMsgs()) {
+    const blockTypes = Array.isArray(response.content)
+      ? response.content.map((b: { type?: string }) => b?.type)
+      : [];
+    console.log(
+      '[SD_DEBUG] streamAndProcess finalMessage stop_reason:',
+      response.stop_reason,
+      'blocks:',
+      JSON.stringify(blockTypes),
+      'usage:',
+      JSON.stringify(response.usage)
+    );
+  }
 
   if (params.rafState.rafId !== null) {
     cancelAnimationFrame(params.rafState.rafId);

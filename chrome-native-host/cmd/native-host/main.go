@@ -3,6 +3,8 @@ package main
 import (
 	"chrome-native-host/internal/analytics"
 	"chrome-native-host/internal/bridge"
+	"chrome-native-host/internal/debugrec"
+	"chrome-native-host/internal/fileserver"
 	"chrome-native-host/internal/protocol"
 	"chrome-native-host/internal/udsauth"
 	"encoding/json"
@@ -57,6 +59,9 @@ type Server struct {
 	chromeTimeout    time.Duration
 	skipIdentitySync bool
 	identitySyncOnce sync.Once
+
+	recorder   *debugrec.Recorder
+	fileServer *fileserver.Server
 }
 
 func NewServer() (*Server, error) {
@@ -116,6 +121,7 @@ func NewServer() (*Server, error) {
 		closed:         make(chan struct{}),
 		startedAt:      time.Now(),
 		chromeReady:    true,
+		recorder:       debugrec.New(),
 	}, nil
 }
 
@@ -505,6 +511,12 @@ func (s *Server) handleUDSControlMessage(raw []byte, writer io.Writer) bool {
 			slog.Error("failed to send health response", "error", err)
 		}
 		return true
+	case "upload_file":
+		s.handleUploadFile(raw, writer)
+		return true
+	case "file_server_info":
+		s.handleFileServerInfo(writer)
+		return true
 	default:
 		return false
 	}
@@ -519,6 +531,16 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 		})
 	}
 
+	var reqTool string
+	var req protocol.ToolRequest
+	if err := json.Unmarshal(raw, &req); err == nil && req.Type == "tool_request" {
+		reqTool = req.Params.Tool
+	}
+
+	isDebugCollect := reqTool == "superduck_debug_collect"
+
+	startTime := time.Now()
+
 	// Serialize: only one request-response pair in flight at a time
 	s.chromeMu.Lock()
 	defer s.chromeMu.Unlock()
@@ -528,6 +550,11 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 		logRaw = logRaw[:500] + "...(truncated)"
 	}
 	slog.Debug("forwarding to Chrome", "message", logRaw)
+
+	if reqTool != "" && s.recorder != nil {
+		s.recorder.Record(reqTool, "native.tool_request.forwarded",
+			map[string]any{"clientId": req.Params.ClientID}, nil, nil)
+	}
 
 	chromeWriter := s.chromeWriter
 	if chromeWriter == nil {
@@ -555,10 +582,28 @@ func (s *Server) forwardToChrome(raw []byte, responseWriter io.Writer) {
 			sendToolError(responseWriter, "chrome connection closed")
 			return
 		}
+
+		elapsed := time.Since(startTime).Milliseconds()
+		if reqTool != "" && s.recorder != nil {
+			s.recorder.Record(reqTool, "native.tool_response.received",
+				map[string]any{"durationMs": elapsed}, &elapsed, nil)
+		}
+
+		// Enrich debug collect bundle with Go-side events and audit log.
+		if isDebugCollect {
+			response = s.enrichDebugBundle(response)
+		}
+
 		if err := protocol.SendMessage(responseWriter, json.RawMessage(response)); err != nil {
 			slog.Error("failed to send response to MCP", "error", err)
 		}
 	case <-timer.C:
+		elapsed := time.Since(startTime).Milliseconds()
+		timeoutErr := fmt.Errorf("chrome extension did not respond within %s", chromeTimeout)
+		if reqTool != "" && s.recorder != nil {
+			s.recorder.Record(reqTool, "native.tool_response.received",
+				map[string]any{"durationMs": elapsed, "timedOut": true}, &elapsed, timeoutErr)
+		}
 		slog.Error("Chrome tool response timeout", "timeout", chromeTimeout)
 		sendToolError(responseWriter, fmt.Sprintf("chrome extension did not respond to tool request within %s; reload the extension if this repeats", chromeTimeout))
 		_ = s.Close()
@@ -620,6 +665,10 @@ func (s *Server) handleChromeMessage(raw []byte, msg *protocol.Message) {
 		slog.Debug("notification", "method", msg.Method, "params", msg.Params)
 	case "tool_request":
 		handleIncomingToolRequest(raw, os.Stdout)
+	case "get_go_debug_events":
+		s.handleGetGoDebugEvents(raw)
+	case "get_audit_log":
+		s.handleGetAuditLog(raw)
 	default:
 		slog.Warn("unknown message type", "type", msg.Type)
 	}
@@ -681,6 +730,29 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("UDS auth token written", "path", udsauth.TokenPath())
+
+	// Start localhost HTTP file server for large file transfers.
+	// Reuses the UDS auth token for Bearer authentication.
+	fileStore := fileserver.NewFileStore(fileserver.DefaultStoreConfig())
+	defer fileStore.Close()
+	fs, err := fileserver.NewServer(fileStore, token)
+	if err != nil {
+		slog.Error("failed to start file server", "error", err)
+		os.Exit(1)
+	}
+	server.fileServer = fs
+	defer fs.Close()
+	slog.Info("file server started", "url", fs.BaseURL(), "port", fs.Port())
+
+	// Notify CRX immediately that the file server is available.
+	// CRX receives this as the first message after the native host starts.
+	if err := protocol.SendMessage(os.Stdout, map[string]any{
+		"type":  "file_server_ready",
+		"url":   fs.BaseURL(),
+		"token": token,
+	}); err != nil {
+		slog.Error("failed to send file_server_ready", "error", err)
+	}
 
 	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)

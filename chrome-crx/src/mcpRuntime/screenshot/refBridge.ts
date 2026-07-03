@@ -12,6 +12,7 @@ import { cdpDebugger } from '../cdp';
 import { INTERACTIVE_ROLES, CONTENT_ROLES, withSnapshotLock } from '../axSnapshot';
 import type { CdpAccessibilityTreeResult, CdpDomResolveNodeResult } from '../cdp';
 import type { RefMapping } from '../axSnapshot';
+import { recordEvent } from '../../debug';
 
 const BATCH_SIZE = 30;
 
@@ -63,6 +64,7 @@ function getTabMeta(tabId: number): Map<string, RefMapping> {
  * 清空页面上的 __superduckElementMap 和重置 __superduckRefCounter，同时清空该 tab 的元数据
  */
 export async function clearPageRefs(tabId: number): Promise<void> {
+  recordEvent({ domain: 'screenshot-ref', event: 'ref.clear', ids: { tabId } });
   refMetaByTab.delete(tabId);
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
@@ -78,6 +80,7 @@ export async function clearPageRefs(tabId: number): Promise<void> {
  * 同时清理对应的内存元数据，防止 map 无限增长。
  */
 export async function pruneStaleRefs(tabId: number): Promise<void> {
+  let prunedCount = 0;
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
@@ -99,12 +102,19 @@ export async function pruneStaleRefs(tabId: number): Promise<void> {
       for (const r of results) {
         if (isStringArray(r.result)) {
           for (const key of r.result) tabMeta.delete(key);
+          prunedCount += r.result.length;
         }
       }
     }
   } catch {
     // 清理失败不影响主流程
   }
+  recordEvent({
+    domain: 'screenshot-ref',
+    event: 'ref.prune',
+    ids: { tabId },
+    data: { prunedCount }
+  });
 }
 
 /**
@@ -117,6 +127,14 @@ export async function pruneStaleRefs(tabId: number): Promise<void> {
  */
 export async function registerRefsInPage(tabId: number, refMappings: RefMapping[]): Promise<void> {
   if (refMappings.length === 0) return;
+
+  const interactiveCount = refMappings.filter((m) => m.interactiveOnly).length;
+  recordEvent({
+    domain: 'screenshot-ref',
+    event: 'ref.register.start',
+    ids: { tabId },
+    data: { refCount: refMappings.length, interactiveCount }
+  });
 
   // 存储元数据（按 tab 隔离）
   const tabMeta = getTabMeta(tabId);
@@ -150,6 +168,13 @@ export async function registerRefsInPage(tabId: number, refMappings: RefMapping[
       })
     );
   }
+
+  recordEvent({
+    domain: 'screenshot-ref',
+    event: 'ref.register.end',
+    ids: { tabId },
+    data: { refCount: refMappings.length }
+  });
 }
 
 /**
@@ -221,16 +246,48 @@ export function getRefMetaByTab(tabId: number): ReadonlyMap<string, RefMapping> 
  * @returns true 如果恢复成功
  */
 export async function resolveStaleRef(tabId: number, refId: string): Promise<boolean> {
+  recordEvent({
+    domain: 'screenshot-ref',
+    event: 'ref.resolve_stale.start',
+    ids: { tabId },
+    data: { refId }
+  });
   const tabMeta = refMetaByTab.get(tabId);
   const meta = tabMeta?.get(refId);
-  if (!meta) return false;
+  if (!meta) {
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'ref.resolve_stale.end',
+      ids: { tabId },
+      level: 'warn',
+      data: { refId, success: false, reason: 'no_meta' }
+    });
+    return false;
+  }
 
   // cursorInteractive 元素无法仅通过 AX 树恢复（AX 树里是 generic，需要 JS 扫描），
   // 而扫描会插入 data-__sd-ci 标记并可能与正在进行的快照冲突，这里直接放弃恢复。
-  if (meta.isCursorInteractive) return false;
+  if (meta.isCursorInteractive) {
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'ref.resolve_stale.end',
+      ids: { tabId },
+      level: 'warn',
+      data: { refId, success: false, reason: 'cursor_interactive' }
+    });
+    return false;
+  }
 
   // 与 takeSnapshot 共享同一把 tab 级互斥锁，避免并发 AX 扫描相互干扰
-  return withSnapshotLock(tabId, () => resolveStaleRefInner(tabId, refId, meta));
+  const result = await withSnapshotLock(tabId, () => resolveStaleRefInner(tabId, refId, meta));
+  recordEvent({
+    domain: 'screenshot-ref',
+    event: 'ref.resolve_stale.end',
+    ids: { tabId },
+    level: result ? 'info' : 'warn',
+    data: { refId, success: result }
+  });
+  return result;
 }
 
 async function resolveStaleRefInner(

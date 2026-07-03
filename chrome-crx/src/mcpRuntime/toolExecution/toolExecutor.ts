@@ -16,6 +16,7 @@ import { allTools, mcpToolNames } from '../core/tools';
 
 export const MCP_NATIVE_SESSION_ID = `mcp_native_${Date.now()}`;
 import { recordToolAction } from './toolRecording';
+import { recordEvent } from '../../debug';
 import { getSelectedModel, refreshMessagesClient } from '../providerClient';
 import { showPermissionPrompt } from './permissionPrompt';
 import { coerceToolInput, validateInput, isPermissionPromptRequest } from '../core/utils';
@@ -131,13 +132,39 @@ export class ToolExecutor {
             trackData.success = false;
             span.setAttribute('success', false);
             span.setAttribute('failure_reason', 'invalid_input');
+            recordEvent({
+              domain: 'tool-runtime',
+              event: 'tool.input.validation_failed',
+              ids: { toolUseId, tabId: this.context.tabId },
+              data: { toolName, errors: validation.errors }
+            });
             return createErrorResponse(
               `Invalid input for ${toolName}: ${validation.errors.join('; ')}`
             );
           }
+          recordEvent({
+            domain: 'tool-runtime',
+            event: 'tool.execute.start',
+            ids: { toolUseId, tabId: this.context.tabId, tabGroupId: this.context.tabGroupId },
+            data: { toolName, action }
+          });
           const result = await tool.execute(coercedInput, executionContext);
           const failed =
             result.type === 'permission_required' || !!result.error || result.is_error === true;
+          let resultType: string;
+          if (result.type === 'permission_required') resultType = 'permission_required';
+          else if (result.error) resultType = 'is_error';
+          else resultType = 'success';
+          recordEvent({
+            domain: 'tool-runtime',
+            event: 'tool.execute.end',
+            ids: { toolUseId, tabId: this.context.tabId },
+            data: {
+              toolName,
+              success: !failed,
+              resultType
+            }
+          });
 
           if (result.type === 'permission_required') {
             trackData.success = false;
@@ -269,6 +296,13 @@ export class ToolExecutor {
 
         if (isPermissionPromptRequest(result)) {
           const handler = options?.onPermissionRequired ?? this.context.onPermissionRequired;
+          const handlerExists = !!handler && !!this.context.tabId;
+          recordEvent({
+            domain: 'tool-runtime',
+            event: 'tool.permission.required',
+            ids: { toolUseId: toolUse.id, tabId: this.context.tabId },
+            data: { toolName: toolUse.name, handlerExists }
+          });
           if (!handler || !this.context.tabId) {
             results.push(
               await formatToolResult(toolUse.id, {

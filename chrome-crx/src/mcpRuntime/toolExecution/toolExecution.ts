@@ -12,12 +12,28 @@ import { getOrCreateToolExecutor, createErrorResponse } from './toolExecutor';
 import { mcpToolNames } from '../core/tools';
 import { withTimeout } from '../core/utils';
 import { extractAppName } from '../core/urlUtils';
+import { recordEvent, recordError, redactUrl } from '../../debug';
 import type {
   ExecuteToolResponse,
   PermissionPromptHandler,
   PermissionPromptRequest,
   ToolExecutorProcessOptions
 } from '../core/types';
+
+function extractInputFields(args: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (typeof args.action === 'string') fields.action = args.action;
+  if (typeof args.filter === 'string') fields.filter = args.filter;
+  if (typeof args.depth === 'number') fields.depth = args.depth;
+  if (typeof args.limit === 'number') fields.limit = args.limit;
+  if (typeof args.clear === 'boolean') fields.clear = args.clear;
+  if (typeof args.diff === 'boolean') fields.diff = args.diff;
+  if (typeof args.newTab === 'boolean') fields.newTab = args.newTab;
+  if (typeof args.full === 'boolean') fields.full = args.full;
+  if (args.ref !== undefined) fields.hasRef = true;
+  if (args.coordinate !== undefined) fields.hasCoordinate = true;
+  return fields;
+}
 
 const TOOLS_WITH_INTERNAL_DEBUGGER_MANAGEMENT = new Set(['browser_batch']);
 const DEBUGGER_ATTACH_TIMEOUT_MS = 10000;
@@ -72,12 +88,43 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   const clientId = options.clientId;
   const startTime = Date.now();
   const model = await getSelectedModel();
+  const inputFields = extractInputFields(isRecord(options.args) ? options.args : {});
+
+  recordEvent({
+    domain: 'tool-runtime',
+    event: 'tool.request.received',
+    ids: {
+      requestId,
+      nativeRequestId: clientId,
+      toolUseId: options.toolUseId,
+      tabId: options.tabId,
+      tabGroupId: options.tabGroupId
+    },
+    data: {
+      toolName: options.toolName,
+      source: options.source ?? 'sidepanel',
+      clientId,
+      permissionMode: options.permissionMode,
+      model,
+      inputFields
+    }
+  });
 
   if (navigationBlockedError && navigationBlockedTime) {
     if (Date.now() - navigationBlockedTime < NAVIGATION_BLOCK_TIMEOUT) {
       const errorMsg = navigationBlockedError;
       navigationBlockedError = undefined;
       navigationBlockedTime = undefined;
+      recordEvent({
+        domain: 'tool-runtime',
+        event: 'tool.error',
+        ids: { requestId },
+        level: 'error',
+        data: {
+          errorType: 'navigation_blocked',
+          durationMs: Date.now() - startTime
+        }
+      });
       trackEvent('superduck.mcp.tool_called', {
         tool_name: options.toolName,
         client_id: clientId,
@@ -100,12 +147,24 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   try {
     const skipTabLookup = mcpToolNames.includes(options.toolName) && options.tabId === undefined;
     if (!skipTabLookup) {
+      recordEvent({
+        domain: 'tool-runtime',
+        event: 'tool.tab.resolve.start',
+        ids: { requestId }
+      });
       const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId);
       tabId = tabInfo.tabId;
       domain = tabInfo.domain;
       url = tabInfo.url;
+      recordEvent({
+        domain: 'tool-runtime',
+        event: 'tool.tab.resolve.end',
+        ids: { requestId, tabId },
+        data: { success: true, domain, urlOrigin: url ? redactUrl(url) : undefined }
+      });
     }
-  } catch {
+  } catch (tabErr) {
+    recordError('tool-runtime', 'tool.tab.resolve.end', tabErr, { requestId }, { success: false });
     trackEvent('superduck.mcp.tool_called', {
       tool_name: options.toolName,
       client_id: clientId,
@@ -124,6 +183,11 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     !TOOLS_WITH_INTERNAL_DEBUGGER_MANAGEMENT.has(options.toolName) &&
     !TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE.has(options.toolName)
   ) {
+    recordEvent({
+      domain: 'tool-runtime',
+      event: 'tool.debugger.attach.start',
+      ids: { requestId, tabId }
+    });
     try {
       let wasAttached = false;
       try {
@@ -143,6 +207,12 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       if (!wasAttached) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
+      recordEvent({
+        domain: 'tool-runtime',
+        event: 'tool.debugger.attach.end',
+        ids: { requestId, tabId },
+        data: { success: true, wasAttached }
+      });
     } catch (attachErr) {
       const isInternalPage =
         url === undefined ||
@@ -152,6 +222,17 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
         url?.startsWith('edge://') ||
         url?.startsWith('brave://') ||
         url?.startsWith('about:');
+      recordError(
+        'tool-runtime',
+        'tool.debugger.attach.end',
+        attachErr,
+        { requestId, tabId },
+        {
+          success: false,
+          isInternalPage,
+          urlOrigin: url ? redactUrl(url) : undefined
+        }
+      );
       if (
         !isInternalPage &&
         !TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE.has(options.toolName)
@@ -187,6 +268,13 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     }
 
     const executor = await getOrCreateToolExecutor(tabId, options.tabGroupId);
+
+    recordEvent({
+      domain: 'tool-runtime',
+      event: 'tool.executor.start',
+      ids: { requestId, tabId, tabGroupId: options.tabGroupId },
+      data: { toolName: options.toolName, source: options.source ?? 'sidepanel' }
+    });
 
     if (options.messagesClient) {
       executor.context.messagesClient = options.messagesClient;
@@ -232,6 +320,16 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       processOptions
     );
     isError = true === toolResult?.is_error;
+    recordEvent({
+      domain: 'tool-runtime',
+      event: 'tool.execute.end',
+      ids: { requestId, tabId },
+      data: {
+        success: !isError,
+        resultType: isError ? 'is_error' : 'success',
+        durationMs: Date.now() - startTime
+      }
+    });
   } catch (err) {
     isError = true;
     if (
@@ -249,6 +347,17 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       errorType = 'execution_error';
       toolResult = createErrorResponse(err instanceof Error ? err.message : String(err));
     }
+    recordError(
+      'tool-runtime',
+      'tool.execute.end',
+      err,
+      { requestId, tabId },
+      {
+        success: false,
+        resultType: errorType ?? 'exception',
+        durationMs: Date.now() - startTime
+      }
+    );
   }
 
   if (tabId !== undefined) {
@@ -280,6 +389,17 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     ...(domain && { domain }),
     ...(appName && { app: appName }),
     ...(errorType && { error_type: errorType })
+  });
+
+  recordEvent({
+    domain: 'tool-runtime',
+    event: 'tool.response.sent',
+    ids: { requestId, tabId, tabGroupId: options.tabGroupId },
+    data: {
+      success: !isError,
+      resultType: isError ? (errorType ?? 'is_error') : 'success',
+      durationMs: Date.now() - startTime
+    }
   });
 
   return toolResult;

@@ -140,6 +140,25 @@ func registerTools(server *mcp.Server, nativeHost *bridge.NativeHostBridge) {
 		InputSchema: objectSchema(map[string]any{}),
 	}, createHealthToolHandler(nativeHost))
 
+	// Debug evidence tools — let an MCP agent start/stop/status/collect the
+	// local debug bundle so it can self-diagnose a failure without leaving the
+	// conversation.
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "superduck_debug_status",
+		Description: "Get the current SuperDuck debug evidence recording status (enabled, session, ring buffer length, persisted event count). Call before and after reproducing an issue.",
+		InputSchema: objectSchema(map[string]any{}),
+	}, createToolHandler(nativeHost, "superduck_debug_status"))
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "superduck_debug_collect",
+		Description: "Export the current SuperDuck debug evidence bundle as JSON: summary.agent.md, diagnosis.json (findings + nextFiles), runtime-map.json (entity relationships), events by domain, and artifact metadata. Read summary.agent.md and diagnosis.json first to locate the failing runtime domain.",
+		InputSchema: objectSchema(map[string]any{}),
+	}, createToolHandler(nativeHost, "superduck_debug_collect"))
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "superduck_debug_snapshot",
+		Description: "Alias for superduck_debug_status — quick snapshot of the current debug recording state.",
+		InputSchema: objectSchema(map[string]any{}),
+	}, createToolHandler(nativeHost, "superduck_debug_status"))
+
 	for _, tool := range toolDefinitions {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.name,

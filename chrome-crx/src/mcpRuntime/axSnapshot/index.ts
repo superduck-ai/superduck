@@ -5,7 +5,12 @@
  * 并应用剪枝/聚合/过滤策略压缩为 AI agent 可高效消费的紧凑文本表示。
  */
 
-import { SnapshotMaxCharsError, type SnapshotOptions, type SnapshotResult } from './types';
+import {
+  SnapshotMaxCharsError,
+  type SnapshotOptions,
+  type SnapshotResult,
+  type RefMapping
+} from './types';
 import { EMPTY_ATTRS_RE, SNAPSHOT_NORMALIZE_RE } from './constants';
 import { buildTree } from './treeBuilder';
 import { findCursorInteractiveElements } from './cursorElements';
@@ -13,6 +18,7 @@ import { assignRefs } from './refs';
 import { compactTree, renderTree } from './render';
 import { withSnapshotLock } from './snapshotLock';
 import { collectSubtreeBackendIds, fetchAXTree, resolveLinkUrls } from './cdpFetch';
+import { recordEvent, recordError, recordArtifact } from '../../debug';
 
 export { INTERACTIVE_ROLES, CONTENT_ROLES } from './constants';
 export { withSnapshotLock } from './snapshotLock';
@@ -27,7 +33,36 @@ export async function takeSnapshot(
   tabId: number,
   options: SnapshotOptions = {}
 ): Promise<SnapshotResult> {
-  return withSnapshotLock(tabId, () => takeSnapshotUnlocked(tabId, options));
+  recordEvent({ domain: 'screenshot-ref', event: 'ax.snapshot.start', ids: { tabId } });
+  try {
+    const result = await withSnapshotLock(tabId, () => takeSnapshotUnlocked(tabId, options));
+    const axRef = await recordArtifact({
+      type: 'ax-summary',
+      ids: { tabId },
+      mimeType: 'text/plain',
+      content: result.content,
+      data: {
+        refCount: result.refMappings?.length ?? 0,
+        contentLength: result.content.length
+      }
+    });
+    recordEvent({
+      domain: 'screenshot-ref',
+      event: 'ax.snapshot.end',
+      ids: { tabId },
+      data: {
+        success: true,
+        refCount: result.refMappings?.length ?? 0,
+        interactiveRefCount:
+          result.refMappings?.filter((r: RefMapping) => r.interactiveOnly).length ?? 0
+      },
+      artifactRefs: axRef ? [axRef] : undefined
+    });
+    return result;
+  } catch (err) {
+    recordError('screenshot-ref', 'ax.snapshot.end', err, { tabId }, { success: false });
+    throw err;
+  }
 }
 
 export async function takeSnapshotUnlocked(
@@ -136,4 +171,9 @@ export async function takeSnapshotUnlocked(
   }
 
   return { content, refMappings };
+}
+
+// Expose takeSnapshot for the e2e test bridge (same pattern as cdp/index.ts).
+if (typeof globalThis !== 'undefined') {
+  (globalThis as Record<string, unknown>).__superduckTakeSnapshot = takeSnapshot;
 }

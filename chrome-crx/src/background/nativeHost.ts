@@ -12,6 +12,17 @@ import {
   executeTool
 } from '../mcpRuntime';
 import { ReconnectScheduler } from './ReconnectScheduler';
+import { createFileServerBridge, type FileReadyInfo } from './fileServerBridge';
+import {
+  startDebugSession,
+  stopDebugSession,
+  getDebugStatus,
+  isDebugEnabled,
+  exportDebugBundle,
+  serializeBundleForTransport,
+  recordEvent,
+  setPersistentDebug
+} from '../debug';
 
 const NATIVE_HOST_NAMES = [
   'com.me.superduck_browser_extension',
@@ -91,6 +102,9 @@ export interface NativeHostManager {
   getStatus: () => Promise<NativeHostStatus>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   handleHeartbeatAlarm: () => Promise<void>;
+  fetchFileFromHost: (id: string) => Promise<Blob>;
+  onFileReady: (callback: (info: FileReadyInfo) => void) => void;
+  getFileServerInfo: () => { url: string; token: string };
 }
 
 export function createNativeHostManager(): NativeHostManager {
@@ -107,6 +121,54 @@ export function createNativeHostManager(): NativeHostManager {
   let disconnectHandler: (() => void) | null = null;
   let connectionGeneration = 0;
   let connectAttemptId = 0;
+
+  const fileServerBridge = createFileServerBridge();
+
+  // Tracks one pending request→response pair to the native host (non-tool_request
+  // messages like get_go_debug_events / get_audit_log). Sequential callers wait
+  // on this promise; the chromeMu lock on the Go side guarantees ordering.
+  let pendingNativeResponse: {
+    type: string;
+    resolve: (msg: NativeMessage) => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+
+  /**
+   * Send a non-tool request to the native host and wait for the matching response.
+   * Used by superduck_debug_collect to pull Go-side events and audit log.
+   */
+  function requestFromNativeHost(
+    msg: NativeMessage,
+    responseType: string,
+    timeoutMs = 5000
+  ): Promise<NativeMessage> {
+    return new Promise((resolve, reject) => {
+      if (!nativePort) {
+        reject(new Error('native port not connected'));
+        return;
+      }
+      if (pendingNativeResponse) {
+        clearTimeout(pendingNativeResponse.timer);
+        pendingNativeResponse.reject(new Error('request superseded by newer call'));
+        pendingNativeResponse = null;
+      }
+      const timer = setTimeout(() => {
+        if (pendingNativeResponse?.type === responseType) {
+          pendingNativeResponse = null;
+          reject(new Error(`timeout waiting for ${responseType}`));
+        }
+      }, timeoutMs);
+      pendingNativeResponse = { type: responseType, resolve, reject, timer };
+      try {
+        nativePort.postMessage(msg);
+      } catch (err) {
+        clearTimeout(timer);
+        pendingNativeResponse = null;
+        reject(err);
+      }
+    });
+  }
 
   const reconnectScheduler = new ReconnectScheduler(RECONNECT_DELAYS, () => {
     // Don't gate on nativeHostInstalled — after a service worker restart
@@ -228,6 +290,150 @@ export function createNativeHostManager(): NativeHostManager {
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
 
+      recordEvent({
+        domain: 'native-bridge',
+        event: 'native.tool_request.received',
+        ids: { nativeRequestId: clientId },
+        data: { tool: params.tool, method }
+      });
+
+      // Debug control commands bypass executeTool to avoid recursive debug
+      // events and the tool-runtime timeout.
+      if (params.tool === 'superduck_debug_enable') {
+        try {
+          await setPersistentDebug(true);
+          const manifest = chrome.runtime.getManifest();
+          const meta = await startDebugSession({ extensionVersion: manifest.version });
+          sendToolResponse({
+            content: JSON.stringify({ persistent: true, session: meta })
+          });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug enable failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_disable') {
+        try {
+          await setPersistentDebug(false);
+          const meta = await stopDebugSession();
+          sendToolResponse({ content: JSON.stringify({ persistent: false, session: meta }) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug disable failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_start') {
+        try {
+          const manifest = chrome.runtime.getManifest();
+          const meta = await startDebugSession({ extensionVersion: manifest.version });
+          sendToolResponse({ content: JSON.stringify(meta) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug start failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_stop') {
+        try {
+          const meta = await stopDebugSession();
+          sendToolResponse({ content: JSON.stringify(meta) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug stop failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+      if (params.tool === 'superduck_debug_status') {
+        sendToolResponse({ content: JSON.stringify(getDebugStatus()) });
+        return;
+      }
+      if (params.tool === 'superduck_debug_collect') {
+        try {
+          if (!isDebugEnabled()) {
+            sendToolResponse({ content: JSON.stringify({ error: 'no active debug session' }) });
+            return;
+          }
+
+          // Pull Go-side events and audit log from native host so the bundle
+          // contains the complete picture (CRX events + Go events + audit log).
+          // CRX → native host allows 64 MiB per Chrome docs, so the full bundle
+          // (including screenshots) goes through without truncation.
+          if (nativePort) {
+            try {
+              const goEventsResp = await requestFromNativeHost(
+                { type: 'get_go_debug_events', limit: 500 },
+                'go_debug_events_response'
+              );
+              const events = goEventsResp?.events as unknown[] | undefined;
+              if (Array.isArray(events)) {
+                for (const evt of events) {
+                  const e = evt as Record<string, unknown>;
+                  recordEvent({
+                    domain: 'mcp-server',
+                    event: (e.event as string) ?? 'native.event',
+                    level: ((e.level as string) ?? 'info') as 'debug' | 'info' | 'warn' | 'error',
+                    data: (e.data as Record<string, unknown>) ?? {},
+                    durationMs: e.durationMs as number | undefined
+                  });
+                }
+              }
+            } catch {
+              /* native host not reachable — non-fatal */
+            }
+
+            try {
+              const auditResp = await requestFromNativeHost(
+                { type: 'get_audit_log', limit: 200 },
+                'audit_log_response'
+              );
+              const lines = auditResp?.lines as string[] | undefined;
+              if (Array.isArray(lines)) {
+                for (const line of lines) {
+                  try {
+                    const auditData = JSON.parse(line);
+                    recordEvent({
+                      domain: 'mcp-server',
+                      event: 'cli.audit_record',
+                      level: 'debug',
+                      data: auditData
+                    });
+                  } catch {
+                    /* skip malformed audit lines */
+                  }
+                }
+              }
+            } catch {
+              /* non-fatal */
+            }
+          }
+
+          // Re-export to capture Go events + audit log just recorded above.
+          const finalBundle = await exportDebugBundle();
+          sendToolResponse({ content: serializeBundleForTransport(finalBundle) });
+        } catch (err) {
+          sendToolResponse(
+            createErrorResponse(
+              `debug collect failed: ${err instanceof Error ? err.message : String(err)}`
+            )
+          );
+        }
+        return;
+      }
+
       const timeoutMs = getToolRequestTimeoutMs(params.tool, args);
       const result = await withToolRequestTimeout(
         executeTool({
@@ -296,6 +502,26 @@ export function createNativeHostManager(): NativeHostManager {
 
       case 'mcp_disconnected':
         await setMcpConnectionState(false);
+        break;
+
+      case 'go_debug_events_response':
+        if (pendingNativeResponse?.type === 'go_debug_events_response') {
+          pendingNativeResponse.resolve(message);
+          pendingNativeResponse = null;
+        }
+        break;
+
+      case 'audit_log_response':
+        if (pendingNativeResponse?.type === 'audit_log_response') {
+          pendingNativeResponse.resolve(message);
+          pendingNativeResponse = null;
+        }
+        break;
+
+      default:
+        // Delegate file server messages (file_server_ready, file_ready) to the
+        // file server bridge. Returns false for non-file-server messages.
+        fileServerBridge.handleMessage(message);
         break;
     }
   }
@@ -564,6 +790,7 @@ export function createNativeHostManager(): NativeHostManager {
     explicitDisconnect = false;
     reconnectScheduler.enable();
     reconnectScheduler.reset();
+    fileServerBridge.reset();
     isConnecting = false;
     await recycleNativePort({
       detachDebugger: true,
@@ -652,6 +879,9 @@ export function createNativeHostManager(): NativeHostManager {
     reset,
     getStatus,
     sendMcpNotification,
-    handleHeartbeatAlarm
+    handleHeartbeatAlarm,
+    fetchFileFromHost: fileServerBridge.fetchFileFromHost,
+    onFileReady: fileServerBridge.onFileReady,
+    getFileServerInfo: fileServerBridge.getFileServerInfo
   };
 }

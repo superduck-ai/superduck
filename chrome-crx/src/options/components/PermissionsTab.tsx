@@ -4,6 +4,7 @@ import { useStorageState } from '@/hooks/useStorageState';
 import { PermissionManager } from '@/permissions/PermissionManager';
 import { StorageKeys } from '@/extensionServices';
 import { trackEvent } from '@/mcpRuntime/analytics';
+import { enableDebugEverywhere, disableDebugEverywhere, getDebugStatusFromStorage } from '@/debug';
 import { ProviderConfigSection } from './ProviderConfigSection';
 
 type PermissionRecord = ReturnType<PermissionManager['getAllPermissions']>[number];
@@ -269,7 +270,44 @@ const PermissionsTab: React.FC = () => {
     'enabled' | 'disabled' | undefined
   >(StorageKeys.NOTIFICATIONS_ENABLED, undefined);
   const [debugMode, setDebugMode] = useStorageState<boolean>(StorageKeys.DEBUG_MODE, false);
+  const [evidenceEnabled, setEvidenceEnabled] = useState(false);
+  const [evidenceSessionId, setEvidenceSessionId] = useState<string | null>(null);
   const permissionManager = useMemo(() => new PermissionManager(() => false), []);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      const status = await getDebugStatusFromStorage();
+      if (!mounted) return;
+      setEvidenceEnabled(status.enabled);
+      setEvidenceSessionId(status.session?.debugSessionId ?? null);
+    };
+    void load();
+    const handler = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== 'local') return;
+      if ('DEBUG_EVIDENCE_ENABLED' in changes || 'DEBUG_SESSION_META' in changes) {
+        void load();
+      }
+    };
+    chrome.storage.onChanged?.addListener(handler);
+    return () => {
+      mounted = false;
+      chrome.storage.onChanged?.removeListener(handler);
+    };
+  }, []);
+
+  const toggleEvidence = useCallback(async (checked: boolean) => {
+    try {
+      if (checked) {
+        const manifest = chrome.runtime.getManifest();
+        await enableDebugEverywhere(manifest.version);
+      } else {
+        await disableDebugEverywhere();
+      }
+    } catch (err) {
+      console.error('[options] toggle evidence failed:', err);
+    }
+  }, []);
 
   const loadPermissions = useCallback(async () => {
     setIsLoading(true);
@@ -413,6 +451,52 @@ const PermissionsTab: React.FC = () => {
               />
               <div className="w-11 h-6 bg-bg-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent-secondary-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-secondary-100" />
             </label>
+          </div>
+
+          <div className="border-t border-border-300 mt-2 pt-4">
+            <div className="flex items-center justify-between py-4">
+              <div className="flex-1">
+                <div className="font-large text-text-100">
+                  <FormattedMessage
+                    defaultMessage="Debug evidence recording"
+                    id="debug_evidence_recording"
+                  />
+                </div>
+                <div className="text-text-400 font-base-sm mt-1">
+                  {evidenceEnabled ? (
+                    <FormattedMessage
+                      defaultMessage="Recording all runtime events (tools, agent loop, CDP, screenshots). Export with: superduck debug collect"
+                      id="debug_evidence_enabled_description"
+                    />
+                  ) : (
+                    <FormattedMessage
+                      defaultMessage="Record a full evidence bundle for diagnosing failures. Persists across browser restarts."
+                      id="debug_evidence_disabled_description"
+                    />
+                  )}
+                </div>
+                {evidenceEnabled && evidenceSessionId && (
+                  <div className="text-text-400 font-base-sm mt-1">
+                    <FormattedMessage
+                      defaultMessage="Session: {sessionId}"
+                      id="debug_evidence_session"
+                      values={{ sessionId: evidenceSessionId.slice(0, 8) }}
+                    />
+                  </div>
+                )}
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer ml-4">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={evidenceEnabled}
+                  onChange={(event) => {
+                    void toggleEvidence(event.target.checked);
+                  }}
+                />
+                <div className="w-11 h-6 bg-bg-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent-secondary-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-secondary-100" />
+              </label>
+            </div>
           </div>
         </div>
 

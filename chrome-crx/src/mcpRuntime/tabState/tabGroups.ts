@@ -23,6 +23,7 @@ import * as lifecycle from './tabGroupLifecycle';
 import * as regroup from './tabGroupRegroup';
 import * as reconcile from './tabGroupReconcile';
 import * as promotion from './tabGroupPromotion';
+import { recordEvent, recordError } from '../../debug';
 import * as validation from './tabGroupValidation';
 import * as navIsolation from './tabNavigationIsolation';
 import * as finalizeMod from './tabGroupFinalize';
@@ -209,7 +210,19 @@ export class TabGroupManager {
   }
 
   async reconcileWithChrome(): Promise<void> {
-    return reconcile.reconcileWithChrome(this);
+    recordEvent({ domain: 'tab-state', event: 'tab.group.reconcile.start', ids: {} });
+    try {
+      const result = await reconcile.reconcileWithChrome(this);
+      recordEvent({
+        domain: 'tab-state',
+        event: 'tab.group.reconcile.end',
+        data: { success: true }
+      });
+      return result;
+    } catch (err) {
+      recordError('tab-state', 'tab.group.reconcile.end', err, {}, { success: false });
+      throw err;
+    }
   }
 
   // --- promotion ---

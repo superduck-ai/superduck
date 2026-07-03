@@ -1,3 +1,4 @@
+import { isDebugMsgs } from './useSidepanelDebug';
 import { useCallback, useRef } from 'react';
 import { type SupportedLocale, useIntlSafe } from '../../index-react-dom-intl';
 import { tabGroupManager, trackEvent } from '../../mcpRuntime';
@@ -17,6 +18,7 @@ import {
   type PromptAttachmentPayload
 } from '../sidepanelUtils';
 import { createStreamingTextStore } from '../sidepanelGuards';
+import { recordEvent } from '../../debug';
 import type {
   ApiConversationMessage,
   ApiResponseMessage,
@@ -409,6 +411,19 @@ export function useAgentLoop({
 
       setRuntimeError(null);
       setIsAgentRunning(true);
+      const agentRunId =
+        (globalThis.crypto?.randomUUID?.() as string) ?? `run-${Date.now().toString(36)}`;
+      const agentRunStartedAt = Date.now();
+      recordEvent({
+        domain: 'agent-loop',
+        event: 'agent.run.start',
+        ids: { agentRunId, tabId: executionTabId },
+        data: {
+          model: selectedModel,
+          messageCount: apiMessages.length,
+          attachmentCount: attachments.length
+        }
+      });
       abortControllerRef.current?.abort();
       generationStartedAtRef.current = Date.now();
       completionNotificationSentRef.current = false;
@@ -494,6 +509,14 @@ export function useAgentLoop({
           let shouldRetry = false;
           const rafState: RafState = { rafId: null, pending: false };
 
+          if (isDebugMsgs()) {
+            console.log(
+              '[SD_DEBUG] iter-start workingMessages:',
+              workingMessages.length,
+              JSON.stringify(workingMessages.map((m) => m.role))
+            );
+          }
+
           do {
             shouldRetry = false;
             try {
@@ -518,6 +541,13 @@ export function useAgentLoop({
               });
               if (streamResult.shouldBreak) break;
               workingMessages = streamResult.workingMessages;
+              if (isDebugMsgs()) {
+                console.log(
+                  '[SD_DEBUG] after-stream workingMessages:',
+                  workingMessages.length,
+                  JSON.stringify(workingMessages.map((m) => m.role))
+                );
+              }
               const { accumulatedText, toolUses } = streamResult;
 
               const toolResult = await executeToolUses({
@@ -539,6 +569,13 @@ export function useAgentLoop({
                 setApiMessages
               });
               workingMessages = toolResult.workingMessages;
+              if (isDebugMsgs()) {
+                console.log(
+                  '[SD_DEBUG] after-exec workingMessages:',
+                  workingMessages.length,
+                  JSON.stringify(workingMessages.map((m) => m.role))
+                );
+              }
 
               const compactResult = await compactInLoop({
                 workingMessages,
@@ -549,9 +586,22 @@ export function useAgentLoop({
                 pushMessage
               });
               workingMessages = compactResult.workingMessages;
+              if (isDebugMsgs()) {
+                console.log(
+                  '[SD_DEBUG] after-compact workingMessages:',
+                  workingMessages.length,
+                  JSON.stringify(workingMessages.map((m) => m.role))
+                );
+              }
 
               continueLoop = true;
             } catch (error) {
+              if (isDebugMsgs()) {
+                console.log(
+                  '[SD_DEBUG] streamAndProcess THREW:',
+                  error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+                );
+              }
               const { shouldRetry: shouldRetryAfterError } = await handleStreamError({
                 error,
                 retryState,
@@ -582,6 +632,12 @@ export function useAgentLoop({
           notificationBannerTimerRef.current = null;
         }
         abortControllerRef.current = null;
+        recordEvent({
+          domain: 'agent-loop',
+          event: 'agent.run.end',
+          ids: { agentRunId, tabId: executionTabId },
+          data: { durationMs: Date.now() - agentRunStartedAt }
+        });
         setIsAgentRunning(false);
         setHasInteractiveTools(false);
         setCurrentStatus('');
