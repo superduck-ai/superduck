@@ -4,9 +4,9 @@ import type { ConsoleMessage, SendCommand } from './types';
 const EXCLUDED_CONSOLE_MESSAGE_URL_PREFIXES = ['chrome-extension://'] as const;
 
 function shouldIgnoreConsoleMessage(message: ConsoleMessage): boolean {
+  const { url } = message;
   return Boolean(
-    message.url &&
-    EXCLUDED_CONSOLE_MESSAGE_URL_PREFIXES.some((prefix) => message.url?.startsWith(prefix))
+    url && EXCLUDED_CONSOLE_MESSAGE_URL_PREFIXES.some((prefix) => url.startsWith(prefix))
   );
 }
 
@@ -55,6 +55,7 @@ export function getConsoleMessages(
   const tabData = getConsoleMessagesByTab().get(tabId);
   if (!tabData) return [];
 
+  // Keep a read-time guard for entries captured before the write-path filter existed.
   let messages = tabData.messages.filter((msg) => !shouldIgnoreConsoleMessage(msg));
 
   if (errorsOnly) {

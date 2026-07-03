@@ -1,4 +1,5 @@
 import { verifyDomainUnchanged } from '../tabState';
+import type { ScreenshotContext } from './screenshotContext';
 
 export async function checkDomainSecurity(
   tabId: number,
@@ -22,12 +23,7 @@ export function generateUniqueId(): string {
 export function screenshotToViewportCoords(
   screenshotX: number,
   screenshotY: number,
-  context: {
-    viewportWidth: number;
-    viewportHeight: number;
-    screenshotWidth: number;
-    screenshotHeight: number;
-  }
+  context: ScreenshotContext
 ): [number, number] {
   const scaleX = context.viewportWidth / context.screenshotWidth;
   const scaleY = context.viewportHeight / context.screenshotHeight;
@@ -44,15 +40,7 @@ export function screenshotToViewportCoords(
 export function mapCoordinateToViewport(
   x: number,
   y: number,
-  context:
-    | {
-        viewportWidth: number;
-        viewportHeight: number;
-        screenshotWidth: number;
-        screenshotHeight: number;
-      }
-    | null
-    | undefined,
+  context: ScreenshotContext | null | undefined,
   coordinateSpace?: 'screenshot' | 'viewport'
 ): [number, number] {
   return context && coordinateSpace !== 'viewport'

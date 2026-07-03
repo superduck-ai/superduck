@@ -14,6 +14,11 @@ vi.mock('../tabState', () => ({
 
 import { createCdpInput, getKeyCode, requiresShift } from './input';
 
+type ExecuteScriptInvocation = {
+  func: (...args: unknown[]) => void;
+  args?: unknown[];
+};
+
 function makeInput(isMac = false) {
   const sendCommand = vi.fn().mockResolvedValue(undefined);
   const input = createCdpInput({ sendCommand, isMac });
@@ -71,6 +76,9 @@ describe('createCdpInput', () => {
     tabGroupMocks.hideIndicatorForToolUse.mockClear();
     tabGroupMocks.restoreIndicatorAfterToolUse.mockClear();
     vi.unstubAllGlobals();
+    vi.stubGlobal('chrome', {
+      scripting: { executeScript: vi.fn().mockResolvedValue([]) }
+    });
   });
 
   describe('pointer blocking overlay fallback', () => {
@@ -85,8 +93,8 @@ describe('createCdpInput', () => {
       }
 
       const overlay = new MockHTMLElement();
-      const executeScript = vi.fn(async ({ func }: { func: () => void }) => {
-        func();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
         return [];
       });
 
@@ -102,7 +110,7 @@ describe('createCdpInput', () => {
 
       await input.hidePointerBlockingOverlaysForToolUse(42);
       expect(overlay.dataset).toMatchObject({
-        superduckToolHidden: 'true',
+        superduckToolHiddenCount: '1',
         superduckPreviousDisplay: 'block',
         superduckPreviousVisibility: 'visible',
         superduckPreviousPointerEvents: 'auto'
@@ -119,14 +127,14 @@ describe('createCdpInput', () => {
         visibility: 'visible',
         pointerEvents: 'auto'
       });
-      expect(overlay.dataset.superduckToolHidden).toBeUndefined();
+      expect(overlay.dataset.superduckToolHiddenCount).toBeUndefined();
       expect(executeScript).toHaveBeenCalledTimes(2);
     });
 
-    it('does not overwrite saved overlay styles when the overlay is already hidden', async () => {
+    it('increments the hide count without overwriting saved overlay styles', async () => {
       class MockHTMLElement {
         dataset: Record<string, string> = {
-          superduckToolHidden: 'true',
+          superduckToolHiddenCount: '1',
           superduckPreviousDisplay: 'grid',
           superduckPreviousVisibility: 'collapse',
           superduckPreviousPointerEvents: 'painted'
@@ -139,8 +147,8 @@ describe('createCdpInput', () => {
       }
 
       const overlay = new MockHTMLElement();
-      const executeScript = vi.fn(async ({ func }: { func: () => void }) => {
-        func();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
         return [];
       });
 
@@ -155,9 +163,56 @@ describe('createCdpInput', () => {
       const { input } = makeInput();
       await input.hidePointerBlockingOverlaysForToolUse(42);
 
+      expect(overlay.dataset.superduckToolHiddenCount).toBe('2');
       expect(overlay.dataset.superduckPreviousDisplay).toBe('grid');
       expect(overlay.dataset.superduckPreviousVisibility).toBe('collapse');
       expect(overlay.dataset.superduckPreviousPointerEvents).toBe('painted');
+    });
+
+    it('keeps the overlay hidden until all nested hides are restored', async () => {
+      class MockHTMLElement {
+        dataset: Record<string, string> = {};
+        style = {
+          display: 'block',
+          visibility: 'visible',
+          pointerEvents: 'auto'
+        };
+      }
+
+      const overlay = new MockHTMLElement();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
+        return [];
+      });
+
+      vi.stubGlobal('HTMLElement', MockHTMLElement);
+      vi.stubGlobal('document', {
+        getElementById: vi.fn(() => overlay)
+      });
+      vi.stubGlobal('chrome', {
+        scripting: { executeScript }
+      });
+
+      const { input } = makeInput();
+      await input.hidePointerBlockingOverlaysForToolUse(42);
+      await input.hidePointerBlockingOverlaysForToolUse(42);
+      await input.restorePointerBlockingOverlaysAfterToolUse(42);
+
+      expect(overlay.dataset.superduckToolHiddenCount).toBe('1');
+      expect(overlay.style).toMatchObject({
+        display: 'none',
+        visibility: 'hidden',
+        pointerEvents: 'none'
+      });
+
+      await input.restorePointerBlockingOverlaysAfterToolUse(42);
+
+      expect(overlay.dataset.superduckToolHiddenCount).toBeUndefined();
+      expect(overlay.style).toMatchObject({
+        display: 'block',
+        visibility: 'visible',
+        pointerEvents: 'auto'
+      });
     });
 
     it('leaves overlay styles unchanged when there is no tool-hidden marker to restore', async () => {
@@ -171,8 +226,8 @@ describe('createCdpInput', () => {
       }
 
       const overlay = new MockHTMLElement();
-      const executeScript = vi.fn(async ({ func }: { func: () => void }) => {
-        func();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
         return [];
       });
 
