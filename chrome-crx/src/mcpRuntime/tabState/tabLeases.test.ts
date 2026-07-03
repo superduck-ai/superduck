@@ -25,6 +25,7 @@ const chromeMock = vi.hoisted(() => {
     localStore,
     tabs: {
       get: vi.fn(async (tabId: number) => ({ id: tabId, url: 'https://example.com/' })),
+      query: vi.fn(async (): Promise<chrome.tabs.Tab[]> => []),
       onRemoved: {
         addListener: vi.fn((listener: (tabId: number) => void) => {
           removedListener = listener;
@@ -70,6 +71,7 @@ describe('tabLeaseManager', () => {
   beforeEach(async () => {
     await resetLeases();
     chromeMock.tabs.get.mockClear();
+    chromeMock.tabs.query.mockClear();
     chromeMock.storage.session.get.mockClear();
     chromeMock.storage.session.set.mockClear();
     chromeMock.storage.session.remove.mockClear();
@@ -218,6 +220,26 @@ describe('tabLeaseManager', () => {
     expect((await tabLeaseManager.getLease(11))?.isActiveHandoff).toBe(true);
   });
 
+  it('clears stale primary markers outside a partial handoff set', async () => {
+    await tabLeaseManager.claimTab('session-a', 10, 'agent');
+    await tabLeaseManager.claimTab('session-a', 11, 'agent');
+    await tabLeaseManager.handoffTabs('session-a', [10, 11], {
+      activeTabId: 11
+    });
+    await tabLeaseManager.resumeHandoffTabs('session-a');
+
+    await tabLeaseManager.handoffTabs('session-a', [10], { activeTabId: 10 });
+
+    expect(await tabLeaseManager.getLease(10)).toMatchObject({
+      state: 'handoff',
+      isActiveHandoff: true
+    });
+    expect(await tabLeaseManager.getLease(11)).toMatchObject({
+      state: 'active',
+      isActiveHandoff: false
+    });
+  });
+
   it('clears isActiveHandoff when re-claiming an existing lease', async () => {
     await tabLeaseManager.claimTab('session-a', 10, 'agent');
     await tabLeaseManager.handoffTabs('session-a', [10], { activeTabId: 10 });
@@ -245,5 +267,41 @@ describe('tabLeaseManager', () => {
       { tabIds: [10], sessionId: 'session-a' },
       { tabIds: [10], sessionId: 'session-a' }
     ]);
+  });
+
+  it('bulk-prunes missing tabs and notifies lifecycle listeners', async () => {
+    await tabLeaseManager.claimTab('session-a', 10, 'agent');
+    await tabLeaseManager.claimTab('session-b', 11, 'agent');
+    const events: { tabIds: number[]; sessionId: string }[] = [];
+    const unsubscribe = tabLeaseManager.addLeaseChangeListener((tabIds, sessionId) => {
+      events.push({ tabIds, sessionId });
+    });
+    chromeMock.tabs.query.mockResolvedValue([
+      {
+        active: false,
+        autoDiscardable: true,
+        discarded: false,
+        frozen: false,
+        groupId: 1,
+        highlighted: false,
+        id: 10,
+        incognito: false,
+        index: 0,
+        pinned: false,
+        selected: false,
+        windowId: 1,
+        url: 'https://example.com/'
+      }
+    ]);
+    chromeMock.tabs.get.mockClear();
+
+    await tabLeaseManager.pruneMissingTabs();
+
+    unsubscribe();
+    expect(chromeMock.tabs.query).toHaveBeenCalledTimes(1);
+    expect(chromeMock.tabs.get).not.toHaveBeenCalled();
+    expect(await tabLeaseManager.getLease(10)).toMatchObject({ tabId: 10 });
+    expect(await tabLeaseManager.getLease(11)).toBeUndefined();
+    expect(events).toEqual([{ tabIds: [11], sessionId: '' }]);
   });
 });
