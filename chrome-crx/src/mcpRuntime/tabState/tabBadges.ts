@@ -43,7 +43,7 @@ class TabBadgeManager {
     if (this.initialized) return;
     if (this.initPromise) return await this.initPromise;
     this.initPromise = (async () => {
-      let replayTabIds: number[] = [];
+      let deliverableReplayTabIds: number[] = [];
       await this.withMutation(async () => {
         if (this.initialized) return;
         await this.loadDeliverableFromStorage();
@@ -51,15 +51,18 @@ class TabBadgeManager {
         // down (the onRemoved listener can't fire for a dead worker). Do this
         // before replaying badges so we don't rehydrate stale ids.
         await this.pruneMissingTabsLocked();
-        replayTabIds = Array.from(this.deliverableTabIds);
+        deliverableReplayTabIds = Array.from(this.deliverableTabIds);
         this.registerLeaseListener();
         this.registerTabActivationListener();
         this.registerTabRemovedListener();
         this.registerTabReplacedListener();
         this.initialized = true;
       });
-      // Replay deliverable badges after a SW restart (chrome.action badge state
-      // is cleared when the worker dies).
+      const activeLeasedTabIds = await tabLeaseManager.getActiveLeasedTabIds();
+      const replayTabIds = [...new Set([...deliverableReplayTabIds, ...activeLeasedTabIds])];
+      // Replay badges after a SW restart (chrome.action badge state is cleared
+      // when the worker dies). Deliverable markers win over active leases in
+      // applyBadge when both apply to the same tab.
       await Promise.all(replayTabIds.map((tabId) => this.applyBadge(tabId)));
     })();
     try {
@@ -205,10 +208,6 @@ class TabBadgeManager {
     } catch {
       // Tab may already be closed; per-tab badge writes throw in that case.
     }
-  }
-
-  private async refreshDeliverableBadges(): Promise<void> {
-    await Promise.all(Array.from(this.deliverableTabIds).map((tabId) => this.applyBadge(tabId)));
   }
 
   private async clearDeliverable(

@@ -155,7 +155,8 @@ describe('tabBadgeManager', () => {
 
     await Promise.all([tabBadgeManager.initialize(), tabBadgeManager.initialize()]);
 
-    expect(chromeMock.storage.session.get).toHaveBeenCalledTimes(1);
+    // Once for deliverable badges, once for active lease replay.
+    expect(chromeMock.storage.session.get).toHaveBeenCalledTimes(2);
     expect(chromeMock.tabs.query).toHaveBeenCalledTimes(1);
     expect(chromeMock.tabs.onActivated.addListener).toHaveBeenCalledTimes(1);
   });
@@ -200,6 +201,37 @@ describe('tabBadgeManager', () => {
     await tabBadgeManager.markDeliverable([10]);
 
     expect(chromeMock.sessionStore.get('tabDeliverableBadges')).toEqual({ tabIds: [5, 10] });
+  });
+
+  it('replays active lease badges after service worker restart', async () => {
+    chromeMock.sessionStore.set('tabLeases', {
+      leases: {
+        30: {
+          tabId: 30,
+          sessionId: 'session-a',
+          origin: 'agent',
+          claimedAt: 1,
+          state: 'active'
+        },
+        31: {
+          tabId: 31,
+          sessionId: 'session-a',
+          origin: 'agent',
+          claimedAt: 2,
+          state: 'handoff'
+        }
+      }
+    });
+    chromeMock.tabs.query.mockResolvedValue([]);
+
+    await tabBadgeManager.initialize();
+
+    expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 30, text: '●' })
+    );
+    expect(chromeMock.action.setBadgeText).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 31, text: '●' })
+    );
   });
 
   it('moves deliverable badge state to the new tab id when Chrome replaces a tab', async () => {

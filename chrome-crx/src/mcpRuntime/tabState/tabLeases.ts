@@ -256,6 +256,14 @@ class TabLeaseManager {
     );
   }
 
+  async getActiveLeasedTabIds(): Promise<number[]> {
+    return await this.withRead(() =>
+      Array.from(this.leases.values())
+        .filter((lease) => lease.state === 'active')
+        .map((lease) => lease.tabId)
+    );
+  }
+
   async handoffTabs(
     sessionId: string,
     tabIds: number[],
