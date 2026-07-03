@@ -1,5 +1,7 @@
 export * from './domainCategory';
 export * from './tabEvents';
+export * from './tabLeases';
+export * from './tabBadges';
 export * from './types';
 export * from './tabGroups';
 export * from './tabGroupStorage';
