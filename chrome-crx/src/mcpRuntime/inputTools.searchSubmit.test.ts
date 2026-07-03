@@ -87,6 +87,7 @@ vi.mock('./cdp', () => ({
   checkDomainSecurity: vi.fn(async () => null),
   generateUniqueId: vi.fn(() => 'id-1'),
   screenshotToViewportCoords: vi.fn(),
+  mapCoordinateToViewport: vi.fn((x: number, y: number) => [x, y]),
   scrollViaContentScript: vi.fn(),
   screenshotContextManager: {
     getLastScreenshot: vi.fn(),

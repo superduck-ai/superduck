@@ -176,6 +176,12 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
       type: 'boolean',
       description:
         'For screenshot action only. When true, overlays numbered labels on interactive elements. Each number maps to a ref_N from read_page. Use this to visually identify elements before clicking by ref.'
+    },
+    coordinate_space: {
+      type: 'string',
+      enum: ['screenshot', 'viewport'],
+      description:
+        "Coordinate space for coordinate/start_coordinate/region values. Use 'viewport' when coordinates are already CSS viewport pixels; omit or use 'screenshot' for model screenshot coordinates."
     }
   },
   execute: async (params: ComputerToolParams, context: ToolContext): Promise<ToolResult> => {
@@ -537,6 +543,12 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
           type: 'boolean',
           description:
             'For screenshot action only. When true, overlays numbered labels on interactive elements. Each number maps to a ref_N from read_page.'
+        },
+        coordinate_space: {
+          type: 'string',
+          enum: ['screenshot', 'viewport'],
+          description:
+            "Coordinate space for coordinate/start_coordinate/region values. Use 'viewport' when coordinates are already CSS viewport pixels; omit or use 'screenshot' for model screenshot coordinates."
         }
       },
       required: ['action', 'tabId']

@@ -388,6 +388,14 @@ class ChromeDebuggerProtocol {
     return this.input.dispatchKeyEvent(tabId, eventParams);
   }
 
+  async hidePointerBlockingOverlaysForToolUse(tabId: number): Promise<void> {
+    return this.input.hidePointerBlockingOverlaysForToolUse(tabId);
+  }
+
+  async restorePointerBlockingOverlaysAfterToolUse(tabId: number): Promise<void> {
+    return this.input.restorePointerBlockingOverlaysAfterToolUse(tabId);
+  }
+
   async insertText(tabId: number, text: string): Promise<void> {
     return this.input.insertText(tabId, text);
   }

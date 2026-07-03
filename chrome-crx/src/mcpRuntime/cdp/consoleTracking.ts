@@ -1,13 +1,21 @@
 import { MAX_LOGS_PER_TAB, getConsoleMessagesByTab, getConsoleTrackingEnabled } from './state';
 import type { ConsoleMessage, SendCommand } from './types';
 
+const EXCLUDED_CONSOLE_MESSAGE_URL_PREFIXES = ['chrome-extension://'] as const;
+
+function shouldIgnoreConsoleMessage(message: ConsoleMessage): boolean {
+  const { url } = message;
+  return Boolean(
+    url && EXCLUDED_CONSOLE_MESSAGE_URL_PREFIXES.some((prefix) => url.startsWith(prefix))
+  );
+}
+
 export function addConsoleMessage(tabId: number, domain: string, message: ConsoleMessage): void {
+  if (shouldIgnoreConsoleMessage(message)) return;
+
   let tabData = getConsoleMessagesByTab().get(tabId);
 
-  if (tabData && tabData.domain !== domain) {
-    tabData = { domain, messages: [] };
-    getConsoleMessagesByTab().set(tabId, tabData);
-  } else if (!tabData) {
+  if (!tabData || tabData.domain !== domain) {
     tabData = { domain, messages: [] };
     getConsoleMessagesByTab().set(tabId, tabData);
   }
@@ -47,7 +55,8 @@ export function getConsoleMessages(
   const tabData = getConsoleMessagesByTab().get(tabId);
   if (!tabData) return [];
 
-  let messages = tabData.messages;
+  // Keep a read-time guard for entries captured before the write-path filter existed.
+  let messages = tabData.messages.filter((msg) => !shouldIgnoreConsoleMessage(msg));
 
   if (errorsOnly) {
     messages = messages.filter((msg) => msg.type === 'error' || msg.type === 'exception');

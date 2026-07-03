@@ -1,5 +1,5 @@
-import { calculateOptimalDimensions } from './screenshotContext';
 import { verifyDomainUnchanged } from '../tabState';
+import type { ScreenshotContext } from './screenshotContext';
 
 export async function checkDomainSecurity(
   tabId: number,
@@ -8,14 +8,6 @@ export async function checkDomainSecurity(
 ): Promise<{ error: string } | null> {
   if (!url) return null;
   return verifyDomainUnchanged(tabId, url, actionName);
-}
-
-export function calculateTargetDimensions(
-  width: number,
-  height: number,
-  params: { pxPerToken: number; maxTargetPx: number; maxTargetTokens: number }
-): [number, number] {
-  return calculateOptimalDimensions(width, height, params);
 }
 
 export function generateUniqueId(): string {
@@ -31,16 +23,29 @@ export function generateUniqueId(): string {
 export function screenshotToViewportCoords(
   screenshotX: number,
   screenshotY: number,
-  context: {
-    viewportWidth: number;
-    viewportHeight: number;
-    screenshotWidth: number;
-    screenshotHeight: number;
-  }
+  context: ScreenshotContext
 ): [number, number] {
   const scaleX = context.viewportWidth / context.screenshotWidth;
   const scaleY = context.viewportHeight / context.screenshotHeight;
   return [Math.round(screenshotX * scaleX), Math.round(screenshotY * scaleY)];
+}
+
+/**
+ * Map a screenshot-space (x, y) to CSS viewport pixels when the caller is
+ * working in screenshot coordinates. Returns the input unchanged when there is
+ * no screenshot context or the caller already specified viewport coordinates
+ * (coordinate_space === 'viewport'). Centralizes the conditional that every
+ * click/hover/scroll/drag/zoom action otherwise duplicates verbatim.
+ */
+export function mapCoordinateToViewport(
+  x: number,
+  y: number,
+  context: ScreenshotContext | null | undefined,
+  coordinateSpace?: 'screenshot' | 'viewport'
+): [number, number] {
+  return context && coordinateSpace !== 'viewport'
+    ? screenshotToViewportCoords(x, y, context)
+    : [x, y];
 }
 
 export function extractDomain(url?: string): string {

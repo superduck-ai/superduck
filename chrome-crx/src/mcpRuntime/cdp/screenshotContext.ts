@@ -4,7 +4,7 @@ interface ScreenshotDimensionConfig {
   maxTargetTokens: number;
 }
 
-interface ScreenshotContext {
+export interface ScreenshotContext {
   viewportWidth: number;
   viewportHeight: number;
   screenshotWidth: number;

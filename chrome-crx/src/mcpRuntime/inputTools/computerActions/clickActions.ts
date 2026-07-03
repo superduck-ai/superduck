@@ -2,7 +2,7 @@ import { waitForTabLoading, tabGroupManager } from '../../tabState';
 import {
   cdpDebugger,
   checkDomainSecurity,
-  screenshotToViewportCoords,
+  mapCoordinateToViewport,
   screenshotContextManager
 } from '../../cdp';
 import { getRefBackendNodeId, getRefRole, getRefMetaByTab } from '../../screenshot/refBridge';
@@ -16,6 +16,21 @@ import {
   jsClickFallback,
   tryTakePostScrollScreenshot
 } from './helpers';
+
+const FOCUSABLE_INPUT_ROLES = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
+
+export async function focusFocusableByRef(tabId: number, ref: string | undefined): Promise<void> {
+  if (!ref) return;
+  const role = getRefRole(tabId, ref);
+  if (!role || !FOCUSABLE_INPUT_ROLES.has(role)) return;
+  const backendNodeId = getRefBackendNodeId(tabId, ref);
+  if (backendNodeId === null) return;
+  try {
+    await cdpDebugger.sendCommand(tabId, 'DOM.focus', { backendNodeId });
+  } catch {
+    // best-effort only: refs can go stale across navigations/frames.
+  }
+}
 
 export async function executeClick(
   tabId: number,
@@ -100,8 +115,8 @@ export async function executeClick(
     );
     [x, y] = params.coordinate;
     const context = screenshotContextManager.getContext(tabId);
-    if (context) {
-      const [mappedX, mappedY] = screenshotToViewportCoords(x, y, context);
+    const [mappedX, mappedY] = mapCoordinateToViewport(x, y, context, params.coordinate_space);
+    if (mappedX !== x || mappedY !== y) {
       console.info(`[Click] viewport=(${mappedX}, ${mappedY})`);
       x = mappedX;
       y = mappedY;
@@ -179,6 +194,8 @@ export async function executeClick(
 
     await cdpDebugger.click(tabId, x, y, button, clickCount, modifiers, options);
 
+    await focusFocusableByRef(tabId, params.ref);
+
     if (isCheckableRole && clickCount === 1 && checkedBefore !== null) {
       try {
         const checkedAfter = await getElementCheckedState(tabId, params.ref!);
@@ -239,11 +256,7 @@ export async function executeHover(
       throw new Error('Either ref or coordinate parameter is required for hover action');
     [x, y] = params.coordinate;
     const context = screenshotContextManager.getContext(tabId);
-    if (context) {
-      const [mappedX, mappedY] = screenshotToViewportCoords(x, y, context);
-      x = mappedX;
-      y = mappedY;
-    }
+    [x, y] = mapCoordinateToViewport(x, y, context, params.coordinate_space);
   }
 
   try {
