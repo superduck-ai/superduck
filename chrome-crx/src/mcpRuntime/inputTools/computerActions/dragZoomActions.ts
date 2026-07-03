@@ -1,6 +1,6 @@
 import { screenshotContextManager } from '../../cdp';
 import { tabGroupManager } from '../../tabState';
-import { cdpDebugger, checkDomainSecurity, screenshotToViewportCoords } from '../../cdp';
+import { cdpDebugger, checkDomainSecurity, mapCoordinateToViewport } from '../../cdp';
 import type { CdpCaptureScreenshotResult } from '../../cdp';
 import type { ToolResult } from '../../pageTools';
 import { type ComputerToolParams, type ClickOptions } from '../types';
@@ -23,21 +23,19 @@ export async function executeDrag(
   let [endX, endY] = params.coordinate;
 
   const context = screenshotContextManager.getContext(tabId);
-  if (context) {
-    const [mappedStartX, mappedStartY] = screenshotToViewportCoords(startX, startY, context);
-    const [mappedEndX, mappedEndY] = screenshotToViewportCoords(endX, endY, context);
-    startX = mappedStartX;
-    startY = mappedStartY;
-    endX = mappedEndX;
-    endY = mappedEndY;
-  }
+  [startX, startY] = mapCoordinateToViewport(startX, startY, context, params.coordinate_space);
+  [endX, endY] = mapCoordinateToViewport(endX, endY, context, params.coordinate_space);
 
   try {
     const securityCheck = await checkDomainSecurity(tabId, currentUrl, 'drag action');
     if (securityCheck) return securityCheck;
 
+    const manageIndicator = !options?.skipIndicator;
     await animateCursorOnTab(tabId, startX, startY, 'drag_start', options?.skipIndicator);
-    await tabGroupManager.hideIndicatorForToolUse(tabId);
+    if (manageIndicator) {
+      await tabGroupManager.hideIndicatorForToolUse(tabId);
+      await cdpDebugger.hidePointerBlockingOverlaysForToolUse(tabId);
+    }
     try {
       await cdpDebugger.dispatchMouseEvent(tabId, {
         type: 'mouseMoved',
@@ -74,7 +72,10 @@ export async function executeDrag(
         modifiers: 0
       });
     } finally {
-      await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
+      if (manageIndicator) {
+        await cdpDebugger.restorePointerBlockingOverlaysAfterToolUse(tabId);
+        await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
+      }
     }
 
     return { output: `Dragged from (${startX}, ${startY}) to (${endX}, ${endY})` };
@@ -99,14 +100,8 @@ export async function executeZoom(tabId: number, params: ComputerToolParams): Pr
 
   try {
     const context = screenshotContextManager.getContext(tabId);
-    if (context) {
-      const [mappedX0, mappedY0] = screenshotToViewportCoords(x0, y0, context);
-      const [mappedX1, mappedY1] = screenshotToViewportCoords(x1, y1, context);
-      x0 = mappedX0;
-      y0 = mappedY0;
-      x1 = mappedX1;
-      y1 = mappedY1;
-    }
+    [x0, y0] = mapCoordinateToViewport(x0, y0, context, params.coordinate_space);
+    [x1, y1] = mapCoordinateToViewport(x1, y1, context, params.coordinate_space);
 
     const viewportResult = await chrome.scripting.executeScript({
       target: { tabId },

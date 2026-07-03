@@ -16,6 +16,7 @@ export interface ComputerToolParams {
   modifiers?: string;
   tabId?: number;
   annotate?: boolean;
+  coordinate_space?: 'screenshot' | 'viewport';
 }
 
 export type { ClickOptions };

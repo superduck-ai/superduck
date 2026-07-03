@@ -1,4 +1,5 @@
 import { tabGroupManager } from '../tabState';
+import { BLOCKING_OVERLAY_ID } from '../../agentIndicator/constants';
 import { KEY_DEFINITIONS, MAC_KEYBOARD_COMMANDS } from './keyboard';
 import type {
   ClickOptions,
@@ -38,8 +39,84 @@ export function requiresShift(char: string): boolean {
   return '~!@#$%^&*()_+{}|:"<>?'.includes(char) || (char >= 'A' && char <= 'Z');
 }
 
+const BLOCKING_OVERLAY_DATASET_KEYS = {
+  hiddenCount: 'superduckToolHiddenCount',
+  previousDisplay: 'superduckPreviousDisplay',
+  previousVisibility: 'superduckPreviousVisibility',
+  previousPointerEvents: 'superduckPreviousPointerEvents'
+} as const;
+
 export function createCdpInput(deps: CdpInputDeps) {
   const { sendCommand, isMac } = deps;
+
+  async function hidePointerBlockingOverlaysForToolUse(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: (overlayId: string, datasetKeys: typeof BLOCKING_OVERLAY_DATASET_KEYS) => {
+          const overlay = document.getElementById(overlayId);
+          if (!(overlay instanceof HTMLElement)) return;
+
+          const hiddenCount =
+            Number.parseInt(overlay.dataset[datasetKeys.hiddenCount] ?? '0', 10) || 0;
+          if (hiddenCount === 0) {
+            overlay.dataset[datasetKeys.previousDisplay] = overlay.style.display;
+            overlay.dataset[datasetKeys.previousVisibility] = overlay.style.visibility;
+            overlay.dataset[datasetKeys.previousPointerEvents] = overlay.style.pointerEvents;
+          }
+          overlay.dataset[datasetKeys.hiddenCount] = String(hiddenCount + 1);
+
+          overlay.style.display = 'none';
+          overlay.style.visibility = 'hidden';
+          overlay.style.pointerEvents = 'none';
+        },
+        args: [BLOCKING_OVERLAY_ID, BLOCKING_OVERLAY_DATASET_KEYS]
+      });
+    } catch (error) {
+      console.warn(
+        '[CDP Input] hidePointerBlockingOverlaysForToolUse failed for tab',
+        tabId,
+        error
+      );
+    }
+  }
+
+  async function restorePointerBlockingOverlaysAfterToolUse(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: (overlayId: string, datasetKeys: typeof BLOCKING_OVERLAY_DATASET_KEYS) => {
+          const overlay = document.getElementById(overlayId);
+          if (!(overlay instanceof HTMLElement)) return;
+          const hiddenCount =
+            Number.parseInt(overlay.dataset[datasetKeys.hiddenCount] ?? '0', 10) || 0;
+          if (hiddenCount <= 0) return;
+
+          const nextHiddenCount = hiddenCount - 1;
+          if (nextHiddenCount > 0) {
+            overlay.dataset[datasetKeys.hiddenCount] = String(nextHiddenCount);
+            return;
+          }
+
+          overlay.style.display = overlay.dataset[datasetKeys.previousDisplay] ?? '';
+          overlay.style.visibility = overlay.dataset[datasetKeys.previousVisibility] ?? '';
+          overlay.style.pointerEvents = overlay.dataset[datasetKeys.previousPointerEvents] ?? '';
+
+          delete overlay.dataset[datasetKeys.hiddenCount];
+          delete overlay.dataset[datasetKeys.previousDisplay];
+          delete overlay.dataset[datasetKeys.previousVisibility];
+          delete overlay.dataset[datasetKeys.previousPointerEvents];
+        },
+        args: [BLOCKING_OVERLAY_ID, BLOCKING_OVERLAY_DATASET_KEYS]
+      });
+    } catch (error) {
+      console.warn(
+        '[CDP Input] restorePointerBlockingOverlaysAfterToolUse failed for tab',
+        tabId,
+        error
+      );
+    }
+  }
 
   async function dispatchMouseEvent(tabId: number, eventParams: MouseEventParams): Promise<void> {
     const params: DispatchMouseEventParams = {
@@ -97,6 +174,7 @@ export function createCdpInput(deps: CdpInputDeps) {
   ): Promise<void> {
     if (!options?.skipIndicator) {
       await tabGroupManager.hideIndicatorForToolUse(tabId);
+      await hidePointerBlockingOverlaysForToolUse(tabId);
     }
     try {
       let buttonsBitmask = 0;
@@ -152,6 +230,7 @@ export function createCdpInput(deps: CdpInputDeps) {
       }
     } finally {
       if (!options?.skipIndicator) {
+        await restorePointerBlockingOverlaysAfterToolUse(tabId);
         await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
       }
     }
@@ -284,6 +363,8 @@ export function createCdpInput(deps: CdpInputDeps) {
   return {
     dispatchMouseEvent,
     dispatchKeyEvent,
+    hidePointerBlockingOverlaysForToolUse,
+    restorePointerBlockingOverlaysAfterToolUse,
     insertText,
     click,
     type,

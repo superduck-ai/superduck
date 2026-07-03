@@ -14,6 +14,11 @@ vi.mock('../tabState', () => ({
 
 import { createCdpInput, getKeyCode, requiresShift } from './input';
 
+type ExecuteScriptInvocation = {
+  func: (...args: unknown[]) => void;
+  args?: unknown[];
+};
+
 function makeInput(isMac = false) {
   const sendCommand = vi.fn().mockResolvedValue(undefined);
   const input = createCdpInput({ sendCommand, isMac });
@@ -70,6 +75,179 @@ describe('createCdpInput', () => {
   beforeEach(() => {
     tabGroupMocks.hideIndicatorForToolUse.mockClear();
     tabGroupMocks.restoreIndicatorAfterToolUse.mockClear();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('chrome', {
+      scripting: { executeScript: vi.fn().mockResolvedValue([]) }
+    });
+  });
+
+  describe('pointer blocking overlay fallback', () => {
+    it('hides and restores the injected blocking overlay styles', async () => {
+      class MockHTMLElement {
+        dataset: Record<string, string> = {};
+        style = {
+          display: 'block',
+          visibility: 'visible',
+          pointerEvents: 'auto'
+        };
+      }
+
+      const overlay = new MockHTMLElement();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
+        return [];
+      });
+
+      vi.stubGlobal('HTMLElement', MockHTMLElement);
+      vi.stubGlobal('document', {
+        getElementById: vi.fn(() => overlay)
+      });
+      vi.stubGlobal('chrome', {
+        scripting: { executeScript }
+      });
+
+      const { input } = makeInput();
+
+      await input.hidePointerBlockingOverlaysForToolUse(42);
+      expect(overlay.dataset).toMatchObject({
+        superduckToolHiddenCount: '1',
+        superduckPreviousDisplay: 'block',
+        superduckPreviousVisibility: 'visible',
+        superduckPreviousPointerEvents: 'auto'
+      });
+      expect(overlay.style).toMatchObject({
+        display: 'none',
+        visibility: 'hidden',
+        pointerEvents: 'none'
+      });
+
+      await input.restorePointerBlockingOverlaysAfterToolUse(42);
+      expect(overlay.style).toMatchObject({
+        display: 'block',
+        visibility: 'visible',
+        pointerEvents: 'auto'
+      });
+      expect(overlay.dataset.superduckToolHiddenCount).toBeUndefined();
+      expect(executeScript).toHaveBeenCalledTimes(2);
+    });
+
+    it('increments the hide count without overwriting saved overlay styles', async () => {
+      class MockHTMLElement {
+        dataset: Record<string, string> = {
+          superduckToolHiddenCount: '1',
+          superduckPreviousDisplay: 'grid',
+          superduckPreviousVisibility: 'collapse',
+          superduckPreviousPointerEvents: 'painted'
+        };
+        style = {
+          display: 'none',
+          visibility: 'hidden',
+          pointerEvents: 'none'
+        };
+      }
+
+      const overlay = new MockHTMLElement();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
+        return [];
+      });
+
+      vi.stubGlobal('HTMLElement', MockHTMLElement);
+      vi.stubGlobal('document', {
+        getElementById: vi.fn(() => overlay)
+      });
+      vi.stubGlobal('chrome', {
+        scripting: { executeScript }
+      });
+
+      const { input } = makeInput();
+      await input.hidePointerBlockingOverlaysForToolUse(42);
+
+      expect(overlay.dataset.superduckToolHiddenCount).toBe('2');
+      expect(overlay.dataset.superduckPreviousDisplay).toBe('grid');
+      expect(overlay.dataset.superduckPreviousVisibility).toBe('collapse');
+      expect(overlay.dataset.superduckPreviousPointerEvents).toBe('painted');
+    });
+
+    it('keeps the overlay hidden until all nested hides are restored', async () => {
+      class MockHTMLElement {
+        dataset: Record<string, string> = {};
+        style = {
+          display: 'block',
+          visibility: 'visible',
+          pointerEvents: 'auto'
+        };
+      }
+
+      const overlay = new MockHTMLElement();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
+        return [];
+      });
+
+      vi.stubGlobal('HTMLElement', MockHTMLElement);
+      vi.stubGlobal('document', {
+        getElementById: vi.fn(() => overlay)
+      });
+      vi.stubGlobal('chrome', {
+        scripting: { executeScript }
+      });
+
+      const { input } = makeInput();
+      await input.hidePointerBlockingOverlaysForToolUse(42);
+      await input.hidePointerBlockingOverlaysForToolUse(42);
+      await input.restorePointerBlockingOverlaysAfterToolUse(42);
+
+      expect(overlay.dataset.superduckToolHiddenCount).toBe('1');
+      expect(overlay.style).toMatchObject({
+        display: 'none',
+        visibility: 'hidden',
+        pointerEvents: 'none'
+      });
+
+      await input.restorePointerBlockingOverlaysAfterToolUse(42);
+
+      expect(overlay.dataset.superduckToolHiddenCount).toBeUndefined();
+      expect(overlay.style).toMatchObject({
+        display: 'block',
+        visibility: 'visible',
+        pointerEvents: 'auto'
+      });
+    });
+
+    it('leaves overlay styles unchanged when there is no tool-hidden marker to restore', async () => {
+      class MockHTMLElement {
+        dataset: Record<string, string> = {};
+        style = {
+          display: 'block',
+          visibility: 'visible',
+          pointerEvents: 'auto'
+        };
+      }
+
+      const overlay = new MockHTMLElement();
+      const executeScript = vi.fn(async ({ func, args }: ExecuteScriptInvocation) => {
+        func(...(args ?? []));
+        return [];
+      });
+
+      vi.stubGlobal('HTMLElement', MockHTMLElement);
+      vi.stubGlobal('document', {
+        getElementById: vi.fn(() => overlay)
+      });
+      vi.stubGlobal('chrome', {
+        scripting: { executeScript }
+      });
+
+      const { input } = makeInput();
+      await input.restorePointerBlockingOverlaysAfterToolUse(42);
+
+      expect(overlay.style).toMatchObject({
+        display: 'block',
+        visibility: 'visible',
+        pointerEvents: 'auto'
+      });
+    });
   });
 
   describe('dispatchMouseEvent', () => {
@@ -172,6 +350,24 @@ describe('createCdpInput', () => {
       expect((pressed![2] as { buttons: number }).buttons).toBe(4);
     });
 
+    it('maps right button clicks to the right-button bitmask', async () => {
+      const { input, sendCommand } = makeInput();
+      await input.click(1, 0, 0, 'right', 1, 0, { skipIndicator: true });
+      const pressed = sendCommand.mock.calls.find(
+        (c) => (c[2] as { type: string }).type === 'mousePressed'
+      );
+      expect((pressed![2] as { buttons: number }).buttons).toBe(2);
+    });
+
+    it('uses no pressed buttons for non-standard button names', async () => {
+      const { input, sendCommand } = makeInput();
+      await input.click(1, 0, 0, 'none', 1, 0, { skipIndicator: true });
+      const pressed = sendCommand.mock.calls.find(
+        (c) => (c[2] as { type: string }).type === 'mousePressed'
+      );
+      expect((pressed![2] as { buttons: number }).buttons).toBe(0);
+    });
+
     it('hides and restores indicator when not skipping', async () => {
       vi.useFakeTimers();
       try {
@@ -179,6 +375,26 @@ describe('createCdpInput', () => {
         const p = input.click(2, 1, 1, 'left', 1, 0);
         await vi.runAllTimersAsync();
         await p;
+        expect(tabGroupMocks.hideIndicatorForToolUse).toHaveBeenCalledWith(2);
+        expect(tabGroupMocks.restoreIndicatorAfterToolUse).toHaveBeenCalledWith(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('waits between non-skipped double-click events', async () => {
+      vi.useFakeTimers();
+      try {
+        const { input, sendCommand } = makeInput();
+        const p = input.click(2, 1, 1, 'left', 2, 0);
+        await vi.runAllTimersAsync();
+        await p;
+
+        expect(sendCommand).toHaveBeenCalledTimes(5);
+        const pressedEvents = sendCommand.mock.calls.filter(
+          (c) => (c[2] as { type: string }).type === 'mousePressed'
+        );
+        expect(pressedEvents).toHaveLength(2);
         expect(tabGroupMocks.hideIndicatorForToolUse).toHaveBeenCalledWith(2);
         expect(tabGroupMocks.restoreIndicatorAfterToolUse).toHaveBeenCalledWith(2);
       } finally {
@@ -210,6 +426,12 @@ describe('createCdpInput', () => {
       await input.type(1, '!');
       expect((sendCommand.mock.calls[0][2] as { modifiers: number }).modifiers).toBe(8);
     });
+
+    it('inserts text for characters without a key code', async () => {
+      const { input, sendCommand } = makeInput();
+      await input.type(1, 'é');
+      expect(sendCommand).toHaveBeenCalledWith(1, 'Input.insertText', { text: 'é' });
+    });
   });
 
   describe('pressKeyChord', () => {
@@ -227,6 +449,26 @@ describe('createCdpInput', () => {
       await input.pressKeyChord(1, 'cmd+c');
       const downParams = sendCommand.mock.calls[0][2] as { commands: string[] };
       expect(downParams.commands).toContain('copy');
+    });
+
+    it('adds mac command arrays when the chord maps to multiple editor commands', async () => {
+      const { input, sendCommand } = makeInput(true);
+      await input.pressKeyChord(1, 'ctrl+o');
+      const downParams = sendCommand.mock.calls[0][2] as { commands: string[] };
+      expect(downParams.commands).toEqual(['insertNewlineIgnoringFieldEditor', 'moveBackward']);
+    });
+
+    it('keeps mac command list empty when a chord has no editor command mapping', async () => {
+      const { input, sendCommand } = makeInput(true);
+      await input.pressKeyChord(1, 'cmd+b');
+      const downParams = sendCommand.mock.calls[0][2] as { commands: string[] };
+      expect(downParams.commands).toEqual([]);
+    });
+
+    it('does nothing when a chord only contains modifier keys', async () => {
+      const { input, sendCommand } = makeInput();
+      await input.pressKeyChord(1, 'ctrl+shift');
+      expect(sendCommand).not.toHaveBeenCalled();
     });
 
     it('throws for unknown main key', async () => {
