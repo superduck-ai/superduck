@@ -50,9 +50,9 @@ export async function buildSessionContextFromLeases(
   });
 
   const firstLease = leaseByTabId.get(tabs[0].id);
+  const tabGroupNone = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
   const tabGroupId =
-    firstLease?.groupId ??
-    (tabs[0].groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? tabs[0].groupId : undefined);
+    firstLease?.groupId ?? (tabs[0].groupId !== tabGroupNone ? tabs[0].groupId : undefined);
   if (typeof tabGroupId !== 'number') return undefined;
 
   return {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabLease } from './tabLeases';
 
 const chromeMock = vi.hoisted(() => ({
@@ -71,6 +71,10 @@ function makeTab(
 }
 
 describe('buildSessionContextFromLeases', () => {
+  beforeEach(() => {
+    chromeMock.tabs.get.mockReset();
+  });
+
   it('starts tab lookups in parallel before awaiting individual results', async () => {
     const first = deferredTab(makeTab({ id: 10, groupId: 100, index: 0, windowId: 1 }));
     const second = deferredTab(makeTab({ id: 11, groupId: 100, index: 1, windowId: 1 }));
@@ -109,5 +113,33 @@ describe('buildSessionContextFromLeases', () => {
       tabCount: 2,
       tabGroupId: 100
     });
+  });
+
+  it('falls back when chrome.tabGroups is unavailable', async () => {
+    const tabGroups = chromeMock.tabGroups;
+    // @ts-expect-error test-only: simulate environments without tabGroups API
+    chromeMock.tabGroups = undefined;
+    try {
+      chromeMock.tabs.get.mockImplementation(async (tabId: number) =>
+        makeTab({ id: tabId, groupId: 100, index: 0, windowId: 1 })
+      );
+      const leases: TabLease[] = [
+        {
+          tabId: 10,
+          sessionId: 'session-a',
+          origin: 'agent',
+          claimedAt: 1,
+          state: 'active',
+          groupId: 100
+        }
+      ];
+
+      await expect(buildSessionContextFromLeases(leases)).resolves.toMatchObject({
+        currentTabId: 10,
+        tabGroupId: 100
+      });
+    } finally {
+      chromeMock.tabGroups = tabGroups;
+    }
   });
 });

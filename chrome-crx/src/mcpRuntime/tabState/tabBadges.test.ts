@@ -193,6 +193,15 @@ describe('tabBadgeManager', () => {
     expect(refreshedTabIds.sort((a, b) => a - b)).toEqual([10, 20]);
   });
 
+  it('hydrates stored deliverables before persisting new ones', async () => {
+    chromeMock.sessionStore.set('tabDeliverableBadges', { tabIds: [5] });
+    chromeMock.tabs.query.mockResolvedValue([{ id: 5 }]);
+
+    await tabBadgeManager.markDeliverable([10]);
+
+    expect(chromeMock.sessionStore.get('tabDeliverableBadges')).toEqual({ tabIds: [5, 10] });
+  });
+
   it('moves deliverable badge state to the new tab id when Chrome replaces a tab', async () => {
     await tabBadgeManager.initialize();
     await tabBadgeManager.markDeliverable([10]);

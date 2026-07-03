@@ -138,7 +138,7 @@ class TabLeaseManager {
     this.mutationQueue = new Promise<void>((resolve) => {
       release = resolve;
     });
-    await previous;
+    await previous.catch(() => {});
     try {
       await this.initialize();
       return await action();
@@ -154,7 +154,7 @@ class TabLeaseManager {
       release = resolve;
     });
     this.mutationQueue = previous.then(() => readFinished);
-    await previous;
+    await previous.catch(() => {});
     try {
       await this.initialize();
       return await action();

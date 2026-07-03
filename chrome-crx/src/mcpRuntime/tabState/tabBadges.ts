@@ -113,6 +113,7 @@ class TabBadgeManager {
    */
   async markDeliverable(tabIds: number[]): Promise<void> {
     if (tabIds.length === 0) return;
+    await this.initialize();
     const validTabIds = tabIds.filter(
       (tabId) => typeof tabId === 'number' && Number.isInteger(tabId)
     );
