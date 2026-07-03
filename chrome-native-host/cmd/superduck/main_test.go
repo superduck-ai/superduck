@@ -400,6 +400,29 @@ func TestReadOrCreateSessionIDFileConcurrentCreateReturnsOneID(t *testing.T) {
 	}
 }
 
+func TestReadSessionIDFileCreatedByPeerRecoversStaleEmptyFile(t *testing.T) {
+	tmp := t.TempDir()
+	sessionPath := filepath.Join(tmp, "session-id")
+	if err := os.WriteFile(sessionPath, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", sessionPath, err)
+	}
+
+	id, err := readSessionIDFileCreatedByPeer(sessionPath)
+	if err != nil {
+		t.Fatalf("readSessionIDFileCreatedByPeer() error = %v", err)
+	}
+	if !strings.HasPrefix(id, "cli:file:") {
+		t.Fatalf("recovered id = %q, want cli:file prefix", id)
+	}
+	data, err := os.ReadFile(sessionPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", sessionPath, err)
+	}
+	if got := strings.TrimSpace(string(data)); got != id {
+		t.Fatalf("session file = %q, want %q", got, id)
+	}
+}
+
 func TestReadOrCreateSessionIDFilePermissions(t *testing.T) {
 	tmp := t.TempDir()
 	sessionPath := filepath.Join(tmp, "nested", "session-id")
@@ -419,6 +442,12 @@ func TestReadOrCreateSessionIDFilePermissions(t *testing.T) {
 	}
 	if got, want := fileInfo.Mode().Perm(), os.FileMode(0o600); got != want {
 		t.Fatalf("session file permissions = %o, want %o", got, want)
+	}
+}
+
+func TestDefaultCLISessionIDRejectsEmptyHome(t *testing.T) {
+	if _, err := defaultCLISessionIDInHome(""); err == nil {
+		t.Fatal("defaultCLISessionIDInHome(\"\") error = nil, want error")
 	}
 }
 

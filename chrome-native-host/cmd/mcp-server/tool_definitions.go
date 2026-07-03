@@ -334,7 +334,7 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "tabs_context_mcp",
-		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.",
+		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it fails if this session already has a group unless force is true.",
 		inputSchema: objectSchema(map[string]any{
 			"createIfEmpty": booleanSchema("Creates a new MCP tab group if none exists. If one already exists, this has no effect."),
 			"name":          stringSchema("Title for the MCP tab group when createIfEmpty creates one. The duck marker is auto-prepended. Ignored if a group already exists or createIfEmpty is not set."),

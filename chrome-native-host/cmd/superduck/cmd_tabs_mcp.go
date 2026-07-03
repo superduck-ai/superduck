@@ -32,8 +32,10 @@ func cmdTabGroup(argv []string) error {
 		fmt.Println(`usage: superduck tab_group <subcommand> [flags]
 
 Subcommands:
-  list [--create-if-empty]  Show the MCP tab group's tabs.
+  list [--create-if-empty] [--name <text>]
+                            Show the MCP tab group's tabs.
                             With --create-if-empty, create one when missing.
+                            --name <text> titles the new group when creating.
   new [--force]             Create a fresh MCP tab group with one tab; refuses
                             to replace an existing session group unless --force is set.
                             --force discards that session's active/handoff tabs.

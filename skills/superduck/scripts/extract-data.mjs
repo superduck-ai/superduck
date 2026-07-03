@@ -18,6 +18,23 @@ async function runSuperduck(args) {
   return stdout;
 }
 
+function truncateForError(value) {
+  const normalized = String(value).replace(/\s+/g, ' ').trim();
+  return normalized.length > 500
+    ? `${normalized.slice(0, 500)}...`
+    : normalized;
+}
+
+function parseJSONWithRaw(value, label) {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(
+      `${label} returned invalid JSON: ${error.message}. Raw output: ${truncateForError(value)}`
+    );
+  }
+}
+
 function stripTabContext(stdout) {
   return stdout.split(/\n\s*\nTab Context:/)[0].trim();
 }
@@ -25,12 +42,18 @@ function stripTabContext(stdout) {
 async function extractData(url, selector, outputFile = null) {
   try {
     // Reuse the current session tab group, creating it only if needed.
-    const tabPayload = JSON.parse(
-      await runSuperduck(['--json', 'tab_group', 'list', '--create-if-empty'])
-    );
+    const tabOutput = await runSuperduck([
+      '--json',
+      'tab_group',
+      'list',
+      '--create-if-empty'
+    ]);
+    const tabPayload = parseJSONWithRaw(tabOutput, 'tab_group list');
     const tabId = tabPayload?.tabContext?.currentTabId;
     if (!tabId) {
-      throw new Error('Failed to resolve session tab');
+      throw new Error(
+        `Failed to resolve session tab. Raw payload: ${truncateForError(JSON.stringify(tabPayload))}`
+      );
     }
 
     // Navigate to URL
@@ -47,7 +70,8 @@ async function extractData(url, selector, outputFile = null) {
 
     const dataOutput = await runSuperduck(['--tab', tabId, 'exec', jsCode]);
 
-    const data = JSON.parse(stripTabContext(dataOutput));
+    const strippedDataOutput = stripTabContext(dataOutput);
+    const data = parseJSONWithRaw(strippedDataOutput, 'exec');
 
     if (outputFile) {
       writeFileSync(outputFile, JSON.stringify(data, null, 2));
@@ -66,11 +90,15 @@ async function extractData(url, selector, outputFile = null) {
 // CLI interface
 const args = process.argv.slice(2);
 if (args.length < 1 || args.includes('--help')) {
-  console.log('Usage: node extract-data.mjs <url> [selector] [--output file.json]');
+  console.log(
+    'Usage: node extract-data.mjs <url> [selector] [--output file.json]'
+  );
   console.log('');
   console.log('Examples:');
   console.log('  node extract-data.mjs https://example.com');
-  console.log('  node extract-data.mjs https://news.ycombinator.com ".titleline > a"');
+  console.log(
+    '  node extract-data.mjs https://news.ycombinator.com ".titleline > a"'
+  );
   console.log('  node extract-data.mjs https://example.com --output data.json');
   process.exit(0);
 }

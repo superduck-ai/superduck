@@ -3,7 +3,7 @@
 # Form Automation Template
 # Fill out a multi-field form automatically
 
-set -e
+set -euo pipefail
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <form_url> [field1=value1] [field2=value2] ..."
@@ -18,7 +18,7 @@ shift
 
 # Reuse the current session tab group, creating it only if needed.
 echo "Resolving session tab..."
-TAB_ID=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+TAB_ID=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId // ""')
 
 if [ -z "$TAB_ID" ]; then
   echo "Error: Failed to resolve tab"

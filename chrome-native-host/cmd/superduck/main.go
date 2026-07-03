@@ -518,6 +518,13 @@ func defaultCLISessionID() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return defaultCLISessionIDInHome(home)
+}
+
+func defaultCLISessionIDInHome(home string) (string, error) {
+	if home == "" {
+		return "", fmt.Errorf("cannot determine home directory for session id file")
+	}
 	return readOrCreateSessionIDFile(filepath.Join(home, ".superduck", "cli-session-id"))
 }
 
@@ -577,7 +584,14 @@ func readSessionIDFileCreatedByPeer(path string) (string, error) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	return "", fmt.Errorf("session file %q exists but is empty", path)
+	id, err := newRandomCLISessionID()
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func newRandomCLISessionID() (string, error) {

@@ -3,7 +3,7 @@
 # Screenshot Comparison Template
 # Take screenshots of multiple URLs for comparison
 
-set -e
+set -euo pipefail
 
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <output_dir> <url1> [url2] [url3] ..."
@@ -20,7 +20,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # Reuse one tab in the current session group, creating the group only if needed.
 echo "Resolving session tab..."
-TAB_ID=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+TAB_ID=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId // ""')
 
 if [ -z "$TAB_ID" ]; then
   echo "Error: Failed to resolve tab"
