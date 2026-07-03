@@ -4,11 +4,9 @@ import type { ConsoleMessage, SendCommand } from './types';
 export function addConsoleMessage(tabId: number, domain: string, message: ConsoleMessage): void {
   let tabData = getConsoleMessagesByTab().get(tabId);
 
-  if (!tabData) {
+  if (!tabData || tabData.domain !== domain) {
     tabData = { domain, messages: [] };
     getConsoleMessagesByTab().set(tabId, tabData);
-  } else {
-    tabData.domain = domain;
   }
 
   if (tabData.messages.length > 0) {
