@@ -8,6 +8,7 @@ import {
 } from './types';
 import { getMemberOrigin } from './tabNavigationIsolation';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
+import { BrowserSessionConflictError, tabLeaseManager, type TabLeaseOrigin } from './tabLeases';
 
 export async function createGroup(
   mgr: TabGroupManager,
@@ -115,11 +116,26 @@ export async function addTabToGroup(
   const meta = mgr.groupMetadata.get(mainTabId);
   if (meta) {
     try {
-      await chrome.tabs.group({
-        tabIds: [tabId],
-        groupId: meta.chromeGroupId
-      });
       const existingState = meta.memberStates.get(tabId);
+      let claimedForSession = false;
+      if (options.sessionId) {
+        const claimedOrigin = (options.origin ?? getMemberOrigin(existingState)) as TabLeaseOrigin;
+        await tabLeaseManager.claimTab(options.sessionId, tabId, claimedOrigin, {
+          groupId: meta.chromeGroupId
+        });
+        claimedForSession = true;
+      }
+      try {
+        await chrome.tabs.group({
+          tabIds: [tabId],
+          groupId: meta.chromeGroupId
+        });
+      } catch (err) {
+        if (claimedForSession) {
+          await tabLeaseManager.releaseTabs(options.sessionId!, [tabId]).catch(() => {});
+        }
+        throw err;
+      }
       meta.memberStates.set(tabId, {
         ...(existingState ?? {}),
         indicatorState: existingState?.indicatorState ?? (tabId === mainTabId ? 'none' : 'static'),
@@ -142,6 +158,7 @@ export async function addTabToGroup(
           // ignore
         }
     } catch (err) {
+      if (err instanceof BrowserSessionConflictError) throw err;
       // ignore
     }
     await mgr.saveToStorage();

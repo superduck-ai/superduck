@@ -17,6 +17,7 @@ const chromeMock = vi.hoisted(() => ({
       index: 0
     })),
     query: vi.fn(async () => []),
+    sendMessage: vi.fn(async (_tabId: number, _message?: unknown) => ({ success: true })),
     onRemoved: { addListener: vi.fn() }
   },
   tabGroups: {
@@ -59,6 +60,7 @@ describe('tabGroupManager.handleTabGroupChange — ungroup regression', () => {
     manager.mcpTabGroupId = null;
     chromeMock.tabs.group.mockClear();
     chromeMock.tabs.ungroup.mockClear();
+    chromeMock.tabs.sendMessage.mockClear();
     chromeMock.tabs.query.mockReset();
     chromeMock.tabs.query.mockResolvedValue([]);
     chromeMock.tabGroups.update.mockClear();

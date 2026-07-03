@@ -13,6 +13,7 @@ import { compressBase64Image } from '../../utils/imageCompressor';
 import { extractAppName } from '../core/urlUtils';
 import { trackEvent } from '../analytics';
 import { allTools, mcpToolNames } from '../core/tools';
+import type { BrowserSessionScope } from '../sessionScope';
 
 export const MCP_NATIVE_SESSION_ID = `mcp_native_${Date.now()}`;
 import { recordToolAction } from './toolRecording';
@@ -25,7 +26,8 @@ import type {
   ToolUseRequest,
   PermissionPromptHandler,
   PermissionPromptRequest,
-  ErrorResponse
+  ErrorResponse,
+  ExecuteToolResponse
 } from '../core/types';
 import type { ToolResult, ToolTabSummary } from '../pageToolsSupport/types';
 
@@ -34,6 +36,7 @@ export interface ToolExecutorContext {
   tabGroupId?: number;
   model: string;
   sessionId: string;
+  browserSessionScope?: BrowserSessionScope;
   messagesClient?: MessagesClient;
   permissionManager: PermissionManagerClass;
   onPermissionRequired?: PermissionPromptHandler;
@@ -76,6 +79,7 @@ export class ToolExecutor {
           tabGroupId: this.context.tabGroupId,
           model: this.context.model,
           sessionId: this.context.sessionId,
+          browserSessionScope: this.context.browserSessionScope,
           messagesClient: this.context.messagesClient,
           permissionManager: permissionManagerOverride ?? this.context.permissionManager,
           createApiMessage: this.createApiMessage(),
@@ -200,8 +204,8 @@ export class ToolExecutor {
   async processToolResults(
     toolUses: ToolUseRequest[],
     options?: ToolExecutorProcessOptions
-  ): Promise<ApiToolResultBlock[]> {
-    const results: ApiToolResultBlock[] = [];
+  ): Promise<ExecuteToolResponse[]> {
+    const results: ExecuteToolResponse[] = [];
 
     const formatContent = async (result: ToolResult): Promise<ApiToolResultBlock['content']> => {
       if (result.error) return result.error;
@@ -244,12 +248,13 @@ export class ToolExecutor {
     const formatToolResult = async (
       toolUseId: string,
       result: ToolResult
-    ): Promise<ApiToolResultBlock> => {
+    ): Promise<ExecuteToolResponse> => {
       const isError = !!result.error || result.is_error === true;
       return {
         type: 'tool_result',
         tool_use_id: toolUseId,
         content: await formatContent(result),
+        ...(result.tabContext && { tabContext: result.tabContext }),
         ...(isError && { is_error: true })
       };
     };
@@ -345,23 +350,33 @@ let toolExecutorInstance: ToolExecutor | undefined;
 
 export async function getOrCreateToolExecutor(
   tabId?: number,
-  tabGroupId?: number
+  tabGroupId?: number,
+  sessionId = MCP_NATIVE_SESSION_ID,
+  browserSessionScope?: BrowserSessionScope
 ): Promise<ToolExecutor> {
   if (toolExecutorInstance) {
-    toolExecutorInstance.context.tabId = tabId;
-    toolExecutorInstance.context.tabGroupId = tabGroupId;
+    const cloned = Object.create(Object.getPrototypeOf(toolExecutorInstance)) as ToolExecutor;
+    Object.assign(cloned, toolExecutorInstance);
+    cloned.context = {
+      ...toolExecutorInstance.context,
+      tabId,
+      tabGroupId,
+      sessionId,
+      browserSessionScope
+    };
     // Refresh the messagesClient if it's missing (e.g., auth wasn't ready on first creation)
-    if (!toolExecutorInstance.context.messagesClient) {
+    if (!cloned.context.messagesClient) {
       const refreshed = await refreshMessagesClient();
-      if (refreshed) toolExecutorInstance.context.messagesClient = refreshed;
+      if (refreshed) cloned.context.messagesClient = refreshed;
     }
-    return toolExecutorInstance;
+    return cloned;
   }
   const [client, model] = await Promise.all([refreshMessagesClient(), getSelectedModel()]);
   toolExecutorInstance = new ToolExecutor({
     messagesClient: client,
     permissionManager: new PermissionManagerClass(() => false, {}),
-    sessionId: MCP_NATIVE_SESSION_ID,
+    sessionId,
+    browserSessionScope,
     tabId,
     tabGroupId,
     model,

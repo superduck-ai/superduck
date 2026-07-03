@@ -3,6 +3,7 @@ import { trackEvent } from '../analytics';
 import { handleProviderRuntimeMessage } from '../providerClient';
 import { executeTool, setRequestBridgePermissionFn } from '../toolExecution/toolExecution';
 import { isBridgeMessage, isStringArray, parseOptionalNumber } from '../core/utils';
+import { resolveBrowserSessionId } from '../sessionScope';
 import type {
   BridgeMessage,
   NavigatorWithUserAgentData,
@@ -236,6 +237,7 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
   if (!toolUseId || !toolName) return;
   const tabId = parseOptionalNumber(args.tabId);
   const tabGroupId = parseOptionalNumber(args.tabGroupId);
+  const sessionId = resolveBrowserSessionId(message, args);
   if (tabId !== undefined) {
     try {
       await chrome.tabs.get(tabId);
@@ -253,6 +255,7 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
       args,
       tabId,
       tabGroupId,
+      sessionId,
       clientId: clientType,
       source: 'bridge',
       permissionMode,

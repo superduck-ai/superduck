@@ -51,6 +51,12 @@ function getToolSchemasForMcp(): Promise<ToolProviderSchema[]> {
   return toolsToProviderSchema(allTools);
 }
 
+const SIDEPANEL_HIDDEN_TOOLS = new Set<string>(['tabs_name_session_mcp']);
+
+function getToolSchemasForSidepanel(): Promise<ToolProviderSchema[]> {
+  return toolsToProviderSchema(allTools.filter((tool) => !SIDEPANEL_HIDDEN_TOOLS.has(tool.name)));
+}
+
 export {
   cdpDebugger,
   connectBridge,
@@ -62,6 +68,7 @@ export {
   createErrorResponse,
   executeTool,
   getToolSchemasForMcp,
+  getToolSchemasForSidepanel,
   getFeatureValue,
   getTabRelationship,
   getCategoryAndUpdateBlocklist,

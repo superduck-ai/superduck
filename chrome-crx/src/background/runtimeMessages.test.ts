@@ -43,7 +43,10 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     sendMcpNotification: vi.fn(),
     executeScheduledTask: vi.fn(),
     handleStaticIndicatorHeartbeat: vi.fn(),
-    handleDismissStaticIndicator: vi.fn()
+    handleDismissStaticIndicator: vi.fn(),
+    handleAgentTurnActive: vi.fn(async (_message, sendResponse) => {
+      sendResponse({ success: true });
+    })
   };
 
   beforeEach(() => {
@@ -300,5 +303,24 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
       }
     });
     expect(deps.getNativeHostStatus).not.toHaveBeenCalled();
+  });
+
+  it('routes AGENT_TURN_ACTIVE to handleAgentTurnActive with the message payload', async () => {
+    expect(messageListener).toBeDefined();
+    const response = await new Promise<Record<string, unknown>>((resolve) => {
+      const handled = messageListener?.(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 42, active: false } as any,
+        {},
+        resolve
+      );
+      expect(handled).toBe(true);
+    });
+
+    expect(response).toEqual({ success: true });
+    expect(deps.handleAgentTurnActive).toHaveBeenCalledTimes(1);
+    expect(deps.handleAgentTurnActive).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'AGENT_TURN_ACTIVE', tabId: 42, active: false }),
+      expect.any(Function)
+    );
   });
 });

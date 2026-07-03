@@ -145,8 +145,6 @@ export function useAgentLoop({
   const apiMessages = useChatStore((s) => s.apiMessages);
   const setApiMessages = useChatStore((s) => s.setApiMessages);
   const setMessages = useChatStore((s) => s.setMessages);
-  // setMessageHistory is unused
-  const _setMessageHistory = (_: ApiConversationMessage[]) => {};
   const setIsAgentRunning = useAgentStore((s) => s.setIsAgentRunning);
   const setHasInteractiveTools = useAgentStore((s) => s.setHasInteractiveTools);
   const setCurrentStatus = useAgentStore((s) => s.setCurrentStatus);
@@ -215,7 +213,6 @@ export function useAgentLoop({
           manual,
           messages_before: messagesToCompact.length
         });
-        _setMessageHistory(messagesToCompact);
         const visibleCommandMessage = visibleCommandText
           ? ({
               role: 'user',
@@ -409,6 +406,15 @@ export function useAgentLoop({
 
       setRuntimeError(null);
       setIsAgentRunning(true);
+      // Mark the turn active in the background so the agent-indicator heartbeat
+      // (authoritative state lives in the service worker) keeps the mask alive
+      // for the duration of the turn. The matching active:false is sent in the
+      // finally block below to dismiss the mask when the response completes.
+      if (typeof executionTabId === 'number') {
+        chrome.runtime
+          .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: executionTabId, active: true })
+          .catch(() => {});
+      }
       abortControllerRef.current?.abort();
       generationStartedAtRef.current = Date.now();
       completionNotificationSentRef.current = false;
@@ -592,11 +598,30 @@ export function useAgentLoop({
         completionNotificationSentRef.current = false;
         // Hide agent indicators and add completion prefix to tab group
         if (typeof executionTabId === 'number') {
-          chrome.tabs
-            .sendMessage(executionTabId, { type: 'HIDE_AGENT_INDICATORS' })
-            .catch(() => {});
-          tabGroupManager.setTabIndicatorState(executionTabId, 'none').catch(() => {});
-          tabGroupManager.addCompletionPrefix(executionTabId).catch(() => {});
+          // Tell the background to release the turn: it clears indicator state
+          // (authoritative) for the whole group and sends HIDE, so the mask
+          // dismisses when the message completes — even if the working tab
+          // differs from executionTabId or a per-tool HIDE was dropped.
+          const response = await chrome.runtime
+            .sendMessage({
+              type: 'AGENT_TURN_ACTIVE',
+              tabId: executionTabId,
+              active: false,
+              completed: true
+            })
+            .catch(() => ({ success: false }));
+          if (!response?.success) {
+            const group = await tabGroupManager.findGroupByTab(executionTabId).catch(() => null);
+            if (group) {
+              await tabGroupManager.clearIndicatorsForGroup(group.mainTabId).catch(() => {});
+              await tabGroupManager.addCompletionPrefix(group.mainTabId).catch(() => {});
+              await tabGroupManager
+                .setGroupColor(group.mainTabId, chrome.tabGroups.Color.GREEN)
+                .catch(() => {});
+            } else {
+              await tabGroupManager.hideAgentIndicatorsForTab(executionTabId).catch(() => {});
+            }
+          }
         }
       }
     },

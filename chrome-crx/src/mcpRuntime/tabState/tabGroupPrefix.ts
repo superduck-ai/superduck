@@ -1,5 +1,5 @@
 import type { TabGroupManager } from './tabGroups';
-import { TAB_GROUP_TITLE } from './types';
+import { TAB_GROUP_MARKER } from './types';
 
 export async function updateGroupTitle(
   mgr: TabGroupManager,
@@ -11,40 +11,27 @@ export async function updateGroupTitle(
   const meta = mgr.groupMetadata.get(mainTabId);
   if (meta)
     try {
-      if ((await chrome.tabGroups.get(meta.chromeGroupId)).title !== TAB_GROUP_TITLE) return;
-      const otherGroupColors = (await chrome.tabGroups.query({}))
-        .filter((g) => g.id !== meta.chromeGroupId)
-        .map((g) => g.color)
-        .filter((color): color is chrome.tabGroups.Color => typeof color === 'string');
-      const allColors = [
-        chrome.tabGroups.Color.GREY,
-        chrome.tabGroups.Color.BLUE,
-        chrome.tabGroups.Color.RED,
-        chrome.tabGroups.Color.YELLOW,
-        chrome.tabGroups.Color.GREEN,
-        chrome.tabGroups.Color.PINK,
-        chrome.tabGroups.Color.PURPLE,
-        chrome.tabGroups.Color.CYAN,
-        chrome.tabGroups.Color.ORANGE
-      ];
-      const unusedColors = allColors.filter((c) => !otherGroupColors.includes(c));
-      let chosenColor: chrome.tabGroups.Color;
-      if (unusedColors.length > 0) chosenColor = unusedColors[0];
-      else {
-        const colorCounts = new Map<chrome.tabGroups.Color, number>();
-        allColors.forEach((c) => colorCounts.set(c, 0));
-        otherGroupColors.forEach((c) => {
-          colorCounts.set(c, (colorCounts.get(c) || 0) + 1);
-        });
-        let minCount = Infinity;
-        chosenColor = chrome.tabGroups.Color.ORANGE;
-        for (const [color, count] of colorCounts.entries())
-          count < minCount && ((minCount = count), (chosenColor = color));
-      }
-      const displayTitle = isLoading ? `⌛${title.trim()}` : title.trim();
+      const currentTitle = (await chrome.tabGroups.get(meta.chromeGroupId)).title || '';
+      const titleWithoutPrefix = currentTitle.replace(/^(⌛|🔔|✅)/, '').trim();
+      const explicitTitles = new Set(
+        Array.from(mgr.sessionGroupTitles.values(), (name) => `${TAB_GROUP_MARKER} ${name}`)
+      );
+      if (explicitTitles.has(titleWithoutPrefix)) return;
+      if (!titleWithoutPrefix.includes(TAB_GROUP_MARKER)) return;
+      // Every group reaching here carries the MCP marker (the guard above
+      // returns otherwise), i.e. it is a managed MCP group. Such groups MUST
+      // stay ORANGE: findMcpTabGroupByCharacteristics recognizes them by color
+      // and ensureMcpGroupCharacteristics enforces ORANGE. The old palette
+      // picker could even select the semantically-reserved GREEN/ORANGE,
+      // turning a freshly-started task green and breaking SW-restart lookup.
+      // Set the title only and leave the color untouched.
+      const trimmedTitle = title.trim();
+      const markedTitle = trimmedTitle.includes(TAB_GROUP_MARKER)
+        ? trimmedTitle
+        : `${TAB_GROUP_MARKER} ${trimmedTitle}`;
+      const displayTitle = isLoading ? `⌛${markedTitle}` : markedTitle;
       await chrome.tabGroups.update(meta.chromeGroupId, {
-        title: displayTitle,
-        color: chosenColor
+        title: displayTitle
       });
     } catch {
       // ignore

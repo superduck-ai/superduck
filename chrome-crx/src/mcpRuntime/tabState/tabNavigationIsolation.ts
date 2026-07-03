@@ -1,5 +1,6 @@
 import type { TabGroupManager } from './tabGroups';
 import type { MemberState, TabMemberOrigin } from './types';
+import { BrowserSessionConflictError, tabLeaseManager } from './tabLeases';
 import {
   closeTabIfPresent,
   guardChildNavigation,
@@ -38,6 +39,13 @@ export function startTabCreationListener(mgr: TabGroupManager): void {
   mgr.isTabCreationListenerStarted = true;
 }
 
+/**
+ * Records the user's active tab as "protected" for the duration of the action,
+ * so any child tabs the action spawns can restore it if they steal activation
+ * (restoreProtectedActiveTab). Deliberately does NOT activate the agent tab or
+ * focus its window: agent actions must never yank focus away from what the
+ * user is doing.
+ */
 export async function withPreservedActiveTab<T>(
   mgr: TabGroupManager,
   tabId: number,
@@ -88,7 +96,7 @@ export async function handleTabCreated(mgr: TabGroupManager, tab: chrome.tabs.Ta
     return;
   }
 
-  const adopted = await adoptChildTabFromOpener(mgr, tab, openerTabId);
+  const adopted = await adoptChildTabFromOpener(mgr, tab, openerTabId, policy ?? {});
   if (adopted && policy) {
     guardChildNavigation(tabId, policy, {
       timeoutMs: Math.max(0, policy.expiresAt - Date.now()),
@@ -122,7 +130,8 @@ export function rememberChildTabNavigationPolicy(
 
 export async function adoptChildTabsFromOpener(
   mgr: TabGroupManager,
-  openerTabId: number
+  openerTabId: number,
+  options: { sessionId?: string } = {}
 ): Promise<number[]> {
   const mainTabId = await findManagedMainTabIdForTab(mgr, openerTabId);
   if (typeof mainTabId !== 'number') return [];
@@ -137,16 +146,41 @@ export async function adoptChildTabsFromOpener(
   const adoptedTabIds: number[] = [];
   for (const tab of tabs) {
     if (typeof tab.id !== 'number' || tab.openerTabId !== openerTabId) continue;
-    if (await adoptChildTab(mgr, mainTabId, tab)) adoptedTabIds.push(tab.id);
+    if (await adoptChildTab(mgr, mainTabId, tab, options)) adoptedTabIds.push(tab.id);
     await restoreProtectedActiveTab(mgr, tab);
   }
   return adoptedTabIds;
 }
 
+export async function awaitOpenerChildTabId(
+  openerTabId: number,
+  url: string,
+  budgetMs: number
+): Promise<number | undefined> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    try {
+      const tabs = await chrome.tabs.query({});
+      const hit = tabs.find(
+        (tab) =>
+          tab.openerTabId === openerTabId &&
+          typeof tab.id === 'number' &&
+          (tab.url === url || tab.pendingUrl === url)
+      );
+      if (typeof hit?.id === 'number') return hit.id;
+    } catch {
+      // transient query failure: keep polling until the budget is spent
+    }
+    if (Date.now() >= deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 export async function createChildTabInGroup(
   mgr: TabGroupManager,
   openerTabId: number,
-  url: string
+  url: string,
+  options: { sessionId?: string } = {}
 ): Promise<number | undefined> {
   const mainTabId = await findManagedMainTabIdForTab(mgr, openerTabId);
   if (typeof mainTabId !== 'number') return undefined;
@@ -154,13 +188,33 @@ export async function createChildTabInGroup(
   try {
     const existingTabs = await chrome.tabs.query({});
     const existingTab = existingTabs.find(
-      (tab) => tab.openerTabId === openerTabId && tab.url === url && typeof tab.id === 'number'
+      (tab) =>
+        tab.openerTabId === openerTabId &&
+        typeof tab.id === 'number' &&
+        (tab.url === url || tab.pendingUrl === url)
     );
     if (existingTab?.id) {
-      await adoptChildTab(mgr, mainTabId, existingTab);
+      await adoptChildTab(mgr, mainTabId, existingTab, options);
       return existingTab.id;
     }
-  } catch {
+    // Fallback: window.open / target=_blank already opened a popup, but it is
+    // still navigating (redirect chain such as a search-engine jump page,
+    // about:blank, etc.) so its url/pendingUrl don't match the target yet.
+    // Reuse that opener child instead of creating a duplicate — otherwise both
+    // the browser's own tab and ours land on the same final URL. Only tabs
+    // that are clearly still mid-navigation (blank/loading) qualify: a settled
+    // tab on an unrelated URL is likely a popup the user opened themselves and
+    // must not be pulled into the agent's group.
+    const fallbackTab = existingTabs.find(
+      (tab) =>
+        tab.openerTabId === openerTabId && typeof tab.id === 'number' && isTabStillNavigating(tab)
+    );
+    if (fallbackTab?.id) {
+      await adoptChildTab(mgr, mainTabId, fallbackTab, options);
+      return fallbackTab.id;
+    }
+  } catch (err) {
+    if (err instanceof BrowserSessionConflictError) throw err;
     // Fall through to creating the tab if the scan fails.
   }
 
@@ -176,18 +230,30 @@ export async function createChildTabInGroup(
   }
 
   if (typeof newTab.id !== 'number') return undefined;
-  await adoptChildTab(mgr, mainTabId, { ...newTab, openerTabId });
+  await adoptChildTab(mgr, mainTabId, { ...newTab, openerTabId }, options);
   return newTab.id;
+}
+
+/**
+ * A tab counts as "still navigating" while it has no settled http(s) URL:
+ * blank/new-tab URL, a pendingUrl in flight, or a loading status. Used to
+ * decide whether an opener child may be reused for a derived navigation.
+ */
+function isTabStillNavigating(tab: chrome.tabs.Tab): boolean {
+  const url = tab.url ?? '';
+  if (!url || url === 'about:blank' || url.startsWith('chrome://newtab')) return true;
+  return tab.status === 'loading' && typeof tab.pendingUrl === 'string';
 }
 
 async function adoptChildTabFromOpener(
   mgr: TabGroupManager,
   tab: chrome.tabs.Tab,
-  openerTabId: number
+  openerTabId: number,
+  options: { sessionId?: string } = {}
 ): Promise<boolean> {
   const mainTabId = await findManagedMainTabIdForTab(mgr, openerTabId);
   if (typeof mainTabId !== 'number') return false;
-  return await adoptChildTab(mgr, mainTabId, tab);
+  return await adoptChildTab(mgr, mainTabId, tab, options);
 }
 
 function getChildTabNavigationPolicy(
@@ -216,7 +282,8 @@ async function getCreatedChildTabAction(
 async function adoptChildTab(
   mgr: TabGroupManager,
   mainTabId: number,
-  tab: chrome.tabs.Tab
+  tab: chrome.tabs.Tab,
+  options: { sessionId?: string } = {}
 ): Promise<boolean> {
   const tabId = tab.id;
   if (typeof tabId !== 'number') return false;
@@ -228,8 +295,23 @@ async function adoptChildTab(
     const wasInGroup = tab.groupId === meta.chromeGroupId;
     if (wasMember && wasInGroup) return false;
 
-    if (!wasInGroup) {
-      await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
+    let claimedForSession = false;
+    if (options.sessionId) {
+      await tabLeaseManager.claimTab(options.sessionId, tabId, 'agent', {
+        groupId: meta.chromeGroupId
+      });
+      claimedForSession = true;
+    }
+
+    try {
+      if (!wasInGroup) {
+        await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
+      }
+    } catch (err) {
+      if (claimedForSession) {
+        await tabLeaseManager.releaseTabs(options.sessionId!, [tabId]).catch(() => {});
+      }
+      throw err;
     }
     if (!wasMember) {
       meta.memberStates.set(tabId, {
@@ -249,7 +331,8 @@ async function adoptChildTab(
       }
     }
     return true;
-  } catch {
+  } catch (err) {
+    if (err instanceof BrowserSessionConflictError) throw err;
     return false;
   }
 }

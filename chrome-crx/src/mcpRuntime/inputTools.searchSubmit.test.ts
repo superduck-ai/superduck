@@ -19,6 +19,8 @@ const fixtures = vi.hoisted(() => {
   const screenshot = vi.fn();
   const moveSearchNavigationToNewTab = vi.fn();
   const filterPolicyAllowedTabs = vi.fn();
+  const awaitOpenerChildTabId = vi.fn();
+  const createPolicyCheckedChildTab = vi.fn();
 
   return {
     checkPermission,
@@ -37,7 +39,9 @@ const fixtures = vi.hoisted(() => {
     click,
     screenshot,
     moveSearchNavigationToNewTab,
-    filterPolicyAllowedTabs
+    filterPolicyAllowedTabs,
+    awaitOpenerChildTabId,
+    createPolicyCheckedChildTab
   };
 });
 
@@ -69,7 +73,8 @@ vi.mock('./tabState', () => ({
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
-    rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy
+    rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy,
+    awaitOpenerChildTabId: fixtures.awaitOpenerChildTabId
   }
 }));
 
@@ -109,7 +114,7 @@ vi.mock('./screenshot/annotatedScreenshot', () => ({
 vi.mock('./navigationIsolation', () => ({
   moveSearchNavigationToNewTab: fixtures.moveSearchNavigationToNewTab,
   checkDomainCategoryForNavigation: vi.fn(async () => null),
-  createPolicyCheckedChildTab: vi.fn(async () => null),
+  createPolicyCheckedChildTab: fixtures.createPolicyCheckedChildTab,
   filterPolicyAllowedTabs: fixtures.filterPolicyAllowedTabs
 }));
 
@@ -148,6 +153,8 @@ beforeEach(() => {
   fixtures.filterPolicyAllowedTabs.mockImplementation(async (tabIds: number[]) => tabIds);
   fixtures.consumeWindowOpenEvents.mockReturnValue([]);
   fixtures.moveSearchNavigationToNewTab.mockResolvedValue([]);
+  fixtures.awaitOpenerChildTabId.mockResolvedValue(undefined);
+  fixtures.createPolicyCheckedChildTab.mockResolvedValue(null);
   fixtures.getKeyCode.mockReturnValue('Enter');
   fixtures.click.mockResolvedValue(undefined);
   fixtures.screenshot.mockResolvedValue({
@@ -245,5 +252,55 @@ describe('computer search submit isolation (post-action)', () => {
     // Filtered out -> falls through to the search-move fallback (also empty here),
     // so the action ran on the original tab and no new tab is reported.
     expect(result.tabContext).toMatchObject({ executedOnTabId: 10 });
+  });
+});
+
+describe('computer window.open fallback (no duplicate popup)', () => {
+  it('waits for the real popup before creating a tab from a window.open event', async () => {
+    // adoptChildTabsFromOpener missed the popup (timing) but a window.open event
+    // was captured. The fallback must wait for the real popup and reuse it via
+    // createChildTabInGroup's dedup — never create a second duplicate tab.
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://child.example/', timestamp: 0 }
+    ]);
+    fixtures.awaitOpenerChildTabId.mockResolvedValue(99);
+    fixtures.createPolicyCheckedChildTab.mockResolvedValue(99);
+
+    const result = await computerTool.execute(
+      { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+      context
+    );
+
+    expect(fixtures.awaitOpenerChildTabId).toHaveBeenCalledWith(
+      10,
+      'https://child.example/',
+      expect.any(Number)
+    );
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledWith(
+      10,
+      'https://child.example/',
+      expect.any(Object)
+    );
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 99 });
+  });
+
+  it('creates a tab only when no popup materializes within the wait budget', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://child.example/', timestamp: 0 }
+    ]);
+    fixtures.awaitOpenerChildTabId.mockResolvedValue(undefined);
+    fixtures.createPolicyCheckedChildTab.mockResolvedValue(77);
+
+    const result = await computerTool.execute(
+      { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+      context
+    );
+
+    expect(fixtures.awaitOpenerChildTabId).toHaveBeenCalled();
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
   });
 });
