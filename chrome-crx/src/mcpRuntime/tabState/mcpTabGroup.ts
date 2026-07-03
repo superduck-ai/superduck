@@ -149,12 +149,18 @@ export async function ensureMcpGroupCharacteristics(
 ): Promise<void> {
   try {
     const group = await chrome.tabGroups.get(chromeGroupId);
+    const desiredTitle = resolveGroupTitle(mgr, sessionId);
+    const hasExplicitTitle = sessionId
+      ? mgr.sessionGroupTitles.has(sessionId)
+      : mgr.sessionGroupTitles.has(DEFAULT_SESSION_KEY);
     const hasMarker = typeof group.title === 'string' && group.title.includes(TAB_GROUP_MARKER);
-    const titleOk = hasMarker || group.title === resolveGroupTitle(mgr, sessionId);
+    const titleOk = hasExplicitTitle
+      ? group.title === desiredTitle
+      : hasMarker || group.title === desiredTitle;
     const colorOk = group.color === chrome.tabGroups.Color.ORANGE;
     if (titleOk && colorOk) return;
     await chrome.tabGroups.update(chromeGroupId, {
-      ...(titleOk ? {} : { title: resolveGroupTitle(mgr, sessionId) }),
+      ...(titleOk ? {} : { title: desiredTitle }),
       ...(colorOk ? {} : { color: chrome.tabGroups.Color.ORANGE })
     });
   } catch {
@@ -229,7 +235,7 @@ export async function createMcpTabGroup(
     const existing = await getSessionMcpTabContext(mgr, scope, false);
     if (existing && options?.replaceExisting !== true) {
       throw new Error(
-        `Session already has MCP tab group ${existing.tabGroupId}; use tab_group list --create-if-empty to reuse tab ${existing.currentTabId}, or pass --force to replace it.`
+        `Session already has MCP tab group ${existing.tabGroupId}; use tab_group list --create-if-empty to reuse tab ${existing.currentTabId}, or pass --force to discard active/handoff tabs and replace it.`
       );
     }
     if (options?.replaceExisting === true) {

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -152,6 +153,7 @@ func TestSplitGlobalFlagsInvalidUsageExits(t *testing.T) {
 		{"zero timeout", []string{"--timeout", "0", "tabs"}, "invalid --timeout: must be positive"},
 		{"missing session", []string{"--session"}, "missing value for --session"},
 		{"missing session before flag", []string{"--session", "--json", "tabs"}, "missing value for --session"},
+		{"empty session", []string{"--session", "", "tabs"}, "missing value for --session"},
 		{"missing socket", []string{"--socket"}, "missing value for --socket"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -288,6 +290,36 @@ func TestResolvedBrowserSessionUsesSessionFile(t *testing.T) {
 	}
 }
 
+func TestResolvedBrowserSessionWarnsWhenSessionFileIsUnusable(t *testing.T) {
+	withCLIFlags(t, globalFlags{SocketPath: cliclient.DefaultSocketPath, Timeout: 30 * time.Second})
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	clearBrowserSessionEnv(t)
+
+	blocker := filepath.Join(tmp, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", blocker, err)
+	}
+	sessionFile := filepath.Join(blocker, "session-id")
+	t.Setenv("SUPERDUCK_SESSION_FILE", sessionFile)
+
+	var id string
+	var explicit bool
+	stderr := captureStderr(t, func() {
+		id, explicit = resolvedBrowserSession()
+	})
+
+	if id == "" || !strings.HasPrefix(id, "cli:file:") {
+		t.Fatalf("resolvedBrowserSession() id = %q, want fallback cli:file id", id)
+	}
+	if explicit {
+		t.Fatal("resolvedBrowserSession() explicit = true, want false for fallback")
+	}
+	if !strings.Contains(stderr, "SUPERDUCK_SESSION_FILE") || !strings.Contains(stderr, sessionFile) {
+		t.Fatalf("stderr = %q, want SUPERDUCK_SESSION_FILE warning for %q", stderr, sessionFile)
+	}
+}
+
 func TestReadOrCreateSessionIDFileExistingAndEmptyFile(t *testing.T) {
 	tmp := t.TempDir()
 	existingPath := filepath.Join(tmp, "existing-session")
@@ -319,6 +351,52 @@ func TestReadOrCreateSessionIDFileExistingAndEmptyFile(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(data)); got != id {
 		t.Fatalf("empty session file contents = %q, want %q", got, id)
+	}
+}
+
+func TestReadOrCreateSessionIDFileConcurrentCreateReturnsOneID(t *testing.T) {
+	tmp := t.TempDir()
+	sessionPath := filepath.Join(tmp, "nested", "session-id")
+
+	const workers = 20
+	ids := make(chan string, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id, err := readOrCreateSessionIDFile(sessionPath)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- id
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("readOrCreateSessionIDFile() concurrent error = %v", err)
+	}
+	var first string
+	for id := range ids {
+		if first == "" {
+			first = id
+			continue
+		}
+		if id != first {
+			t.Fatalf("concurrent session ids differ: %q vs %q", first, id)
+		}
+	}
+	data, err := os.ReadFile(sessionPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", sessionPath, err)
+	}
+	if got := strings.TrimSpace(string(data)); got != first {
+		t.Fatalf("session file = %q, want %q", got, first)
 	}
 }
 

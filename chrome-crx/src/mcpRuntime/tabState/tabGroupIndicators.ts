@@ -337,7 +337,7 @@ export async function sendIndicatorMessage(
   const ACK_TIMEOUT_MS = 800;
 
   const sendOnce = async (): Promise<boolean> => {
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         chrome.tabs.sendMessage(tabId, buildMessage()),
@@ -345,10 +345,10 @@ export async function sendIndicatorMessage(
           timeoutId = setTimeout(() => resolve(null), ACK_TIMEOUT_MS);
         })
       ]);
-      clearTimeout(timeoutId!);
+      if (timeoutId) clearTimeout(timeoutId);
       return (result as { success?: boolean } | null)?.success === true;
     } catch {
-      clearTimeout(timeoutId!);
+      if (timeoutId) clearTimeout(timeoutId);
       return false;
     }
   };

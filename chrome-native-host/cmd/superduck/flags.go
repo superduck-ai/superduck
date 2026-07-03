@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -56,7 +57,7 @@ func splitGlobalFlags(in []string) []string {
 }
 
 func requireGlobalFlagValue(in []string, index int, flag string) string {
-	if index+1 >= len(in) || (len(in[index+1]) > 0 && in[index+1][0] == '-') {
+	if index+1 >= len(in) || strings.TrimSpace(in[index+1]) == "" || (len(in[index+1]) > 0 && in[index+1][0] == '-') {
 		fatalUsage("missing value for %s", flag)
 	}
 	return in[index+1]

@@ -168,14 +168,25 @@ export function createStaticIndicatorController() {
   ): Promise<boolean> {
     const attempts = options.completed ? TURN_CLEAR_RETRY_ATTEMPTS : 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
+      const force = options.completed && attempt === attempts - 1;
+      if (force && turnActiveTimers.has(tabId)) return true;
       const cleared = await clearTurnIndicators(tabId, {
         completed: options.completed,
-        force: options.completed && attempt === attempts - 1
+        force
       });
       if (cleared) return true;
       await delay(TURN_CLEAR_RETRY_MS);
     }
     return false;
+  }
+
+  function armTurnActiveTimeout(tabId: number): void {
+    const turnKey = `${tabId}-${Date.now()}`;
+    const timer = setTimeout(() => {
+      turnActiveTimers.delete(tabId);
+      void clearTurnIndicators(tabId, { turnKey });
+    }, TURN_ACTIVE_TIMEOUT_MS);
+    turnActiveTimers.set(tabId, { timer, turnKey });
   }
 
   async function handleAgentTurnActive(
@@ -198,16 +209,12 @@ export function createStaticIndicatorController() {
       }
       if (active) {
         if (hasActiveToolContext(tabId)) {
+          armTurnActiveTimeout(tabId);
           sendResponse({ success: true });
           return;
         }
         await tabGroupManager.setTabIndicatorState(tabId, 'pulsing', true, false);
-        const turnKey = `${tabId}-${Date.now()}`;
-        const timer = setTimeout(() => {
-          turnActiveTimers.delete(tabId);
-          void clearTurnIndicators(tabId, { turnKey });
-        }, TURN_ACTIVE_TIMEOUT_MS);
-        turnActiveTimers.set(tabId, { timer, turnKey });
+        armTurnActiveTimeout(tabId);
       } else {
         const cleared = await clearTurnIndicatorsWithRetry(tabId, { completed });
         sendResponse({ success: cleared });

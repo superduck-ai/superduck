@@ -91,3 +91,24 @@ func TestBuildCallToolResultMarksToolErrors(t *testing.T) {
 		t.Fatal("StructuredContent is nil")
 	}
 }
+
+func TestBuildCallToolResultMarksContentWrapStructuredErrors(t *testing.T) {
+	t.Parallel()
+	result := &protocol.ContentWrap{
+		Content: []interface{}{
+			map[string]interface{}{"type": "text", "text": "something went wrong"},
+		},
+		StructuredContent: map[string]interface{}{
+			"error": "something went wrong",
+		},
+	}
+
+	callResult := buildCallToolResult(result)
+
+	if !callResult.IsError {
+		t.Fatal("IsError = false, want true")
+	}
+	if got := len(callResult.Content); got != 1 {
+		t.Fatalf("Content length = %d, want 1", got)
+	}
+}

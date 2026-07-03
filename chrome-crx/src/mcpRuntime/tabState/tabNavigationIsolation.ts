@@ -292,6 +292,7 @@ async function adoptChildTab(
 
   let claimedForSession = false;
   let addedMemberState = false;
+  let groupedThisCall = false;
   try {
     const wasMember = meta.memberStates.has(tabId);
     const wasInGroup = tab.groupId === meta.chromeGroupId;
@@ -306,6 +307,7 @@ async function adoptChildTab(
 
     if (!wasInGroup) {
       await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
+      groupedThisCall = true;
     }
     if (!wasMember) {
       meta.memberStates.set(tabId, {
@@ -328,6 +330,9 @@ async function adoptChildTab(
     return true;
   } catch (err) {
     if (addedMemberState) meta.memberStates.delete(tabId);
+    if (groupedThisCall && chrome.tabs.ungroup) {
+      await chrome.tabs.ungroup([tabId]).catch(() => {});
+    }
     if (claimedForSession && options.sessionId) {
       await tabLeaseManager.releaseTabs(options.sessionId, [tabId]).catch(() => {});
     }

@@ -415,6 +415,35 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     });
   });
 
+  it('applies a stored session name when resuming handoff tabs', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+
+    chromeMock.tabGroups.update.mockClear();
+    const named = await tabGroupManager.nameSession('session-a', 'handoff followup');
+    expect(named).toBeUndefined();
+    expect(chromeMock.tabGroups.update).not.toHaveBeenCalled();
+
+    await tabGroupManager.getOrCreateMcpTabContext({
+      sessionId: 'session-a'
+    });
+
+    const group = await chrome.tabGroups.get(context!.tabGroupId);
+    expect(group.title).toBe('🦆 handoff followup');
+    expect(chromeMock.tabGroups.update).toHaveBeenCalledWith(
+      context!.tabGroupId,
+      expect.objectContaining({ title: '🦆 handoff followup' })
+    );
+  });
+
   it('rejects explicit access to another session handoff tab', async () => {
     const context = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
@@ -824,6 +853,7 @@ describe('TabGroupManager session-scoped MCP leases', () => {
 
       expect(reusedId).toBe(popup.id);
       expect(await tabLeaseManager.getLease(popup.id)).toBeUndefined();
+      expect(chromeMock.tabsById.get(popup.id)?.groupId).toBe(-1);
       const meta = manager.groupMetadata.get(context!.currentTabId) as
         | { memberStates: Map<number, unknown> }
         | undefined;

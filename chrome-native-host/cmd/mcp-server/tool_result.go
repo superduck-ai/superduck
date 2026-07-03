@@ -19,6 +19,7 @@ func buildCallToolResult(result any) *mcp.CallToolResult {
 		callResult.Content = converter.ToMCPContent(r.Content)
 		callResult.StructuredContent = r.StructuredContent
 		if structured, ok := r.StructuredContent.(map[string]interface{}); ok {
+			// Defensive for non-extension callers that surface tool errors inside structuredContent.
 			if errMsg, hasError := structured["error"].(string); hasError && errMsg != "" {
 				callResult.IsError = true
 			}

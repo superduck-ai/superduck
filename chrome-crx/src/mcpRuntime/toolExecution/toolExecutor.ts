@@ -356,6 +356,7 @@ export async function getOrCreateToolExecutor(
 ): Promise<ToolExecutor> {
   if (toolExecutorInstance) {
     const cloned = Object.create(Object.getPrototypeOf(toolExecutorInstance)) as ToolExecutor;
+    // Shallow clone is safe while per-call mutable state lives only under context.
     Object.assign(cloned, toolExecutorInstance);
     cloned.context = {
       ...toolExecutorInstance.context,

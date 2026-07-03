@@ -36,6 +36,7 @@ Subcommands:
                             With --create-if-empty, create one when missing.
   new [--force]             Create a fresh MCP tab group with one tab; refuses
                             to replace an existing session group unless --force is set.
+                            --force discards that session's active/handoff tabs.
   finalize                  Finalize the current MCP tab group as an explicit tab disposition.
       --handoff TAB         Keep TAB in the managed group for continuation.
       --deliverable TAB     Keep TAB open but remove it from the managed group.
@@ -99,7 +100,7 @@ func cmdTabGroupList(argv []string) error {
 // cmdTabGroupNew: superduck tab_group new [--force]
 func cmdTabGroupNew(argv []string) error {
 	fs := flag.NewFlagSet("tab_group new", flag.ContinueOnError)
-	force := fs.Bool("force", false, "Replace the current session group with a fresh group")
+	force := fs.Bool("force", false, "Discard the current session's active/handoff tabs and create a fresh group")
 	if err := fs.Parse(argv); err != nil {
 		return err
 	}

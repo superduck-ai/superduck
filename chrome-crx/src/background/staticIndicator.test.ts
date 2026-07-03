@@ -101,6 +101,33 @@ describe('createStaticIndicatorController', () => {
     vi.useRealTimers();
   });
 
+  it('does not force-clear a newly active turn while an old completion retry is pending', async () => {
+    vi.useFakeTimers();
+    fixtures.hasActiveToolContext.mockReturnValue(true);
+    const controller = createStaticIndicatorController();
+    const finishResponse = vi.fn();
+    const activeResponse = vi.fn();
+
+    const finishPromise = controller.handleAgentTurnActive(
+      { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: false, completed: true },
+      finishResponse
+    );
+    await vi.advanceTimersByTimeAsync(100);
+
+    await controller.handleAgentTurnActive(
+      { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: true },
+      activeResponse
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    await finishPromise;
+
+    expect(fixtures.clearIndicatorsForGroup).not.toHaveBeenCalled();
+    expect(fixtures.hideAgentIndicatorsForTab).not.toHaveBeenCalled();
+    expect(activeResponse).toHaveBeenCalledWith({ success: true });
+    expect(finishResponse).toHaveBeenCalledWith({ success: true });
+    vi.useRealTimers();
+  });
+
   it('hides indicators on live member tabs even when the SW group metadata is stale', async () => {
     // Sidepanel-driven turns create the group in the sidepanel's
     // tabGroupManager instance; the service worker's copy may know nothing

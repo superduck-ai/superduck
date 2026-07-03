@@ -64,6 +64,7 @@ MCP TAB GROUP (each conversation usually owns one group of tabs):
                              (🦆 auto-prepended); ignored if a group already exists.
   tab_group new [--force]    Create a fresh MCP tab group; refuses to replace an
                              existing session group unless --force is set.
+                             --force discards that session's active/handoff tabs.
   tab_group finalize [--handoff TAB] [--deliverable TAB]
                              Finalize the current MCP tab group with explicit tab disposition.
                              Omitted tabs are ungrouped and left open (never closed); deliverable
@@ -502,6 +503,8 @@ func resolvedBrowserSession() (string, bool) {
 	if v := os.Getenv("SUPERDUCK_SESSION_FILE"); v != "" {
 		if id, err := readOrCreateSessionIDFile(v); err == nil && id != "" {
 			return id, true
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "superduck: SUPERDUCK_SESSION_FILE=%q unusable: %v\n", v, err)
 		}
 	}
 	if id, err := defaultCLISessionID(); err == nil && id != "" {
@@ -522,7 +525,9 @@ func readOrCreateSessionIDFile(path string) (string, error) {
 	if path = strings.TrimSpace(path); path == "" {
 		return "", fmt.Errorf("empty session file path")
 	}
+	fileExists := false
 	if data, err := os.ReadFile(path); err == nil {
+		fileExists = true
 		if id := strings.TrimSpace(string(data)); id != "" {
 			return id, nil
 		}
@@ -537,10 +542,42 @@ func readOrCreateSessionIDFile(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
+	if fileExists {
+		if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
+			return "", err
+		}
+		return id, nil
+	}
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return readSessionIDFileCreatedByPeer(path)
+		}
+		return "", err
+	}
+	if _, err := file.WriteString(id + "\n"); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+func readSessionIDFileCreatedByPeer(path string) (string, error) {
+	for attempt := 0; attempt < 10; attempt++ {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		if id := strings.TrimSpace(string(data)); id != "" {
+			return id, nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return "", fmt.Errorf("session file %q exists but is empty", path)
 }
 
 func newRandomCLISessionID() (string, error) {

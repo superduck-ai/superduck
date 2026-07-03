@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"path/filepath"
 )
 
 // cmdFileUpload: `superduck file_upload --tab <id> --ref <R> <path> [path...]`.
@@ -27,6 +28,11 @@ func cmdFileUpload(argv []string) error {
 	paths := fs.Args()
 	if len(paths) == 0 {
 		return fmt.Errorf("at least one absolute file path is required")
+	}
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			return fmt.Errorf("file_upload paths must be absolute: %q", path)
+		}
 	}
 	args := map[string]any{
 		"paths": paths,

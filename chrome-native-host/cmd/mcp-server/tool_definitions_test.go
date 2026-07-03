@@ -9,7 +9,7 @@ import (
 
 func TestRegisterToolsUsesValidSchemas(t *testing.T) {
 	t.Parallel()
-	if got, want := len(toolDefinitions), 22; got != want {
+	if got, want := len(toolDefinitions), 23; got != want {
 		t.Fatalf("toolDefinitions length = %d, want %d", got, want)
 	}
 
@@ -91,6 +91,54 @@ func TestTabsContextMCPToolDefinitionSupportsName(t *testing.T) {
 	}
 	if got, want := name["type"], "string"; got != want {
 		t.Fatalf("name type = %v, want %q", got, want)
+	}
+}
+
+func TestFileUploadToolDefinition(t *testing.T) {
+	t.Parallel()
+
+	tool := findToolDefinition("file_upload")
+	if tool == nil {
+		t.Fatal("file_upload tool definition not found")
+	}
+	required, ok := tool.inputSchema["required"].([]string)
+	if !ok {
+		t.Fatalf("file_upload required has type %T, want []string", tool.inputSchema["required"])
+	}
+	for _, name := range []string{"paths", "ref", "tabId"} {
+		if !containsString(required, name) {
+			t.Fatalf("file_upload required = %v, missing %q", required, name)
+		}
+	}
+	properties, ok := tool.inputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("file_upload properties has type %T, want map[string]any", tool.inputSchema["properties"])
+	}
+	paths, ok := properties["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("paths schema has type %T, want map[string]any", properties["paths"])
+	}
+	if got, want := paths["type"], "array"; got != want {
+		t.Fatalf("paths type = %v, want %q", got, want)
+	}
+	if got, want := paths["minItems"], 1; got != want {
+		t.Fatalf("paths minItems = %v, want %d", got, want)
+	}
+}
+
+func TestTabsNameSessionMCPToolDefinitionRequiresName(t *testing.T) {
+	t.Parallel()
+
+	tool := findToolDefinition("tabs_name_session_mcp")
+	if tool == nil {
+		t.Fatal("tabs_name_session_mcp tool definition not found")
+	}
+	required, ok := tool.inputSchema["required"].([]string)
+	if !ok {
+		t.Fatalf("tabs_name_session_mcp required has type %T, want []string", tool.inputSchema["required"])
+	}
+	if !containsString(required, "name") {
+		t.Fatalf("tabs_name_session_mcp required = %v, want name", required)
 	}
 }
 
