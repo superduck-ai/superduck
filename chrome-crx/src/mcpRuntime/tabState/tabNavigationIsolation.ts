@@ -14,6 +14,12 @@ export interface ChildTabNavigationPolicy extends NavigationPolicyContext {
   timeoutId?: ReturnType<typeof setTimeout>;
 }
 
+export interface CreateChildTabOptions {
+  sessionId?: string;
+  existingTabId?: number;
+  allowUnlinkedExistingTab?: boolean;
+}
+
 export const CHILD_TAB_NAVIGATION_POLICY_TTL_MS = 30000;
 
 export function getMemberOrigin(state: MemberState | undefined): TabMemberOrigin {
@@ -180,10 +186,27 @@ export async function createChildTabInGroup(
   mgr: TabGroupManager,
   openerTabId: number,
   url: string,
-  options: { sessionId?: string } = {}
+  options: CreateChildTabOptions = {}
 ): Promise<number | undefined> {
   const mainTabId = await findManagedMainTabIdForTab(mgr, openerTabId);
   if (typeof mainTabId !== 'number') return undefined;
+  const adoptOptions = { sessionId: options.sessionId };
+
+  if (typeof options.existingTabId === 'number') {
+    try {
+      const existingTab = await chrome.tabs.get(options.existingTabId);
+      if (
+        typeof existingTab.id === 'number' &&
+        (existingTab.openerTabId === openerTabId || options.allowUnlinkedExistingTab)
+      ) {
+        await adoptChildTab(mgr, mainTabId, existingTab, adoptOptions);
+        return existingTab.id;
+      }
+    } catch (err) {
+      if (err instanceof BrowserSessionConflictError) throw err;
+      // Fall through to URL-based detection or tab creation.
+    }
+  }
 
   try {
     const existingTabs = await chrome.tabs.query({});
@@ -194,7 +217,7 @@ export async function createChildTabInGroup(
         (tab.url === url || tab.pendingUrl === url)
     );
     if (existingTab?.id) {
-      await adoptChildTab(mgr, mainTabId, existingTab, options);
+      await adoptChildTab(mgr, mainTabId, existingTab, adoptOptions);
       return existingTab.id;
     }
     // Fallback: window.open / target=_blank already opened a popup, but it is
@@ -210,7 +233,7 @@ export async function createChildTabInGroup(
         tab.openerTabId === openerTabId && typeof tab.id === 'number' && isTabStillNavigating(tab)
     );
     if (fallbackTab?.id) {
-      await adoptChildTab(mgr, mainTabId, fallbackTab, options);
+      await adoptChildTab(mgr, mainTabId, fallbackTab, adoptOptions);
       return fallbackTab.id;
     }
   } catch (err) {
@@ -230,7 +253,7 @@ export async function createChildTabInGroup(
   }
 
   if (typeof newTab.id !== 'number') return undefined;
-  await adoptChildTab(mgr, mainTabId, { ...newTab, openerTabId }, options);
+  await adoptChildTab(mgr, mainTabId, { ...newTab, openerTabId }, adoptOptions);
   return newTab.id;
 }
 

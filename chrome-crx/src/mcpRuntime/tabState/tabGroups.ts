@@ -505,7 +505,7 @@ export class TabGroupManager {
   async createChildTabInGroup(
     openerTabId: number,
     url: string,
-    options?: { sessionId?: string }
+    options?: navIsolation.CreateChildTabOptions
   ): Promise<number | undefined> {
     return navIsolation.createChildTabInGroup(this, openerTabId, url, options);
   }

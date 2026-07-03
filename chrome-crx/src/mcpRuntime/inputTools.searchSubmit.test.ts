@@ -120,7 +120,8 @@ vi.mock('./navigationIsolation', () => ({
 
 const chromeMock = vi.hoisted(() => ({
   tabs: {
-    get: vi.fn()
+    get: vi.fn(),
+    query: vi.fn()
   },
   scripting: {
     executeScript: vi.fn()
@@ -142,6 +143,7 @@ const context: ToolContext = {
 beforeEach(() => {
   for (const fn of Object.values(fixtures)) fn.mockReset();
   chromeMock.tabs.get.mockReset();
+  chromeMock.tabs.query.mockReset();
   chromeMock.scripting.executeScript.mockReset();
 
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
@@ -167,7 +169,8 @@ beforeEach(() => {
     { id: 10, title: 'Source', url: 'https://example.com/' },
     { id: 31, title: 'Results', url: 'https://example.com/search?q=agent' }
   ]);
-  chromeMock.tabs.get.mockResolvedValue({ id: 10, url: 'https://example.com/' });
+  chromeMock.tabs.get.mockResolvedValue({ id: 10, windowId: 1, url: 'https://example.com/' });
+  chromeMock.tabs.query.mockResolvedValue([{ id: 10, windowId: 1, url: 'https://example.com/' }]);
 });
 
 describe('computer search submit isolation (post-action)', () => {
@@ -281,9 +284,38 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledWith(
       10,
       'https://child.example/',
-      expect.any(Object)
+      expect.any(Object),
+      { existingTabId: 99, allowUnlinkedExistingTab: false }
     );
     expect(result.tabContext).toMatchObject({ executedOnTabId: 99 });
+  });
+
+  it('reuses a newly-created tab even when Chrome does not preserve opener metadata', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://www.baidu.com/link?url=abc', timestamp: 0 }
+    ]);
+    fixtures.awaitOpenerChildTabId.mockResolvedValue(undefined);
+    fixtures.createPolicyCheckedChildTab.mockResolvedValue(88);
+    chromeMock.tabs.query
+      .mockResolvedValueOnce([{ id: 10, windowId: 1, url: 'https://example.com/' }])
+      .mockResolvedValue([
+        { id: 10, windowId: 1, url: 'https://example.com/' },
+        { id: 88, windowId: 1, url: 'https://www.deepseek.com/', status: 'complete' }
+      ]);
+
+    const result = await computerTool.execute(
+      { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+      context
+    );
+
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledWith(
+      10,
+      'https://www.baidu.com/link?url=abc',
+      expect.any(Object),
+      { existingTabId: 88, allowUnlinkedExistingTab: true }
+    );
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 88 });
   });
 
   it('creates a tab only when no popup materializes within the wait budget', async () => {

@@ -23,6 +23,11 @@ import {
   executeHover
 } from './computerActions';
 
+interface TabWindowSnapshot {
+  windowId?: number;
+  tabIds: Set<number>;
+}
+
 function canOpenNewTabFromInteraction(action: string): boolean {
   return (
     action === 'left_click' ||
@@ -59,10 +64,102 @@ function resolveWindowOpenUrl(rawUrl: string, currentUrl: string): string | unde
   }
 }
 
+async function captureTabWindowSnapshot(openerTabId: number): Promise<TabWindowSnapshot> {
+  if (typeof chrome.tabs.query !== 'function') return { tabIds: new Set() };
+  try {
+    const openerTab = await chrome.tabs.get(openerTabId);
+    const windowId = openerTab.windowId;
+    const tabs = await chrome.tabs.query(typeof windowId === 'number' ? { windowId } : {});
+    return {
+      windowId,
+      tabIds: new Set(
+        tabs.map((tab) => tab.id).filter((id): id is number => typeof id === 'number')
+      )
+    };
+  } catch {
+    return { tabIds: new Set() };
+  }
+}
+
+function isNewTabInSnapshotWindow(
+  tab: chrome.tabs.Tab,
+  openerTabId: number,
+  snapshot: TabWindowSnapshot
+): tab is chrome.tabs.Tab & { id: number } {
+  if (typeof tab.id !== 'number') return false;
+  if (tab.id === openerTabId) return false;
+  if (snapshot.tabIds.has(tab.id)) return false;
+  return typeof snapshot.windowId !== 'number' || tab.windowId === snapshot.windowId;
+}
+
+function hasTargetUrl(tab: chrome.tabs.Tab, url: string): boolean {
+  return tab.url === url || tab.pendingUrl === url;
+}
+
+function isOpeningOrLoadingTab(tab: chrome.tabs.Tab): boolean {
+  const url = tab.url ?? '';
+  return (
+    !url ||
+    url === 'about:blank' ||
+    url.startsWith('chrome://newtab') ||
+    tab.status === 'loading' ||
+    typeof tab.pendingUrl === 'string'
+  );
+}
+
+function selectNewWindowOpenCandidate(
+  tabs: chrome.tabs.Tab[],
+  openerTabId: number,
+  url: string,
+  snapshot: TabWindowSnapshot
+): number | undefined {
+  const newTabs = tabs.filter((tab) => isNewTabInSnapshotWindow(tab, openerTabId, snapshot));
+  const exactUrlTab = newTabs.find((tab) => hasTargetUrl(tab, url));
+  if (typeof exactUrlTab?.id === 'number') return exactUrlTab.id;
+
+  const openerChildTab = newTabs.find((tab) => tab.openerTabId === openerTabId);
+  if (typeof openerChildTab?.id === 'number') return openerChildTab.id;
+
+  const loadingTabs = newTabs.filter(isOpeningOrLoadingTab);
+  if (loadingTabs.length === 1 && typeof loadingTabs[0].id === 'number') {
+    return loadingTabs[0].id;
+  }
+
+  if (newTabs.length === 1 && typeof newTabs[0].id === 'number') {
+    return newTabs[0].id;
+  }
+
+  return undefined;
+}
+
+async function awaitNewWindowOpenCandidateTabId(
+  openerTabId: number,
+  url: string,
+  snapshot: TabWindowSnapshot,
+  budgetMs: number
+): Promise<number | undefined> {
+  if (typeof chrome.tabs.query !== 'function' || snapshot.tabIds.size === 0) return undefined;
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    try {
+      const tabs = await chrome.tabs.query(
+        typeof snapshot.windowId === 'number' ? { windowId: snapshot.windowId } : {}
+      );
+      const candidateTabId = selectNewWindowOpenCandidate(tabs, openerTabId, url, snapshot);
+      if (typeof candidateTabId === 'number') return candidateTabId;
+    } catch {
+      // Keep polling until the budget is spent; tab creation is timing-sensitive.
+    }
+    if (Date.now() >= deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 async function createTabsForWindowOpenEvents(
   openerTabId: number,
   currentUrl: string,
-  policy: NavigationPolicyContext
+  policy: NavigationPolicyContext,
+  preActionSnapshot: TabWindowSnapshot
 ): Promise<number[]> {
   const events = cdpDebugger.consumeWindowOpenEvents(openerTabId);
   const seenUrls = new Set<string>();
@@ -73,9 +170,24 @@ async function createTabsForWindowOpenEvents(
     if (!url || seenUrls.has(url)) continue;
     seenUrls.add(url);
 
-    await tabGroupManager.awaitOpenerChildTabId(openerTabId, url, 400);
-
-    const tabId = await createPolicyCheckedChildTab(openerTabId, url, policy);
+    let existingTabId = await tabGroupManager.awaitOpenerChildTabId(openerTabId, url, 400);
+    let allowUnlinkedExistingTab = false;
+    if (typeof existingTabId !== 'number') {
+      existingTabId = await awaitNewWindowOpenCandidateTabId(
+        openerTabId,
+        url,
+        preActionSnapshot,
+        600
+      );
+      allowUnlinkedExistingTab = typeof existingTabId === 'number';
+    }
+    const tabId =
+      typeof existingTabId === 'number'
+        ? await createPolicyCheckedChildTab(openerTabId, url, policy, {
+            existingTabId,
+            allowUnlinkedExistingTab
+          })
+        : await createPolicyCheckedChildTab(openerTabId, url, policy);
     if (typeof tabId === 'number') createdTabIds.push(tabId);
   }
 
@@ -372,6 +484,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
       };
 
       if (canOpenNewTabFromInteraction(toolParams.action)) {
+        const preActionSnapshot = await captureTabWindowSnapshot(effectiveTabId);
         cdpDebugger.clearWindowOpenEvents(effectiveTabId);
         try {
           await cdpDebugger.enablePageEvents(effectiveTabId);
@@ -393,17 +506,16 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         // result — into a grouped child tab under the navigation policy.
         result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
         await new Promise((resolve) => setTimeout(resolve, 150));
-        let adoptedTabIds = await filterPolicyAllowedTabs(
-          await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
-            sessionId: browserScope?.sessionId
-          }),
-          navigationPolicy
-        );
+        const rawAdoptedTabIds = await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
+          sessionId: browserScope?.sessionId
+        });
+        let adoptedTabIds = await filterPolicyAllowedTabs(rawAdoptedTabIds, navigationPolicy);
         if (adoptedTabIds.length === 0) {
           adoptedTabIds = await createTabsForWindowOpenEvents(
             effectiveTabId,
             requireCurrentUrl(),
-            navigationPolicy
+            navigationPolicy,
+            preActionSnapshot
           );
         } else {
           cdpDebugger.consumeWindowOpenEvents(effectiveTabId);

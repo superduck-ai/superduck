@@ -895,6 +895,64 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(chromeMock.tabs.create).not.toHaveBeenCalled();
   });
 
+  it('createChildTabInGroup reuses a specified opener popup after it has redirected', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const targetUrl = 'https://www.baidu.com/link?url=abc';
+    const popup: MockTab = {
+      id: 41,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://www.deepseek.com/',
+      title: 'DeepSeek',
+      index: 2,
+      openerTabId: context!.currentTabId
+    };
+    chromeMock.tabsById.set(popup.id, popup);
+    chromeMock.tabs.create.mockClear();
+
+    const reusedId = await tabGroupManager.createChildTabInGroup(context!.currentTabId, targetUrl, {
+      sessionId: 'session-a',
+      existingTabId: popup.id
+    });
+
+    expect(reusedId).toBe(popup.id);
+    expect(chromeMock.tabs.create).not.toHaveBeenCalled();
+    expect(chromeMock.tabsById.get(popup.id)?.groupId).toBe(context!.tabGroupId);
+  });
+
+  it('createChildTabInGroup reuses a specified unlinked popup only when allowed', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const targetUrl = 'https://www.baidu.com/link?url=abc';
+    const popup: MockTab = {
+      id: 41,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://www.deepseek.com/',
+      title: 'DeepSeek',
+      index: 2
+    };
+    chromeMock.tabsById.set(popup.id, popup);
+    chromeMock.tabs.create.mockClear();
+
+    const reusedId = await tabGroupManager.createChildTabInGroup(context!.currentTabId, targetUrl, {
+      sessionId: 'session-a',
+      existingTabId: popup.id,
+      allowUnlinkedExistingTab: true
+    });
+
+    expect(reusedId).toBe(popup.id);
+    expect(chromeMock.tabs.create).not.toHaveBeenCalled();
+    expect(chromeMock.tabsById.get(popup.id)?.groupId).toBe(context!.tabGroupId);
+  });
+
   it('awaitOpenerChildTabId finds an opener popup that appears after a short delay', async () => {
     const context = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
