@@ -1,4 +1,5 @@
 import { tabGroupManager } from '../tabState';
+import { BLOCKING_OVERLAY_ID } from '../../agentIndicator/constants';
 import { KEY_DEFINITIONS, MAC_KEYBOARD_COMMANDS } from './keyboard';
 import type {
   ClickOptions,
@@ -38,55 +39,82 @@ export function requiresShift(char: string): boolean {
   return '~!@#$%^&*()_+{}|:"<>?'.includes(char) || (char >= 'A' && char <= 'Z');
 }
 
+const BLOCKING_OVERLAY_DATASET_KEYS = {
+  hiddenCount: 'superduckToolHiddenCount',
+  previousDisplay: 'superduckPreviousDisplay',
+  previousVisibility: 'superduckPreviousVisibility',
+  previousPointerEvents: 'superduckPreviousPointerEvents'
+} as const;
+
 export function createCdpInput(deps: CdpInputDeps) {
   const { sendCommand, isMac } = deps;
 
   async function hidePointerBlockingOverlaysForToolUse(tabId: number): Promise<void> {
     try {
       await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: () => {
-          const overlay = document.getElementById('superduck-agent-blocking-overlay');
+        target: { tabId },
+        func: (overlayId: string, datasetKeys: typeof BLOCKING_OVERLAY_DATASET_KEYS) => {
+          const overlay = document.getElementById(overlayId);
           if (!(overlay instanceof HTMLElement)) return;
 
-          if (overlay.dataset.superduckToolHidden !== 'true') {
-            overlay.dataset.superduckToolHidden = 'true';
-            overlay.dataset.superduckPreviousDisplay = overlay.style.display;
-            overlay.dataset.superduckPreviousVisibility = overlay.style.visibility;
-            overlay.dataset.superduckPreviousPointerEvents = overlay.style.pointerEvents;
+          const hiddenCount =
+            Number.parseInt(overlay.dataset[datasetKeys.hiddenCount] ?? '0', 10) || 0;
+          if (hiddenCount === 0) {
+            overlay.dataset[datasetKeys.previousDisplay] = overlay.style.display;
+            overlay.dataset[datasetKeys.previousVisibility] = overlay.style.visibility;
+            overlay.dataset[datasetKeys.previousPointerEvents] = overlay.style.pointerEvents;
           }
+          overlay.dataset[datasetKeys.hiddenCount] = String(hiddenCount + 1);
 
           overlay.style.display = 'none';
           overlay.style.visibility = 'hidden';
           overlay.style.pointerEvents = 'none';
-        }
+        },
+        args: [BLOCKING_OVERLAY_ID, BLOCKING_OVERLAY_DATASET_KEYS]
       });
-    } catch {
-      // Best-effort only. The normal indicator message path still runs.
+    } catch (error) {
+      console.warn(
+        '[CDP Input] hidePointerBlockingOverlaysForToolUse failed for tab',
+        tabId,
+        error
+      );
     }
   }
 
   async function restorePointerBlockingOverlaysAfterToolUse(tabId: number): Promise<void> {
     try {
       await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: () => {
-          const overlay = document.getElementById('superduck-agent-blocking-overlay');
+        target: { tabId },
+        func: (overlayId: string, datasetKeys: typeof BLOCKING_OVERLAY_DATASET_KEYS) => {
+          const overlay = document.getElementById(overlayId);
           if (!(overlay instanceof HTMLElement)) return;
-          if (overlay.dataset.superduckToolHidden !== 'true') return;
+          const hiddenCount =
+            Number.parseInt(overlay.dataset[datasetKeys.hiddenCount] ?? '0', 10) || 0;
+          if (hiddenCount <= 0) return;
 
-          overlay.style.display = overlay.dataset.superduckPreviousDisplay ?? '';
-          overlay.style.visibility = overlay.dataset.superduckPreviousVisibility ?? '';
-          overlay.style.pointerEvents = overlay.dataset.superduckPreviousPointerEvents ?? '';
+          const nextHiddenCount = hiddenCount - 1;
+          if (nextHiddenCount > 0) {
+            overlay.dataset[datasetKeys.hiddenCount] = String(nextHiddenCount);
+            return;
+          }
 
-          delete overlay.dataset.superduckToolHidden;
-          delete overlay.dataset.superduckPreviousDisplay;
-          delete overlay.dataset.superduckPreviousVisibility;
-          delete overlay.dataset.superduckPreviousPointerEvents;
-        }
+          overlay.style.display = overlay.dataset[datasetKeys.previousDisplay] ?? '';
+          overlay.style.visibility = overlay.dataset[datasetKeys.previousVisibility] ?? '';
+          overlay.style.pointerEvents = overlay.dataset[datasetKeys.previousPointerEvents] ?? '';
+
+          delete overlay.dataset[datasetKeys.hiddenCount];
+          delete overlay.dataset[datasetKeys.previousDisplay];
+          delete overlay.dataset[datasetKeys.previousVisibility];
+          delete overlay.dataset[datasetKeys.previousPointerEvents];
+        },
+        args: [BLOCKING_OVERLAY_ID, BLOCKING_OVERLAY_DATASET_KEYS]
       });
-    } catch {
-      // The tab may have navigated as a result of the tool action.
+    } catch (error) {
+      console.warn(
+        '[CDP Input] restorePointerBlockingOverlaysAfterToolUse failed for tab',
+        tabId,
+        error
+      );
     }
   }
 

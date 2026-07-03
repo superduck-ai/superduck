@@ -20,10 +20,11 @@ export async function executeScroll(
   let [x, y] = params.coordinate;
   const context = screenshotContextManager.getContext(tabId);
   const [mappedX, mappedY] = mapCoordinateToViewport(x, y, context, params.coordinate_space);
-  if (context && (mappedX !== x || mappedY !== y)) {
+  if (mappedX !== x || mappedY !== y) {
+    const scale = context ? (context.viewportWidth / context.screenshotWidth).toFixed(4) : 'n/a';
     console.info(
       `[Scroll] screenshot coords=(${x}, ${y}) → viewport coords=(${mappedX}, ${mappedY}) ` +
-        `scale=${(context.viewportWidth / context.screenshotWidth).toFixed(4)}`
+        `scale=${scale}`
     );
     x = mappedX;
     y = mappedY;

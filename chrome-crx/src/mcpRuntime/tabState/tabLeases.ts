@@ -138,7 +138,7 @@ class TabLeaseManager {
     this.mutationQueue = new Promise<void>((resolve) => {
       release = resolve;
     });
-    await previous;
+    await previous.catch(() => {});
     try {
       await this.initialize();
       return await action();
@@ -154,7 +154,7 @@ class TabLeaseManager {
       release = resolve;
     });
     this.mutationQueue = previous.then(() => readFinished);
-    await previous;
+    await previous.catch(() => {});
     try {
       await this.initialize();
       return await action();
@@ -256,6 +256,14 @@ class TabLeaseManager {
     );
   }
 
+  async getActiveLeasedTabIds(): Promise<number[]> {
+    return await this.withRead(() =>
+      Array.from(this.leases.values())
+        .filter((lease) => lease.state === 'active')
+        .map((lease) => lease.tabId)
+    );
+  }
+
   async handoffTabs(
     sessionId: string,
     tabIds: number[],
@@ -264,9 +272,17 @@ class TabLeaseManager {
     await this.withMutation(async () => {
       let changed = false;
       const changedTabIds: number[] = [];
-      for (const tabId of tabIds) {
-        const lease = this.leases.get(tabId);
-        if (!lease || lease.sessionId !== sessionId) continue;
+      const handoffTabIds = new Set(tabIds);
+      for (const [tabId, lease] of this.leases.entries()) {
+        if (lease.sessionId !== sessionId) continue;
+        if (!handoffTabIds.has(tabId)) {
+          if (lease.isActiveHandoff === true) {
+            this.leases.set(tabId, { ...lease, isActiveHandoff: false });
+            changedTabIds.push(tabId);
+            changed = true;
+          }
+          continue;
+        }
         const updated: TabLease = {
           ...lease,
           state: 'handoff',
@@ -374,16 +390,26 @@ class TabLeaseManager {
 
   async pruneMissingTabs(): Promise<void> {
     await this.withMutation(async () => {
-      let changed = false;
-      for (const tabId of Array.from(this.leases.keys())) {
-        try {
-          await chrome.tabs.get(tabId);
-        } catch {
-          this.leases.delete(tabId);
-          changed = true;
-        }
+      const tabIds = Array.from(this.leases.keys());
+      if (tabIds.length === 0) return;
+      let missingTabIds: number[];
+      try {
+        const allTabs = await chrome.tabs.query({});
+        const validTabIds = new Set(
+          allTabs.map((tab) => tab.id).filter((id): id is number => typeof id === 'number')
+        );
+        missingTabIds = tabIds.filter((tabId) => !validTabIds.has(tabId));
+      } catch {
+        const results = await Promise.allSettled(tabIds.map((tabId) => chrome.tabs.get(tabId)));
+        missingTabIds = tabIds.filter((_, index) => results[index].status === 'rejected');
       }
-      if (changed) await this.saveToStorage();
+      for (const tabId of missingTabIds) {
+        this.leases.delete(tabId);
+      }
+      if (missingTabIds.length > 0) {
+        await this.saveToStorage();
+        this.notifyLeaseChangeListeners(missingTabIds, '');
+      }
     });
   }
 }

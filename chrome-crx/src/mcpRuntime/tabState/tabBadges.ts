@@ -24,6 +24,8 @@ class TabBadgeManager {
   readonly storageKey: string = StorageKeys.TAB_DELIVERABLE_BADGES;
   private deliverableTabIds = new Set<number>();
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
+  private mutationQueue: Promise<void> = Promise.resolve();
   private leaseUnsubscribe: (() => void) | null = null;
   private tabEventSubscriptionId: string | null = null;
   /** Guards against reentrant badge writes for the same tab within one tick. */
@@ -39,18 +41,36 @@ class TabBadgeManager {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await this.loadDeliverableFromStorage();
-    // Drop deliverable markers for tabs that were closed while the worker was
-    // down (the onRemoved listener can't fire for a dead worker). Do this
-    // before replaying badges so we don't rehydrate stale ids.
-    await this.pruneMissingTabs();
-    // Replay deliverable badges after a SW restart (chrome.action badge state
-    // is cleared when the worker dies).
-    await this.refreshDeliverableBadges();
-    this.registerLeaseListener();
-    this.registerTabActivationListener();
-    this.registerTabRemovedListener();
-    this.initialized = true;
+    if (this.initPromise) return await this.initPromise;
+    this.initPromise = (async () => {
+      let deliverableReplayTabIds: number[] = [];
+      await this.withMutation(async () => {
+        if (this.initialized) return;
+        await this.loadDeliverableFromStorage();
+        // Drop deliverable markers for tabs that were closed while the worker was
+        // down (the onRemoved listener can't fire for a dead worker). Do this
+        // before replaying badges so we don't rehydrate stale ids.
+        await this.pruneMissingTabsLocked();
+        deliverableReplayTabIds = Array.from(this.deliverableTabIds);
+        this.registerLeaseListener();
+        this.registerTabActivationListener();
+        this.registerTabRemovedListener();
+        this.registerTabReplacedListener();
+        this.initialized = true;
+      });
+      const activeLeasedTabIds = await tabLeaseManager.getActiveLeasedTabIds();
+      const replayTabIds = [...new Set([...deliverableReplayTabIds, ...activeLeasedTabIds])];
+      // Replay badges after a SW restart (chrome.action badge state is cleared
+      // when the worker dies). Deliverable markers win over active leases in
+      // applyBadge when both apply to the same tab.
+      await Promise.all(replayTabIds.map((tabId) => this.applyBadge(tabId)));
+    })();
+    try {
+      await this.initPromise;
+    } catch (err) {
+      this.initPromise = null;
+      throw err;
+    }
   }
 
   private async loadDeliverableFromStorage(): Promise<void> {
@@ -67,9 +87,27 @@ class TabBadgeManager {
   }
 
   private async persistDeliverable(): Promise<void> {
-    await getStorageArea().set({
-      [this.storageKey]: { tabIds: Array.from(this.deliverableTabIds) }
+    try {
+      await getStorageArea().set({
+        [this.storageKey]: { tabIds: Array.from(this.deliverableTabIds) }
+      });
+    } catch (err) {
+      console.warn('[tabBadges] failed to persist deliverable badges', err);
+    }
+  }
+
+  private async withMutation<T>(action: () => Promise<T>): Promise<T> {
+    const previous = this.mutationQueue;
+    let release!: () => void;
+    this.mutationQueue = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    await previous.catch(() => {});
+    try {
+      return await action();
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -78,13 +116,16 @@ class TabBadgeManager {
    */
   async markDeliverable(tabIds: number[]): Promise<void> {
     if (tabIds.length === 0) return;
-    for (const tabId of tabIds) {
-      if (typeof tabId === 'number' && Number.isInteger(tabId)) {
-        this.deliverableTabIds.add(tabId);
-      }
-    }
-    await this.persistDeliverable();
-    await Promise.all(tabIds.map((tabId) => this.applyBadge(tabId)));
+    await this.initialize();
+    const validTabIds = tabIds.filter(
+      (tabId) => typeof tabId === 'number' && Number.isInteger(tabId)
+    );
+    if (validTabIds.length === 0) return;
+    await this.withMutation(async () => {
+      for (const tabId of validTabIds) this.deliverableTabIds.add(tabId);
+      await this.persistDeliverable();
+    });
+    await Promise.all(validTabIds.map((tabId) => this.applyBadge(tabId)));
   }
 
   private registerLeaseListener(): void {
@@ -100,17 +141,13 @@ class TabBadgeManager {
     this.tabEventSubscriptionId = eventManager.subscribe('all', ['active'], (tabId) => {
       // Read receipt: switching to a deliverable tab clears its badge.
       if (this.deliverableTabIds.has(tabId)) {
-        this.deliverableTabIds.delete(tabId);
-        void this.persistDeliverable();
-        // Clear the deliverable badge; if the tab still holds an active lease
-        // the lease listener path will re-apply the active badge on the next
-        // mutation, but to be safe re-evaluate immediately.
-        void this.applyBadge(tabId);
+        void this.clearDeliverable(tabId);
       }
     });
   }
 
   private tabRemovedListener: ((tabId: number) => void) | null = null;
+  private tabReplacedListener: ((addedTabId: number, removedTabId: number) => void) | null = null;
   private registerTabRemovedListener(): void {
     if (this.tabRemovedListener) return;
     const listener = (tabId: number) => {
@@ -118,12 +155,22 @@ class TabBadgeManager {
       // a recycled tab id inherits a ✓ badge it never earned, and the set grows
       // unbounded across a long browser session.
       if (this.deliverableTabIds.has(tabId)) {
-        this.deliverableTabIds.delete(tabId);
-        void this.persistDeliverable();
+        void this.clearDeliverable(tabId, { refreshBadge: false });
       }
     };
     this.tabRemovedListener = listener;
     chrome.tabs.onRemoved?.addListener?.(listener);
+  }
+
+  private registerTabReplacedListener(): void {
+    if (this.tabReplacedListener) return;
+    const listener = (addedTabId: number, removedTabId: number) => {
+      if (this.deliverableTabIds.has(removedTabId)) {
+        void this.replaceDeliverableTab(removedTabId, addedTabId);
+      }
+    };
+    this.tabReplacedListener = listener;
+    chrome.tabs.onReplaced?.addListener?.(listener);
   }
 
   private scheduleRefresh(tabId: number): void {
@@ -163,8 +210,29 @@ class TabBadgeManager {
     }
   }
 
-  private async refreshDeliverableBadges(): Promise<void> {
-    await Promise.all(Array.from(this.deliverableTabIds).map((tabId) => this.applyBadge(tabId)));
+  private async clearDeliverable(
+    tabId: number,
+    options: { refreshBadge?: boolean } = {}
+  ): Promise<void> {
+    let changed = false;
+    await this.withMutation(async () => {
+      changed = this.deliverableTabIds.delete(tabId);
+      if (changed) await this.persistDeliverable();
+    });
+    if (changed && options.refreshBadge !== false) {
+      await this.applyBadge(tabId);
+    }
+  }
+
+  private async replaceDeliverableTab(removedTabId: number, addedTabId: number): Promise<void> {
+    let changed = false;
+    await this.withMutation(async () => {
+      changed = this.deliverableTabIds.delete(removedTabId);
+      if (!changed) return;
+      this.deliverableTabIds.add(addedTabId);
+      await this.persistDeliverable();
+    });
+    if (changed) await this.applyBadge(addedTabId);
   }
 
   /**
@@ -172,6 +240,12 @@ class TabBadgeManager {
    * only from initialize(); safe to call repeatedly if wired into cleanup later.
    */
   async pruneMissingTabs(): Promise<void> {
+    await this.withMutation(async () => {
+      await this.pruneMissingTabsLocked();
+    });
+  }
+
+  private async pruneMissingTabsLocked(): Promise<void> {
     if (this.deliverableTabIds.size === 0) return;
     const tabIds = Array.from(this.deliverableTabIds);
     const allTabs = await chrome.tabs.query({});

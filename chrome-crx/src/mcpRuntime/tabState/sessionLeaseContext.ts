@@ -30,13 +30,12 @@ export async function buildSessionContextFromLeases(
   leases: TabLease[]
 ): Promise<FinalizedTabContext | undefined> {
   const tabs: Array<chrome.tabs.Tab & { id: number }> = [];
-  for (const lease of leases) {
-    try {
-      const tab = await chrome.tabs.get(lease.tabId);
-      if (typeof tab.id === 'number') tabs.push(tab as chrome.tabs.Tab & { id: number });
-    } catch {
-      // Stale lease: the lease manager prunes missing tabs on the next pass.
+  const results = await Promise.allSettled(leases.map((lease) => chrome.tabs.get(lease.tabId)));
+  for (const result of results) {
+    if (result.status === 'fulfilled' && typeof result.value.id === 'number') {
+      tabs.push(result.value as chrome.tabs.Tab & { id: number });
     }
+    // Stale lease: the lease manager prunes missing tabs on the next pass.
   }
   if (tabs.length === 0) return undefined;
 
@@ -51,9 +50,9 @@ export async function buildSessionContextFromLeases(
   });
 
   const firstLease = leaseByTabId.get(tabs[0].id);
+  const tabGroupNone = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
   const tabGroupId =
-    firstLease?.groupId ??
-    (tabs[0].groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? tabs[0].groupId : undefined);
+    firstLease?.groupId ?? (tabs[0].groupId !== tabGroupNone ? tabs[0].groupId : undefined);
   if (typeof tabGroupId !== 'number') return undefined;
 
   return {

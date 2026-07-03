@@ -30,9 +30,12 @@ export async function executeDrag(
     const securityCheck = await checkDomainSecurity(tabId, currentUrl, 'drag action');
     if (securityCheck) return securityCheck;
 
+    const manageIndicator = !options?.skipIndicator;
     await animateCursorOnTab(tabId, startX, startY, 'drag_start', options?.skipIndicator);
-    await tabGroupManager.hideIndicatorForToolUse(tabId);
-    await cdpDebugger.hidePointerBlockingOverlaysForToolUse(tabId);
+    if (manageIndicator) {
+      await tabGroupManager.hideIndicatorForToolUse(tabId);
+      await cdpDebugger.hidePointerBlockingOverlaysForToolUse(tabId);
+    }
     try {
       await cdpDebugger.dispatchMouseEvent(tabId, {
         type: 'mouseMoved',
@@ -69,8 +72,10 @@ export async function executeDrag(
         modifiers: 0
       });
     } finally {
-      await cdpDebugger.restorePointerBlockingOverlaysAfterToolUse(tabId);
-      await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
+      if (manageIndicator) {
+        await cdpDebugger.restorePointerBlockingOverlaysAfterToolUse(tabId);
+        await tabGroupManager.restoreIndicatorAfterToolUse(tabId);
+      }
     }
 
     return { output: `Dragged from (${startX}, ${startY}) to (${endX}, ${endY})` };
