@@ -96,17 +96,6 @@ function hasTargetUrl(tab: chrome.tabs.Tab, url: string): boolean {
   return tab.url === url || tab.pendingUrl === url;
 }
 
-function isOpeningOrLoadingTab(tab: chrome.tabs.Tab): boolean {
-  const url = tab.url ?? '';
-  return (
-    !url ||
-    url === 'about:blank' ||
-    url.startsWith('chrome://newtab') ||
-    tab.status === 'loading' ||
-    typeof tab.pendingUrl === 'string'
-  );
-}
-
 function selectNewWindowOpenCandidate(
   tabs: chrome.tabs.Tab[],
   openerTabId: number,
@@ -119,11 +108,6 @@ function selectNewWindowOpenCandidate(
 
   const openerChildTab = newTabs.find((tab) => tab.openerTabId === openerTabId);
   if (typeof openerChildTab?.id === 'number') return openerChildTab.id;
-
-  const loadingTabs = newTabs.filter(isOpeningOrLoadingTab);
-  if (loadingTabs.length === 1 && typeof loadingTabs[0].id === 'number') {
-    return loadingTabs[0].id;
-  }
 
   if (newTabs.length === 1 && typeof newTabs[0].id === 'number') {
     return newTabs[0].id;

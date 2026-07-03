@@ -318,6 +318,36 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     expect(result.tabContext).toMatchObject({ executedOnTabId: 88 });
   });
 
+  it('does not guess an unlinked candidate when multiple new tabs appeared', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://www.baidu.com/link?url=abc', timestamp: 0 }
+    ]);
+    fixtures.awaitOpenerChildTabId.mockResolvedValue(undefined);
+    fixtures.createPolicyCheckedChildTab.mockResolvedValue(77);
+    chromeMock.tabs.query
+      .mockResolvedValueOnce([{ id: 10, windowId: 1, url: 'https://example.com/' }])
+      .mockResolvedValue([
+        { id: 10, windowId: 1, url: 'https://example.com/' },
+        { id: 88, windowId: 1, url: 'https://www.deepseek.com/', status: 'complete' },
+        { id: 89, windowId: 1, url: 'about:blank', status: 'loading' }
+      ]);
+
+    const result = await computerTool.execute(
+      { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+      context
+    );
+
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
+    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toHaveLength(3);
+    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toEqual([
+      10,
+      'https://www.baidu.com/link?url=abc',
+      expect.any(Object)
+    ]);
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
+  });
+
   it('creates a tab only when no popup materializes within the wait budget', async () => {
     fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
     fixtures.consumeWindowOpenEvents.mockReturnValue([
