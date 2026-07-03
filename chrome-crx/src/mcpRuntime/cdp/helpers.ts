@@ -53,7 +53,7 @@ export function mapCoordinateToViewport(
       }
     | null
     | undefined,
-  coordinateSpace?: string
+  coordinateSpace?: 'screenshot' | 'viewport'
 ): [number, number] {
   return context && coordinateSpace !== 'viewport'
     ? screenshotToViewportCoords(x, y, context)
