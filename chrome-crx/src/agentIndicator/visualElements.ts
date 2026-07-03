@@ -1,3 +1,5 @@
+import { BLOCKING_OVERLAY_ID } from './constants';
+
 export function createGlowBorder(): HTMLElement {
   const wrapper = document.createElement('div');
   wrapper.id = 'superduck-agent-glow-border';
@@ -71,7 +73,7 @@ export function createBlockingOverlay(): HTMLElement {
   // 全屏透明遮罩，拦截真实用户输入。CDP Input.dispatchMouseEvent / dispatchKeyEvent
   // 是浏览器层注入，不经过 DOM 事件分发，不受 pointer-events 影响。
   const overlay = document.createElement('div');
-  overlay.id = 'superduck-agent-blocking-overlay';
+  overlay.id = BLOCKING_OVERLAY_ID;
   overlay.style.cssText = `
     position: fixed;
     top: 0;
