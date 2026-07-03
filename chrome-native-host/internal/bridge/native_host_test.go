@@ -239,6 +239,86 @@ func TestExecuteToolWithContextSendsClientSessionOutsideArgs(t *testing.T) {
 	}
 }
 
+func TestExecuteToolPreservesContentWrapWhenStructuredContentPresent(t *testing.T) {
+	path, token := prepareBridgeAuthTest(t)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+
+		raw, err := protocol.ReadMessage(conn)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var auth struct {
+			Type  string `json:"type"`
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(raw, &auth); err != nil {
+			serverErr <- err
+			return
+		}
+		if auth.Type != "auth" || auth.Token != token {
+			t.Errorf("auth = (%q, %q), want (auth, %q)", auth.Type, auth.Token, token)
+		}
+		if err := protocol.SendMessage(conn, map[string]string{"type": "auth_response", "ok": "true"}); err != nil {
+			serverErr <- err
+			return
+		}
+
+		if _, err = protocol.ReadMessage(conn); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- protocol.SendMessage(conn, protocol.ToolResponseMsg{
+			Type: "tool_response",
+			Result: &protocol.ContentWrap{
+				Content: []map[string]any{{"type": "text", "text": "ok"}},
+				StructuredContent: map[string]any{
+					"tabContext": map[string]any{"currentTabId": 42},
+				},
+			},
+		})
+	}()
+
+	bridge := &NativeHostBridge{udsPath: path}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := bridge.ExecuteTool(ctx, "test_tool", map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("ExecuteTool() error = %v", err)
+	}
+	wrapped, ok := result.(*protocol.ContentWrap)
+	if !ok {
+		t.Fatalf("ExecuteTool() result type = %T, want *protocol.ContentWrap", result)
+	}
+	content, ok := wrapped.Content.([]interface{})
+	if !ok || len(content) != 1 {
+		t.Fatalf("Content = %#v, want one content block", wrapped.Content)
+	}
+	structured, ok := wrapped.StructuredContent.(map[string]interface{})
+	if !ok {
+		t.Fatalf("StructuredContent type = %T, want map[string]interface{}", wrapped.StructuredContent)
+	}
+	if _, ok := structured["tabContext"].(map[string]interface{}); !ok {
+		t.Fatalf("StructuredContent.tabContext = %#v, want map", structured["tabContext"])
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server error = %v", err)
+	}
+}
+
 func TestCheckHealthConnectsAndMarksHealthy(t *testing.T) {
 	path, token := prepareBridgeAuthTest(t)
 	listener, err := net.Listen("unix", path)

@@ -109,7 +109,7 @@ const chromeMock = vi.hoisted(() => {
     },
     tabGroups: {
       TAB_GROUP_ID_NONE: -1,
-      Color: { ORANGE: 'orange' },
+      Color: { ORANGE: 'orange', GREEN: 'green' },
       update: vi.fn(
         async (id: number, props: { title?: string; color?: string; collapsed?: boolean }) => {
           if (!groupIds.has(id)) throw new Error(`No group ${id}`);
@@ -155,6 +155,7 @@ vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
 const { tabLeaseManager } = await import('./tabLeases');
+const { DomainCategoryCache } = await import('./domainCategory');
 
 type MutableTabGroupManager = typeof tabGroupManager & {
   groupMetadata: Map<number, unknown>;
@@ -184,6 +185,10 @@ beforeEach(() => {
   chromeMock.storage.session.get.mockClear();
   chromeMock.storage.session.set.mockClear();
   chromeMock.storage.session.remove.mockClear();
+  chromeMock.storage.local.get.mockClear();
+  chromeMock.storage.local.set.mockClear();
+  chromeMock.storage.local.remove.mockClear();
+  chromeMock.tabGroups.update.mockClear();
 });
 
 describe('TabGroupManager session-scoped MCP leases', () => {
@@ -352,6 +357,34 @@ describe('TabGroupManager session-scoped MCP leases', () => {
         sessionId: 'session-b'
       })
     ).rejects.toThrow('already part of browser session session-a');
+  });
+
+  it('checks explicit tab lease conflicts before rewriting MCP group state', async () => {
+    const first = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    const second = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-b'
+    });
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    chromeMock.storage.local.set.mockClear();
+    chromeMock.tabGroups.update.mockClear();
+    const previousMcpGroupId = manager.mcpTabGroupId;
+
+    await expect(
+      tabGroupManager.getTabForMcp(first!.currentTabId, undefined, {
+        sessionId: 'session-b'
+      })
+    ).rejects.toThrow('already part of browser session session-a');
+
+    expect(manager.mcpTabGroupId).toBe(previousMcpGroupId);
+    expect(manager.mcpTabGroupId).toBe(second!.tabGroupId);
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalled();
+    expect(chromeMock.tabGroups.update).not.toHaveBeenCalled();
   });
 
   it('finalize handoff keeps the lease dormant and resumes it for a later turn', async () => {
@@ -660,6 +693,30 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(await tabLeaseManager.getLease(context!.currentTabId)).toBeUndefined();
   });
 
+  it('does not release leases or mark deliverables when session finalize cannot ungroup', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    chromeMock.tabs.ungroup.mockRejectedValueOnce(new Error('ungroup failed'));
+
+    await expect(
+      tabGroupManager.finalizeMcpTabGroup({
+        sessionId: 'session-a',
+        keep: [{ tabId: context!.currentTabId, status: 'deliverable' }]
+      })
+    ).rejects.toThrow('ungroup failed');
+
+    expect(chromeMock.tabsById.get(context!.currentTabId)?.groupId).toBe(context!.tabGroupId);
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a',
+      state: 'active'
+    });
+    expect(chromeMock.sessionStore.get('tabDeliverableBadges')).toBeUndefined();
+  });
+
   it('resumes the primary handoff tab even when it no longer sorts first by index', async () => {
     const ctx = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
@@ -734,6 +791,46 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(reusedId).toBe(popup.id);
     expect(chromeMock.tabs.create).not.toHaveBeenCalled();
     expect(chromeMock.tabsById.get(popup.id)?.groupId).toBe(context!.tabGroupId);
+  });
+
+  it('releases a claimed child-tab lease when adoption fails after grouping', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const popup: MockTab = {
+      id: 41,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://child.example/',
+      title: 'Popup',
+      index: 2,
+      openerTabId: context!.currentTabId
+    };
+    chromeMock.tabsById.set(popup.id, popup);
+    const categorySpy = vi
+      .spyOn(DomainCategoryCache, 'getCategory')
+      .mockRejectedValueOnce(new Error('category lookup failed'));
+
+    try {
+      const reusedId = await tabGroupManager.createChildTabInGroup(
+        context!.currentTabId,
+        popup.url,
+        {
+          sessionId: 'session-a'
+        }
+      );
+
+      expect(reusedId).toBe(popup.id);
+      expect(await tabLeaseManager.getLease(popup.id)).toBeUndefined();
+      const meta = manager.groupMetadata.get(context!.currentTabId) as
+        | { memberStates: Map<number, unknown> }
+        | undefined;
+      expect(meta?.memberStates.has(popup.id)).toBe(false);
+    } finally {
+      categorySpy.mockRestore();
+    }
   });
 
   it('createChildTabInGroup reuses an opener popup that is mid-redirect (url matches neither target nor pendingUrl) instead of duplicating', async () => {

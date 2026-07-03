@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"chrome-native-host/internal/protocol"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
 
 func TestBuildCallToolResultPreservesStructuredContent(t *testing.T) {
 	t.Parallel()
@@ -36,6 +42,36 @@ func TestBuildCallToolResultPreservesStructuredContent(t *testing.T) {
 
 	if callResult.IsError {
 		t.Fatal("IsError = true, want false")
+	}
+}
+
+func TestBuildCallToolResultPreservesContentWrapContentAndStructuredContent(t *testing.T) {
+	t.Parallel()
+	result := &protocol.ContentWrap{
+		Content: []interface{}{
+			map[string]interface{}{"type": "text", "text": "ok"},
+		},
+		StructuredContent: map[string]interface{}{
+			"tabContext": map[string]interface{}{
+				"currentTabId": float64(42),
+			},
+		},
+	}
+
+	callResult := buildCallToolResult(result)
+
+	if callResult.StructuredContent == nil {
+		t.Fatal("StructuredContent is nil")
+	}
+	if got := len(callResult.Content); got != 1 {
+		t.Fatalf("Content length = %d, want 1", got)
+	}
+	text, ok := callResult.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("Content[0] type = %T, want *mcp.TextContent", callResult.Content[0])
+	}
+	if text.Text != "ok" {
+		t.Fatalf("Content[0].Text = %q, want ok", text.Text)
 	}
 }
 

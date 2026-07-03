@@ -367,7 +367,10 @@ export async function getOrCreateToolExecutor(
     // Refresh the messagesClient if it's missing (e.g., auth wasn't ready on first creation)
     if (!cloned.context.messagesClient) {
       const refreshed = await refreshMessagesClient();
-      if (refreshed) cloned.context.messagesClient = refreshed;
+      if (refreshed) {
+        toolExecutorInstance.context.messagesClient = refreshed;
+        cloned.context.messagesClient = refreshed;
+      }
     }
     return cloned;
   }

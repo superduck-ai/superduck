@@ -42,18 +42,23 @@ export async function getTabForMcp(
       const groupId =
         group?.chromeGroupId ??
         (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? tab.groupId : undefined);
+      let existingLease: TabLease | undefined;
+      let memberOrigin: TabLeaseOrigin | undefined;
+      let shouldClaimUnleased = false;
+      if (scope) {
+        existingLease = await tabLeaseManager.getLease(tabId);
+        if (existingLease && existingLease.sessionId !== scope.sessionId) {
+          throw new BrowserSessionConflictError(tabId, existingLease.sessionId);
+        }
+        memberOrigin = group?.memberStates.get(tabId)?.origin;
+        shouldClaimUnleased = !existingLease && (!isInternalBrowserUrl(tab.url) || Boolean(group));
+      }
       if (typeof groupId === 'number') {
         mgr.mcpTabGroupId = groupId;
         await saveMcpTabGroupId(mgr);
         await ensureMcpGroupCharacteristics(mgr, groupId, scope?.sessionId);
       }
       if (scope) {
-        const existingLease = await tabLeaseManager.getLease(tabId);
-        if (existingLease && existingLease.sessionId !== scope.sessionId) {
-          throw new BrowserSessionConflictError(tabId, existingLease.sessionId);
-        }
-        const memberOrigin = group?.memberStates.get(tabId)?.origin;
-        const shouldClaimUnleased = !existingLease && (!isInternalBrowserUrl(tab.url) || group);
         if (existingLease) {
           await tabLeaseManager.claimTab(scope.sessionId, tabId, existingLease.origin, {
             groupId

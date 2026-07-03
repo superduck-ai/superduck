@@ -385,7 +385,8 @@ export function useSidepanelState() {
       getPermissionManager,
       queryTabId: query.tabId,
       effectiveMessagesClient,
-      permissionMode
+      permissionMode,
+      activeSessionId
     });
 
   const { systemPrompt, createApiMessage, invokeSessionModel } = useModelActions({

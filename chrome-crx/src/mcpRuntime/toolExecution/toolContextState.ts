@@ -18,6 +18,7 @@ export type ActiveToolContext = {
 const activeToolContexts = new Map<number, ActiveToolContext>();
 
 const pendingPrefixTimeouts = new Map<number, ReturnType<typeof setTimeout> | null>();
+const pendingDebuggerTimeouts = new Map<number, ReturnType<typeof setTimeout> | null>();
 const PREFIX_CLEANUP_DELAY = 20000;
 // Debuggers are detached lazily: "thinking" pauses between tool calls must not
 // tear down the CDP session (re-attaching is slow and re-flashes Chrome's
@@ -55,6 +56,12 @@ export function setPendingPrefixTimeout(
   timeout: ReturnType<typeof setTimeout> | null
 ): void {
   pendingPrefixTimeouts.set(tabId, timeout);
+}
+
+function clearPendingDebuggerTimeout(tabId: number): void {
+  const timeout = pendingDebuggerTimeouts.get(tabId);
+  if (timeout) clearTimeout(timeout);
+  pendingDebuggerTimeouts.delete(tabId);
 }
 
 // --- Serialization / persistence ---
@@ -216,6 +223,7 @@ export async function startToolContext(
   requestId: string,
   errorCallback: (error: string) => void
 ): Promise<void> {
+  clearPendingDebuggerTimeout(tabId);
   activeToolContexts.set(tabId, {
     toolName,
     requestId,
@@ -294,15 +302,18 @@ export function cleanupAfterToolExecution(tabId: number, _clientId?: string): vo
     }
   }, PREFIX_CLEANUP_DELAY);
   pendingPrefixTimeouts.set(tabId, idleIndicatorTimer);
-  setTimeout(() => {
+  const debuggerDetachTimer = setTimeout(() => {
+    pendingDebuggerTimeouts.delete(tabId);
     if (!activeToolContexts.has(tabId)) cdpDebugger.detachDebugger(tabId).catch(() => {});
   }, DEBUGGER_IDLE_DETACH_DELAY);
+  pendingDebuggerTimeouts.set(tabId, debuggerDetachTimer);
 }
 
 function clearPrefixForTab(tabId: number): void {
   const timeout = pendingPrefixTimeouts.get(tabId);
   if (timeout) clearTimeout(timeout);
   pendingPrefixTimeouts.delete(tabId);
+  clearPendingDebuggerTimeout(tabId);
   tabGroupManager.removePrefix(tabId).catch(() => {});
 
   const mainTabId = findGroupMainTab(tabId) ?? tabId;

@@ -599,8 +599,11 @@ func (b *NativeHostBridge) ExecuteToolWithContext(ctx context.Context, toolName 
 		return nil, fmt.Errorf("tool error: %v", resp.Error.Content)
 	}
 
-	if resp.Result != nil && resp.Result.StructuredContent != nil {
-		return resp.Result.StructuredContent, nil
+	if resp.Result == nil {
+		return nil, nil
+	}
+	if resp.Result.StructuredContent != nil {
+		return resp.Result, nil
 	}
 
 	return resp.Result.Content, nil

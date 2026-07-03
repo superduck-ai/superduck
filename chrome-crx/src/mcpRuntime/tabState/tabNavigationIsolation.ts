@@ -290,12 +290,13 @@ async function adoptChildTab(
   const meta = mgr.groupMetadata.get(mainTabId);
   if (!meta) return false;
 
+  let claimedForSession = false;
+  let addedMemberState = false;
   try {
     const wasMember = meta.memberStates.has(tabId);
     const wasInGroup = tab.groupId === meta.chromeGroupId;
     if (wasMember && wasInGroup) return false;
 
-    let claimedForSession = false;
     if (options.sessionId) {
       await tabLeaseManager.claimTab(options.sessionId, tabId, 'agent', {
         groupId: meta.chromeGroupId
@@ -303,15 +304,8 @@ async function adoptChildTab(
       claimedForSession = true;
     }
 
-    try {
-      if (!wasInGroup) {
-        await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
-      }
-    } catch (err) {
-      if (claimedForSession) {
-        await tabLeaseManager.releaseTabs(options.sessionId!, [tabId]).catch(() => {});
-      }
-      throw err;
+    if (!wasInGroup) {
+      await chrome.tabs.group({ tabIds: [tabId], groupId: meta.chromeGroupId });
     }
     if (!wasMember) {
       meta.memberStates.set(tabId, {
@@ -319,6 +313,7 @@ async function adoptChildTab(
         origin: 'agent',
         disposition: 'active'
       });
+      addedMemberState = true;
     }
     if (tab.url) await mgr.updateTabBlocklistStatus(tabId, tab.url);
     await mgr.saveToStorage();
@@ -332,6 +327,10 @@ async function adoptChildTab(
     }
     return true;
   } catch (err) {
+    if (addedMemberState) meta.memberStates.delete(tabId);
+    if (claimedForSession && options.sessionId) {
+      await tabLeaseManager.releaseTabs(options.sessionId, [tabId]).catch(() => {});
+    }
     if (err instanceof BrowserSessionConflictError) throw err;
     return false;
   }

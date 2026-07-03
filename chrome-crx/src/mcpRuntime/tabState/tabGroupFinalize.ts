@@ -152,6 +152,9 @@ async function finalizeSessionMcpTabGroup(
     Array.from(activeTabIds).map((tabId) => hideAllIndicatorsForTab(mgr, tabId, true))
   );
 
+  // releaseTabIds already excludes handoff tabs: release === leave the group.
+  await ungroupTabs(releaseTabIds);
+
   if (handoffTabIds.length > 0) {
     await tabLeaseManager.handoffTabs(scope.sessionId, handoffTabIds, {
       groupId: context.tabGroupId,
@@ -164,9 +167,6 @@ async function finalizeSessionMcpTabGroup(
   if (deliverableTabIds.length > 0) {
     await tabBadgeManager.markDeliverable(deliverableTabIds);
   }
-
-  // releaseTabIds already excludes handoff tabs: release === leave the group.
-  await ungroupTabs(releaseTabIds);
 
   const meta = findMetadataByChromeGroupId(mgr, context.tabGroupId);
   if (meta) {
