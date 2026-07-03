@@ -55,6 +55,7 @@ class TabBadgeManager {
         this.registerLeaseListener();
         this.registerTabActivationListener();
         this.registerTabRemovedListener();
+        this.registerTabReplacedListener();
         this.initialized = true;
       });
       // Replay deliverable badges after a SW restart (chrome.action badge state
@@ -142,6 +143,7 @@ class TabBadgeManager {
   }
 
   private tabRemovedListener: ((tabId: number) => void) | null = null;
+  private tabReplacedListener: ((addedTabId: number, removedTabId: number) => void) | null = null;
   private registerTabRemovedListener(): void {
     if (this.tabRemovedListener) return;
     const listener = (tabId: number) => {
@@ -154,6 +156,17 @@ class TabBadgeManager {
     };
     this.tabRemovedListener = listener;
     chrome.tabs.onRemoved?.addListener?.(listener);
+  }
+
+  private registerTabReplacedListener(): void {
+    if (this.tabReplacedListener) return;
+    const listener = (addedTabId: number, removedTabId: number) => {
+      if (this.deliverableTabIds.has(removedTabId)) {
+        void this.replaceDeliverableTab(removedTabId, addedTabId);
+      }
+    };
+    this.tabReplacedListener = listener;
+    chrome.tabs.onReplaced?.addListener?.(listener);
   }
 
   private scheduleRefresh(tabId: number): void {
@@ -209,6 +222,17 @@ class TabBadgeManager {
     if (changed && options.refreshBadge !== false) {
       await this.applyBadge(tabId);
     }
+  }
+
+  private async replaceDeliverableTab(removedTabId: number, addedTabId: number): Promise<void> {
+    let changed = false;
+    await this.withMutation(async () => {
+      changed = this.deliverableTabIds.delete(removedTabId);
+      if (!changed) return;
+      this.deliverableTabIds.add(addedTabId);
+      await this.persistDeliverable();
+    });
+    if (changed) await this.applyBadge(addedTabId);
   }
 
   /**

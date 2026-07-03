@@ -87,6 +87,9 @@ const chromeMock = vi.hoisted(() => {
     fireActivated(tabId: number) {
       for (const listener of [...activatedListeners]) listener({ tabId });
     },
+    fireReplaced(addedTabId: number, removedTabId: number) {
+      for (const listener of [...replacedListeners]) listener(addedTabId, removedTabId);
+    },
     reset() {
       sessionStore.clear();
       localStore.clear();
@@ -137,6 +140,10 @@ async function loadTabBadgeManager(): Promise<void> {
   ({ tabBadgeManager } = await import('./tabBadges'));
 }
 
+async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('tabBadgeManager', () => {
   beforeEach(async () => {
     await loadTabBadgeManager();
@@ -184,5 +191,19 @@ describe('tabBadgeManager', () => {
       (call) => (call[0] as { tabId: number }).tabId
     );
     expect(refreshedTabIds.sort((a, b) => a - b)).toEqual([10, 20]);
+  });
+
+  it('moves deliverable badge state to the new tab id when Chrome replaces a tab', async () => {
+    await tabBadgeManager.initialize();
+    await tabBadgeManager.markDeliverable([10]);
+    chromeMock.action.setBadgeText.mockClear();
+
+    chromeMock.fireReplaced(20, 10);
+    await flushAsyncWork();
+
+    expect(chromeMock.sessionStore.get('tabDeliverableBadges')).toEqual({ tabIds: [20] });
+    expect(chromeMock.action.setBadgeText).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 20 })
+    );
   });
 });
