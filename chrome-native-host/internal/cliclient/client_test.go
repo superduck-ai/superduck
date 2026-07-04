@@ -369,8 +369,21 @@ func startOneShotToolServer(
 		}
 		defer conn.Close()
 
-		if _, err := protocol.ReadMessage(conn); err != nil {
+		authRaw, err := protocol.ReadMessage(conn)
+		if err != nil {
 			errCh <- err
+			return
+		}
+		var auth struct {
+			Type  string `json:"type"`
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(authRaw, &auth); err != nil {
+			errCh <- err
+			return
+		}
+		if auth.Type != "auth" || auth.Token != "test-token" {
+			errCh <- &testClientServerError{msg: "unexpected auth request"}
 			return
 		}
 		if err := protocol.SendMessage(conn, map[string]any{"type": "auth_response", "ok": "true"}); err != nil {
@@ -398,4 +411,12 @@ func startOneShotToolServer(
 			t.Fatalf("server error = %v", err)
 		}
 	}
+}
+
+type testClientServerError struct {
+	msg string
+}
+
+func (e *testClientServerError) Error() string {
+	return e.msg
 }

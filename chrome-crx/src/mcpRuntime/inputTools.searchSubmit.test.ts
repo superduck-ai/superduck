@@ -68,13 +68,27 @@ vi.mock('./shared', () => ({
 
 vi.mock('./tabState', () => ({
   tabGroupManager: {
-    getEffectiveTabId: fixtures.getEffectiveTabId,
+    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
     createChildTabInGroup: fixtures.createChildTabInGroup,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
     rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy,
     awaitOpenerChildTabId: fixtures.awaitOpenerChildTabId
+  }
+}));
+
+vi.mock('./tabState/tabLeases', () => ({
+  BrowserSessionConflictError: class BrowserSessionConflictError extends Error {
+    readonly code = 'browser_session_conflict';
+
+    constructor(
+      readonly tabId: number,
+      readonly owningSessionId: string
+    ) {
+      super(`Tab ${tabId} is already part of browser session ${owningSessionId}`);
+      this.name = 'BrowserSessionConflictError';
+    }
   }
 }));
 
@@ -131,6 +145,7 @@ const chromeMock = vi.hoisted(() => ({
 vi.stubGlobal('chrome', chromeMock);
 
 const { computerTool } = await import('./inputTools/computerTool');
+const { BrowserSessionConflictError } = await import('./tabState/tabLeases');
 
 const context: ToolContext = {
   tabId: 10,
@@ -290,7 +305,7 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     expect(result.tabContext).toMatchObject({ executedOnTabId: 99 });
   });
 
-  it('reuses a newly-created tab even when Chrome does not preserve opener metadata', async () => {
+  it('reuses a newly-created still-opening tab even when Chrome does not preserve opener metadata', async () => {
     fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
     fixtures.consumeWindowOpenEvents.mockReturnValue([
       { url: 'https://www.baidu.com/link?url=abc', timestamp: 0 }
@@ -301,7 +316,14 @@ describe('computer window.open fallback (no duplicate popup)', () => {
       .mockResolvedValueOnce([{ id: 10, windowId: 1, url: 'https://example.com/' }])
       .mockResolvedValue([
         { id: 10, windowId: 1, url: 'https://example.com/' },
-        { id: 88, windowId: 1, url: 'https://www.deepseek.com/', status: 'complete' }
+        {
+          id: 88,
+          windowId: 1,
+          url: 'about:blank',
+          pendingUrl: 'https://www.deepseek.com/',
+          status: 'loading',
+          lastAccessed: Date.now()
+        }
       ]);
 
     const result = await computerTool.execute(
@@ -316,6 +338,36 @@ describe('computer window.open fallback (no duplicate popup)', () => {
       { existingTabId: 88, allowUnlinkedExistingTab: true }
     );
     expect(result.tabContext).toMatchObject({ executedOnTabId: 88 });
+  });
+
+  it('does not guess a single unlinked tab that already settled on an unrelated URL', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://www.baidu.com/link?url=abc', timestamp: 0 }
+    ]);
+    fixtures.awaitOpenerChildTabId.mockResolvedValue(undefined);
+    fixtures.createPolicyCheckedChildTab.mockResolvedValue(77);
+    chromeMock.tabs.query
+      .mockResolvedValueOnce([{ id: 10, windowId: 1, url: 'https://example.com/' }])
+      .mockResolvedValue([
+        { id: 10, windowId: 1, url: 'https://example.com/' },
+        {
+          id: 88,
+          windowId: 1,
+          url: 'https://www.deepseek.com/',
+          status: 'complete',
+          lastAccessed: Date.now()
+        }
+      ]);
+
+    const result = await computerTool.execute(
+      { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+      context
+    );
+
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
+    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toHaveLength(3);
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
   });
 
   it('does not guess an unlinked candidate when multiple new tabs appeared', async () => {
@@ -364,5 +416,29 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     expect(fixtures.awaitOpenerChildTabId).toHaveBeenCalled();
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
     expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
+  });
+
+  it('continues processing window.open events after one session conflict', async () => {
+    fixtures.adoptChildTabsFromOpener.mockResolvedValue([]);
+    fixtures.consumeWindowOpenEvents.mockReturnValue([
+      { url: 'https://conflict.example/', timestamp: 0 },
+      { url: 'https://child.example/', timestamp: 1 }
+    ]);
+    fixtures.awaitOpenerChildTabId.mockResolvedValueOnce(98).mockResolvedValueOnce(99);
+    fixtures.createPolicyCheckedChildTab
+      .mockRejectedValueOnce(new BrowserSessionConflictError(98, 'session-b'))
+      .mockResolvedValueOnce(99);
+
+    const result = await computerTool.execute(
+      { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+      {
+        ...context,
+        browserSessionScope: { sessionId: 'session-a' }
+      }
+    );
+
+    expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(2);
+    expect(result.output).toContain('Opened new tab in current group: 99');
+    expect(result.tabContext).toMatchObject({ executedOnTabId: 99 });
   });
 });

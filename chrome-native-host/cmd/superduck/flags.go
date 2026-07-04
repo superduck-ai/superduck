@@ -33,6 +33,12 @@ func splitGlobalFlags(in []string) []string {
 		case a == "--session" || a == "--session-id":
 			gflags.SessionID = requireGlobalFlagValue(in, i, a)
 			i += 2
+		case strings.HasPrefix(a, "--session="):
+			gflags.SessionID = requireGlobalFlagInlineValue(a, "--session")
+			i++
+		case strings.HasPrefix(a, "--session-id="):
+			gflags.SessionID = requireGlobalFlagInlineValue(a, "--session-id")
+			i++
 		case a == "--socket":
 			gflags.SocketPath = requireGlobalFlagValue(in, i, a)
 			i += 2
@@ -61,6 +67,18 @@ func requireGlobalFlagValue(in []string, index int, flag string) string {
 		fatalUsage("missing value for %s", flag)
 	}
 	return in[index+1]
+}
+
+func requireGlobalFlagInlineValue(arg string, flag string) string {
+	prefix := flag + "="
+	if !strings.HasPrefix(arg, prefix) {
+		fatalUsage("missing value for %s", flag)
+	}
+	value := strings.TrimSpace(strings.TrimPrefix(arg, prefix))
+	if value == "" {
+		fatalUsage("missing value for %s", flag)
+	}
+	return value
 }
 
 func fatalUsage(format string, args ...any) {

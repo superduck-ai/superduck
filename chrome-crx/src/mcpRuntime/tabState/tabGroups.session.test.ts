@@ -382,9 +382,67 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     ).rejects.toThrow('already part of browser session session-a');
 
     expect(manager.mcpTabGroupId).toBe(previousMcpGroupId);
-    expect(manager.mcpTabGroupId).toBe(second!.tabGroupId);
+    expect(manager.mcpTabGroupId).not.toBe(first!.tabGroupId);
+    expect(manager.mcpTabGroupId).not.toBe(second!.tabGroupId);
     expect(chromeMock.storage.local.set).not.toHaveBeenCalled();
     expect(chromeMock.tabGroups.update).not.toHaveBeenCalled();
+  });
+
+  it('does not let scoped MCP sessions overwrite the unscoped active group pointer', async () => {
+    const sidepanel = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true
+    });
+    expect(sidepanel).toBeDefined();
+    expect(manager.mcpTabGroupId).toBe(sidepanel!.tabGroupId);
+
+    const scoped = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(scoped).toBeDefined();
+    expect(scoped!.tabGroupId).not.toBe(sidepanel!.tabGroupId);
+    expect(manager.mcpTabGroupId).toBe(sidepanel!.tabGroupId);
+
+    await tabGroupManager.getTabForMcp(scoped!.currentTabId, undefined, {
+      sessionId: 'session-a'
+    });
+
+    expect(manager.mcpTabGroupId).toBe(sidepanel!.tabGroupId);
+    expect(chromeMock.localStore.get(tabGroupManager.MCP_TAB_GROUP_KEY)).toBe(
+      sidepanel!.tabGroupId
+    );
+  });
+
+  it('selects a same-session tab from a mixed-session tab group', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    const sessionBTab = await chrome.tabs.create({
+      url: 'https://session-b.example/',
+      active: false
+    });
+    await tabGroupManager.addTabToGroup(context!.currentTabId, sessionBTab.id!, {
+      origin: 'agent'
+    });
+    await tabLeaseManager.claimTab('session-b', sessionBTab.id!, 'agent', {
+      groupId: context!.tabGroupId
+    });
+
+    const tabInfo = await tabGroupManager.getTabForMcp(undefined, context!.tabGroupId, {
+      sessionId: 'session-b'
+    });
+
+    expect(tabInfo.tabId).toBe(sessionBTab.id);
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a'
+    });
+    expect(await tabLeaseManager.getLease(sessionBTab.id!)).toMatchObject({
+      sessionId: 'session-b',
+      state: 'active'
+    });
   });
 
   it('finalize handoff keeps the lease dormant and resumes it for a later turn', async () => {
@@ -464,6 +522,73 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
       sessionId: 'session-a',
       state: 'handoff'
+    });
+  });
+
+  it('rejects explicit access to a same-group tab leased by another session', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const child = await chrome.tabs.create({
+      url: 'https://example.com/other',
+      active: false
+    });
+    await tabGroupManager.addTabToGroup(context!.currentTabId, child.id!, {
+      origin: 'agent'
+    });
+    await tabLeaseManager.claimTab('session-b', child.id!, 'agent', {
+      groupId: context!.tabGroupId
+    });
+
+    await expect(
+      tabGroupManager.getEffectiveTabIdForContext(child.id, context!.currentTabId, {
+        sessionId: 'session-a'
+      })
+    ).rejects.toThrow('already part of browser session session-b');
+  });
+
+  it('registered onCreated listener adopts policy-allowed opener children', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const listener = chromeMock.tabs.onCreated.addListener.mock.calls[0]?.[0] as
+      | ((tab: chrome.tabs.Tab) => void)
+      | undefined;
+    expect(listener).toBeTypeOf('function');
+
+    tabGroupManager.rememberChildTabNavigationPolicy(context!.currentTabId, {
+      permissionManager: {
+        checkPermission: vi.fn(async () => ({ allowed: true }))
+      },
+      toolName: 'computer',
+      sessionId: 'session-a'
+    });
+    const child: MockTab = {
+      id: 88,
+      openerTabId: context!.currentTabId,
+      windowId: 1,
+      groupId: chrome.tabGroups.TAB_GROUP_ID_NONE,
+      url: 'https://child.example/',
+      title: 'Child',
+      index: 1
+    };
+    chromeMock.tabsById.set(88, child);
+
+    listener!(child as chrome.tabs.Tab);
+    await vi.waitFor(async () => {
+      await expect(tabLeaseManager.getLease(88)).resolves.toMatchObject({
+        sessionId: 'session-a',
+        state: 'active'
+      });
+    });
+
+    expect(chromeMock.tabs.group).toHaveBeenCalledWith({
+      tabIds: [88],
+      groupId: context!.tabGroupId
     });
   });
 
@@ -645,6 +770,53 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(await tabLeaseManager.getLease(childTab.id)).toMatchObject({
       sessionId: 'session-b',
       state: 'active'
+    });
+  });
+
+  it('continues opener child adoption after one child conflicts with another session', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const conflictingChild: MockTab = {
+      id: 22,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://conflict.example/',
+      title: 'Conflict',
+      index: 2,
+      openerTabId: context!.currentTabId
+    };
+    const adoptableChild: MockTab = {
+      id: 23,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://child.example/',
+      title: 'Child',
+      index: 3,
+      openerTabId: context!.currentTabId
+    };
+    chromeMock.tabsById.set(conflictingChild.id, conflictingChild);
+    chromeMock.tabsById.set(adoptableChild.id, adoptableChild);
+    await tabLeaseManager.claimTab('session-b', conflictingChild.id, 'agent');
+    chromeMock.tabs.group.mockClear();
+
+    const adopted = await tabGroupManager.adoptChildTabsFromOpener(context!.currentTabId, {
+      sessionId: 'session-a'
+    });
+
+    expect(adopted).toEqual([23]);
+    expect(chromeMock.tabs.group).toHaveBeenCalledWith({
+      tabIds: [23],
+      groupId: context!.tabGroupId
+    });
+    expect(chromeMock.tabsById.get(conflictingChild.id)?.groupId).toBe(-1);
+    expect(await tabLeaseManager.getLease(conflictingChild.id)).toMatchObject({
+      sessionId: 'session-b'
+    });
+    expect(await tabLeaseManager.getLease(adoptableChild.id)).toMatchObject({
+      sessionId: 'session-a'
     });
   });
 

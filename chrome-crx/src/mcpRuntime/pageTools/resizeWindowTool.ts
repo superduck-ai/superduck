@@ -27,7 +27,11 @@ export const resizeWindowTool: ToolDefinition<ResizeWindowToolInput> = {
       if (width > 7680 || height > 4320)
         throw new Error('Dimensions exceed 8K resolution limit. Maximum dimensions are 7680x4320');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
+        tabId,
+        context.tabId,
+        { sessionId: context.browserSessionScope?.sessionId }
+      );
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.windowId) throw new Error('Tab does not have an associated window');
 

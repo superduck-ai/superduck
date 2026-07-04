@@ -36,7 +36,11 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
       if (!params?.ref) throw new Error('ref parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(params.tabId, context.tabId);
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
+        params.tabId,
+        context.tabId,
+        { sessionId: context.browserSessionScope?.sessionId }
+      );
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const activeTabId = tab.id;

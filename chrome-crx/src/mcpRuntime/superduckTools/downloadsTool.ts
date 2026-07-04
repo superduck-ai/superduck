@@ -19,8 +19,14 @@ export const superduckDownloadsTool: ToolDefinition<DownloadsArgs> = {
       description: 'Filter by download state: "in_progress", "complete", or "interrupted"'
     }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
+      if (context?.browserSessionScope) {
+        return {
+          error:
+            'superduck_downloads is unavailable for scoped browser sessions because Chrome downloads are global browser history.'
+        };
+      }
       const limit = Math.min(Math.max(1, args?.limit ?? 20), 100);
       const searchQuery: chrome.downloads.DownloadQuery = {
         limit,

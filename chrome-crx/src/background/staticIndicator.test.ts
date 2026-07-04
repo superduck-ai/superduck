@@ -9,7 +9,17 @@ const fixtures = vi.hoisted(() => ({
   setGroupColor: vi.fn(),
   initialize: vi.fn(),
   setTabIndicatorState: vi.fn(),
-  hasActiveToolContext: vi.fn()
+  hasActiveToolContext: vi.fn(),
+  getStorageValue: vi.fn(),
+  setStorageValue: vi.fn()
+}));
+
+vi.mock('../extensionServices', () => ({
+  StorageKeys: {
+    TURN_ACTIVE_DEADLINES: 'turnActiveDeadlines'
+  },
+  getStorageValue: fixtures.getStorageValue,
+  setStorageValue: fixtures.setStorageValue
 }));
 
 vi.mock('../mcpRuntime', () => ({
@@ -29,7 +39,7 @@ vi.mock('../mcpRuntime/toolExecution/toolContextState', () => ({
   hasActiveToolContext: fixtures.hasActiveToolContext
 }));
 
-vi.stubGlobal('chrome', {
+const chromeMock = {
   tabGroups: {
     TAB_GROUP_ID_NONE: -1,
     Color: {
@@ -40,10 +50,16 @@ vi.stubGlobal('chrome', {
     get: vi.fn(),
     query: vi.fn()
   },
+  alarms: {
+    create: vi.fn(),
+    clear: vi.fn()
+  },
   runtime: {
     sendMessage: vi.fn()
   }
-});
+};
+
+vi.stubGlobal('chrome', chromeMock);
 
 const { createStaticIndicatorController } = await import('./staticIndicator');
 
@@ -52,6 +68,8 @@ describe('createStaticIndicatorController', () => {
     vi.useRealTimers();
     for (const fn of Object.values(fixtures)) fn.mockReset();
     fixtures.initialize.mockResolvedValue(undefined);
+    fixtures.getStorageValue.mockResolvedValue({});
+    fixtures.setStorageValue.mockResolvedValue(undefined);
     fixtures.findGroupByTab.mockResolvedValue({
       mainTabId: 10
     });
@@ -62,6 +80,11 @@ describe('createStaticIndicatorController', () => {
     fixtures.setGroupColor.mockResolvedValue(undefined);
     fixtures.setTabIndicatorState.mockResolvedValue(undefined);
     fixtures.hasActiveToolContext.mockReturnValue(false);
+    chromeMock.tabs.get.mockReset();
+    chromeMock.tabs.query.mockReset();
+    chromeMock.alarms.create.mockReset();
+    chromeMock.alarms.clear.mockReset();
+    chromeMock.tabs.get.mockResolvedValue({ id: 11 });
   });
 
   it('clears the group and marks it complete when a sidepanel turn finishes', async () => {
@@ -185,5 +208,132 @@ describe('createStaticIndicatorController', () => {
     expect(fixtures.addCompletionPrefix).not.toHaveBeenCalled();
     expect(fixtures.setGroupColor).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
+  });
+
+  it('persists active turn cleanup as an absolute deadline and alarm', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const controller = createStaticIndicatorController();
+      const sendResponse = vi.fn();
+
+      await controller.handleAgentTurnActive(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: true },
+        sendResponse
+      );
+
+      expect(fixtures.setTabIndicatorState).toHaveBeenCalledWith(11, 'pulsing', true, false);
+      expect(fixtures.setStorageValue).toHaveBeenLastCalledWith('turnActiveDeadlines', {
+        '11': {
+          tabId: 11,
+          turnKey: '11-1000',
+          dueAt: 121_000
+        }
+      });
+      expect(chromeMock.alarms.create).toHaveBeenCalledWith('superduck.turnActive.11', {
+        when: 121_000
+      });
+      expect(sendResponse).toHaveBeenCalledWith({ success: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores and executes overdue active turn cleanup after a service-worker wake', async () => {
+    fixtures.getStorageValue.mockResolvedValue({
+      '11': {
+        tabId: 11,
+        turnKey: '11-old',
+        dueAt: Date.now() - 1
+      }
+    });
+    const controller = createStaticIndicatorController();
+
+    await controller.restoreTurnActiveDeadlines();
+
+    expect(fixtures.clearIndicatorsForGroup).toHaveBeenCalledWith(10);
+    expect(fixtures.hideAgentIndicatorsForTab).toHaveBeenCalledWith(11);
+    expect(chromeMock.alarms.clear).toHaveBeenCalledWith('superduck.turnActive.11');
+    expect(fixtures.setStorageValue).toHaveBeenCalledWith('turnActiveDeadlines', {});
+  });
+
+  it('does not resurrect a deleted active turn deadline from stale storage', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      fixtures.setStorageValue.mockReturnValue(new Promise<void>(() => {}));
+      fixtures.getStorageValue.mockResolvedValue({
+        '11': {
+          tabId: 11,
+          turnKey: '11-1000',
+          dueAt: 121_000
+        }
+      });
+      const controller = createStaticIndicatorController();
+
+      await controller.handleAgentTurnActive(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: true },
+        vi.fn()
+      );
+      await controller.handleAgentTurnActive(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: false },
+        vi.fn()
+      );
+
+      fixtures.clearIndicatorsForGroup.mockClear();
+      fixtures.hideAgentIndicatorsForTab.mockClear();
+      await controller.handleAlarm('superduck.turnActive.11');
+
+      expect(fixtures.clearIndicatorsForGroup).not.toHaveBeenCalled();
+      expect(fixtures.hideAgentIndicatorsForTab).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let a slow restore overwrite a newly active turn deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      let resolveStoredDeadlines!: (value: unknown) => void;
+      fixtures.getStorageValue.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStoredDeadlines = resolve;
+        })
+      );
+      const controller = createStaticIndicatorController();
+
+      const restorePromise = controller.restoreTurnActiveDeadlines();
+      await Promise.resolve();
+
+      const sendResponse = vi.fn();
+      await controller.handleAgentTurnActive(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: true },
+        sendResponse
+      );
+      resolveStoredDeadlines({
+        '11': {
+          tabId: 11,
+          turnKey: '11-old',
+          dueAt: 10_000
+        }
+      });
+      await restorePromise;
+
+      expect(sendResponse).toHaveBeenCalledWith({ success: true });
+      expect(fixtures.clearIndicatorsForGroup).not.toHaveBeenCalled();
+      expect(fixtures.setStorageValue).toHaveBeenCalledWith('turnActiveDeadlines', {
+        '11': {
+          tabId: 11,
+          turnKey: '11-1000',
+          dueAt: 121_000
+        }
+      });
+      expect(chromeMock.alarms.create).toHaveBeenLastCalledWith('superduck.turnActive.11', {
+        when: 121_000
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

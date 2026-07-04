@@ -1,12 +1,12 @@
 import type { ToolDefinition } from '../pageTools';
-import { withChromeApiTimeout } from './helpers';
+import { filterTabsForContext, withChromeApiTimeout } from './helpers';
 
 export const superduckListTabsTool: ToolDefinition<Record<string, never>> = {
   name: 'superduck_list_tabs',
   description:
     'SuperDuck CLI: list all tabs across all windows (id, windowId, url, title, active).',
   parameters: {},
-  execute: async () => {
+  execute: async (_args, context) => {
     try {
       const [tabs, lastFocused] = await Promise.all([
         withChromeApiTimeout('chrome.tabs.query', chrome.tabs.query({})),
@@ -15,7 +15,8 @@ export const superduckListTabsTool: ToolDefinition<Record<string, never>> = {
           chrome.windows.getLastFocused({ windowTypes: ['normal'] })
         )
       ]);
-      const out = tabs
+      const visibleTabs = await filterTabsForContext(tabs, context);
+      const out = visibleTabs
         .filter((t) => t.id !== undefined)
         .map((t) => ({
           id: t.id,

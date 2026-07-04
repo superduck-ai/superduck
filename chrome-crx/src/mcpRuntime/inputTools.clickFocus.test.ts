@@ -72,12 +72,26 @@ vi.mock('./shared', () => ({
 vi.mock('./tabState', () => ({
   waitForTabLoading: vi.fn(async () => undefined),
   tabGroupManager: {
-    getEffectiveTabId: fixtures.getEffectiveTabId,
+    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
     createChildTabInGroup: fixtures.createChildTabInGroup,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
     rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy
+  }
+}));
+
+vi.mock('./tabState/tabLeases', () => ({
+  BrowserSessionConflictError: class BrowserSessionConflictError extends Error {
+    readonly code = 'browser_session_conflict';
+
+    constructor(
+      readonly tabId: number,
+      readonly owningSessionId: string
+    ) {
+      super(`Tab ${tabId} is already part of browser session ${owningSessionId}`);
+      this.name = 'BrowserSessionConflictError';
+    }
   }
 }));
 

@@ -74,6 +74,50 @@ func TestCmdTabGroupListSendsCreateNameSessionAndPrintsStructuredJSON(t *testing
 	}
 }
 
+func TestCmdTabGroupListPrintsStructuredTable(t *testing.T) {
+	socketPath, reqCh, wait := startFakeCLIToolServer(t, map[string]any{
+		"type": "tool_response",
+		"result": map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": "Tab Group 7:\n- tabId 42: \"Example\""},
+			},
+			"structuredContent": map[string]any{
+				"tabContext": map[string]any{
+					"currentTabId": 42,
+					"tabGroupId":   7,
+					"tabCount":     1,
+					"availableTabs": []map[string]any{
+						{"id": 42, "title": "Example", "url": "https://example.com/path"},
+					},
+				},
+			},
+		},
+	})
+	withCLIFlags(t, globalFlags{
+		SocketPath: socketPath,
+		Timeout:    time.Second,
+		SessionID:  "session-a",
+	})
+
+	out := captureStdout(t, func() {
+		if err := cmdTabGroupList([]string{"--create-if-empty"}); err != nil {
+			t.Fatalf("cmdTabGroupList() error = %v", err)
+		}
+	})
+
+	req := <-reqCh
+	wait()
+	if got, want := req.Params.Tool, "tabs_context_mcp"; got != want {
+		t.Fatalf("tool = %q, want %q", got, want)
+	}
+	if !strings.Contains(out, "tab group 7") || !strings.Contains(out, "ID") || !strings.Contains(out, "42") || !strings.Contains(out, "https://example.com/path") {
+		t.Fatalf("stdout = %q, want structured tab table", out)
+	}
+	if strings.Contains(out, `"tabContext"`) {
+		t.Fatalf("stdout = %q, want table not JSON envelope", out)
+	}
+}
+
 func TestCmdTabGroupNewForceSendsForceAndPrintsText(t *testing.T) {
 	socketPath, reqCh, wait := startFakeCLIToolServer(t, map[string]any{
 		"type": "tool_response",
@@ -208,6 +252,16 @@ func TestCmdSessionNameSendsTrimmedName(t *testing.T) {
 func TestCmdSessionNameRejectsEmptyName(t *testing.T) {
 	if err := cmdSessionName([]string{" \t "}); err == nil {
 		t.Fatal("cmdSessionName(empty) error = nil, want usage error")
+	}
+}
+
+func TestCmdSessionUnknownReturnsUsageError(t *testing.T) {
+	err := cmdSession([]string{"bogus"})
+	if err == nil {
+		t.Fatal("cmdSession(unknown) error = nil, want usage error")
+	}
+	if !strings.Contains(err.Error(), "unknown session subcommand: bogus") {
+		t.Fatalf("error = %q, want unknown subcommand", err)
 	}
 }
 

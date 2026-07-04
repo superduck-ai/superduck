@@ -1,5 +1,6 @@
 import { PermissionActionType } from '../../extensionServices';
 import { tabGroupManager } from '../tabState';
+import { BrowserSessionConflictError } from '../tabState/tabLeases';
 import { cdpDebugger } from '../cdp';
 import { captureAnnotatedScreenshot } from '../screenshot/annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from '../pageTools';
@@ -24,6 +25,7 @@ import {
 } from './computerActions';
 
 interface TabWindowSnapshot {
+  capturedAt: number;
   windowId?: number;
   tabIds: Set<number>;
 }
@@ -65,19 +67,21 @@ function resolveWindowOpenUrl(rawUrl: string, currentUrl: string): string | unde
 }
 
 async function captureTabWindowSnapshot(openerTabId: number): Promise<TabWindowSnapshot> {
-  if (typeof chrome.tabs.query !== 'function') return { tabIds: new Set() };
+  const capturedAt = Date.now();
+  if (typeof chrome.tabs.query !== 'function') return { capturedAt, tabIds: new Set() };
   try {
     const openerTab = await chrome.tabs.get(openerTabId);
     const windowId = openerTab.windowId;
     const tabs = await chrome.tabs.query(typeof windowId === 'number' ? { windowId } : {});
     return {
+      capturedAt,
       windowId,
       tabIds: new Set(
         tabs.map((tab) => tab.id).filter((id): id is number => typeof id === 'number')
       )
     };
   } catch {
-    return { tabIds: new Set() };
+    return { capturedAt, tabIds: new Set() };
   }
 }
 
@@ -96,6 +100,16 @@ function hasTargetUrl(tab: chrome.tabs.Tab, url: string): boolean {
   return tab.url === url || tab.pendingUrl === url;
 }
 
+function isTabStillOpening(tab: chrome.tabs.Tab): boolean {
+  return !!tab.pendingUrl || !tab.url || tab.url === 'about:blank' || tab.status === 'loading';
+}
+
+function isRecentSnapshotTab(tab: chrome.tabs.Tab, snapshot: TabWindowSnapshot): boolean {
+  const lastAccessed = tab.lastAccessed;
+  if (typeof lastAccessed !== 'number' || !Number.isFinite(lastAccessed)) return false;
+  return lastAccessed >= snapshot.capturedAt - 250 && lastAccessed <= Date.now() + 1000;
+}
+
 function selectNewWindowOpenCandidate(
   tabs: chrome.tabs.Tab[],
   openerTabId: number,
@@ -109,8 +123,15 @@ function selectNewWindowOpenCandidate(
   const openerChildTab = newTabs.find((tab) => tab.openerTabId === openerTabId);
   if (typeof openerChildTab?.id === 'number') return openerChildTab.id;
 
-  if (newTabs.length === 1 && typeof newTabs[0].id === 'number') {
-    return newTabs[0].id;
+  const unlinkedCandidates = newTabs.filter(
+    (tab) => tab.openerTabId === undefined && isRecentSnapshotTab(tab, snapshot)
+  );
+  if (
+    unlinkedCandidates.length === 1 &&
+    typeof unlinkedCandidates[0].id === 'number' &&
+    (hasTargetUrl(unlinkedCandidates[0], url) || isTabStillOpening(unlinkedCandidates[0]))
+  ) {
+    return unlinkedCandidates[0].id;
   }
 
   return undefined;
@@ -154,25 +175,29 @@ async function createTabsForWindowOpenEvents(
     if (!url || seenUrls.has(url)) continue;
     seenUrls.add(url);
 
-    let existingTabId = await tabGroupManager.awaitOpenerChildTabId(openerTabId, url, 400);
-    let allowUnlinkedExistingTab = false;
-    if (typeof existingTabId !== 'number') {
-      existingTabId = await awaitNewWindowOpenCandidateTabId(
-        openerTabId,
-        url,
-        preActionSnapshot,
-        600
-      );
-      allowUnlinkedExistingTab = typeof existingTabId === 'number';
+    try {
+      let existingTabId = await tabGroupManager.awaitOpenerChildTabId(openerTabId, url, 400);
+      let allowUnlinkedExistingTab = false;
+      if (typeof existingTabId !== 'number') {
+        existingTabId = await awaitNewWindowOpenCandidateTabId(
+          openerTabId,
+          url,
+          preActionSnapshot,
+          600
+        );
+        allowUnlinkedExistingTab = typeof existingTabId === 'number';
+      }
+      const tabId =
+        typeof existingTabId === 'number'
+          ? await createPolicyCheckedChildTab(openerTabId, url, policy, {
+              existingTabId,
+              allowUnlinkedExistingTab
+            })
+          : await createPolicyCheckedChildTab(openerTabId, url, policy);
+      if (typeof tabId === 'number') createdTabIds.push(tabId);
+    } catch (err) {
+      if (!(err instanceof BrowserSessionConflictError)) throw err;
     }
-    const tabId =
-      typeof existingTabId === 'number'
-        ? await createPolicyCheckedChildTab(openerTabId, url, policy, {
-            existingTabId,
-            allowUnlinkedExistingTab
-          })
-        : await createPolicyCheckedChildTab(openerTabId, url, policy);
-    if (typeof tabId === 'number') createdTabIds.push(tabId);
   }
 
   return createdTabIds;
@@ -288,9 +313,10 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
       if (!toolParams.action) throw new Error('Action parameter is required');
       if (!context?.tabId) throw new Error('No active tab found in context');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
         toolParams.tabId,
-        context.tabId
+        context.tabId,
+        { sessionId: context.browserSessionScope?.sessionId }
       );
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');

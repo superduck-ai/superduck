@@ -14,9 +14,9 @@ export const superduckActiveContextTool: ToolDefinition<ActiveContextArgs> = {
     },
     full: { type: 'boolean', description: 'Return whole-page innerText instead of viewport text' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveActiveTab(args?.tabId, context);
       if (tab.id === undefined) return { error: 'Tab has no id' };
 
       const full = !!args?.full;

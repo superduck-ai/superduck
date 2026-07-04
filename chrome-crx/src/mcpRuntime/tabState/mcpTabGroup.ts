@@ -16,6 +16,29 @@ import { resolveBrowserSessionScope, type BrowserSessionScope } from '../session
 import { buildSessionContextFromLeases, collectSessionLeases } from './sessionLeaseContext';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
 
+async function selectAvailableTabForScope(
+  tabs: (chrome.tabs.Tab & { id: number })[],
+  scope?: BrowserSessionScope
+): Promise<(chrome.tabs.Tab & { id: number }) | undefined> {
+  if (!scope) return tabs[0];
+
+  let firstConflict: BrowserSessionConflictError | undefined;
+  for (const tab of tabs) {
+    try {
+      await tabLeaseManager.assertTabAvailableForSession(scope.sessionId, tab.id);
+      return tab;
+    } catch (err) {
+      if (err instanceof BrowserSessionConflictError) {
+        firstConflict ??= err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (firstConflict) throw firstConflict;
+  return undefined;
+}
+
 export async function addTabToIndicatorGroup(
   mgr: TabGroupManager,
   options: { tabId: number; isRunning: boolean; isMcp?: boolean }
@@ -33,7 +56,7 @@ export async function getTabForMcp(
 ): Promise<{ tabId: number | undefined; domain?: string; url?: string }> {
   const scope = resolveBrowserSessionScope(options);
   await mgr.initialize();
-  await loadMcpTabGroupId(mgr);
+  if (!scope) await loadMcpTabGroupId(mgr);
 
   if (void 0 !== tabId)
     try {
@@ -54,8 +77,10 @@ export async function getTabForMcp(
         shouldClaimUnleased = !existingLease && (!isInternalBrowserUrl(tab.url) || Boolean(group));
       }
       if (typeof groupId === 'number') {
-        mgr.mcpTabGroupId = groupId;
-        await saveMcpTabGroupId(mgr);
+        if (!scope) {
+          mgr.mcpTabGroupId = groupId;
+          await saveMcpTabGroupId(mgr);
+        }
         await ensureMcpGroupCharacteristics(mgr, groupId, scope?.sessionId);
       }
       if (scope) {
@@ -87,12 +112,8 @@ export async function getTabForMcp(
           return (a.index ?? 0) - (b.index ?? 0);
         });
       if (tabs.length > 0) {
-        if (scope) {
-          for (const tab of tabs) {
-            await tabLeaseManager.assertTabAvailableForSession(scope.sessionId, tab.id);
-          }
-        }
-        return await getTabForMcp(mgr, tabs[0].id, undefined, options);
+        const tab = await selectAvailableTabForScope(tabs, scope);
+        if (tab) return await getTabForMcp(mgr, tab.id, undefined, options);
       }
     } catch (err) {
       if (err instanceof BrowserSessionConflictError) throw err;
@@ -259,8 +280,10 @@ export async function createMcpTabGroup(
   if (!newTabId) throw new Error('Failed to create MCP tab');
 
   const group = await mgr.createGroup(newTabId, { origin: 'agent' });
-  mgr.mcpTabGroupId = group.chromeGroupId;
-  await saveMcpTabGroupId(mgr);
+  if (!scope) {
+    mgr.mcpTabGroupId = group.chromeGroupId;
+    await saveMcpTabGroupId(mgr);
+  }
   await applyGroupTitle(group.chromeGroupId, resolveGroupTitle(mgr, scope?.sessionId));
   if (scope) {
     await tabLeaseManager.claimTab(scope.sessionId, newTabId, 'agent', {

@@ -152,8 +152,13 @@ export async function adoptChildTabsFromOpener(
   const adoptedTabIds: number[] = [];
   for (const tab of tabs) {
     if (typeof tab.id !== 'number' || tab.openerTabId !== openerTabId) continue;
-    if (await adoptChildTab(mgr, mainTabId, tab, options)) adoptedTabIds.push(tab.id);
-    await restoreProtectedActiveTab(mgr, tab);
+    try {
+      if (await adoptChildTab(mgr, mainTabId, tab, options)) adoptedTabIds.push(tab.id);
+    } catch (err) {
+      if (!(err instanceof BrowserSessionConflictError)) throw err;
+    } finally {
+      await restoreProtectedActiveTab(mgr, tab);
+    }
   }
   return adoptedTabIds;
 }

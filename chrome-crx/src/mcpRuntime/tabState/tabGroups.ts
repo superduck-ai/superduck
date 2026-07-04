@@ -230,6 +230,14 @@ export class TabGroupManager {
     return validation.getEffectiveTabId(this, requestedTabId, currentTabId);
   }
 
+  async getEffectiveTabIdForContext(
+    requestedTabId: number | undefined,
+    currentTabId: number,
+    options?: { sessionId?: string }
+  ): Promise<number> {
+    return validation.getEffectiveTabIdForContext(this, requestedTabId, currentTabId, options);
+  }
+
   async updateTabBlocklistStatus(tabId: number, url: string): Promise<void> {
     return blocklist.updateTabBlocklistStatus(this, tabId, url);
   }

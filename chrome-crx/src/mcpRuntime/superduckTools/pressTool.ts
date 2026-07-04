@@ -11,9 +11,9 @@ export const superduckPressTool: ToolDefinition<PressArgs> = {
     selector: { type: 'string', description: 'Optional selector to focus before pressing' },
     tabId: { type: 'number' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveActiveTab(args?.tabId, context);
       if (tab.id === undefined) return { error: 'active tab has no id' };
       const key = String(args?.key || '');
       if (!key) return { error: 'key is required' };

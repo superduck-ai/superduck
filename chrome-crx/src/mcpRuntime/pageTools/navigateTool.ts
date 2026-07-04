@@ -1,5 +1,5 @@
 import { PermissionTools } from '../domainPermissions';
-import { tabGroupManager, tabLeaseManager } from '../tabState';
+import { tabGroupManager } from '../tabState';
 import { checkDomainCategoryForNavigation } from '../navigationIsolation';
 import type { ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import type { NavigateToolInput } from './types';
@@ -50,7 +50,12 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
       if (!url) throw new Error('URL parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const browserScope = context.browserSessionScope;
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
+        tabId,
+        context.tabId,
+        { sessionId: browserScope?.sessionId }
+      );
       const isHistoryNavigation = ['back', 'forward'].includes(url.toLowerCase());
       if (newTab && isHistoryNavigation) {
         throw new Error('newTab is not supported with back/forward navigation');
@@ -63,10 +68,6 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
 
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
-      const browserScope = context.browserSessionScope;
-      if (browserScope) {
-        await tabLeaseManager.assertTabAvailableForSession(browserScope.sessionId, effectiveTabId);
-      }
 
       if ('back' === url.toLowerCase()) {
         await chrome.tabs.goBack(tab.id);

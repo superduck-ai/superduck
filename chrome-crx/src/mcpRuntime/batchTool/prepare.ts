@@ -1,5 +1,6 @@
 import { coerceToolInputTypes, validateToolInput } from '../pageToolsSupport/helpers';
 import type { ToolContext, ToolDefinition, ToolResult } from '../pageToolsSupport/types';
+import { tabLeaseManager } from '../tabState/tabLeases';
 import type { BatchAction, BatchToolParams } from './types';
 import { MAX_BATCH_ACTIONS, MIN_BATCH_ACTIONS, BATCH_ALLOWED_TOOLS } from './constants';
 import { getToolRegistry, getBatchActionToolName } from './classify';
@@ -23,6 +24,14 @@ export interface PrepareSuccess {
 }
 
 export type PrepareResult = PrepareSuccess | { ok: false; error: ToolResult };
+
+async function assertBatchTabAvailableForSession(
+  browserSessionId: string | undefined,
+  tabId: number
+): Promise<void> {
+  if (!browserSessionId) return;
+  await tabLeaseManager.assertTabAvailableForSession(browserSessionId, tabId);
+}
 
 export async function prepareBatchActions(
   params: BatchToolParams,
@@ -58,7 +67,11 @@ export async function prepareBatchActions(
   const resultMode = params.resultMode || 'summary';
   const screenshotMode = params.screenshot || 'last';
   const preparedActions: PreparedAction[] = [];
-  let batchTabId = params.tabId ?? context.tabId;
+  let batchTabId = typeof params.tabId === 'number' ? params.tabId : context.tabId;
+  const browserSessionId = context.browserSessionScope?.sessionId;
+  if (typeof batchTabId === 'number') {
+    await assertBatchTabAvailableForSession(browserSessionId, batchTabId);
+  }
 
   for (let i = 0; i < params.actions.length; i++) {
     const action = params.actions[i];
@@ -245,6 +258,7 @@ export async function prepareBatchActions(
     const coercedInput = coerced as Record<string, unknown>;
     const childTabId = typeof coercedInput.tabId === 'number' ? coercedInput.tabId : undefined;
     if (batchTabId == null && childTabId != null) {
+      await assertBatchTabAvailableForSession(browserSessionId, childTabId);
       batchTabId = childTabId;
     }
     if (batchTabId != null) {

@@ -1,4 +1,5 @@
 import type { TabGroupManager } from './tabGroups';
+import { tabLeaseManager } from './tabLeases';
 
 export async function isTabInSameGroup(
   mgr: TabGroupManager,
@@ -58,6 +59,7 @@ export async function getEffectiveTabId(
   currentTabId: number
 ): Promise<number> {
   if (void 0 === requestedTabId) return currentTabId;
+  if (requestedTabId === currentTabId) return currentTabId;
   if (!(await isTabInSameGroup(mgr, currentTabId, requestedTabId))) {
     const validIds = await getValidTabIds(mgr, currentTabId);
     throw new Error(
@@ -65,4 +67,17 @@ export async function getEffectiveTabId(
     );
   }
   return requestedTabId;
+}
+
+export async function getEffectiveTabIdForContext(
+  mgr: TabGroupManager,
+  requestedTabId: number | undefined,
+  currentTabId: number,
+  options: { sessionId?: string } = {}
+): Promise<number> {
+  const effectiveTabId = await getEffectiveTabId(mgr, requestedTabId, currentTabId);
+  if (options.sessionId) {
+    await tabLeaseManager.assertTabAvailableForSession(options.sessionId, effectiveTabId);
+  }
+  return effectiveTabId;
 }

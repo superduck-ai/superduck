@@ -12,9 +12,9 @@ export const superduckClickTool: ToolDefinition<ClickArgs> = {
     text: { type: 'string', description: 'Visible text to match (case-insensitive substring)' },
     tabId: { type: 'number' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveActiveTab(args?.tabId, context);
       if (tab.id === undefined) return { error: 'active tab has no id' };
       const selector = args?.selector ? String(args.selector) : '';
       const text = args?.text ? String(args.text) : '';

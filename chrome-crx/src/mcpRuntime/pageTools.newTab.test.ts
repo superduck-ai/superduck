@@ -24,7 +24,7 @@ vi.mock('./tabState', () => ({
     getCategory: fixtures.getCategory
   },
   tabGroupManager: {
-    getEffectiveTabId: fixtures.getEffectiveTabId,
+    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
     getMainTabId: fixtures.getMainTabId,
     addTabToGroup: fixtures.addTabToGroup,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata
@@ -152,6 +152,26 @@ describe('new background group tab navigation', () => {
       currentTabId: 10,
       executedOnTabId: 31,
       tabCount: 2
+    });
+  });
+
+  it('rejects tabs_create when an explicit tab belongs to another browser session', async () => {
+    fixtures.getEffectiveTabId.mockRejectedValueOnce(
+      new Error('Tab 99 is already part of browser session session-b')
+    );
+
+    const result = await tabsCreateTool.execute(
+      { url: 'https://example.com/search?q=agent', tabId: 99 },
+      {
+        ...context,
+        browserSessionScope: { sessionId: 'session-a' }
+      }
+    );
+
+    expect(result.error).toContain('session-b');
+    expect(chromeMock.tabs.create).not.toHaveBeenCalled();
+    expect(fixtures.getEffectiveTabId).toHaveBeenCalledWith(99, 10, {
+      sessionId: 'session-a'
     });
   });
 

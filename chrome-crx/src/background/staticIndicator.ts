@@ -1,5 +1,7 @@
+import { StorageKeys, getStorageValue, setStorageValue } from '../extensionServices';
 import { tabGroupManager } from '../mcpRuntime';
 import { hasActiveToolContext } from '../mcpRuntime/toolExecution/toolContextState';
+import { PendingDeleteSet } from '../utils/pendingDeleteSet';
 
 type SuccessResponse = { success: boolean };
 type AgentTurnActiveMessage = {
@@ -8,6 +10,29 @@ type AgentTurnActiveMessage = {
   active?: unknown;
   completed?: unknown;
 };
+
+type TurnActiveDeadline = {
+  tabId: number;
+  turnKey: string;
+  dueAt: number;
+};
+
+type TurnActiveDeadlineStorage = Record<string, TurnActiveDeadline>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTurnActiveDeadline(value: unknown): value is TurnActiveDeadline {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.tabId === 'number' &&
+    Number.isInteger(value.tabId) &&
+    typeof value.turnKey === 'string' &&
+    typeof value.dueAt === 'number' &&
+    Number.isFinite(value.dueAt)
+  );
+}
 
 export function createStaticIndicatorController() {
   const mainTabAckCache = new Map<number, { timestamp: number; isAlive: boolean }>();
@@ -117,11 +142,15 @@ export function createStaticIndicatorController() {
 
   const turnActiveTimers = new Map<
     number,
-    { timer: ReturnType<typeof setTimeout>; turnKey: string }
+    { timer: ReturnType<typeof setTimeout>; turnKey: string; dueAt: number }
   >();
   const TURN_ACTIVE_TIMEOUT_MS = 2 * 60 * 1000;
   const TURN_CLEAR_RETRY_MS = 100;
   const TURN_CLEAR_RETRY_ATTEMPTS = 20;
+  const TURN_ACTIVE_ALARM_PREFIX = 'superduck.turnActive.';
+  let persistedTurnActiveDeadlines: TurnActiveDeadlineStorage = {};
+  let turnActiveDeadlineRevision = 0;
+  const pendingDeletedTurnActiveDeadlines = new PendingDeleteSet();
 
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -162,6 +191,167 @@ export function createStaticIndicatorController() {
     return true;
   }
 
+  function turnActiveAlarmName(tabId: number): string {
+    return `${TURN_ACTIVE_ALARM_PREFIX}${tabId}`;
+  }
+
+  function parseTurnActiveAlarmName(alarmName: string): number | undefined {
+    if (!alarmName.startsWith(TURN_ACTIVE_ALARM_PREFIX)) return undefined;
+    const tabId = Number(alarmName.slice(TURN_ACTIVE_ALARM_PREFIX.length));
+    return Number.isInteger(tabId) ? tabId : undefined;
+  }
+
+  async function loadTurnActiveDeadlines(): Promise<TurnActiveDeadlineStorage> {
+    try {
+      const stored = await getStorageValue<unknown>(StorageKeys.TURN_ACTIVE_DEADLINES);
+      const next: TurnActiveDeadlineStorage = {};
+      if (!isRecord(stored)) return next;
+      for (const [key, value] of Object.entries(stored)) {
+        if (!isTurnActiveDeadline(value) || String(value.tabId) !== key) continue;
+        next[key] = { ...value };
+      }
+      return next;
+    } catch {
+      return {};
+    }
+  }
+
+  function mergeTurnActiveDeadlinesFromStorage(
+    loaded: TurnActiveDeadlineStorage
+  ): TurnActiveDeadlineStorage {
+    return { ...loaded, ...persistedTurnActiveDeadlines };
+  }
+
+  function applyPendingTurnActiveDeletes(
+    state: TurnActiveDeadlineStorage
+  ): TurnActiveDeadlineStorage {
+    return pendingDeletedTurnActiveDeadlines.applyTo(state);
+  }
+
+  function clearPersistedTurnActiveDeletes(snapshot: Map<string, number>): void {
+    pendingDeletedTurnActiveDeadlines.clearPersisted(snapshot, persistedTurnActiveDeadlines);
+  }
+
+  function markTurnActiveDeadlineDeleted(key: string): void {
+    pendingDeletedTurnActiveDeadlines.mark(key, turnActiveDeadlineRevision);
+  }
+
+  async function refreshTurnActiveDeadlinesFromStorage(): Promise<void> {
+    const revisionBeforeLoad = turnActiveDeadlineRevision;
+    const loaded = await loadTurnActiveDeadlines();
+    const next =
+      turnActiveDeadlineRevision === revisionBeforeLoad
+        ? loaded
+        : mergeTurnActiveDeadlinesFromStorage(loaded);
+    persistedTurnActiveDeadlines = applyPendingTurnActiveDeletes(next);
+  }
+
+  async function persistTurnActiveDeadlines(): Promise<void> {
+    const deadlinesToPersist = { ...persistedTurnActiveDeadlines };
+    const deleteSnapshot = pendingDeletedTurnActiveDeadlines.snapshot();
+    try {
+      await setStorageValue(StorageKeys.TURN_ACTIVE_DEADLINES, deadlinesToPersist);
+      clearPersistedTurnActiveDeletes(deleteSnapshot);
+    } catch {
+      // best-effort recovery state only
+    }
+  }
+
+  function armTurnActiveAlarm(tabId: number, dueAt: number): void {
+    try {
+      chrome.alarms?.create?.(turnActiveAlarmName(tabId), {
+        when: Math.max(Date.now() + 1, dueAt)
+      });
+    } catch {
+      // setTimeout remains the in-lifetime fallback
+    }
+  }
+
+  function clearTurnActiveAlarm(tabId: number): void {
+    try {
+      chrome.alarms?.clear?.(turnActiveAlarmName(tabId));
+    } catch {
+      // alarms are unavailable in some unit-test shims
+    }
+  }
+
+  function clearTurnActiveDeadline(tabId: number): void {
+    const prev = turnActiveTimers.get(tabId);
+    if (prev) clearTimeout(prev.timer);
+    turnActiveTimers.delete(tabId);
+    turnActiveDeadlineRevision++;
+    const key = String(tabId);
+    delete persistedTurnActiveDeadlines[key];
+    markTurnActiveDeadlineDeleted(key);
+    clearTurnActiveAlarm(tabId);
+    void persistTurnActiveDeadlines();
+  }
+
+  async function processTurnActiveDeadline(deadline: TurnActiveDeadline): Promise<void> {
+    const key = String(deadline.tabId);
+    const current = persistedTurnActiveDeadlines[key];
+    if (!current || current.turnKey !== deadline.turnKey || current.dueAt !== deadline.dueAt) {
+      return;
+    }
+    const prev = turnActiveTimers.get(deadline.tabId);
+    if (prev) clearTimeout(prev.timer);
+    turnActiveTimers.delete(deadline.tabId);
+    turnActiveDeadlineRevision++;
+    delete persistedTurnActiveDeadlines[key];
+    markTurnActiveDeadlineDeleted(key);
+    clearTurnActiveAlarm(deadline.tabId);
+    void persistTurnActiveDeadlines();
+    await clearTurnIndicators(deadline.tabId, { turnKey: deadline.turnKey });
+  }
+
+  function armTurnActiveDeadline(deadline: TurnActiveDeadline): void {
+    const prev = turnActiveTimers.get(deadline.tabId);
+    if (prev) clearTimeout(prev.timer);
+    const delayMs = Math.max(0, deadline.dueAt - Date.now());
+    const timer = setTimeout(() => {
+      void processTurnActiveDeadline(deadline);
+    }, delayMs);
+    turnActiveTimers.set(deadline.tabId, {
+      timer,
+      turnKey: deadline.turnKey,
+      dueAt: deadline.dueAt
+    });
+    armTurnActiveAlarm(deadline.tabId, deadline.dueAt);
+  }
+
+  async function restoreTurnActiveDeadlines(): Promise<void> {
+    await refreshTurnActiveDeadlinesFromStorage();
+    const now = Date.now();
+    let changed = false;
+    for (const [key, deadline] of Object.entries(persistedTurnActiveDeadlines)) {
+      if (deadline.dueAt <= now) {
+        await processTurnActiveDeadline(deadline);
+        continue;
+      }
+      try {
+        await chrome.tabs.get(deadline.tabId);
+      } catch {
+        turnActiveDeadlineRevision++;
+        delete persistedTurnActiveDeadlines[key];
+        markTurnActiveDeadlineDeleted(key);
+        clearTurnActiveAlarm(deadline.tabId);
+        changed = true;
+        continue;
+      }
+      armTurnActiveDeadline(deadline);
+    }
+    if (changed) void persistTurnActiveDeadlines();
+  }
+
+  async function handleAlarm(alarmName: string): Promise<boolean> {
+    const tabId = parseTurnActiveAlarmName(alarmName);
+    if (typeof tabId !== 'number') return false;
+    await refreshTurnActiveDeadlinesFromStorage();
+    const deadline = persistedTurnActiveDeadlines[String(tabId)];
+    if (deadline) await processTurnActiveDeadline(deadline);
+    return true;
+  }
+
   async function clearTurnIndicatorsWithRetry(
     tabId: number,
     options: { completed?: boolean } = {}
@@ -182,11 +372,16 @@ export function createStaticIndicatorController() {
 
   function armTurnActiveTimeout(tabId: number): void {
     const turnKey = `${tabId}-${Date.now()}`;
-    const timer = setTimeout(() => {
-      turnActiveTimers.delete(tabId);
-      void clearTurnIndicators(tabId, { turnKey });
-    }, TURN_ACTIVE_TIMEOUT_MS);
-    turnActiveTimers.set(tabId, { timer, turnKey });
+    const deadline: TurnActiveDeadline = {
+      tabId,
+      turnKey,
+      dueAt: Date.now() + TURN_ACTIVE_TIMEOUT_MS
+    };
+    turnActiveDeadlineRevision++;
+    persistedTurnActiveDeadlines[String(tabId)] = deadline;
+    pendingDeletedTurnActiveDeadlines.clear(String(tabId));
+    void persistTurnActiveDeadlines();
+    armTurnActiveDeadline(deadline);
   }
 
   async function handleAgentTurnActive(
@@ -202,11 +397,7 @@ export function createStaticIndicatorController() {
     }
     try {
       await tabGroupManager.initialize();
-      const prev = turnActiveTimers.get(tabId);
-      if (prev) {
-        clearTimeout(prev.timer);
-        turnActiveTimers.delete(tabId);
-      }
+      clearTurnActiveDeadline(tabId);
       if (active) {
         if (hasActiveToolContext(tabId)) {
           armTurnActiveTimeout(tabId);
@@ -229,6 +420,8 @@ export function createStaticIndicatorController() {
   return {
     handleHeartbeat,
     dismissForSenderGroup,
-    handleAgentTurnActive
+    handleAgentTurnActive,
+    handleAlarm,
+    restoreTurnActiveDeadlines
   };
 }

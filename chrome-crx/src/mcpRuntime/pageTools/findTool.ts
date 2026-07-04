@@ -62,7 +62,11 @@ export const findTool: ToolDefinition<FindToolInput> = {
       if (!query) throw new Error('Query parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
+        tabId,
+        context.tabId,
+        { sessionId: context.browserSessionScope?.sessionId }
+      );
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const trackedTabId = tab.id;

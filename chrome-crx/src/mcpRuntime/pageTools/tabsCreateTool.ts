@@ -26,7 +26,11 @@ export const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
       if (!context?.tabId) throw new Error('No active tab found');
       const { url, tabId } = input || {};
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
+        tabId,
+        context.tabId,
+        { sessionId: context.browserSessionScope?.sessionId }
+      );
       const currentTab = await chrome.tabs.get(effectiveTabId);
       const targetUrl = url ? normalizeHttpUrlForNavigation(url) : 'chrome://newtab';
 

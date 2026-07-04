@@ -23,7 +23,9 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
     const { tabId, max_chars: maxChars } = input || {};
     if (!context?.tabId) throw new Error('No active tab found');
 
-    const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+    const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(tabId, context.tabId, {
+      sessionId: context.browserSessionScope?.sessionId
+    });
     const tabUrl = (await chrome.tabs.get(effectiveTabId)).url;
     if (!tabUrl) throw new Error('No URL available for active tab');
 

@@ -90,7 +90,9 @@ export const readPageTool: ToolDefinition<ReadPageToolInput> = {
       };
     }
 
-    const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+    const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(tabId, context.tabId, {
+      sessionId: context.browserSessionScope?.sessionId
+    });
     const tab = await chrome.tabs.get(effectiveTabId);
     if (!tab.id) throw new Error('Active tab has no ID');
     const trackedTabId = tab.id;

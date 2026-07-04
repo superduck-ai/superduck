@@ -8,7 +8,11 @@ import {
   tabGroupManager,
   trackEvent,
 } from "./mcpRuntime";
-import { restoreActiveToolContextsFromStorage, restoreActiveToolCountFromStorage } from "./mcpRuntime/core";
+import {
+  handleToolContextAlarm,
+  restoreActiveToolContextsFromStorage,
+  restoreActiveToolCountFromStorage,
+} from "./mcpRuntime/core";
 import { restoreGifFrameStorageFromStorage } from "./mcpRuntime/mediaTools/gifFrameStorage";
 import { createExtensionUrlHandler } from "./background/extensionUrl";
 import { createNativeHostManager } from "./background/nativeHost";
@@ -34,8 +38,30 @@ const downloadTracker = createDownloadTracker({
   sendNotification: nativeHostManager.sendMcpNotification,
 });
 
-void connectBridge();
-void nativeHostManager.connect();
+let serviceWorkerBootPromise: Promise<void> | null = null;
+
+async function ensureServiceWorkerBooted(): Promise<void> {
+  if (serviceWorkerBootPromise) return serviceWorkerBootPromise;
+  serviceWorkerBootPromise = (async () => {
+    initializeExtensionPermissions();
+    await tabGroupManager.initialize();
+    tabGroupManager.startTabGroupChangeListener();
+    await restoreActiveToolContextsFromStorage();
+    await restoreActiveToolCountFromStorage();
+    await restoreGifFrameStorageFromStorage();
+    await staticIndicatorController.restoreTurnActiveDeadlines();
+    await replayPendingUpdateIfAny();
+    void tabBadgeManager.initialize();
+    void connectBridge();
+    void nativeHostManager.connect();
+    await scheduledTaskManager.restoreScheduledAlarms();
+  })().catch((err) => {
+    serviceWorkerBootPromise = null;
+    console.warn("[superduck] service worker boot failed", err);
+    throw err;
+  });
+  return serviceWorkerBootPromise;
+}
 
 // The manifest declares a default sidepanel path, but the product only wants
 // SuperDuck-managed tabs to show it. Keep the default panel disabled and open
@@ -92,41 +118,17 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     // ignore
   }
 
-  initializeExtensionPermissions();
-  await tabGroupManager.initialize();
-  void tabBadgeManager.initialize();
+  await ensureServiceWorkerBooted();
 
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
     void sidePanelController.openOptionsForSetup().catch(() => {});
   }
 
   void nativeHostManager.connect();
-  await scheduledTaskManager.restoreScheduledAlarms();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  initializeExtensionPermissions();
-  await restoreActiveToolContextsFromStorage();
-  await restoreActiveToolCountFromStorage();
-  await restoreGifFrameStorageFromStorage();
-  // Replay any pending update that arrived while the SW was killed —
-  // onUpdateAvailable is a one-shot event and is not redelivered.
-  await replayPendingUpdateIfAny();
-  await tabGroupManager.initialize();
-  // Re-register the tab group change listener. MV3 service-worker
-  // listeners do not survive a restart, and the previous flow waited
-  // for the next mcp_connected message — sometimes hours or never —
-  // leaving tab events silently dropped. The listener is idempotent
-  // in the `tabGroupManager` wrapper, and the underlying
-  // `TabEventManager` singleton is fresh in the new SW so no
-  // double-registration can occur here.
-  tabGroupManager.startTabGroupChangeListener();
-  // Re-arm per-tab badges (state is wiped when the SW dies) and re-subscribe
-  // to lease + tab-activation events.
-  void tabBadgeManager.initialize();
-  void connectBridge();
-  void nativeHostManager.connect();
-  await scheduledTaskManager.restoreScheduledAlarms();
+  await ensureServiceWorkerBooted();
 });
 
 chrome.permissions.onAdded.addListener((permissions) => {
@@ -231,7 +233,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     void nativeHostManager.handleHeartbeatAlarm();
     return;
   }
-  void scheduledTaskManager.handleAlarm(alarm);
+  void (async () => {
+    if (await handleToolContextAlarm(alarm.name)) return;
+    if (await staticIndicatorController.handleAlarm(alarm.name)) return;
+    await scheduledTaskManager.handleAlarm(alarm);
+  })();
 });
 
 registerExternalMessageListener({
@@ -245,3 +251,5 @@ chrome.downloads.onCreated.addListener((item) => {
 chrome.downloads.onChanged.addListener((delta) => {
   downloadTracker.handleDownloadChanged(delta);
 });
+
+void ensureServiceWorkerBooted();

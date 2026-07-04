@@ -24,8 +24,14 @@ export const superduckHistoryTool: ToolDefinition<HistoryArgs> = {
       description: 'End date filter (ISO 8601 string)'
     }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
+      if (context?.browserSessionScope) {
+        return {
+          error:
+            'superduck_history is unavailable for scoped browser sessions because Chrome history is global browser history.'
+        };
+      }
       const query = typeof args?.query === 'string' ? args.query : '';
       const limit = Math.min(Math.max(1, args?.limit ?? 100), 500);
 

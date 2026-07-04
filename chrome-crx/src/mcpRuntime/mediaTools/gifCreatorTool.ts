@@ -45,15 +45,20 @@ export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
       if (!params?.action) throw new Error('action parameter is required');
       if (!context?.tabId) throw new Error('No active tab found in context');
 
-      const tab = await chrome.tabs.get(params.tabId);
-      if (!tab) throw new Error(`Tab ${params.tabId} not found`);
+      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
+        params.tabId,
+        context.tabId,
+        { sessionId: context.browserSessionScope?.sessionId }
+      );
+      const tab = await chrome.tabs.get(effectiveTabId);
+      if (!tab) throw new Error(`Tab ${effectiveTabId} not found`);
       const groupId = tab.groupId ?? -1;
 
       if (context.browserSessionScope) {
-        const isManaged = await tabGroupManager.isInGroup(params.tabId);
+        const isManaged = await tabGroupManager.isInGroup(effectiveTabId);
         if (!isManaged) {
           return {
-            error: `Tab ${params.tabId} is not in a managed tab group. GIF recording only works for tabs within a SuperDuck tab group.`
+            error: `Tab ${effectiveTabId} is not in a managed tab group. GIF recording only works for tabs within a SuperDuck tab group.`
           };
         }
       }

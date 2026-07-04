@@ -92,11 +92,13 @@ func cmdTabGroupList(argv []string) error {
 		}
 		return err
 	}
-	raw, err := cliclient.RunTool("tabs_context_mcp", args, clientOpts(), &rec)
-	if err != nil {
-		return err
+	raw, err := cliclient.RunToolJSON("tabs_context_mcp", args, clientOpts(), &rec)
+	if raw != "" {
+		if printErr := printGroupResult(raw); printErr != nil && err == nil {
+			return printErr
+		}
 	}
-	return printGroupResult(raw)
+	return err
 }
 
 // cmdTabGroupNew: superduck tab_group new [--force]
@@ -120,11 +122,13 @@ func cmdTabGroupNew(argv []string) error {
 		}
 		return err
 	}
-	raw, err := cliclient.RunTool("tabs_create_mcp", args, clientOpts(), &rec)
-	if err != nil {
-		return err
+	raw, err := cliclient.RunToolJSON("tabs_create_mcp", args, clientOpts(), &rec)
+	if raw != "" {
+		if printErr := printGroupResult(raw); printErr != nil && err == nil {
+			return printErr
+		}
 	}
-	return printGroupResult(raw)
+	return err
 }
 
 // cmdTabGroupFinalize: superduck tab_group finalize [--handoff TAB] [--deliverable TAB]
@@ -158,11 +162,13 @@ func cmdTabGroupFinalize(argv []string) error {
 		}
 		return err
 	}
-	raw, err := cliclient.RunTool("tabs_finalize_mcp", args, clientOpts(), &rec)
-	if err != nil {
-		return err
+	raw, err := cliclient.RunToolJSON("tabs_finalize_mcp", args, clientOpts(), &rec)
+	if raw != "" {
+		if printErr := printGroupResult(raw); printErr != nil && err == nil {
+			return printErr
+		}
 	}
-	return printGroupResult(raw)
+	return err
 }
 
 func printGroupResult(raw string) error {

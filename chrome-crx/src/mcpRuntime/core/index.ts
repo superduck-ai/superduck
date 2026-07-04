@@ -28,6 +28,7 @@ import {
   createDomainTransitionPermission
 } from '../domainPermissions';
 import {
+  handleToolContextAlarm,
   migrateGroupFinalizationState,
   restoreActiveToolContextsFromStorage,
   resetMcpState
@@ -94,6 +95,7 @@ export {
   isAgentActive,
   setOnAgentBecameIdle,
   restoreActiveToolCountFromStorage,
+  handleToolContextAlarm,
   migrateGroupFinalizationState,
   restoreActiveToolContextsFromStorage,
   resetMcpState

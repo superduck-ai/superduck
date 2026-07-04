@@ -1,5 +1,6 @@
 import type { ToolContext, ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import { cdpDebugger } from '../cdp';
+import { tabLeaseManager } from '../tabState/tabLeases';
 import type { BatchAction } from './types';
 import {
   DEBUGGER_REQUIRED_TOOLS,
@@ -82,13 +83,12 @@ export async function ensureDebuggerAttachedForBatchStep(
   context: ToolContext
 ): Promise<void> {
   if (!DEBUGGER_REQUIRED_TOOLS.has(toolName)) return;
-  const targetTabId =
-    typeof input.tabId === 'number'
-      ? input.tabId
-      : typeof context.tabId === 'number'
-        ? context.tabId
-        : undefined;
-  if (targetTabId === undefined) return;
+  const targetTabId = typeof input.tabId === 'number' ? input.tabId : context.tabId;
+  if (typeof targetTabId !== 'number') return;
+  const browserSessionId = context.browserSessionScope?.sessionId;
+  if (browserSessionId) {
+    await tabLeaseManager.assertTabAvailableForSession(browserSessionId, targetTabId);
+  }
   const tab = await chrome.tabs.get(targetTabId);
   if (isSystemUrl(tab.url)) return;
   const attachTimeoutMs = 10000;

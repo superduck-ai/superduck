@@ -75,6 +75,25 @@ func TestSplitGlobalFlagsSession(t *testing.T) {
 	}
 }
 
+func TestSplitGlobalFlagsSessionEquals(t *testing.T) {
+	withCLIFlags(t, globalFlags{SocketPath: cliclient.DefaultSocketPath, Timeout: 30 * time.Second})
+
+	args := splitGlobalFlags([]string{
+		"tab_group",
+		"--session=session-a",
+		"list",
+		"--session-id=session-b",
+	})
+
+	wantArgs := []string{"tab_group", "list"}
+	if got := strings.Join(args, "\x00"); got != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("splitGlobalFlags args = %v, want %v", args, wantArgs)
+	}
+	if got, want := gflags.SessionID, "session-b"; got != want {
+		t.Fatalf("gflags.SessionID = %q, want %q", got, want)
+	}
+}
+
 func TestSplitGlobalFlagsAllGlobalsRegardlessOfPosition(t *testing.T) {
 	withCLIFlags(t, globalFlags{SocketPath: cliclient.DefaultSocketPath, Timeout: 30 * time.Second})
 

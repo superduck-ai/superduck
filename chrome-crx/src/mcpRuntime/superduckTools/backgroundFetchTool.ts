@@ -17,7 +17,7 @@ export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> =
     },
     allowCrossOrigin: { type: 'boolean', description: 'Allow target origin != source eTLD+1' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
       const url = String(args?.url || '');
       if (!url) return { error: 'url is required' };
@@ -28,7 +28,7 @@ export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> =
         return { error: `invalid url: ${url}` };
       }
 
-      const sourceTab = await resolveActiveTab(args?.sourceTabId);
+      const sourceTab = await resolveActiveTab(args?.sourceTabId, context);
       let sourceETld = '';
       if (sourceTab.url) {
         try {

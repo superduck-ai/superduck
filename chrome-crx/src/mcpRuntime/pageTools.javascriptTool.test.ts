@@ -38,7 +38,7 @@ vi.mock('./tabState', () => ({
     getCategory: vi.fn(async () => null)
   },
   tabGroupManager: {
-    getEffectiveTabId: fixtures.getEffectiveTabId,
+    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,

@@ -11,9 +11,9 @@ export const superduckFillTool: ToolDefinition<FillArgs> = {
     value: { type: 'string', description: 'Value to set' },
     tabId: { type: 'number' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveActiveTab(args?.tabId, context);
       if (tab.id === undefined) return { error: 'active tab has no id' };
       const selector = String(args?.selector || '');
       if (!selector) return { error: 'selector is required' };

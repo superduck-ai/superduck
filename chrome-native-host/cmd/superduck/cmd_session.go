@@ -34,10 +34,7 @@ func cmdSession(argv []string) error {
 		fmt.Fprintln(os.Stderr, sessionUsage)
 		return nil
 	default:
-		fmt.Fprintf(os.Stderr, "unknown session subcommand: %s\n", sub)
-		fmt.Fprintln(os.Stderr, sessionUsage)
-		os.Exit(ExitUsage)
-		return nil
+		return fmt.Errorf("unknown session subcommand: %s\n%s", sub, sessionUsage)
 	}
 }
 

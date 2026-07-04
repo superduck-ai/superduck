@@ -1,6 +1,6 @@
 import type { ToolDefinition } from '../pageTools';
 import type { OpenArgs } from './types';
-import { resolveActiveTab } from './helpers';
+import { claimTabForContext, resolveActiveTab } from './helpers';
 
 export const superduckOpenTool: ToolDefinition<OpenArgs> = {
   name: 'superduck_open',
@@ -11,15 +11,22 @@ export const superduckOpenTool: ToolDefinition<OpenArgs> = {
     newTab: { type: 'boolean', description: 'Open in a new tab; default updates the active tab' },
     tabId: { type: 'number', description: 'Override active-tab resolution' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
       const url = String(args?.url || '');
       if (!url) return { error: 'url is required' };
       let tab: chrome.tabs.Tab;
       if (args?.newTab) {
         tab = await chrome.tabs.create({ url, active: true });
+        if (tab.id !== undefined) {
+          const groupId =
+            typeof tab.groupId === 'number' && tab.groupId !== -1 ? tab.groupId : undefined;
+          await claimTabForContext(tab.id, context, {
+            groupId
+          });
+        }
       } else {
-        const active = await resolveActiveTab(args?.tabId);
+        const active = await resolveActiveTab(args?.tabId, context);
         if (active.id === undefined) return { error: 'active tab has no id' };
         const updated = await chrome.tabs.update(active.id, { url, active: true });
         if (!updated) return { error: 'failed to update tab' };
