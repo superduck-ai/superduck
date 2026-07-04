@@ -1,6 +1,5 @@
 import type { TabGroupManager } from './tabGroups';
 import {
-  TAB_GROUP_TITLE,
   type AddTabToGroupOptions,
   type CreateGroupOptions,
   type GroupMetadata,
@@ -9,6 +8,7 @@ import {
 import { getMemberOrigin } from './tabNavigationIsolation';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
 import { BrowserSessionConflictError, tabLeaseManager, type TabLeaseOrigin } from './tabLeases';
+import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
 
 export async function createGroup(
   mgr: TabGroupManager,
@@ -46,8 +46,7 @@ export async function createGroup(
     }
   if (!chromeGroupId) throw new Error('Failed to create Chrome tab group');
   await chrome.tabGroups.update(chromeGroupId, {
-    title: TAB_GROUP_TITLE,
-    color: chrome.tabGroups.Color.ORANGE,
+    ...buildGroupAppearanceUpdate(mgr, {}),
     collapsed: false
   });
   const metadata: GroupMetadata = {
@@ -62,45 +61,6 @@ export async function createGroup(
     origin: options.origin ?? 'user',
     disposition: 'active'
   });
-  mgr.groupMetadata.set(tabId, metadata);
-  await mgr.saveToStorage();
-  const members = await mgr.getGroupMembers(chromeGroupId);
-  return { ...metadata, memberTabs: members };
-}
-
-export async function adoptOrphanedGroup(
-  mgr: TabGroupManager,
-  tabId: number,
-  chromeGroupId: number
-): Promise<GroupWithMembers> {
-  const existing = await mgr.findGroupByMainTab(tabId);
-  if (existing) return existing;
-  const tab = await chrome.tabs.get(tabId);
-  if (!tab.url) throw new Error('Tab has no URL');
-  const domain = new URL(tab.url).hostname;
-  if (tab.groupId !== chromeGroupId)
-    throw new Error(`Tab ${tabId} is not in Chrome group ${chromeGroupId}`);
-  const metadata: GroupMetadata = {
-    mainTabId: tabId,
-    createdAt: Date.now(),
-    domain,
-    chromeGroupId,
-    memberStates: new Map()
-  };
-  metadata.memberStates.set(tabId, {
-    indicatorState: 'none',
-    origin: 'user',
-    disposition: 'active'
-  });
-  const groupTabs = await chrome.tabs.query({ groupId: chromeGroupId });
-  for (const t of groupTabs)
-    t.id &&
-      t.id !== tabId &&
-      metadata.memberStates.set(t.id, {
-        indicatorState: 'static',
-        origin: 'user',
-        disposition: 'active'
-      });
   mgr.groupMetadata.set(tabId, metadata);
   await mgr.saveToStorage();
   const members = await mgr.getGroupMembers(chromeGroupId);

@@ -1,5 +1,6 @@
 import type { TabGroupManager } from './tabGroups';
-import { TAB_GROUP_MARKER } from './types';
+import { DEFAULT_SESSION_KEY, TAB_GROUP_MARKER } from './types';
+import { decorateGroupTitleForStatus } from './tabGroupAppearance';
 
 export async function updateGroupTitle(
   mgr: TabGroupManager,
@@ -11,28 +12,30 @@ export async function updateGroupTitle(
   const meta = mgr.groupMetadata.get(mainTabId);
   if (meta)
     try {
-      const currentTitle = (await chrome.tabGroups.get(meta.chromeGroupId)).title || '';
-      const titleWithoutPrefix = currentTitle.replace(/^(⌛|🔔|✅)/, '').trim();
-      const explicitTitles = new Set(
-        Array.from(mgr.sessionGroupTitles.values(), (name) => `${TAB_GROUP_MARKER} ${name}`)
-      );
-      if (explicitTitles.has(titleWithoutPrefix)) return;
-      if (!titleWithoutPrefix.includes(TAB_GROUP_MARKER)) return;
-      // Every group reaching here carries the MCP marker (the guard above
-      // returns otherwise), i.e. it is a managed MCP group. Such groups MUST
-      // stay ORANGE: findMcpTabGroupByCharacteristics recognizes them by color
-      // and ensureMcpGroupCharacteristics enforces ORANGE. The old palette
-      // picker could even select the semantically-reserved GREEN/ORANGE,
-      // turning a freshly-started task green and breaking SW-restart lookup.
-      // Set the title only and leave the color untouched.
-      const trimmedTitle = title.trim();
+      if (isLoading && meta.status !== 'active') {
+        meta.status = 'active';
+        await mgr.saveToStorage();
+      }
+      const sessionId = meta.sessionId ?? DEFAULT_SESSION_KEY;
+      const explicitName = mgr.sessionGroupTitles.get(sessionId);
+      const trimmedTitle = explicitName ?? title.trim();
       const markedTitle = trimmedTitle.includes(TAB_GROUP_MARKER)
         ? trimmedTitle
         : `${TAB_GROUP_MARKER} ${trimmedTitle}`;
-      const displayTitle = isLoading ? `⌛${markedTitle}` : markedTitle;
-      await chrome.tabGroups.update(meta.chromeGroupId, {
-        title: displayTitle
-      });
+      const statusTitle = decorateGroupTitleForStatus(markedTitle, meta.status);
+      const displayTitle = explicitName
+        ? statusTitle
+        : isLoading
+          ? `⌛${statusTitle}`
+          : statusTitle;
+      const currentGroup = await chrome.tabGroups.get(meta.chromeGroupId);
+      const patch: { title?: string; color?: chrome.tabGroups.Color } = {};
+      if ((currentGroup.title || '') !== displayTitle) patch.title = displayTitle;
+      if (isLoading && currentGroup.color !== chrome.tabGroups.Color.ORANGE) {
+        patch.color = chrome.tabGroups.Color.ORANGE;
+      }
+      if (Object.keys(patch).length === 0) return;
+      await chrome.tabGroups.update(meta.chromeGroupId, patch);
     } catch {
       // ignore
     }
@@ -69,10 +72,20 @@ export async function updateTabGroupPrefix(
 }
 
 export async function addCompletionPrefix(mgr: TabGroupManager, mainTabId: number): Promise<void> {
+  const meta = mgr.groupMetadata.get(mainTabId);
+  if (meta) {
+    meta.status = 'completed';
+    await mgr.saveToStorage();
+  }
   await updateTabGroupPrefix(mgr, mainTabId, '✅');
 }
 
 export async function addLoadingPrefix(mgr: TabGroupManager, mainTabId: number): Promise<void> {
+  const meta = mgr.groupMetadata.get(mainTabId);
+  if (meta && meta.status !== 'active') {
+    meta.status = 'active';
+    await mgr.saveToStorage();
+  }
   await updateTabGroupPrefix(mgr, mainTabId, '⌛');
 }
 
@@ -84,6 +97,11 @@ export async function removeCompletionPrefix(
   mgr: TabGroupManager,
   mainTabId: number
 ): Promise<void> {
+  const meta = mgr.groupMetadata.get(mainTabId);
+  if (meta?.status === 'completed') {
+    meta.status = 'active';
+    await mgr.saveToStorage();
+  }
   await updateTabGroupPrefix(mgr, mainTabId, null, '✅');
 }
 

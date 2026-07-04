@@ -6,6 +6,7 @@ export const superduckOpenTool: ToolDefinition<OpenArgs> = {
   name: 'superduck_open',
   description:
     "SuperDuck CLI: navigate user's active Chrome tab to a URL. Pass newTab=true to open in a new tab instead.",
+  tabAccess: 'write',
   parameters: {
     url: { type: 'string', description: 'URL to open (http(s) or chrome://...)' },
     newTab: { type: 'boolean', description: 'Open in a new tab; default updates the active tab' },

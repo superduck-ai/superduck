@@ -3,7 +3,7 @@ import type { ToolContext } from './pageToolsSupport/types';
 
 const fixtures = vi.hoisted(() => {
   const checkPermission = vi.fn();
-  const getEffectiveTabId = vi.fn();
+  const resolveTabForContext = vi.fn();
   const createChildTabInGroup = vi.fn();
   const getValidTabsWithMetadata = vi.fn();
   const withPreservedActiveTab = vi.fn();
@@ -24,7 +24,7 @@ const fixtures = vi.hoisted(() => {
 
   return {
     checkPermission,
-    getEffectiveTabId,
+    resolveTabForContext,
     createChildTabInGroup,
     getValidTabsWithMetadata,
     withPreservedActiveTab,
@@ -68,9 +68,10 @@ vi.mock('./shared', () => ({
 
 vi.mock('./tabState', () => ({
   tabGroupManager: {
-    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
+    resolveTabForContext: fixtures.resolveTabForContext,
     createChildTabInGroup: fixtures.createChildTabInGroup,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
+    getValidTabsWithMetadataForContext: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
     rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy,
@@ -150,10 +151,24 @@ const { BrowserSessionConflictError } = await import('./tabState/tabLeases');
 const context: ToolContext = {
   tabId: 10,
   toolUseId: 'tool-use-1',
+  browserSessionScope: { sessionId: 'session-a' },
+  tabAccess: 'write',
+  resolveTabId: async (requestedTabId, options) =>
+    await fixtures.resolveTabForContext(requestedTabId, 10, {
+      browserSessionScope: { sessionId: 'session-a' },
+      tabAccess: options?.tabAccess ?? 'write'
+    }),
   permissionManager: {
     checkPermission: fixtures.checkPermission
   } as unknown as ToolContext['permissionManager']
 };
+
+function expectPreActionSnapshotFilter(value: unknown): void {
+  const filter = value as { ignoreExistingTabIds?: Set<number>; windowId?: number };
+  expect(filter.windowId).toBe(1);
+  expect(filter.ignoreExistingTabIds).toBeInstanceOf(Set);
+  expect(filter.ignoreExistingTabIds?.has(10)).toBe(true);
+}
 
 beforeEach(() => {
   for (const fn of Object.values(fixtures)) fn.mockReset();
@@ -162,7 +177,7 @@ beforeEach(() => {
   chromeMock.scripting.executeScript.mockReset();
 
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
-  fixtures.getEffectiveTabId.mockResolvedValue(10);
+  fixtures.resolveTabForContext.mockResolvedValue(10);
   fixtures.withPreservedActiveTab.mockImplementation(
     async (_tabId: number, action: () => Promise<unknown>) => action()
   );
@@ -223,6 +238,14 @@ describe('computer search submit isolation (post-action)', () => {
 
     expect(fixtures.pressKey).toHaveBeenCalledWith(10, 'Enter');
     expect(fixtures.consumeWindowOpenEvents).toHaveBeenCalledWith(10);
+    expect(fixtures.adoptChildTabsFromOpener).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({
+        ignoreExistingTabIds: expect.any(Set),
+        windowId: 1
+      })
+    );
+    expectPreActionSnapshotFilter(fixtures.adoptChildTabsFromOpener.mock.calls[0][1]);
     expect(fixtures.moveSearchNavigationToNewTab).toHaveBeenCalledWith(
       expect.objectContaining({ openerTabId: 10, previousUrl: 'https://example.com/' })
     );
@@ -293,15 +316,26 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     expect(fixtures.awaitOpenerChildTabId).toHaveBeenCalledWith(
       10,
       'https://child.example/',
-      expect.any(Number)
+      expect.any(Number),
+      expect.objectContaining({
+        ignoreExistingTabIds: expect.any(Set),
+        windowId: 1
+      })
     );
+    expectPreActionSnapshotFilter(fixtures.awaitOpenerChildTabId.mock.calls[0][3]);
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledWith(
       10,
       'https://child.example/',
       expect.any(Object),
-      { existingTabId: 99, allowUnlinkedExistingTab: false }
+      expect.objectContaining({
+        existingTabId: 99,
+        allowUnlinkedExistingTab: false,
+        ignoreExistingTabIds: expect.any(Set),
+        windowId: 1
+      })
     );
+    expectPreActionSnapshotFilter(fixtures.createPolicyCheckedChildTab.mock.calls[0][3]);
     expect(result.tabContext).toMatchObject({ executedOnTabId: 99 });
   });
 
@@ -335,8 +369,14 @@ describe('computer window.open fallback (no duplicate popup)', () => {
       10,
       'https://www.baidu.com/link?url=abc',
       expect.any(Object),
-      { existingTabId: 88, allowUnlinkedExistingTab: true }
+      expect.objectContaining({
+        existingTabId: 88,
+        allowUnlinkedExistingTab: true,
+        ignoreExistingTabIds: expect.any(Set),
+        windowId: 1
+      })
     );
+    expectPreActionSnapshotFilter(fixtures.createPolicyCheckedChildTab.mock.calls[0][3]);
     expect(result.tabContext).toMatchObject({ executedOnTabId: 88 });
   });
 
@@ -366,7 +406,8 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     );
 
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
-    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toHaveLength(3);
+    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toHaveLength(4);
+    expectPreActionSnapshotFilter(fixtures.createPolicyCheckedChildTab.mock.calls[0][3]);
     expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
   });
 
@@ -391,12 +432,17 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     );
 
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
-    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toHaveLength(3);
+    expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toHaveLength(4);
     expect(fixtures.createPolicyCheckedChildTab.mock.calls[0]).toEqual([
       10,
       'https://www.baidu.com/link?url=abc',
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({
+        ignoreExistingTabIds: expect.any(Set),
+        windowId: 1
+      })
     ]);
+    expectPreActionSnapshotFilter(fixtures.createPolicyCheckedChildTab.mock.calls[0][3]);
     expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
   });
 
@@ -415,6 +461,8 @@ describe('computer window.open fallback (no duplicate popup)', () => {
 
     expect(fixtures.awaitOpenerChildTabId).toHaveBeenCalled();
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(1);
+    expectPreActionSnapshotFilter(fixtures.awaitOpenerChildTabId.mock.calls[0][3]);
+    expectPreActionSnapshotFilter(fixtures.createPolicyCheckedChildTab.mock.calls[0][3]);
     expect(result.tabContext).toMatchObject({ executedOnTabId: 77 });
   });
 

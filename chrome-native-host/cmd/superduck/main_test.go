@@ -426,9 +426,9 @@ func TestReadSessionIDFileCreatedByPeerRecoversStaleEmptyFile(t *testing.T) {
 		t.Fatalf("WriteFile(%q) error = %v", sessionPath, err)
 	}
 
-	id, err := readSessionIDFileCreatedByPeer(sessionPath)
+	id, err := readOrCreateSessionIDFile(sessionPath)
 	if err != nil {
-		t.Fatalf("readSessionIDFileCreatedByPeer() error = %v", err)
+		t.Fatalf("readOrCreateSessionIDFile() error = %v", err)
 	}
 	if !strings.HasPrefix(id, "cli:file:") {
 		t.Fatalf("recovered id = %q, want cli:file prefix", id)

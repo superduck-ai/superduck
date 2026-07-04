@@ -11,7 +11,11 @@ import {
   createErrorResponse,
   executeTool
 } from '../mcpRuntime';
-import { resolveBrowserSessionId } from '../mcpRuntime/sessionScope';
+import {
+  hasReservedBrowserSessionArgs,
+  reservedBrowserSessionArgsError,
+  resolveBrowserSessionId
+} from '../mcpRuntime/sessionScope';
 import { ReconnectScheduler } from './ReconnectScheduler';
 
 const NATIVE_HOST_NAMES = [
@@ -94,7 +98,11 @@ export interface NativeHostManager {
   handleHeartbeatAlarm: () => Promise<void>;
 }
 
-export function createNativeHostManager(): NativeHostManager {
+export interface NativeHostManagerOptions {
+  waitUntilBooted?: () => Promise<void>;
+}
+
+export function createNativeHostManager(options: NativeHostManagerOptions = {}): NativeHostManager {
   let nativePort: chrome.runtime.Port | null = null;
   let isConnecting = false;
   let nativeHostInstalled = false;
@@ -234,9 +242,15 @@ export function createNativeHostManager(): NativeHostManager {
         return;
       }
 
+      await options.waitUntilBooted?.();
+
       const args = isRecord(params.args) ? params.args : {};
       const clientId = typeof params.client_id === 'string' ? params.client_id : undefined;
-      const sessionId = resolveBrowserSessionId(params, args);
+      if (hasReservedBrowserSessionArgs(args)) {
+        sendToolResponse(createErrorResponse(reservedBrowserSessionArgsError()));
+        return;
+      }
+      const sessionId = resolveBrowserSessionId(params);
 
       const timeoutMs = getToolRequestTimeoutMs(params.tool, args);
       const result = await withToolRequestTimeout(

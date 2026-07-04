@@ -1,5 +1,5 @@
 import { StorageKeys, getStorageValue, setStorageValue } from '../../extensionServices';
-import { PendingDeleteSet, type PendingDeleteSnapshot } from '../../utils/pendingDeleteSet';
+import { PersistentDeadlineStore, type DeadlineState } from '../../utils/persistentDeadlineStore';
 import { cdpDebugger } from '../browserAutomation';
 import { tabGroupManager } from '../tabState';
 
@@ -57,17 +57,16 @@ const EMPTY_DEADLINES: PersistedToolContextDeadlines = {
   activeContextExpiry: {}
 };
 
-let persistedDeadlines: PersistedToolContextDeadlines = {
-  idleCleanup: {},
-  debuggerDetach: {},
-  activeContextExpiry: {}
-};
-let deadlineStateRevision = 0;
-const pendingDeletedDeadlines: Record<ToolContextDeadlineKind, PendingDeleteSet> = {
-  idleCleanup: new PendingDeleteSet(),
-  debuggerDetach: new PendingDeleteSet(),
-  activeContextExpiry: new PendingDeleteSet()
-};
+const deadlineStore = new PersistentDeadlineStore<
+  ToolContextDeadlineKind,
+  PersistedToolContextDeadline
+>({
+  storageKey: StorageKeys.TOOL_CONTEXT_DEADLINES,
+  kinds: TOOL_CONTEXT_DEADLINE_KINDS,
+  emptyState: EMPTY_DEADLINES,
+  loadState: loadToolContextDeadlineState,
+  warnLabel: 'tool context deadlines'
+});
 
 const groupFinalizationState = new Map<
   number,
@@ -121,16 +120,6 @@ function isPersistedActiveToolContext(value: unknown): value is PersistedActiveT
   );
 }
 
-function cloneDeadlineState(
-  state: PersistedToolContextDeadlines = EMPTY_DEADLINES
-): PersistedToolContextDeadlines {
-  return {
-    idleCleanup: { ...state.idleCleanup },
-    debuggerDetach: { ...state.debuggerDetach },
-    activeContextExpiry: { ...state.activeContextExpiry }
-  };
-}
-
 function deadlineKey(targetType: ToolContextDeadlineTarget, targetId: number): string {
   return `${targetType}:${targetId}`;
 }
@@ -181,88 +170,30 @@ function isPersistedDeadline(value: unknown): value is PersistedToolContextDeadl
   return true;
 }
 
-async function loadDeadlineState(): Promise<PersistedToolContextDeadlines> {
-  try {
-    const stored = await getStorageValue<unknown>(StorageKeys.TOOL_CONTEXT_DEADLINES);
-    const next = cloneDeadlineState();
-    if (!isRecord(stored)) return next;
-    for (const kind of TOOL_CONTEXT_DEADLINE_KINDS) {
-      const byKey = stored[kind];
-      if (!isRecord(byKey)) continue;
-      for (const [key, value] of Object.entries(byKey)) {
-        if (!parseDeadlineKey(key) || !isPersistedDeadline(value)) continue;
-        if (kind === 'activeContextExpiry' && value.targetType !== 'tab') continue;
-        next[kind][key] = {
-          targetType: value.targetType,
-          targetId: value.targetId,
-          dueAt: value.dueAt,
-          ...(value.memberSnapshot ? { memberSnapshot: [...value.memberSnapshot] } : {})
-        };
-      }
-    }
-    return next;
-  } catch (err) {
-    console.warn('[core] failed to load tool context deadlines', err);
-    return cloneDeadlineState();
-  }
-}
-
-function mergeDeadlineStateFromStorage(
-  loaded: PersistedToolContextDeadlines
-): PersistedToolContextDeadlines {
-  const next = cloneDeadlineState(loaded);
+function loadToolContextDeadlineState(
+  stored: unknown
+): DeadlineState<ToolContextDeadlineKind, PersistedToolContextDeadline> {
+  const next: PersistedToolContextDeadlines = {
+    idleCleanup: {},
+    debuggerDetach: {},
+    activeContextExpiry: {}
+  };
+  if (!isRecord(stored)) return next;
   for (const kind of TOOL_CONTEXT_DEADLINE_KINDS) {
-    Object.assign(next[kind], persistedDeadlines[kind]);
+    const byKey = stored[kind];
+    if (!isRecord(byKey)) continue;
+    for (const [key, value] of Object.entries(byKey)) {
+      if (!parseDeadlineKey(key) || !isPersistedDeadline(value)) continue;
+      if (kind === 'activeContextExpiry' && value.targetType !== 'tab') continue;
+      next[kind][key] = {
+        targetType: value.targetType,
+        targetId: value.targetId,
+        dueAt: value.dueAt,
+        ...(value.memberSnapshot ? { memberSnapshot: [...value.memberSnapshot] } : {})
+      };
+    }
   }
   return next;
-}
-
-function applyPendingDeadlineDeletes(
-  state: PersistedToolContextDeadlines
-): PersistedToolContextDeadlines {
-  for (const kind of TOOL_CONTEXT_DEADLINE_KINDS) {
-    pendingDeletedDeadlines[kind].applyTo(state[kind]);
-  }
-  return state;
-}
-
-function clonePendingDeadlineDeletes(): Record<ToolContextDeadlineKind, PendingDeleteSnapshot> {
-  return {
-    idleCleanup: pendingDeletedDeadlines.idleCleanup.snapshot(),
-    debuggerDetach: pendingDeletedDeadlines.debuggerDetach.snapshot(),
-    activeContextExpiry: pendingDeletedDeadlines.activeContextExpiry.snapshot()
-  };
-}
-
-function clearPersistedDeadlineDeletes(
-  snapshot: Record<ToolContextDeadlineKind, PendingDeleteSnapshot>
-): void {
-  for (const kind of TOOL_CONTEXT_DEADLINE_KINDS) {
-    pendingDeletedDeadlines[kind].clearPersisted(snapshot[kind], persistedDeadlines[kind]);
-  }
-}
-
-function markStoredDeadlineDeleted(kind: ToolContextDeadlineKind, key: string): void {
-  pendingDeletedDeadlines[kind].mark(key, deadlineStateRevision);
-}
-
-async function refreshDeadlineStateFromStorage(): Promise<void> {
-  const revisionBeforeLoad = deadlineStateRevision;
-  const loaded = await loadDeadlineState();
-  const next =
-    deadlineStateRevision === revisionBeforeLoad ? loaded : mergeDeadlineStateFromStorage(loaded);
-  persistedDeadlines = applyPendingDeadlineDeletes(next);
-}
-
-async function persistDeadlineState(): Promise<void> {
-  const stateToPersist = cloneDeadlineState(persistedDeadlines);
-  const deleteSnapshot = clonePendingDeadlineDeletes();
-  try {
-    await setStorageValue(StorageKeys.TOOL_CONTEXT_DEADLINES, stateToPersist);
-    clearPersistedDeadlineDeletes(deleteSnapshot);
-  } catch (err) {
-    console.warn('[core] failed to persist tool context deadlines', err);
-  }
 }
 
 function clearDeadlineAlarm(kind: ToolContextDeadlineKind, key: string): void {
@@ -322,12 +253,9 @@ function removeStoredDeadline(
   record: PersistedToolContextDeadline
 ): void {
   const key = deadlineKey(record.targetType, record.targetId);
-  deadlineStateRevision++;
-  delete persistedDeadlines[kind][key];
-  markStoredDeadlineDeleted(kind, key);
+  deadlineStore.remove(kind, key);
   clearDeadlineAlarm(kind, key);
   clearDeadlineTimer(kind, record);
-  void persistDeadlineState();
 }
 
 function setStoredDeadline(
@@ -335,10 +263,7 @@ function setStoredDeadline(
   record: PersistedToolContextDeadline
 ): void {
   const key = deadlineKey(record.targetType, record.targetId);
-  deadlineStateRevision++;
-  persistedDeadlines[kind][key] = record;
-  pendingDeletedDeadlines[kind].clear(key);
-  void persistDeadlineState();
+  deadlineStore.set(kind, key, record);
   armDeadlineAlarm(kind, key, record.dueAt);
 }
 
@@ -347,19 +272,13 @@ function clearStoredDeadlinesForTarget(
   targetId: number
 ): void {
   const key = deadlineKey(targetType, targetId);
-  let changed = false;
-  for (const kind of TOOL_CONTEXT_DEADLINE_KINDS) {
-    const record = persistedDeadlines[kind][key];
-    if (record) {
-      deadlineStateRevision++;
-      delete persistedDeadlines[kind][key];
-      markStoredDeadlineDeleted(kind, key);
-      clearDeadlineAlarm(kind, key);
-      clearDeadlineTimer(kind, record);
-      changed = true;
-    }
+  for (const [kind, , record] of deadlineStore.removeWhere(
+    (candidateKind, candidateKey) =>
+      candidateKey === key && TOOL_CONTEXT_DEADLINE_KINDS.includes(candidateKind)
+  )) {
+    clearDeadlineAlarm(kind, key);
+    clearDeadlineTimer(kind, record);
   }
-  if (changed) void persistDeadlineState();
 }
 
 async function tabExists(tabId: number): Promise<boolean> {
@@ -589,7 +508,7 @@ async function processToolContextDeadline(
   record: PersistedToolContextDeadline
 ): Promise<void> {
   const key = deadlineKey(record.targetType, record.targetId);
-  if (!sameDeadline(persistedDeadlines[kind][key], record)) return;
+  if (!sameDeadline(deadlineStore.get(kind, key), record)) return;
   markDeadlineTimerDone(kind, record);
 
   if (kind === 'activeContextExpiry') {
@@ -630,7 +549,7 @@ async function processToolContextDeadline(
     await cdpDebugger.detachDebugger(record.targetId).catch(() => {});
   }
 
-  if (sameDeadline(persistedDeadlines[kind][key], record)) {
+  if (sameDeadline(deadlineStore.get(kind, key), record)) {
     removeStoredDeadline(kind, record);
   }
   if (record.targetType === 'group') cleanupEmptyGroupState(record.targetId);
@@ -664,43 +583,35 @@ function armDeadlineTimeout(
 }
 
 async function restoreToolContextDeadlinesFromStorage(): Promise<void> {
-  await refreshDeadlineStateFromStorage();
+  await deadlineStore.refresh();
   const now = Date.now();
-  let changed = false;
   for (const kind of TOOL_CONTEXT_DEADLINE_KINDS) {
-    for (const [key, record] of Object.entries(persistedDeadlines[kind])) {
+    for (const [key, record] of deadlineStore.entries(kind)) {
       if (record.dueAt <= now) {
         await processToolContextDeadline(kind, record);
         continue;
       }
       if (kind === 'activeContextExpiry' && !activeToolContexts.has(record.targetId)) {
-        deadlineStateRevision++;
-        delete persistedDeadlines[kind][key];
-        markStoredDeadlineDeleted(kind, key);
+        deadlineStore.remove(kind, key);
         clearDeadlineAlarm(kind, key);
-        changed = true;
         continue;
       }
       if (record.targetType === 'tab' && !(await tabExists(record.targetId))) {
-        deadlineStateRevision++;
-        delete persistedDeadlines[kind][key];
-        markStoredDeadlineDeleted(kind, key);
+        deadlineStore.remove(kind, key);
         clearDeadlineAlarm(kind, key);
-        changed = true;
         continue;
       }
       armDeadlineTimeout(kind, record);
       armDeadlineAlarm(kind, key, record.dueAt);
     }
   }
-  if (changed) void persistDeadlineState();
 }
 
 export async function handleToolContextAlarm(alarmName: string): Promise<boolean> {
   const parsed = parseDeadlineAlarmName(alarmName);
   if (!parsed) return false;
-  await refreshDeadlineStateFromStorage();
-  const record = persistedDeadlines[parsed.kind][parsed.key];
+  await deadlineStore.refresh();
+  const record = deadlineStore.get(parsed.kind, parsed.key);
   if (record) await processToolContextDeadline(parsed.kind, record);
   return true;
 }

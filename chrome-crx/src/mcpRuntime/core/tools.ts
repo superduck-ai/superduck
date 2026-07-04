@@ -19,6 +19,7 @@ import {
   batchTool,
   type ToolContext,
   type ToolDefinition,
+  type ToolTabAccess,
   type ToolResult
 } from '../browserAutomation';
 import { superduckTools, superduckToolNames } from '../superduckTools';
@@ -29,6 +30,7 @@ import {
   tabsNameSessionMcpTool
 } from './mcpTools';
 import { shortcutsListTool, shortcutsGetTool, shortcutsExecuteTool } from './shortcutTools';
+import { isReadOnlyBrowserBatchArgs } from '../batchTool/access';
 
 type RuntimeToolExecute = {
   bivarianceHack(input: unknown, context: ToolContext): Promise<ToolResult>;
@@ -111,3 +113,12 @@ export const mcpToolNames = [
   'shortcuts_get',
   ...superduckToolNames
 ];
+
+export function hasTool(toolName: string): boolean {
+  return allTools.some((tool) => tool.name === toolName);
+}
+
+export function getToolTabAccess(toolName: string, args?: unknown): ToolTabAccess {
+  if (toolName === 'browser_batch' && isReadOnlyBrowserBatchArgs(args)) return 'read';
+  return allTools.find((tool) => tool.name === toolName)?.tabAccess ?? 'read';
+}

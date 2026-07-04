@@ -559,10 +559,6 @@ func readOrCreateSessionIDFile(path string) (string, error) {
 	return id, nil
 }
 
-func readSessionIDFileCreatedByPeer(path string) (string, error) {
-	return readOrCreateSessionIDFile(path)
-}
-
 func acquireSessionIDFileLock(path string) (func(), error) {
 	lockPath := path + ".lock"
 	for attempt := 0; attempt < 100; attempt++ {

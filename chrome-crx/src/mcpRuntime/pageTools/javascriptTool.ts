@@ -16,6 +16,7 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
   name: 'javascript_tool',
   description:
     "Execute JavaScript code in the context of the current page. The code runs in the page's context and can interact with the DOM, window object, and page variables. Returns the result of the last expression or any thrown errors. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+  tabAccess: 'write',
   parameters: {
     action: { type: 'string', description: "Must be set to 'javascript_exec'" },
     text: {
@@ -37,11 +38,7 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       if (!code) throw new Error('Code parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
-        tabId,
-        context.tabId,
-        { sessionId: context.browserSessionScope?.sessionId }
-      );
+      const effectiveTabId = await context.resolveTabId(tabId);
       const tabUrl = (await chrome.tabs.get(effectiveTabId)).url;
       if (!tabUrl) throw new Error('No URL available for active tab');
 
@@ -217,7 +214,10 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       }
 
       if (isError) {
-        const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+        const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+          context.tabId,
+          context
+        );
         return {
           error: `JavaScript execution error: ${errorMessage}`,
           tabContext: {
@@ -238,7 +238,10 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         output = output.substring(0, maxOutputSize) + '\n[OUTPUT TRUNCATED: Exceeded 50KB limit]';
       }
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       const executedOnTabId =
         openedTabIds.length > 0 ? openedTabIds[openedTabIds.length - 1] : effectiveTabId;
       return {

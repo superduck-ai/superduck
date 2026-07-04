@@ -2,12 +2,14 @@ export interface BrowserSessionScope {
   sessionId: string;
 }
 
-type BrowserSessionSource = Record<string, unknown> & {
+export type BrowserSessionSource = Record<string, unknown> & {
   sessionId?: unknown;
   session_id?: unknown;
 };
 
 const SESSION_KEYS = ['session_id', 'sessionId'] as const;
+export const DEFAULT_BROWSER_SESSION_ID = '__default__';
+export const RESERVED_BROWSER_SESSION_ARG_KEYS = SESSION_KEYS;
 
 function parseOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -33,19 +35,29 @@ export function resolveBrowserSessionScope(
   return sessionId ? { sessionId } : undefined;
 }
 
+export function hasReservedBrowserSessionArgs(
+  source: Record<string, unknown> | undefined
+): boolean {
+  if (!source) return false;
+  return SESSION_KEYS.some((key) => source[key] !== undefined);
+}
+
+export function reservedBrowserSessionArgsError(): string {
+  return 'session_id/sessionId must be passed in the tool request envelope, not inside tool args';
+}
+
+// `sessionId` is the logical tool-execution/session trace id. `browserSessionId`
+// is the tab-lease ownership credential. Both are accepted only from the
+// transport envelope; model-controlled tool args are rejected before this point.
 export function resolveToolExecutionSession(options: {
   defaultSessionId: string;
-  args?: BrowserSessionSource;
   sessionId?: unknown;
   browserSessionId?: unknown;
-}): { sessionId: string; browserScope?: BrowserSessionScope } {
+}): { sessionId: string; browserScope: BrowserSessionScope } {
   const logicalSessionId = resolveBrowserSessionId({ sessionId: options.sessionId });
-  const browserSessionId = resolveBrowserSessionId(
-    { sessionId: options.browserSessionId },
-    options.args
-  );
+  const browserSessionId = resolveBrowserSessionId({ sessionId: options.browserSessionId });
   return {
     sessionId: logicalSessionId ?? browserSessionId ?? options.defaultSessionId,
-    browserScope: browserSessionId ? { sessionId: browserSessionId } : undefined
+    browserScope: { sessionId: browserSessionId ?? DEFAULT_BROWSER_SESSION_ID }
   };
 }

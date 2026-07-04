@@ -4,18 +4,20 @@ import type { ToolContext } from './pageToolsSupport/types';
 const fixtures = vi.hoisted(() => {
   const checkPermission = vi.fn();
   const getCategory = vi.fn();
-  const getEffectiveTabId = vi.fn();
+  const resolveTabForContext = vi.fn();
   const getMainTabId = vi.fn();
   const addTabToGroup = vi.fn();
   const getValidTabsWithMetadata = vi.fn();
+  const claimTab = vi.fn();
 
   return {
     checkPermission,
     getCategory,
-    getEffectiveTabId,
+    resolveTabForContext,
     getMainTabId,
     addTabToGroup,
-    getValidTabsWithMetadata
+    getValidTabsWithMetadata,
+    claimTab
   };
 });
 
@@ -24,15 +26,22 @@ vi.mock('./tabState', () => ({
     getCategory: fixtures.getCategory
   },
   tabGroupManager: {
-    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
+    resolveTabForContext: fixtures.resolveTabForContext,
     getMainTabId: fixtures.getMainTabId,
     addTabToGroup: fixtures.addTabToGroup,
-    getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata
+    getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
+    getValidTabsWithMetadataForContext: fixtures.getValidTabsWithMetadata
   }
 }));
 
 vi.mock('./cdp', () => ({
   cdpDebugger: {}
+}));
+
+vi.mock('./tabState/tabLeases', () => ({
+  tabLeaseManager: {
+    claimTab: fixtures.claimTab
+  }
 }));
 
 vi.mock('./axSnapshot', () => ({
@@ -89,6 +98,13 @@ const { tabsCreateTool, navigateTool } = await import('./pageTools');
 const context: ToolContext = {
   tabId: 10,
   toolUseId: 'tool-use-1',
+  browserSessionScope: { sessionId: 'session-a' },
+  tabAccess: 'write',
+  resolveTabId: async (requestedTabId, options) =>
+    await fixtures.resolveTabForContext(requestedTabId, 10, {
+      browserSessionScope: { sessionId: 'session-a' },
+      tabAccess: options?.tabAccess ?? 'write'
+    }),
   permissionManager: {
     checkPermission: fixtures.checkPermission
   } as unknown as ToolContext['permissionManager']
@@ -97,10 +113,11 @@ const context: ToolContext = {
 beforeEach(() => {
   fixtures.checkPermission.mockReset();
   fixtures.getCategory.mockReset();
-  fixtures.getEffectiveTabId.mockReset();
+  fixtures.resolveTabForContext.mockReset();
   fixtures.getMainTabId.mockReset();
   fixtures.addTabToGroup.mockReset();
   fixtures.getValidTabsWithMetadata.mockReset();
+  fixtures.claimTab.mockReset();
   chromeMock.tabs.create.mockReset();
   chromeMock.tabs.get.mockReset();
   chromeMock.tabs.group.mockReset();
@@ -108,7 +125,8 @@ beforeEach(() => {
 
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
   fixtures.getCategory.mockResolvedValue(null);
-  fixtures.getEffectiveTabId.mockImplementation(
+  fixtures.claimTab.mockResolvedValue(undefined);
+  fixtures.resolveTabForContext.mockImplementation(
     async (requested: number | undefined, current: number) => {
       return requested ?? current;
     }
@@ -146,7 +164,10 @@ describe('new background group tab navigation', () => {
       active: false,
       openerTabId: 10
     });
-    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31, { origin: 'agent' });
+    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31, {
+      origin: 'agent',
+      sessionId: 'session-a'
+    });
     expect(chromeMock.tabs.group).not.toHaveBeenCalled();
     expect(result.tabContext).toMatchObject({
       currentTabId: 10,
@@ -155,8 +176,29 @@ describe('new background group tab navigation', () => {
     });
   });
 
+  it('does not add tabs_create results to an unmanaged Chrome group', async () => {
+    fixtures.getMainTabId.mockResolvedValueOnce(null);
+
+    const result = await tabsCreateTool.execute(
+      { url: 'https://example.com/search?q=agent', tabId: 10 },
+      context
+    );
+
+    expect(chromeMock.tabs.create).toHaveBeenCalledWith({
+      url: 'https://example.com/search?q=agent',
+      active: false,
+      openerTabId: 10
+    });
+    expect(fixtures.addTabToGroup).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.group).not.toHaveBeenCalled();
+    expect(result.tabContext).toMatchObject({
+      currentTabId: 10,
+      executedOnTabId: 31
+    });
+  });
+
   it('rejects tabs_create when an explicit tab belongs to another browser session', async () => {
-    fixtures.getEffectiveTabId.mockRejectedValueOnce(
+    fixtures.resolveTabForContext.mockRejectedValueOnce(
       new Error('Tab 99 is already part of browser session session-b')
     );
 
@@ -170,9 +212,11 @@ describe('new background group tab navigation', () => {
 
     expect(result.error).toContain('session-b');
     expect(chromeMock.tabs.create).not.toHaveBeenCalled();
-    expect(fixtures.getEffectiveTabId).toHaveBeenCalledWith(99, 10, {
-      sessionId: 'session-a'
-    });
+    expect(fixtures.resolveTabForContext).toHaveBeenCalledWith(
+      99,
+      10,
+      expect.objectContaining({ browserSessionScope: { sessionId: 'session-a' } })
+    );
   });
 
   it('opens navigate newTab url in the same group without replacing the source tab', async () => {
@@ -187,12 +231,48 @@ describe('new background group tab navigation', () => {
       active: false,
       openerTabId: 10
     });
-    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31, { origin: 'agent' });
+    expect(fixtures.addTabToGroup).toHaveBeenCalledWith(10, 31, {
+      origin: 'agent',
+      sessionId: 'session-a'
+    });
     expect(result.output).toContain('Opened https://example.com/search?q=agent');
     expect(result.tabContext).toMatchObject({
       currentTabId: 10,
       executedOnTabId: 31,
       tabCount: 2
+    });
+  });
+
+  it('does not add navigate newTab results to an unmanaged Chrome group', async () => {
+    fixtures.getMainTabId.mockResolvedValueOnce(null);
+    chromeMock.tabs.get.mockImplementation(async (tabId: number) => {
+      if (tabId === 31) {
+        return {
+          id: 31,
+          groupId: -1,
+          url: 'https://example.com/search?q=agent'
+        };
+      }
+      return {
+        id: 10,
+        groupId: 123,
+        url: 'https://example.com/'
+      };
+    });
+
+    const result = await navigateTool.execute(
+      { url: 'https://example.com/search?q=agent', tabId: 10, newTab: true },
+      context
+    );
+
+    expect(fixtures.addTabToGroup).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.group).not.toHaveBeenCalled();
+    expect(fixtures.claimTab).toHaveBeenCalledWith('session-a', 31, 'agent', {
+      groupId: undefined
+    });
+    expect(result.tabContext).toMatchObject({
+      currentTabId: 10,
+      executedOnTabId: 31
     });
   });
 });

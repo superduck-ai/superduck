@@ -140,19 +140,11 @@ func callBoth(tool string, args map[string]any, opts Options) (any, any, error) 
 	}
 	defer conn.Close()
 
-	params := map[string]any{
-		"tool":      tool,
-		"args":      args,
-		"client_id": "superduck-cli",
-	}
+	sessionID := ""
 	if sid := strings.TrimSpace(opts.SessionID); sid != "" {
-		params["session_id"] = sid
+		sessionID = sid
 	}
-	req := map[string]any{
-		"type":   "tool_request",
-		"method": "execute_tool",
-		"params": params,
-	}
+	req := protocol.NewToolRequest(tool, args, "superduck-cli", sessionID)
 	if err := protocol.SendMessage(conn, req); err != nil {
 		return nil, nil, fmt.Errorf("send: %w", err)
 	}

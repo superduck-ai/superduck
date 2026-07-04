@@ -68,6 +68,7 @@ export interface RuntimeMessageListenerDeps {
   resetNativeHost: () => Promise<NativeHostResetResult>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   executeScheduledTask: (task: ScheduledTask, runLogId: string) => Promise<void>;
+  waitUntilBooted?: () => Promise<void>;
   handleStaticIndicatorHeartbeat: (
     sender: chrome.runtime.MessageSender,
     sendResponse: RuntimeSendResponse
@@ -270,6 +271,8 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
     }
 
     void (async () => {
+      await deps.waitUntilBooted?.();
+
       if (message.type === 'PLAY_NOTIFICATION_SOUND') {
         try {
           await ensureOffscreenDocument();

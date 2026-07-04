@@ -6,6 +6,7 @@ export const superduckActiveContextTool: ToolDefinition<ActiveContextArgs> = {
   name: 'superduck_active_context',
   description:
     "SuperDuck CLI: get url/title/selection/visible-text from the user's currently active Chrome tab (last focused window). Use full=true for full page innerText (warns about token cost).",
+  tabAccess: 'read',
   parameters: {
     tabId: {
       type: 'number',

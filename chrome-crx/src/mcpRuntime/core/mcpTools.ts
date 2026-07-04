@@ -1,44 +1,36 @@
 import { formatTabsOutput } from './urlUtils';
 import { tabGroupManager } from '../tabState';
-import { resolveBrowserSessionScope } from '../sessionScope';
 import type { ToolContext, ToolDefinition } from '../browserAutomation';
 
-type SessionScopedArgs = {
-  sessionId?: string;
-  session_id?: string;
-};
-
-interface TabsContextMcpArgs extends SessionScopedArgs {
+interface TabsContextMcpArgs {
   createIfEmpty?: boolean;
   name?: string;
 }
 
-interface TabsCreateMcpArgs extends SessionScopedArgs {
+interface TabsCreateMcpArgs {
   force?: boolean;
 }
 
-interface TabsFinalizeMcpArgs extends SessionScopedArgs {
+interface TabsFinalizeMcpArgs {
   keep?: {
     tabId?: number;
     status?: 'handoff' | 'deliverable';
   }[];
 }
 
-interface TabsNameSessionMcpArgs extends SessionScopedArgs {
+interface TabsNameSessionMcpArgs {
   name?: string;
 }
 
-function scopedMcpOptions(
-  args: SessionScopedArgs | undefined,
-  context?: ToolContext
-): { sessionId?: string } {
-  return context?.browserSessionScope ?? resolveBrowserSessionScope(args) ?? {};
+function scopedMcpOptions(context: ToolContext): { sessionId: string } {
+  return context.browserSessionScope;
 }
 
 export const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
   name: 'tabs_context_mcp',
   description:
     'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse one of the returned tab IDs for same-page navigation within the current group. When the current page should remain open, use tabs_create with a URL or navigate with newTab:true to open the target in a new background tab inside this group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.',
+  tabAccess: 'write',
   parameters: {
     createIfEmpty: {
       type: 'boolean',
@@ -58,7 +50,7 @@ export const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
       const tabContext = await tabGroupManager.getOrCreateMcpTabContext({
         createIfEmpty,
         name,
-        ...scopedMcpOptions(args, context)
+        ...scopedMcpOptions(context)
       });
       if (!tabContext) {
         return {
@@ -113,6 +105,7 @@ export const tabsCreateMcpTool: ToolDefinition<TabsCreateMcpArgs> = {
   name: 'tabs_create_mcp',
   description:
     'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. If this session already has a group, this tool fails unless force is true. To keep the current MCP group, reuse a tab from tabs_context_mcp.',
+  tabAccess: 'write',
   parameters: {
     force: {
       type: 'boolean',
@@ -127,7 +120,7 @@ export const tabsCreateMcpTool: ToolDefinition<TabsCreateMcpArgs> = {
       const tabContext = await tabGroupManager.createMcpTabGroup({
         active: false,
         replaceExisting: input.force === true,
-        ...scopedMcpOptions(input, context)
+        ...scopedMcpOptions(context)
       });
       return {
         output: `Created new tab. Tab ID: ${tabContext.currentTabId}`,
@@ -164,6 +157,7 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
   name: 'tabs_finalize_mcp',
   description:
     'Finalize the current MCP tab group with explicit tab disposition semantics. Use this only when you are explicitly deciding which tabs become handoff, deliverable, or released. Tabs kept as handoff remain in the managed group for a later turn. Tabs kept as deliverable stay open but leave the managed group. Omitted tabs are ungrouped and left open.',
+  tabAccess: 'write',
   parameters: {
     keep: {
       type: 'array',
@@ -200,7 +194,7 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
       });
       const tabContext = await tabGroupManager.finalizeMcpTabGroup({
         keep,
-        ...scopedMcpOptions(args, context)
+        ...scopedMcpOptions(context)
       });
       if (!tabContext) {
         return {
@@ -250,7 +244,8 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
 export const tabsNameSessionMcpTool: ToolDefinition<TabsNameSessionMcpArgs> = {
   name: 'tabs_name_session_mcp',
   description:
-    'Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name. The name becomes the Chrome tab group title for this session. Requires a browser session scope (session_id).',
+    'Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name. The name becomes the Chrome tab group title for this session. The session id is supplied by the tool request envelope, not by tool arguments.',
+  tabAccess: 'write',
   parameters: {
     name: {
       type: 'string',
@@ -260,12 +255,9 @@ export const tabsNameSessionMcpTool: ToolDefinition<TabsNameSessionMcpArgs> = {
   },
   execute: async (args, context) => {
     try {
-      const scope = scopedMcpOptions(args, context);
       const name = typeof args?.name === 'string' ? args.name : '';
       await tabGroupManager.initialize();
-      const result = scope.sessionId
-        ? await tabGroupManager.nameSession(scope.sessionId, name)
-        : await tabGroupManager.nameActiveMcpGroup(name);
+      const result = await tabGroupManager.nameSession(context.browserSessionScope.sessionId, name);
       return {
         output: result
           ? `Session group titled "${result.title}".`
@@ -280,7 +272,7 @@ export const tabsNameSessionMcpTool: ToolDefinition<TabsNameSessionMcpArgs> = {
   toProviderSchema: async () => ({
     name: 'tabs_name_session_mcp',
     description:
-      'Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name. Requires a browser session scope (session_id).',
+      'Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name. The session id is supplied by the tool request envelope, not by tool arguments.',
     input_schema: {
       type: 'object',
       properties: {

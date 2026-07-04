@@ -38,11 +38,12 @@ import { createErrorResponse } from '../toolExecution/toolExecutor';
 import { executeTool } from '../toolExecution/toolExecution';
 import {
   connectBridge,
+  setBridgeToolCallBootWaiter,
   reconnectMcp,
   isBridgeConnected,
   sendMcpNotificationViaBridge
 } from '../bridge';
-import '../navigationGuard';
+import { setNavigationGuardBootWaiter } from '../navigationGuard';
 import { coerceToolInput } from './utils';
 import type { ToolProviderSchema } from '../pageToolsSupport/types';
 
@@ -61,6 +62,8 @@ function getToolSchemasForSidepanel(): Promise<ToolProviderSchema[]> {
 export {
   cdpDebugger,
   connectBridge,
+  setBridgeToolCallBootWaiter,
+  setNavigationGuardBootWaiter,
   reconnectMcp,
   isBridgeConnected,
   sendMcpNotificationViaBridge,

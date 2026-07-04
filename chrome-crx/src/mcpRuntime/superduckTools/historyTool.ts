@@ -5,6 +5,7 @@ export const superduckHistoryTool: ToolDefinition<HistoryArgs> = {
   name: 'superduck_history',
   description:
     "SuperDuck CLI: search the user's Chrome browsing history. Returns url, title, and dateVisited for each entry. Supports text search, result limit, and date range filtering.",
+  tabAccess: 'read',
   parameters: {
     query: {
       type: 'string',

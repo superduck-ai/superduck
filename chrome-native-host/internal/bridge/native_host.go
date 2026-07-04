@@ -539,22 +539,9 @@ func (b *NativeHostBridge) ExecuteToolWithContext(ctx context.Context, toolName 
 		}
 	}()
 
-	// Send tool_request to native host
-	params := map[string]interface{}{
-		"tool": toolName,
-		"args": args,
-	}
-	if toolCtx.ClientID != "" {
-		params["client_id"] = toolCtx.ClientID
-	}
-	if toolCtx.SessionID != "" {
-		params["session_id"] = toolCtx.SessionID
-	}
-	req := map[string]interface{}{
-		"type":   "tool_request",
-		"method": "execute_tool",
-		"params": params,
-	}
+	// Send tool_request to native host. The browser session is an envelope
+	// field; args must remain model/tool input only.
+	req := protocol.NewToolRequest(toolName, args, toolCtx.ClientID, toolCtx.SessionID)
 
 	// Bound each send so a half-open UDS connection can't block forever while
 	// preserving the request-level read deadline derived from ctx.

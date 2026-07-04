@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,13 +64,11 @@ func TestCreateToolHandlerForwardsEnvSession(t *testing.T) {
 }
 
 func TestBrowserSessionFallbacks(t *testing.T) {
-	originalProcessSessionID := mcpProcessSessionID
-	t.Cleanup(func() { mcpProcessSessionID = originalProcessSessionID })
-	mcpProcessSessionID = "mcp:test-process"
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SUPERDUCK_SESSION_ID", "")
 
-	if got, want := browserSessionID(nil), "mcp:test-process"; got != want {
-		t.Fatalf("browserSessionID(nil) = %q, want %q", got, want)
+	if got := browserSessionID(nil); !strings.HasPrefix(got, "mcp:install:sdid-") {
+		t.Fatalf("browserSessionID(nil) = %q, want stable install-scoped session", got)
 	}
 
 	t.Setenv("SUPERDUCK_SESSION_ID", "env-session")

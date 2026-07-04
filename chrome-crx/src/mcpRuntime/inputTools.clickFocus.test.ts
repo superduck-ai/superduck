@@ -3,7 +3,7 @@ import type { ToolContext } from './pageToolsSupport/types';
 
 const fixtures = vi.hoisted(() => {
   const checkPermission = vi.fn();
-  const getEffectiveTabId = vi.fn();
+  const resolveTabForContext = vi.fn();
   const createChildTabInGroup = vi.fn();
   const getValidTabsWithMetadata = vi.fn();
   const withPreservedActiveTab = vi.fn();
@@ -26,7 +26,7 @@ const fixtures = vi.hoisted(() => {
 
   return {
     checkPermission,
-    getEffectiveTabId,
+    resolveTabForContext,
     createChildTabInGroup,
     getValidTabsWithMetadata,
     withPreservedActiveTab,
@@ -72,9 +72,10 @@ vi.mock('./shared', () => ({
 vi.mock('./tabState', () => ({
   waitForTabLoading: vi.fn(async () => undefined),
   tabGroupManager: {
-    getEffectiveTabIdForContext: fixtures.getEffectiveTabId,
+    resolveTabForContext: fixtures.resolveTabForContext,
     createChildTabInGroup: fixtures.createChildTabInGroup,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
+    getValidTabsWithMetadataForContext: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
     rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy
@@ -148,6 +149,13 @@ const { focusFocusableByRef } = await import('./inputTools/computerActions/click
 const context: ToolContext = {
   tabId: 10,
   toolUseId: 'tool-use-1',
+  browserSessionScope: { sessionId: 'session-a' },
+  tabAccess: 'write',
+  resolveTabId: async (requestedTabId, options) =>
+    await fixtures.resolveTabForContext(requestedTabId, 10, {
+      browserSessionScope: { sessionId: 'session-a' },
+      tabAccess: options?.tabAccess ?? 'write'
+    }),
   permissionManager: {
     checkPermission: fixtures.checkPermission
   } as unknown as ToolContext['permissionManager']
@@ -162,7 +170,7 @@ beforeEach(() => {
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
   fixtures.getRefRole.mockReturnValue(null);
   fixtures.getRefBackendNodeId.mockReturnValue(null);
-  fixtures.getEffectiveTabId.mockResolvedValue(10);
+  fixtures.resolveTabForContext.mockResolvedValue(10);
   fixtures.withPreservedActiveTab.mockImplementation(
     async (_tabId: number, action: () => Promise<unknown>) => action()
   );

@@ -9,8 +9,18 @@ import {
   getBlockedPageUrl
 } from './domainPermissions';
 
+let waitUntilNavigationGuardBooted: (() => Promise<void>) | undefined;
+
+export function setNavigationGuardBootWaiter(waiter: (() => Promise<void>) | undefined): void {
+  waitUntilNavigationGuardBooted = waiter;
+}
+
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
-  if (details.frameId !== 0 || !hasActiveToolContext(details.tabId)) return;
+  if (details.frameId !== 0) return;
+
+  await waitUntilNavigationGuardBooted?.();
+
+  if (!hasActiveToolContext(details.tabId)) return;
 
   const context = getActiveToolContext(details.tabId);
   if (!context) return;

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"chrome-native-host/internal/cliclient"
 )
 
 // cmdSession dispatches the `session <subcommand>` family.
@@ -78,22 +76,7 @@ func cmdSessionName(argv []string) error {
 	if name == "" {
 		return fmt.Errorf("usage: superduck session name <text>")
 	}
-	args := map[string]any{"name": name}
-
-	rec := cliclient.AuditRecord{Cmd: "session name"}
-	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_name_session_mcp", args, clientOpts(), &rec)
-		if raw != "" {
-			fmt.Println(raw)
-		}
-		return err
-	}
-	raw, err := cliclient.RunTool("tabs_name_session_mcp", args, clientOpts(), &rec)
-	if err != nil {
-		return err
-	}
-	fmt.Println(raw)
-	return nil
+	return runToolOutput("tabs_name_session_mcp", "session name", map[string]any{"name": name})
 }
 
 const sessionUsage = `usage: superduck session <subcommand>

@@ -6,6 +6,7 @@ export const superduckPressTool: ToolDefinition<PressArgs> = {
   name: 'superduck_press',
   description:
     'SuperDuck CLI: dispatch a keyboard event on the active tab (e.g. Enter, Tab, Escape, ArrowDown). Targets the focused element or the optional selector.',
+  tabAccess: 'write',
   parameters: {
     key: { type: 'string', description: 'Key name (Enter, Tab, Escape, ArrowDown, a, ...)' },
     selector: { type: 'string', description: 'Optional selector to focus before pressing' },

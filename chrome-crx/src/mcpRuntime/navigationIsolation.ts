@@ -102,13 +102,20 @@ export async function createPolicyCheckedChildTab(
   openerTabId: number,
   url: string,
   policy: NavigationPolicyContext,
-  options: { existingTabId?: number; allowUnlinkedExistingTab?: boolean } = {}
+  options: {
+    existingTabId?: number;
+    allowUnlinkedExistingTab?: boolean;
+    ignoreExistingTabIds?: ReadonlySet<number>;
+    windowId?: number;
+  } = {}
 ): Promise<number | null> {
   if (!(await isNavigationAllowedByPolicy(url, policy))) return null;
   const tabId = await tabGroupManager.createChildTabInGroup(openerTabId, url, {
     sessionId: policy.sessionId,
     existingTabId: options.existingTabId,
-    allowUnlinkedExistingTab: options.allowUnlinkedExistingTab
+    allowUnlinkedExistingTab: options.allowUnlinkedExistingTab,
+    ignoreExistingTabIds: options.ignoreExistingTabIds,
+    windowId: options.windowId
   });
   if (typeof tabId !== 'number') return null;
   const detachGuard = guardChildNavigation(tabId, policy);

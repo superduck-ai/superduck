@@ -66,10 +66,10 @@ const chromeMock = vi.hoisted(() => {
 vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
+const { tabLeaseManager } = await import('./tabLeases');
 
 type AnyMgr = {
   initialized: boolean;
-  mcpTabGroupId: number | null;
   groupMetadata: Map<
     number,
     {
@@ -130,9 +130,12 @@ function seedGroup(mainTabId: number, members: Array<[number, 'agent' | 'user']>
 describe('tabGroupManager.finalizeManagedGroup', () => {
   beforeEach(() => {
     manager.initialized = true;
-    manager.mcpTabGroupId = null;
     manager.groupMetadata.clear();
     manager.groupBlocklistStatuses.clear();
+    (
+      tabLeaseManager as unknown as { leases: Map<number, unknown>; initialized: boolean }
+    ).leases.clear();
+    (tabLeaseManager as unknown as { initialized: boolean }).initialized = false;
     chromeMock.tabsById.clear();
     chromeMock.tabs.remove.mockClear();
     chromeMock.tabs.ungroup.mockClear();
@@ -200,7 +203,6 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
       [1, 'agent'],
       [2, 'agent']
     ]);
-    manager.mcpTabGroupId = 100;
     chromeMock.storage.local.get.mockResolvedValueOnce({
       mcpTabGroupId: 100,
       mcpTabGroupOwner: 100
@@ -214,14 +216,12 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     expect(chromeMock.tabsById.has(1)).toBe(true);
     expect(chromeMock.tabsById.has(2)).toBe(true);
     expect(manager.groupMetadata.has(1)).toBe(false);
-    expect(manager.mcpTabGroupId).toBeNull();
     expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
   });
 
   it('preserves agent origin across indicator state updates before finalizing', async () => {
     seedTabs([1]);
     seedGroup(1, [[1, 'agent']]);
-    manager.mcpTabGroupId = 100;
     chromeMock.storage.local.get.mockResolvedValueOnce({
       mcpTabGroupId: 100,
       mcpTabGroupOwner: 100
@@ -278,21 +278,21 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
         [2, { indicatorState: 'static' }]
       ])
     });
-    chromeMock.storage.local.get.mockResolvedValueOnce({ mcpTabGroupId: 100 });
+    chromeMock.storage.local.get.mockResolvedValueOnce({
+      mcpTabGroupId: 100,
+      mcpTabGroupOwner: 100
+    });
 
     const context = await tabGroupManager.finalizeMcpTabGroup();
 
     expect(context).toBeUndefined();
     expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
     expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1, 2]);
-    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      mcpTabGroupId: 100,
-      mcpTabGroupOwner: 100
-    });
+    expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
     expect(manager.groupMetadata.has(1)).toBe(false);
   });
 
-  it('does not persist or finalize a styled group discovered through MCP context', async () => {
+  it('finalizes a default-session group after explicit MCP tab access claims it', async () => {
     seedTabs([1]);
     seedGroup(1, [[1, 'agent']]);
     chromeMock.tabGroups.query.mockResolvedValueOnce([
@@ -303,13 +303,13 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     const tabInfo = await tabGroupManager.getTabForMcp(1);
     const finalized = await tabGroupManager.finalizeMcpTabGroup();
 
-    expect(context).toMatchObject({ tabGroupId: 100, tabCount: 1 });
+    expect(context).toBeUndefined();
     expect(tabInfo).toMatchObject({ tabId: 1, domain: 'example.com' });
     expect(chromeMock.storage.local.set).not.toHaveBeenCalledWith({ mcpTabGroupId: 100 });
     expect(finalized).toBeUndefined();
     expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
-    expect(chromeMock.tabs.ungroup).not.toHaveBeenCalled();
-    expect(manager.groupMetadata.has(1)).toBe(true);
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1]);
+    expect(manager.groupMetadata.has(1)).toBe(false);
     expect(chromeMock.tabsById.has(1)).toBe(true);
   });
 

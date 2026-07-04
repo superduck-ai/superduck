@@ -6,13 +6,17 @@ import type { EmptyToolInput } from './types';
 export const tabsContextTool: ToolDefinition<EmptyToolInput> = {
   name: 'tabs_context',
   description: 'Get context information about all tabs in the current tab group',
+  tabAccess: 'read',
   parameters: {},
   execute: async (_input, context): Promise<ToolResult> => {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
 
       const hasBrowserSessionScope = context.browserSessionScope !== undefined;
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       const tabContext = {
         currentTabId: context.tabId,
         availableTabs: validTabs,

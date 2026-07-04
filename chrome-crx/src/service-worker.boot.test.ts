@@ -31,6 +31,8 @@ const fixtures = vi.hoisted(() => {
     onUpdateAvailable,
     onAlarm,
     connectBridge: vi.fn(),
+    setBridgeToolCallBootWaiter: vi.fn(),
+    setNavigationGuardBootWaiter: vi.fn(),
     initializeExtensionPermissions: vi.fn(),
     restoreActiveToolContextsFromStorage: vi.fn(),
     restoreActiveToolCountFromStorage: vi.fn(),
@@ -75,6 +77,8 @@ vi.mock('./extensionServices', () => ({
 
 vi.mock('./mcpRuntime', () => ({
   connectBridge: fixtures.connectBridge,
+  setBridgeToolCallBootWaiter: fixtures.setBridgeToolCallBootWaiter,
+  setNavigationGuardBootWaiter: fixtures.setNavigationGuardBootWaiter,
   initializeExtensionPermissions: fixtures.initializeExtensionPermissions,
   isAgentActive: vi.fn(() => false),
   setOnAgentBecameIdle: fixtures.setOnAgentBecameIdle,
@@ -223,7 +227,17 @@ describe('service worker cold-start boot', () => {
       fixtures.onInstalled,
       fixtures.onStartup,
       fixtures.onUpdateAvailable,
-      fixtures.onAlarm
+      fixtures.onAlarm,
+      chromeMock.permissions.onAdded,
+      chromeMock.permissions.onRemoved,
+      chromeMock.notifications.onClicked,
+      chromeMock.action.onClicked,
+      chromeMock.tabs.onActivated,
+      chromeMock.tabs.onRemoved,
+      chromeMock.commands.onCommand,
+      chromeMock.webNavigation.onBeforeNavigate,
+      chromeMock.downloads.onCreated,
+      chromeMock.downloads.onChanged
     ]) {
       event.listeners.length = 0;
     }
@@ -258,6 +272,122 @@ describe('service worker cold-start boot', () => {
     expect(fixtures.startTabGroupChangeListener).toHaveBeenCalled();
     expect(fixtures.tabBadgeInitialize).toHaveBeenCalled();
     expect(fixtures.scheduledTaskRestore).toHaveBeenCalled();
+    expect(fixtures.setBridgeToolCallBootWaiter).toHaveBeenCalledWith(expect.any(Function));
+    expect(fixtures.setNavigationGuardBootWaiter).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it('continues boot and connects the native channel when one restore step fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fixtures.restoreActiveToolContextsFromStorage.mockRejectedValueOnce(new Error('restore boom'));
+    try {
+      await import('./service-worker');
+
+      await vi.waitFor(() => {
+        expect(fixtures.connectBridge).toHaveBeenCalled();
+        expect(fixtures.nativeConnect).toHaveBeenCalled();
+        expect(fixtures.restoreActiveToolCountFromStorage).toHaveBeenCalled();
+        expect(fixtures.restoreGifFrameStorageFromStorage).toHaveBeenCalled();
+        expect(fixtures.restoreTurnActiveDeadlines).toHaveBeenCalled();
+        expect(fixtures.scheduledTaskRestore).toHaveBeenCalled();
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('waits for cold-start restore before handling tool-context alarms', async () => {
+    let resolveRestore!: () => void;
+    fixtures.restoreActiveToolContextsFromStorage.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRestore = resolve;
+      })
+    );
+    await import('./service-worker');
+    fixtures.handleToolContextAlarm.mockResolvedValueOnce(true);
+
+    fixtures.onAlarm.listeners[0]({ name: 'superduck.toolContext.debuggerDetach:tab:7' });
+    await Promise.resolve();
+
+    expect(fixtures.handleToolContextAlarm).not.toHaveBeenCalled();
+
+    resolveRestore();
+    await vi.waitFor(() => {
+      expect(fixtures.handleToolContextAlarm).toHaveBeenCalledWith(
+        'superduck.toolContext.debuggerDetach:tab:7'
+      );
+    });
+  });
+
+  it('waits for cold-start restore before handling tab removal events', async () => {
+    let resolveRestore!: () => void;
+    fixtures.restoreActiveToolContextsFromStorage.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRestore = resolve;
+      })
+    );
+    await import('./service-worker');
+
+    chromeMock.tabs.onRemoved.listeners[0](7);
+    await Promise.resolve();
+
+    expect(fixtures.handleTabClosed).not.toHaveBeenCalled();
+
+    resolveRestore();
+    await vi.waitFor(() => {
+      expect(fixtures.handleTabClosed).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it('waits for cold-start restore before handling main-frame extension navigation events', async () => {
+    let resolveRestore!: () => void;
+    fixtures.restoreActiveToolContextsFromStorage.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRestore = resolve;
+      })
+    );
+    await import('./service-worker');
+
+    chromeMock.webNavigation.onBeforeNavigate.listeners[0]({
+      frameId: 0,
+      tabId: 12,
+      url: 'chrome-extension://abc/options.html'
+    });
+    await Promise.resolve();
+
+    expect(fixtures.handleExtensionUrl).not.toHaveBeenCalled();
+
+    resolveRestore();
+    await vi.waitFor(() => {
+      expect(fixtures.handleExtensionUrl).toHaveBeenCalledWith(
+        'chrome-extension://abc/options.html',
+        12
+      );
+    });
+  });
+
+  it('registers a bridge tool-call waiter that waits for cold-start restore', async () => {
+    let resolveRestore!: () => void;
+    fixtures.restoreActiveToolContextsFromStorage.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRestore = resolve;
+      })
+    );
+    await import('./service-worker');
+    const waiter = fixtures.setBridgeToolCallBootWaiter.mock.calls[0]?.[0] as
+      | (() => Promise<void>)
+      | undefined;
+    expect(waiter).toBeTypeOf('function');
+
+    let resolved = false;
+    const waitPromise = waiter!().then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    resolveRestore();
+    await waitPromise;
+    expect(resolved).toBe(true);
   });
 
   it('routes tool-context alarms before scheduled task alarms', async () => {

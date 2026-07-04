@@ -406,14 +406,20 @@ export function useAgentLoop({
 
       setRuntimeError(null);
       setIsAgentRunning(true);
+      let turnCompleted = false;
+      let turnHeartbeatInterval: number | null = null;
       // Mark the turn active in the background so the agent-indicator heartbeat
       // (authoritative state lives in the service worker) keeps the mask alive
       // for the duration of the turn. The matching active:false is sent in the
       // finally block below to dismiss the mask when the response completes.
       if (typeof executionTabId === 'number') {
-        chrome.runtime
-          .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: executionTabId, active: true })
-          .catch(() => {});
+        const sendTurnActive = () => {
+          chrome.runtime
+            .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: executionTabId, active: true })
+            .catch(() => {});
+        };
+        sendTurnActive();
+        turnHeartbeatInterval = window.setInterval(sendTurnActive, 45_000);
       }
       abortControllerRef.current?.abort();
       generationStartedAtRef.current = Date.now();
@@ -574,6 +580,7 @@ export function useAgentLoop({
             }
           } while (shouldRetry);
         }
+        turnCompleted = true;
       } catch (error) {
         handleSendPromptError({
           error,
@@ -583,6 +590,9 @@ export function useAgentLoop({
           setRuntimeError
         });
       } finally {
+        if (turnHeartbeatInterval) {
+          window.clearInterval(turnHeartbeatInterval);
+        }
         if (notificationBannerTimerRef.current) {
           window.clearTimeout(notificationBannerTimerRef.current);
           notificationBannerTimerRef.current = null;
@@ -607,17 +617,19 @@ export function useAgentLoop({
               type: 'AGENT_TURN_ACTIVE',
               tabId: executionTabId,
               active: false,
-              completed: true
+              completed: turnCompleted
             })
             .catch(() => ({ success: false }));
           if (!response?.success) {
             const group = await tabGroupManager.findGroupByTab(executionTabId).catch(() => null);
-            if (group) {
+            if (group && !group.isUnmanaged) {
               await tabGroupManager.clearIndicatorsForGroup(group.mainTabId).catch(() => {});
-              await tabGroupManager.addCompletionPrefix(group.mainTabId).catch(() => {});
-              await tabGroupManager
-                .setGroupColor(group.mainTabId, chrome.tabGroups.Color.GREEN)
-                .catch(() => {});
+              if (turnCompleted) {
+                await tabGroupManager.addCompletionPrefix(group.mainTabId).catch(() => {});
+                await tabGroupManager
+                  .setGroupColor(group.mainTabId, chrome.tabGroups.Color.GREEN)
+                  .catch(() => {});
+              }
             } else {
               await tabGroupManager.hideAgentIndicatorsForTab(executionTabId).catch(() => {});
             }

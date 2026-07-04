@@ -362,7 +362,7 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "tabs_name_session_mcp",
-		description: "Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name (an emoji prefix is fine). Requires a browser session scope (session_id).",
+		description: "Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name (an emoji prefix is fine). The session id is supplied by the tool request envelope, not by tool arguments.",
 		inputSchema: objectSchema(map[string]any{
 			"name": stringSchema("Short task-relevant name for the session. Empty string clears the name and reverts to the default group title."),
 		}, "name"),

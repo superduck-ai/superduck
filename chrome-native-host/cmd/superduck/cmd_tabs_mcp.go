@@ -84,21 +84,7 @@ func cmdTabGroupList(argv []string) error {
 		args["name"] = *name
 	}
 
-	rec := cliclient.AuditRecord{Cmd: "tab_group list"}
-	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_context_mcp", args, clientOpts(), &rec)
-		if raw != "" {
-			fmt.Println(raw)
-		}
-		return err
-	}
-	raw, err := cliclient.RunToolJSON("tabs_context_mcp", args, clientOpts(), &rec)
-	if raw != "" {
-		if printErr := printGroupResult(raw); printErr != nil && err == nil {
-			return printErr
-		}
-	}
-	return err
+	return runTabGroupTool("tabs_context_mcp", "tab_group list", args)
 }
 
 // cmdTabGroupNew: superduck tab_group new [--force]
@@ -114,21 +100,7 @@ func cmdTabGroupNew(argv []string) error {
 		args["force"] = true
 	}
 
-	rec := cliclient.AuditRecord{Cmd: "tab_group new"}
-	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_create_mcp", args, clientOpts(), &rec)
-		if raw != "" {
-			fmt.Println(raw)
-		}
-		return err
-	}
-	raw, err := cliclient.RunToolJSON("tabs_create_mcp", args, clientOpts(), &rec)
-	if raw != "" {
-		if printErr := printGroupResult(raw); printErr != nil && err == nil {
-			return printErr
-		}
-	}
-	return err
+	return runTabGroupTool("tabs_create_mcp", "tab_group new", args)
 }
 
 // cmdTabGroupFinalize: superduck tab_group finalize [--handoff TAB] [--deliverable TAB]
@@ -154,15 +126,18 @@ func cmdTabGroupFinalize(argv []string) error {
 		args["keep"] = keep
 	}
 
-	rec := cliclient.AuditRecord{Cmd: "tab_group finalize"}
+	return runTabGroupTool("tabs_finalize_mcp", "tab_group finalize", args)
+}
+
+func runTabGroupTool(toolName string, cmdLabel string, args map[string]any) error {
+	rec := cliclient.AuditRecord{Cmd: cmdLabel}
+	raw, err := cliclient.RunToolJSON(toolName, args, clientOpts(), &rec)
 	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_finalize_mcp", args, clientOpts(), &rec)
 		if raw != "" {
 			fmt.Println(raw)
 		}
 		return err
 	}
-	raw, err := cliclient.RunToolJSON("tabs_finalize_mcp", args, clientOpts(), &rec)
 	if raw != "" {
 		if printErr := printGroupResult(raw); printErr != nil && err == nil {
 			return printErr

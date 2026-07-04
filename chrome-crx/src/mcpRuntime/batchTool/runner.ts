@@ -109,10 +109,19 @@ export async function executeBatch(
 
   for (let i = 0; i < preparedActions.length; i++) {
     const { action, toolName, tool, input } = preparedActions[i];
+    const childTabAccess = isReadOnlyAction(toolName, input) ? 'read' : 'write';
+    const childContext: ToolContext = {
+      ...context,
+      tabAccess: childTabAccess,
+      resolveTabId: async (requestedTabId, options) =>
+        await context.resolveTabId(requestedTabId, {
+          tabAccess: options?.tabAccess ?? childTabAccess
+        })
+    };
     let result: ToolResult;
     try {
-      await ensureDebuggerAttachedForBatchStep(toolName, input, context);
-      result = await runChildActionWithTimeout(tool, input, context, toolName);
+      await ensureDebuggerAttachedForBatchStep(toolName, input, childContext);
+      result = await runChildActionWithTimeout(tool, input, childContext, toolName);
     } catch (err) {
       const childError = enhanceChildFailureMessage(
         toolName,
@@ -239,7 +248,7 @@ export async function executeBatch(
       shouldWaitAfter(toolName, action, input) &&
       (hasNextAction || action.waitAfter === 'load' || isSubmitBoundaryAction(toolName, input));
     if (shouldWaitForLoad) {
-      const tabId = (input.tabId as number) ?? context.tabId;
+      const tabId = input.tabId ?? batchTabId;
       if (tabId != null) {
         await waitForTabLoading(tabId);
       }

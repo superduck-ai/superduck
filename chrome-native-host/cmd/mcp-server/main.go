@@ -107,6 +107,9 @@ func browserSessionID(req *mcp.CallToolRequest) string {
 			return "mcp:" + id
 		}
 	}
+	if id := analytics.EnsureInstallID(); id != "" {
+		return "mcp:install:" + id
+	}
 	return mcpProcessSessionID
 }
 

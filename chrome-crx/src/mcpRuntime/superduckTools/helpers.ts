@@ -45,46 +45,29 @@ function isToolScriptResult(value: unknown): value is ToolScriptResult {
   );
 }
 
-function getBrowserSessionId(context?: ToolContext): string | undefined {
-  return context?.browserSessionScope?.sessionId;
-}
-
-async function assertTabAvailableForContext(tabId: number, context?: ToolContext): Promise<void> {
-  const sessionId = getBrowserSessionId(context);
-  if (!sessionId) return;
-  await tabLeaseManager.assertTabAvailableForSession(sessionId, tabId);
+function getBrowserSessionId(context: ToolContext): string {
+  return context.browserSessionScope.sessionId;
 }
 
 async function resolveActiveTab(
-  explicit?: number,
-  context?: ToolContext
+  explicit: number | undefined,
+  context: ToolContext
 ): Promise<chrome.tabs.Tab> {
-  let tab: chrome.tabs.Tab;
-  if (explicit !== undefined && explicit !== null) {
-    tab = await chrome.tabs.get(explicit);
-  } else {
-    const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-    const tabs = await chrome.tabs.query({ active: true, windowId: win.id });
-    if (!tabs.length || tabs[0].id === undefined) {
-      throw new Error('No active tab in last focused window');
-    }
-    tab = tabs[0];
+  if (typeof context.tabId !== 'number') {
+    throw new Error('No active tab found in context');
   }
-
-  if (tab.id === undefined) {
-    throw new Error('Tab has no id');
-  }
-  await assertTabAvailableForContext(tab.id, context);
+  const effectiveTabId = await context.resolveTabId(explicit);
+  const tab = await chrome.tabs.get(effectiveTabId);
+  if (tab.id === undefined) throw new Error('Tab has no id');
   return tab;
 }
 
 async function claimTabForContext(
   tabId: number,
-  context?: ToolContext,
+  context: ToolContext,
   options: { groupId?: number; origin?: TabLeaseOrigin } = {}
 ): Promise<void> {
   const sessionId = getBrowserSessionId(context);
-  if (!sessionId) return;
   await tabLeaseManager.claimTab(sessionId, tabId, options.origin ?? 'agent', {
     groupId: options.groupId
   });
@@ -92,10 +75,9 @@ async function claimTabForContext(
 
 async function filterTabsForContext(
   tabs: chrome.tabs.Tab[],
-  context?: ToolContext
+  context: ToolContext
 ): Promise<chrome.tabs.Tab[]> {
   const sessionId = getBrowserSessionId(context);
-  if (!sessionId) return tabs;
 
   const visibleTabs: chrome.tabs.Tab[] = [];
   for (const tab of tabs) {

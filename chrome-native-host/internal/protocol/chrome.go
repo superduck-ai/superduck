@@ -64,6 +64,27 @@ type ToolRequest struct {
 	} `json:"params"`
 }
 
+func NewToolRequest(tool string, args map[string]any, clientID string, sessionID string) Message {
+	if args == nil {
+		args = map[string]any{}
+	}
+	params := map[string]any{
+		"tool": tool,
+		"args": args,
+	}
+	if clientID != "" {
+		params["client_id"] = clientID
+	}
+	if sessionID != "" {
+		params["session_id"] = sessionID
+	}
+	return Message{
+		Type:   "tool_request",
+		Method: "execute_tool",
+		Params: params,
+	}
+}
+
 type ToolResponseMsg struct {
 	Type   string       `json:"type"`
 	Result *ContentWrap `json:"result,omitempty"`

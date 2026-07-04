@@ -4,6 +4,8 @@ import {
   initializeExtensionPermissions,
   isAgentActive,
   setOnAgentBecameIdle,
+  setBridgeToolCallBootWaiter,
+  setNavigationGuardBootWaiter,
   tabBadgeManager,
   tabGroupManager,
   trackEvent,
@@ -23,9 +25,10 @@ import { createSidePanelController } from "./background/sidePanel";
 import { createStaticIndicatorController } from "./background/staticIndicator";
 import { createDownloadTracker } from "./background/downloadTracker";
 
-const nativeHostManager = createNativeHostManager();
+const nativeHostManager = createNativeHostManager({ waitUntilBooted: ensureServiceWorkerBooted });
 const sidePanelController = createSidePanelController({
   connectNativeHost: nativeHostManager.connect,
+  waitUntilBooted: ensureServiceWorkerBooted,
 });
 const scheduledTaskManager = createScheduledTaskManager();
 const extensionUrlHandler = createExtensionUrlHandler({
@@ -40,28 +43,48 @@ const downloadTracker = createDownloadTracker({
 
 let serviceWorkerBootPromise: Promise<void> | null = null;
 
+async function runBootStep(label: string, step: () => unknown | Promise<unknown>): Promise<void> {
+  try {
+    await step();
+  } catch (err) {
+    console.warn(`[superduck] service worker boot step failed: ${label}`, err);
+  }
+}
+
 async function ensureServiceWorkerBooted(): Promise<void> {
   if (serviceWorkerBootPromise) return serviceWorkerBootPromise;
   serviceWorkerBootPromise = (async () => {
-    initializeExtensionPermissions();
-    await tabGroupManager.initialize();
-    tabGroupManager.startTabGroupChangeListener();
-    await restoreActiveToolContextsFromStorage();
-    await restoreActiveToolCountFromStorage();
-    await restoreGifFrameStorageFromStorage();
-    await staticIndicatorController.restoreTurnActiveDeadlines();
-    await replayPendingUpdateIfAny();
+    await runBootStep("extension permissions initialize", initializeExtensionPermissions);
+    void runBootStep("bridge connect", connectBridge);
+    void runBootStep("native host connect", nativeHostManager.connect);
+    await runBootStep("tab group initialize", async () => {
+      await tabGroupManager.initialize();
+      tabGroupManager.startTabGroupChangeListener();
+    });
+    await runBootStep("active tool contexts restore", restoreActiveToolContextsFromStorage);
+    await runBootStep("active tool count restore", restoreActiveToolCountFromStorage);
+    await runBootStep("gif frame storage restore", restoreGifFrameStorageFromStorage);
+    await runBootStep("static indicator deadlines restore", () =>
+      staticIndicatorController.restoreTurnActiveDeadlines()
+    );
+    await runBootStep("pending update replay", replayPendingUpdateIfAny);
     void tabBadgeManager.initialize();
-    void connectBridge();
-    void nativeHostManager.connect();
-    await scheduledTaskManager.restoreScheduledAlarms();
-  })().catch((err) => {
-    serviceWorkerBootPromise = null;
-    console.warn("[superduck] service worker boot failed", err);
-    throw err;
-  });
+    await runBootStep("scheduled alarms restore", scheduledTaskManager.restoreScheduledAlarms);
+  })();
   return serviceWorkerBootPromise;
 }
+
+function runAfterServiceWorkerBoot(label: string, action: () => unknown | Promise<unknown>): void {
+  void (async () => {
+    await ensureServiceWorkerBooted();
+    await action();
+  })().catch((err) => {
+    console.warn(`[superduck] event handler failed after service worker boot: ${label}`, err);
+  });
+}
+
+setBridgeToolCallBootWaiter(ensureServiceWorkerBooted);
+setNavigationGuardBootWaiter(ensureServiceWorkerBooted);
 
 // The manifest declares a default sidepanel path, but the product only wants
 // SuperDuck-managed tabs to show it. Keep the default panel disabled and open
@@ -152,7 +175,9 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  void sidePanelController.handleTabActivated(activeInfo);
+  runAfterServiceWorkerBoot("tab activated", () =>
+    sidePanelController.handleTabActivated(activeInfo)
+  );
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -213,18 +238,30 @@ registerRuntimeMessageListener({
   resetNativeHost: nativeHostManager.reset,
   sendMcpNotification: nativeHostManager.sendMcpNotification,
   executeScheduledTask: scheduledTaskManager.executeScheduledTask,
-  handleStaticIndicatorHeartbeat: staticIndicatorController.handleHeartbeat,
-  handleDismissStaticIndicator: staticIndicatorController.dismissForSenderGroup,
-  handleAgentTurnActive: staticIndicatorController.handleAgentTurnActive,
+  waitUntilBooted: ensureServiceWorkerBooted,
+  handleStaticIndicatorHeartbeat: async (sender, sendResponse) => {
+    await ensureServiceWorkerBooted();
+    await staticIndicatorController.handleHeartbeat(sender, sendResponse);
+  },
+  handleDismissStaticIndicator: async (sender, sendResponse) => {
+    await ensureServiceWorkerBooted();
+    await staticIndicatorController.dismissForSenderGroup(sender, sendResponse);
+  },
+  handleAgentTurnActive: async (message, sendResponse) => {
+    await ensureServiceWorkerBooted();
+    await staticIndicatorController.handleAgentTurnActive(message, sendResponse);
+  },
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void tabGroupManager.handleTabClosed(tabId);
+  runAfterServiceWorkerBoot("tab removed", () => tabGroupManager.handleTabClosed(tabId));
 });
 
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId === 0) {
-    void extensionUrlHandler.handleExtensionUrl(details.url, details.tabId);
+    runAfterServiceWorkerBoot("web navigation before navigate", () =>
+      extensionUrlHandler.handleExtensionUrl(details.url, details.tabId)
+    );
   }
 });
 
@@ -234,6 +271,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     return;
   }
   void (async () => {
+    await ensureServiceWorkerBooted();
     if (await handleToolContextAlarm(alarm.name)) return;
     if (await staticIndicatorController.handleAlarm(alarm.name)) return;
     await scheduledTaskManager.handleAlarm(alarm);
@@ -245,11 +283,11 @@ registerExternalMessageListener({
 });
 
 chrome.downloads.onCreated.addListener((item) => {
-  downloadTracker.handleDownloadCreated(item);
+  runAfterServiceWorkerBoot("download created", () => downloadTracker.handleDownloadCreated(item));
 });
 
 chrome.downloads.onChanged.addListener((delta) => {
-  downloadTracker.handleDownloadChanged(delta);
+  runAfterServiceWorkerBoot("download changed", () => downloadTracker.handleDownloadChanged(delta));
 });
 
 void ensureServiceWorkerBooted();

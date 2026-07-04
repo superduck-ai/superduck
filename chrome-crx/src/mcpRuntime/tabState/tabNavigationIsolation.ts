@@ -18,6 +18,8 @@ export interface CreateChildTabOptions {
   sessionId?: string;
   existingTabId?: number;
   allowUnlinkedExistingTab?: boolean;
+  ignoreExistingTabIds?: ReadonlySet<number>;
+  windowId?: number;
 }
 
 export const CHILD_TAB_NAVIGATION_POLICY_TTL_MS = 30000;
@@ -137,7 +139,11 @@ export function rememberChildTabNavigationPolicy(
 export async function adoptChildTabsFromOpener(
   mgr: TabGroupManager,
   openerTabId: number,
-  options: { sessionId?: string } = {}
+  options: {
+    sessionId?: string;
+    ignoreExistingTabIds?: ReadonlySet<number>;
+    windowId?: number;
+  } = {}
 ): Promise<number[]> {
   const mainTabId = await findManagedMainTabIdForTab(mgr, openerTabId);
   if (typeof mainTabId !== 'number') return [];
@@ -152,6 +158,8 @@ export async function adoptChildTabsFromOpener(
   const adoptedTabIds: number[] = [];
   for (const tab of tabs) {
     if (typeof tab.id !== 'number' || tab.openerTabId !== openerTabId) continue;
+    if (options.ignoreExistingTabIds?.has(tab.id)) continue;
+    if (typeof options.windowId === 'number' && tab.windowId !== options.windowId) continue;
     try {
       if (await adoptChildTab(mgr, mainTabId, tab, options)) adoptedTabIds.push(tab.id);
     } catch (err) {
@@ -166,7 +174,8 @@ export async function adoptChildTabsFromOpener(
 export async function awaitOpenerChildTabId(
   openerTabId: number,
   url: string,
-  budgetMs: number
+  budgetMs: number,
+  options: { ignoreExistingTabIds?: ReadonlySet<number>; windowId?: number } = {}
 ): Promise<number | undefined> {
   const deadline = Date.now() + budgetMs;
   for (;;) {
@@ -176,6 +185,8 @@ export async function awaitOpenerChildTabId(
         (tab) =>
           tab.openerTabId === openerTabId &&
           typeof tab.id === 'number' &&
+          !options.ignoreExistingTabIds?.has(tab.id) &&
+          (typeof options.windowId !== 'number' || tab.windowId === options.windowId) &&
           (tab.url === url || tab.pendingUrl === url)
       );
       if (typeof hit?.id === 'number') return hit.id;
@@ -202,6 +213,8 @@ export async function createChildTabInGroup(
       const existingTab = await chrome.tabs.get(options.existingTabId);
       if (
         typeof existingTab.id === 'number' &&
+        !options.ignoreExistingTabIds?.has(existingTab.id) &&
+        (typeof options.windowId !== 'number' || existingTab.windowId === options.windowId) &&
         (existingTab.openerTabId === openerTabId || options.allowUnlinkedExistingTab)
       ) {
         await adoptChildTab(mgr, mainTabId, existingTab, adoptOptions);
@@ -219,6 +232,8 @@ export async function createChildTabInGroup(
       (tab) =>
         tab.openerTabId === openerTabId &&
         typeof tab.id === 'number' &&
+        !options.ignoreExistingTabIds?.has(tab.id) &&
+        (typeof options.windowId !== 'number' || tab.windowId === options.windowId) &&
         (tab.url === url || tab.pendingUrl === url)
     );
     if (existingTab?.id) {
@@ -235,7 +250,11 @@ export async function createChildTabInGroup(
     // must not be pulled into the agent's group.
     const fallbackTab = existingTabs.find(
       (tab) =>
-        tab.openerTabId === openerTabId && typeof tab.id === 'number' && isTabStillNavigating(tab)
+        tab.openerTabId === openerTabId &&
+        typeof tab.id === 'number' &&
+        !options.ignoreExistingTabIds?.has(tab.id) &&
+        (typeof options.windowId !== 'number' || tab.windowId === options.windowId) &&
+        isTabStillNavigating(tab)
     );
     if (fallbackTab?.id) {
       await adoptChildTab(mgr, mainTabId, fallbackTab, adoptOptions);

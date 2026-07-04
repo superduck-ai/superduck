@@ -9,6 +9,7 @@ export const readNetworkRequestsTool: ToolDefinition<ReadNetworkRequestsToolInpu
   name: 'read_network_requests',
   description:
     "Read HTTP network requests (XHR, Fetch, documents, images, etc.) from a specific tab. Useful for debugging API calls, monitoring network activity, or understanding what requests a page is making. Returns all network requests made by the current page, including cross-origin requests. Requests are automatically cleared when the page navigates to a different domain. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+  tabAccess: 'read',
   parameters: {
     tabId: {
       type: 'number',
@@ -40,11 +41,7 @@ export const readNetworkRequestsTool: ToolDefinition<ReadNetworkRequestsToolInpu
       const { tabId, urlPattern, clear = false, limit = 100 } = input;
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
-        tabId,
-        context.tabId,
-        { sessionId: context.browserSessionScope?.sessionId }
-      );
+      const effectiveTabId = await context.resolveTabId(tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const trackedTabId = tab.id;
@@ -84,8 +81,13 @@ export const readNetworkRequestsTool: ToolDefinition<ReadNetworkRequestsToolInpu
           tabContext: {
             currentTabId: context.tabId,
             executedOnTabId: effectiveTabId,
-            availableTabs: await tabGroupManager.getValidTabsWithMetadata(context.tabId),
-            tabCount: (await tabGroupManager.getValidTabsWithMetadata(context.tabId)).length
+            availableTabs: await tabGroupManager.getValidTabsWithMetadataForContext(
+              context.tabId,
+              context
+            ),
+            tabCount: (
+              await tabGroupManager.getValidTabsWithMetadataForContext(context.tabId, context)
+            ).length
           }
         };
       }
@@ -105,7 +107,10 @@ export const readNetworkRequestsTool: ToolDefinition<ReadNetworkRequestsToolInpu
       const filterNote = filters.length > 0 ? ` (filtered by ${filters.join(', ')})` : '';
       const truncationNote = hasMore ? ` (showing first ${limit} of ${requests.length})` : '';
       const header = `Found ${requests.length} network request${1 === requests.length ? '' : 's'}${filterNote}${truncationNote}:`;
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
 
       return {
         output: `${header}\n\n${formatted}`,

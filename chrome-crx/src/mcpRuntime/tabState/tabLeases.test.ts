@@ -52,7 +52,8 @@ const chromeMock = vi.hoisted(() => {
 
 vi.stubGlobal('chrome', chromeMock);
 
-const { tabLeaseManager } = await import('./tabLeases');
+const { ACTIVE_TAB_LEASE_TTL_MS, HANDOFF_TAB_LEASE_TTL_MS, tabLeaseManager } =
+  await import('./tabLeases');
 
 type MutableLeaseManager = typeof tabLeaseManager & {
   initialized: boolean;
@@ -303,5 +304,142 @@ describe('tabLeaseManager', () => {
     expect(await tabLeaseManager.getLease(10)).toMatchObject({ tabId: 10 });
     expect(await tabLeaseManager.getLease(11)).toBeUndefined();
     expect(events).toEqual([{ tabIds: [11], sessionId: '' }]);
+  });
+
+  it('allows another session to claim a stale active lease', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      await tabLeaseManager.claimTab('session-a', 10, 'agent');
+
+      vi.setSystemTime(1_000 + ACTIVE_TAB_LEASE_TTL_MS + 1);
+
+      await expect(tabLeaseManager.assertTabAvailableForSession('session-b', 10)).resolves.toBe(
+        undefined
+      );
+      const claimed = await tabLeaseManager.claimTab('session-b', 10, 'agent');
+
+      expect(claimed).toMatchObject({
+        tabId: 10,
+        sessionId: 'session-b',
+        state: 'active'
+      });
+      expect(await tabLeaseManager.getLease(10)).toMatchObject({
+        sessionId: 'session-b',
+        state: 'active'
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects another session while an active lease is still fresh', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      await tabLeaseManager.claimTab('session-a', 10, 'agent');
+
+      vi.setSystemTime(1_000 + ACTIVE_TAB_LEASE_TTL_MS);
+
+      await expect(tabLeaseManager.assertTabAvailableForSession('session-b', 10)).rejects.toThrow(
+        'Tab 10 is already part of browser session session-a'
+      );
+      await expect(tabLeaseManager.claimTab('session-b', 10, 'agent')).rejects.toThrow(
+        'Tab 10 is already part of browser session session-a'
+      );
+      expect(await tabLeaseManager.getLease(10)).toMatchObject({
+        sessionId: 'session-a',
+        state: 'active'
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps fresh handoff leases through the active lease ttl', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      await tabLeaseManager.claimTab('session-a', 10, 'agent');
+      await tabLeaseManager.handoffTabs('session-a', [10], { activeTabId: 10 });
+
+      vi.setSystemTime(1_000 + ACTIVE_TAB_LEASE_TTL_MS + 1);
+
+      await expect(tabLeaseManager.assertTabAvailableForSession('session-b', 10)).rejects.toThrow(
+        'Tab 10 is already part of browser session session-a'
+      );
+      await expect(tabLeaseManager.claimTab('session-b', 10, 'agent')).rejects.toThrow(
+        'Tab 10 is already part of browser session session-a'
+      );
+      expect(await tabLeaseManager.getLease(10)).toMatchObject({
+        sessionId: 'session-a',
+        state: 'handoff',
+        isActiveHandoff: true
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('allows another session to claim a stale handoff lease', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      await tabLeaseManager.claimTab('session-a', 10, 'agent');
+      await tabLeaseManager.handoffTabs('session-a', [10], { activeTabId: 10 });
+
+      vi.setSystemTime(1_000 + HANDOFF_TAB_LEASE_TTL_MS + 1);
+
+      await expect(tabLeaseManager.assertTabAvailableForSession('session-b', 10)).resolves.toBe(
+        undefined
+      );
+      expect(await tabLeaseManager.resumeHandoffTabs('session-a')).toEqual([]);
+
+      const claimed = await tabLeaseManager.claimTab('session-b', 10, 'agent');
+      expect(claimed).toMatchObject({
+        tabId: 10,
+        sessionId: 'session-b',
+        state: 'active'
+      });
+      expect(await tabLeaseManager.getLease(10)).toMatchObject({
+        sessionId: 'session-b',
+        state: 'active'
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('prunes stale active leases when leases are read', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      await tabLeaseManager.claimTab('session-a', 10, 'agent');
+      await tabLeaseManager.claimTab('session-a', 11, 'agent');
+      await tabLeaseManager.handoffTabs('session-a', [11]);
+      chromeMock.storage.session.set.mockClear();
+
+      vi.setSystemTime(1_000 + ACTIVE_TAB_LEASE_TTL_MS + 1);
+
+      expect(await tabLeaseManager.getLease(10)).toBeUndefined();
+      expect(await tabLeaseManager.getLease(11)).toMatchObject({
+        sessionId: 'session-a',
+        state: 'handoff'
+      });
+      expect(await tabLeaseManager.getSessionActiveLeases('session-a')).toEqual([]);
+      expect(await tabLeaseManager.getActiveLeasedTabIds()).toEqual([]);
+      expect(chromeMock.sessionStore.get('tabLeases')).toMatchObject({
+        leases: {
+          '11': {
+            tabId: 11,
+            sessionId: 'session-a',
+            state: 'handoff'
+          }
+        }
+      });
+      expect(chromeMock.storage.session.set).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

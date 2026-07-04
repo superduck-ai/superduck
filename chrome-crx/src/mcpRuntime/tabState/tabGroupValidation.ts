@@ -1,5 +1,13 @@
 import type { TabGroupManager } from './tabGroups';
-import { tabLeaseManager } from './tabLeases';
+import { BrowserSessionConflictError, tabLeaseManager, type TabLeaseOrigin } from './tabLeases';
+import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
+import type { BrowserSessionScope } from '../sessionScope';
+import type { ToolTabAccess } from '../pageToolsSupport/types';
+
+interface BrowserSessionToolContext {
+  browserSessionScope: BrowserSessionScope;
+  tabAccess: ToolTabAccess;
+}
 
 export async function isTabInSameGroup(
   mgr: TabGroupManager,
@@ -16,7 +24,7 @@ export async function isTabInSameGroup(
   }
 }
 
-export async function getValidTabIds(mgr: TabGroupManager, tabId: number): Promise<number[]> {
+async function getValidTabIds(mgr: TabGroupManager, tabId: number): Promise<number[]> {
   try {
     await mgr.initialize();
     const mainTabId = await mgr.getMainTabId(tabId);
@@ -27,33 +35,31 @@ export async function getValidTabIds(mgr: TabGroupManager, tabId: number): Promi
   }
 }
 
-export async function getValidTabsWithMetadata(
+export async function getValidTabsWithMetadataForContext(
   mgr: TabGroupManager,
-  tabId: number
+  tabId: number,
+  context: BrowserSessionToolContext
 ): Promise<{ id: number; title: string; url: string }[]> {
-  try {
-    const tabIds = await getValidTabIds(mgr, tabId);
-    return await Promise.all(
-      tabIds.map(async (id) => {
-        try {
-          const tab = await chrome.tabs.get(id);
-          return { id, title: tab.title || 'Untitled', url: tab.url || '' };
-        } catch (err) {
-          return { id, title: 'Error loading tab', url: '' };
-        }
-      })
-    );
-  } catch (err) {
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      return [{ id: tabId, title: tab.title || 'Untitled', url: tab.url || '' }];
-    } catch {
-      return [{ id: tabId, title: 'Error loading tab', url: '' }];
-    }
+  const sessionId = context.browserSessionScope.sessionId;
+  const tabIds = await getValidTabIds(mgr, tabId);
+  const visibleTabIds: number[] = [];
+  for (const id of tabIds) {
+    const lease = await tabLeaseManager.getLease(id);
+    if (!lease || lease.sessionId === sessionId) visibleTabIds.push(id);
   }
+  return await Promise.all(
+    visibleTabIds.map(async (id) => {
+      try {
+        const tab = await chrome.tabs.get(id);
+        return { id, title: tab.title || 'Untitled', url: tab.url || '' };
+      } catch (err) {
+        return { id, title: 'Error loading tab', url: '' };
+      }
+    })
+  );
 }
 
-export async function getEffectiveTabId(
+async function resolveTabInCurrentGroup(
   mgr: TabGroupManager,
   requestedTabId: number | undefined,
   currentTabId: number
@@ -69,15 +75,62 @@ export async function getEffectiveTabId(
   return requestedTabId;
 }
 
-export async function getEffectiveTabIdForContext(
+async function markManagedGroupActiveForSession(
+  mgr: TabGroupManager,
+  chromeGroupId: number,
+  sessionId: string
+): Promise<void> {
+  for (const meta of mgr.groupMetadata.values()) {
+    if (meta.chromeGroupId !== chromeGroupId) continue;
+    const changed = meta.sessionId !== sessionId || meta.status !== 'active';
+    meta.sessionId = sessionId;
+    meta.status = 'active';
+    if (changed) await mgr.saveToStorage();
+    try {
+      await chrome.tabGroups.update(chromeGroupId, buildGroupAppearanceUpdate(mgr, meta));
+    } catch {
+      // Group may have been closed or moved while the tool was resolving tabs.
+    }
+    return;
+  }
+}
+
+export async function resolveTabForContext(
   mgr: TabGroupManager,
   requestedTabId: number | undefined,
   currentTabId: number,
-  options: { sessionId?: string } = {}
+  context: BrowserSessionToolContext
 ): Promise<number> {
-  const effectiveTabId = await getEffectiveTabId(mgr, requestedTabId, currentTabId);
-  if (options.sessionId) {
-    await tabLeaseManager.assertTabAvailableForSession(options.sessionId, effectiveTabId);
+  const effectiveTabId = await resolveTabInCurrentGroup(mgr, requestedTabId, currentTabId);
+  const sessionId = context.browserSessionScope.sessionId;
+  const tabAccess = context.tabAccess;
+  const existingLease = await tabLeaseManager.getLease(effectiveTabId);
+  if (existingLease) {
+    if (existingLease.sessionId !== sessionId) {
+      throw new BrowserSessionConflictError(effectiveTabId, existingLease.sessionId);
+    }
+    if (tabAccess === 'read') return effectiveTabId;
+    await tabLeaseManager.claimTab(sessionId, effectiveTabId, existingLease.origin, {
+      groupId: existingLease.groupId
+    });
+    if (typeof existingLease.groupId === 'number') {
+      await markManagedGroupActiveForSession(mgr, existingLease.groupId, sessionId);
+    }
+    return effectiveTabId;
+  }
+
+  if (tabAccess === 'read') return effectiveTabId;
+
+  await mgr.initialize();
+  await chrome.tabs.get(effectiveTabId);
+  const group = await mgr.findGroupByTab(effectiveTabId);
+  const origin = (group?.memberStates.get(effectiveTabId)?.origin ?? 'user') as TabLeaseOrigin;
+  const managedGroupId = group && !group.isUnmanaged ? group.chromeGroupId : undefined;
+  await tabLeaseManager.claimTab(sessionId, effectiveTabId, origin, {
+    groupId: managedGroupId
+  });
+  if (typeof managedGroupId === 'number') {
+    await markManagedGroupActiveForSession(mgr, managedGroupId, sessionId);
   }
   return effectiveTabId;
 }

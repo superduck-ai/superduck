@@ -7,6 +7,7 @@ export const superduckClickTool: ToolDefinition<ClickArgs> = {
   name: 'superduck_click',
   description:
     'SuperDuck CLI: click an element on the active tab by CSS selector (selector) or by visible text (text). One of selector/text required.',
+  tabAccess: 'write',
   parameters: {
     selector: { type: 'string', description: 'CSS selector to match' },
     text: { type: 'string', description: 'Visible text to match (case-insensitive substring)' },

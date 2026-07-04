@@ -204,20 +204,23 @@ describe('tabBadgeManager', () => {
   });
 
   it('replays active lease badges after service worker restart', async () => {
+    const now = Date.now();
     chromeMock.sessionStore.set('tabLeases', {
       leases: {
         30: {
           tabId: 30,
           sessionId: 'session-a',
           origin: 'agent',
-          claimedAt: 1,
+          claimedAt: now,
+          updatedAt: now,
           state: 'active'
         },
         31: {
           tabId: 31,
           sessionId: 'session-a',
           origin: 'agent',
-          claimedAt: 2,
+          claimedAt: now,
+          updatedAt: now,
           state: 'handoff'
         }
       }

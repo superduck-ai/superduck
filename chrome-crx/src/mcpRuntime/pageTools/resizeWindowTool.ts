@@ -1,4 +1,3 @@
-import { tabGroupManager } from '../tabState';
 import type { ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import type { ResizeWindowToolInput } from './types';
 
@@ -6,6 +5,7 @@ export const resizeWindowTool: ToolDefinition<ResizeWindowToolInput> = {
   name: 'resize_window',
   description:
     "Resize the current browser window to specified dimensions. Useful for testing responsive designs or setting up specific screen sizes. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+  tabAccess: 'write',
   parameters: {
     width: { type: 'number', description: 'Target window width in pixels' },
     height: { type: 'number', description: 'Target window height in pixels' },
@@ -27,11 +27,7 @@ export const resizeWindowTool: ToolDefinition<ResizeWindowToolInput> = {
       if (width > 7680 || height > 4320)
         throw new Error('Dimensions exceed 8K resolution limit. Maximum dimensions are 7680x4320');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
-        tabId,
-        context.tabId,
-        { sessionId: context.browserSessionScope?.sessionId }
-      );
+      const effectiveTabId = await context.resolveTabId(tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.windowId) throw new Error('Tab does not have an associated window');
 

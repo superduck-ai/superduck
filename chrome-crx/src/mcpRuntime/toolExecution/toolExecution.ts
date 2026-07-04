@@ -14,10 +14,14 @@ import {
   createErrorResponse,
   MCP_NATIVE_SESSION_ID
 } from './toolExecutor';
-import { mcpToolNames } from '../core/tools';
+import { getToolTabAccess, hasTool, mcpToolNames } from '../core/tools';
 import { withTimeout } from '../core/utils';
 import { extractAppName } from '../core/urlUtils';
-import { resolveToolExecutionSession } from '../sessionScope';
+import {
+  hasReservedBrowserSessionArgs,
+  reservedBrowserSessionArgsError,
+  resolveToolExecutionSession
+} from '../sessionScope';
 import type {
   ExecuteToolResponse,
   PermissionPromptHandler,
@@ -81,12 +85,25 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   const startTime = Date.now();
   const model = await getSelectedModel();
   const argsRecord = isRecord(options.args) ? options.args : {};
+  if (hasReservedBrowserSessionArgs(argsRecord)) {
+    return createErrorResponse(reservedBrowserSessionArgsError());
+  }
   const { sessionId, browserScope } = resolveToolExecutionSession({
     defaultSessionId: MCP_NATIVE_SESSION_ID,
-    args: argsRecord,
     sessionId: options.sessionId,
     browserSessionId: options.browserSessionId
   });
+  if (!hasTool(options.toolName)) {
+    trackEvent('superduck.mcp.tool_called', {
+      tool_name: options.toolName,
+      client_id: clientId,
+      model,
+      success: false,
+      error_type: 'unknown_tool',
+      duration_ms: Date.now() - startTime
+    });
+    return createErrorResponse(`Unknown tool: ${options.toolName}`);
+  }
 
   if (navigationBlockedError && navigationBlockedTime) {
     if (Date.now() - navigationBlockedTime < NAVIGATION_BLOCK_TIMEOUT) {
@@ -111,12 +128,14 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   let domain: string | undefined;
   let url: string | undefined;
   let toolResult: ExecuteToolResponse;
+  const toolTabAccess = getToolTabAccess(options.toolName, argsRecord);
 
   try {
     const skipTabLookup = mcpToolNames.includes(options.toolName) && options.tabId === undefined;
     if (!skipTabLookup) {
       const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId, {
-        sessionId: browserScope?.sessionId
+        sessionId: browserScope.sessionId,
+        claimUnleased: toolTabAccess === 'write'
       });
       tabId = tabInfo.tabId;
       domain = tabInfo.domain;
@@ -211,12 +230,10 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       tabId,
       options.tabGroupId,
       sessionId,
-      browserScope
+      browserScope,
+      options.messagesClient,
+      toolTabAccess
     );
-
-    if (options.messagesClient) {
-      executor.context.messagesClient = options.messagesClient;
-    }
 
     const processOptions: ToolExecutorProcessOptions = {};
 

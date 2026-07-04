@@ -9,6 +9,7 @@ export const readConsoleMessagesTool: ToolDefinition<ReadConsoleMessagesToolInpu
   name: 'read_console_messages',
   description:
     "Read browser console messages (console.log, console.error, console.warn, etc.) from a specific tab. Useful for debugging JavaScript errors, viewing application logs, or understanding what's happening in the browser console. Returns console messages from the current domain only. If you don't have a valid tab ID, use tabs_context first to get available tabs. IMPORTANT: Always provide a pattern to filter messages - without a pattern, you may get too many irrelevant messages.",
+  tabAccess: 'read',
   parameters: {
     tabId: {
       type: 'number',
@@ -40,11 +41,7 @@ export const readConsoleMessagesTool: ToolDefinition<ReadConsoleMessagesToolInpu
       const { tabId, onlyErrors = false, clear = false, pattern, limit = 100 } = input;
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
-        tabId,
-        context.tabId,
-        { sessionId: context.browserSessionScope?.sessionId }
-      );
+      const effectiveTabId = await context.resolveTabId(tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const trackedTabId = tab.id;
@@ -85,8 +82,13 @@ export const readConsoleMessagesTool: ToolDefinition<ReadConsoleMessagesToolInpu
           tabContext: {
             currentTabId: context.tabId,
             executedOnTabId: effectiveTabId,
-            availableTabs: await tabGroupManager.getValidTabsWithMetadata(context.tabId),
-            tabCount: (await tabGroupManager.getValidTabsWithMetadata(context.tabId)).length
+            availableTabs: await tabGroupManager.getValidTabsWithMetadataForContext(
+              context.tabId,
+              context
+            ),
+            tabCount: (
+              await tabGroupManager.getValidTabsWithMetadataForContext(context.tabId, context)
+            ).length
           }
         };
       }
@@ -110,7 +112,10 @@ export const readConsoleMessagesTool: ToolDefinition<ReadConsoleMessagesToolInpu
       const msgType = onlyErrors ? 'error/exception messages' : 'console messages';
       const truncationNote = hasMore ? ` (showing first ${limit} of ${messages.length})` : '';
       const header = `Found ${messages.length} ${msgType}${truncationNote}:`;
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
 
       return {
         output: `${header}\n\n${formatted}`,

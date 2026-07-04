@@ -3,7 +3,11 @@ import { findMetadataByChromeGroupId } from './mcpTabGroup';
 import { getMemberOrigin } from './tabNavigationIsolation';
 import { tabBadgeManager } from './tabBadges';
 import { tabLeaseManager } from './tabLeases';
-import { resolveBrowserSessionScope, type BrowserSessionScope } from '../sessionScope';
+import {
+  DEFAULT_BROWSER_SESSION_ID,
+  resolveBrowserSessionScope,
+  type BrowserSessionScope
+} from '../sessionScope';
 import { buildSessionContextFromLeases, collectSessionLeases } from './sessionLeaseContext';
 import type {
   FinalizeMcpTabGroupOptions,
@@ -38,6 +42,8 @@ export async function markGroupCompleted(
 ): Promise<void> {
   const meta = findMetadataByChromeGroupId(mgr, chromeGroupId);
   if (!meta) return;
+  meta.status = 'completed';
+  await mgr.saveToStorage();
   await mgr.addCompletionPrefix(meta.mainTabId).catch(() => {});
   await mgr.setGroupColor(meta.mainTabId, chrome.tabGroups.Color.GREEN).catch(() => {});
 }
@@ -111,17 +117,14 @@ export async function finalizeMcpTabGroup(
   mgr: TabGroupManager,
   options: FinalizeMcpTabGroupOptions = {}
 ): Promise<FinalizedTabContext | undefined> {
-  const scope = resolveBrowserSessionScope({ sessionId: options.sessionId });
-  if (scope) {
-    return await finalizeSessionMcpTabGroup(mgr, scope, options.keep ?? []);
-  }
+  const scope = resolveBrowserSessionScope({ sessionId: options.sessionId }) ?? {
+    sessionId: DEFAULT_BROWSER_SESSION_ID
+  };
   await mgr.initialize();
-  await mgr.loadStoredMcpTabGroupId();
-  if (mgr.mcpTabGroupId === null) return undefined;
-  return await finalizeManagedGroup(mgr, {
-    chromeGroupId: mgr.mcpTabGroupId,
-    keep: options.keep
-  });
+  if (scope.sessionId === DEFAULT_BROWSER_SESSION_ID) {
+    await mgr.loadStoredMcpTabGroupId();
+  }
+  return await finalizeSessionMcpTabGroup(mgr, scope, options.keep ?? []);
 }
 
 async function finalizeSessionMcpTabGroup(
@@ -196,10 +199,6 @@ function resolveManagedGroupMetadata(
     for (const meta of mgr.groupMetadata.values())
       if (meta.chromeGroupId === options.chromeGroupId) return meta;
   }
-  if (mgr.mcpTabGroupId !== null) {
-    for (const meta of mgr.groupMetadata.values())
-      if (meta.chromeGroupId === mgr.mcpTabGroupId) return meta;
-  }
   return undefined;
 }
 
@@ -245,6 +244,7 @@ function keepOnlyHandoffTabs(
       disposition: 'handoff'
     });
   }
+  meta.status = 'handoff';
   if (!handoffSet.has(meta.mainTabId)) {
     meta.mainTabId = handoffTabIds[0];
     mgr.groupMetadata.delete(oldMainTabId);

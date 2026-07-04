@@ -91,8 +91,8 @@ describe('createNativeHostManager', () => {
     vi.unstubAllGlobals();
   });
 
-  async function connectManager() {
-    const manager = createNativeHostManager();
+  async function connectManager(options?: Parameters<typeof createNativeHostManager>[0]) {
+    const manager = createNativeHostManager(options);
     const connected = manager.connect();
     await Promise.resolve();
     await expect(connected).resolves.toBe(true);
@@ -251,6 +251,35 @@ describe('createNativeHostManager', () => {
         result: { content: 'Waited for 30 seconds' }
       }
     ]);
+  });
+
+  it('waits for service-worker boot before executing native-messaging tool requests', async () => {
+    let resolveBoot!: () => void;
+    const waitUntilBooted = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveBoot = resolve;
+        })
+    );
+    await connectManager({ waitUntilBooted });
+    mcpRuntimeMocks.executeTool.mockResolvedValue({ content: 'ok' });
+
+    messageEvent.emit({
+      type: 'tool_request',
+      method: 'execute_tool',
+      params: { tool: 'superduck_list_tabs', args: {}, client_id: 'superduck-cli' }
+    });
+    await flushMicrotasks();
+
+    expect(waitUntilBooted).toHaveBeenCalledTimes(1);
+    expect(mcpRuntimeMocks.executeTool).not.toHaveBeenCalled();
+    expect(toolResponses()).toHaveLength(0);
+
+    resolveBoot();
+    await flushMicrotasks(8);
+
+    expect(mcpRuntimeMocks.executeTool).toHaveBeenCalledTimes(1);
+    expect(toolResponses()).toEqual([{ type: 'tool_response', result: { content: 'ok' } }]);
   });
 
   it('passes tab context as structured content in native-messaging tool responses', async () => {

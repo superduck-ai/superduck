@@ -6,6 +6,7 @@ export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> =
   name: 'superduck_background_fetch',
   description:
     "SuperDuck CLI: fetch a URL from the extension background, automatically including the user's Chrome cookies for the target origin. Default: same eTLD+1 as source tab; pass allowCrossOrigin=true to bypass.",
+  tabAccess: 'read',
   parameters: {
     url: { type: 'string', description: 'URL to fetch' },
     method: { type: 'string', description: 'HTTP method (default GET)' },

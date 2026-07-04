@@ -6,7 +6,7 @@
 //     map is re-keyed).
 //   * The new main is tracked in `memberStates` with `indicatorState:
 //     'none'` (main tabs are members of the group's member-state map too —
-//     see createGroup / adoptOrphanedGroup for the seed path), and any
+//     see createGroup for the seed path), and any
 //     indicator the new tab previously had as a secondary is cleared.
 //   * The old main stays in the group as a secondary tab with no
 //     indicators.
@@ -209,8 +209,8 @@ describe('tabGroupManager.promoteToMainTab', () => {
 
     const meta = m.groupMetadata.get(2);
     if (!meta) throw new Error('expected new main to be tracked');
-    // `memberStates` stores main tabs too (createGroup / adoptOrphanedGroup
-    // also seed it). After promote, the new main sits there with state
+    // `memberStates` stores main tabs too (createGroup seeds it). After
+    // promote, the new main sits there with state
     // 'none' — no agent currently running.
     expect(meta.memberStates.get(2)).toEqual({
       indicatorState: 'none',

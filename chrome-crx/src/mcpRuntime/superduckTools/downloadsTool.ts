@@ -5,6 +5,7 @@ export const superduckDownloadsTool: ToolDefinition<DownloadsArgs> = {
   name: 'superduck_downloads',
   description:
     'SuperDuck CLI: query recent Chrome downloads. Returns filename, url, status, fileSize, startTime for each download. Optionally filter by filename text or state (in_progress, complete, interrupted).',
+  tabAccess: 'read',
   parameters: {
     query: {
       type: 'string',

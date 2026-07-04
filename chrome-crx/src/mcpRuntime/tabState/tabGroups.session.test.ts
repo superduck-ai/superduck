@@ -154,14 +154,14 @@ const chromeMock = vi.hoisted(() => {
 vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
-const { tabLeaseManager } = await import('./tabLeases');
+const { HANDOFF_TAB_LEASE_TTL_MS, tabLeaseManager } = await import('./tabLeases');
 const { DomainCategoryCache } = await import('./domainCategory');
 
 type MutableTabGroupManager = typeof tabGroupManager & {
   groupMetadata: Map<number, unknown>;
   sessionGroupTitles: Map<string, string>;
+  groupBlocklistStatuses: Map<number, unknown>;
   initialized: boolean;
-  mcpTabGroupId: number | null;
 };
 
 const manager = tabGroupManager as MutableTabGroupManager;
@@ -174,8 +174,8 @@ beforeEach(() => {
   chromeMock.reset();
   manager.groupMetadata.clear();
   manager.sessionGroupTitles.clear();
+  manager.groupBlocklistStatuses.clear();
   manager.initialized = true;
-  manager.mcpTabGroupId = null;
   leases.leases.clear();
   leases.initialized = false;
   chromeMock.tabs.create.mockClear();
@@ -278,7 +278,7 @@ describe('TabGroupManager session-scoped MCP leases', () => {
   });
 
   it('nameActiveMcpGroup titles the unscoped global group for the sidepanel', async () => {
-    // Sidepanel path: no session scope, names the active global mcpTabGroupId.
+    // Sidepanel path: no session scope, names the default browser session group.
     const ctx = await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true });
     expect(ctx?.tabGroupId).toBeDefined();
 
@@ -325,6 +325,14 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
     expect(group.title).toBe('⌛🦆 second task');
 
+    // Chrome's editable title is only a projection. A user edit that removes
+    // the marker must not make the managed group look unmanaged.
+    chromeMock.groupTitles.set(ctx?.tabGroupId as number, 'user edited title');
+    chromeMock.tabGroups.update.mockClear();
+    await tabGroupManager.updateGroupTitle(mainTabId as number, 'third task', true);
+    group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
+    expect(group.title).toBe('⌛🦆 third task');
+
     // An explicit session name takes precedence and blocks auto-naming.
     await tabGroupManager.nameActiveMcpGroup('pinned name');
     chromeMock.tabGroups.update.mockClear();
@@ -333,11 +341,35 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(group.title).toBe('🦆 pinned name');
     expect(chromeMock.tabGroups.update).not.toHaveBeenCalled();
 
+    chromeMock.groupTitles.set(ctx?.tabGroupId as number, 'user edited pinned title');
+    await tabGroupManager.updateGroupTitle(mainTabId as number, 'still ignored', true);
+    group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
+    expect(group.title).toBe('🦆 pinned name');
+
     // Clearing the explicit name re-enables auto-naming.
     await tabGroupManager.nameActiveMcpGroup('');
     await tabGroupManager.updateGroupTitle(mainTabId as number, 'auto again', true);
     group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
     expect(group.title).toBe('⌛🦆 auto again');
+  });
+
+  it('updateGroupTitle starts a new active turn from a completed projection', async () => {
+    const ctx = await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true });
+    const mainTabId = ctx?.currentTabId as number;
+    expect(mainTabId).toBeDefined();
+
+    await tabGroupManager.addCompletionPrefix(mainTabId);
+    await tabGroupManager.setGroupColor(mainTabId, chrome.tabGroups.Color.GREEN);
+    expect(chromeMock.groupTitles.get(ctx?.tabGroupId as number)).toBe('✅🦆SuperDuck');
+    expect(chromeMock.groupColors.get(ctx?.tabGroupId as number)).toBe('green');
+
+    await tabGroupManager.updateGroupTitle(mainTabId, 'next task', true);
+
+    const group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
+    const meta = manager.groupMetadata.get(mainTabId) as { status?: string } | undefined;
+    expect(group.title).toBe('⌛🦆 next task');
+    expect(group.color).toBe('orange');
+    expect(meta?.status).toBe('active');
   });
 
   it('does not reuse another session active tab and reports explicit conflicts', async () => {
@@ -373,7 +405,6 @@ describe('TabGroupManager session-scoped MCP leases', () => {
 
     chromeMock.storage.local.set.mockClear();
     chromeMock.tabGroups.update.mockClear();
-    const previousMcpGroupId = manager.mcpTabGroupId;
 
     await expect(
       tabGroupManager.getTabForMcp(first!.currentTabId, undefined, {
@@ -381,19 +412,311 @@ describe('TabGroupManager session-scoped MCP leases', () => {
       })
     ).rejects.toThrow('already part of browser session session-a');
 
-    expect(manager.mcpTabGroupId).toBe(previousMcpGroupId);
-    expect(manager.mcpTabGroupId).not.toBe(first!.tabGroupId);
-    expect(manager.mcpTabGroupId).not.toBe(second!.tabGroupId);
     expect(chromeMock.storage.local.set).not.toHaveBeenCalled();
     expect(chromeMock.tabGroups.update).not.toHaveBeenCalled();
   });
 
-  it('does not let scoped MCP sessions overwrite the unscoped active group pointer', async () => {
+  it('does not convert an explicit user Chrome group into an MCP group', async () => {
+    const userTab = await chrome.tabs.create({
+      url: 'https://banking.example/',
+      active: false
+    });
+    const userGroupId = await chrome.tabs.group({ tabIds: [userTab.id as number] });
+    chromeMock.groupTitles.set(userGroupId, 'Banking');
+    chromeMock.groupColors.set(userGroupId, 'blue');
+
+    chromeMock.storage.local.set.mockClear();
+    chromeMock.tabGroups.update.mockClear();
+
+    const tabInfo = await tabGroupManager.getTabForMcp(userTab.id);
+
+    expect(tabInfo).toMatchObject({
+      tabId: userTab.id,
+      domain: 'banking.example'
+    });
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [tabGroupManager.MCP_TAB_GROUP_KEY]: userGroupId })
+    );
+    expect(chromeMock.tabGroups.update).not.toHaveBeenCalledWith(
+      userGroupId,
+      expect.objectContaining({ color: chrome.tabGroups.Color.ORANGE })
+    );
+    expect(await tabLeaseManager.getLease(userTab.id as number)).toMatchObject({
+      sessionId: '__default__',
+      origin: 'user',
+      state: 'active'
+    });
+  });
+
+  it('claims an unleased explicit user Chrome group tab for the scoped session without decorating the group', async () => {
+    const userTab = await chrome.tabs.create({
+      url: 'https://docs.example/',
+      active: false
+    });
+    const userGroupId = await chrome.tabs.group({ tabIds: [userTab.id as number] });
+    chromeMock.groupTitles.set(userGroupId, 'Docs');
+    chromeMock.groupColors.set(userGroupId, 'blue');
+    chromeMock.tabGroups.update.mockClear();
+
+    const tabInfo = await tabGroupManager.getTabForMcp(userTab.id, undefined, {
+      sessionId: 'session-a'
+    });
+
+    expect(tabInfo).toMatchObject({
+      tabId: userTab.id,
+      domain: 'docs.example'
+    });
+    expect(await tabLeaseManager.getLease(userTab.id as number)).toMatchObject({
+      sessionId: 'session-a',
+      origin: 'user',
+      state: 'active'
+    });
+    expect(chromeMock.tabGroups.update).not.toHaveBeenCalledWith(
+      userGroupId,
+      expect.objectContaining({ color: chrome.tabGroups.Color.ORANGE })
+    );
+  });
+
+  it('checks an unleased explicit user Chrome group tab for read access without claiming it', async () => {
+    const userTab = await chrome.tabs.create({
+      url: 'https://docs.example/',
+      active: false
+    });
+    const userGroupId = await chrome.tabs.group({ tabIds: [userTab.id as number] });
+    chromeMock.groupTitles.set(userGroupId, 'Docs');
+    chromeMock.groupColors.set(userGroupId, 'blue');
+    chromeMock.tabGroups.update.mockClear();
+
+    const tabInfo = await tabGroupManager.getTabForMcp(userTab.id, undefined, {
+      sessionId: 'session-a',
+      claimUnleased: false
+    });
+
+    expect(tabInfo).toMatchObject({
+      tabId: userTab.id,
+      domain: 'docs.example'
+    });
+    expect(await tabLeaseManager.getLease(userTab.id as number)).toBeUndefined();
+    expect(chromeMock.tabGroups.update).not.toHaveBeenCalledWith(
+      userGroupId,
+      expect.objectContaining({ color: chrome.tabGroups.Color.ORANGE })
+    );
+  });
+
+  it('does not expand tab access across an unmanaged Chrome group', async () => {
+    const userTab = await chrome.tabs.create({
+      url: 'https://docs.example/',
+      active: false
+    });
+    const child = await chrome.tabs.create({
+      url: 'https://docs.example/child',
+      active: false
+    });
+    await chrome.tabs.group({ tabIds: [userTab.id as number, child.id as number] });
+
+    await expect(
+      tabGroupManager.resolveTabForContext(child.id, userTab.id as number, {
+        browserSessionScope: { sessionId: 'session-a' },
+        tabAccess: 'read'
+      })
+    ).rejects.toThrow(`Tab ${child.id} is not in the same group as the current tab`);
+    expect(await tabLeaseManager.getLease(child.id as number)).toBeUndefined();
+  });
+
+  it('claims an unmanaged Chrome group tab without storing the user group id', async () => {
+    const userTab = await chrome.tabs.create({
+      url: 'https://docs.example/',
+      active: false
+    });
+    await chrome.tabs.group({ tabIds: [userTab.id as number] });
+
+    await expect(
+      tabGroupManager.resolveTabForContext(userTab.id, userTab.id as number, {
+        browserSessionScope: { sessionId: 'session-a' },
+        tabAccess: 'write'
+      })
+    ).resolves.toBe(userTab.id);
+
+    const lease = await tabLeaseManager.getLease(userTab.id as number);
+    expect(lease).toMatchObject({
+      tabId: userTab.id,
+      sessionId: 'session-a'
+    });
+    expect(lease?.groupId).toBeUndefined();
+  });
+
+  it('checks a same-session handoff tab for read access without resuming it', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a',
+      state: 'handoff'
+    });
+
+    await expect(
+      tabGroupManager.resolveTabForContext(context!.currentTabId, context!.currentTabId, {
+        browserSessionScope: { sessionId: 'session-a' },
+        tabAccess: 'read'
+      })
+    ).resolves.toBe(context!.currentTabId);
+
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a',
+      state: 'handoff'
+    });
+  });
+
+  it('checks a same-session handoff MCP tab for read access without resuming it', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+
+    const tabInfo = await tabGroupManager.getTabForMcp(context!.currentTabId, undefined, {
+      sessionId: 'session-a',
+      claimUnleased: false
+    });
+
+    expect(tabInfo.tabId).toBe(context!.currentTabId);
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a',
+      state: 'handoff'
+    });
+  });
+
+  it('preserves the completed session title during read-only handoff checks', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a',
+      name: 'handoff followup'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+    expect(chromeMock.groupTitles.get(context!.tabGroupId)).toBe('✅🦆 handoff followup');
+    expect(chromeMock.groupColors.get(context!.tabGroupId)).toBe('green');
+
+    chromeMock.tabGroups.update.mockClear();
+    const tabInfo = await tabGroupManager.getTabForMcp(context!.currentTabId, undefined, {
+      sessionId: 'session-a',
+      claimUnleased: false
+    });
+
+    expect(tabInfo.tabId).toBe(context!.currentTabId);
+    expect(chromeMock.groupTitles.get(context!.tabGroupId)).toBe('✅🦆 handoff followup');
+    expect(chromeMock.groupColors.get(context!.tabGroupId)).toBe('green');
+    expect(chromeMock.tabGroups.update).not.toHaveBeenCalled();
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a',
+      state: 'handoff'
+    });
+  });
+
+  it('preserves session title and completed projection when a retained main tab is regrouped', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a',
+      name: 'handoff followup'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+
+    await tabGroupManager.handleTabGroupChange(context!.currentTabId, 999);
+
+    const meta = manager.groupMetadata.get(context!.currentTabId) as
+      | { chromeGroupId: number; status?: string; sessionId?: string }
+      | undefined;
+    expect(meta).toBeDefined();
+    expect(meta?.status).toBe('completed');
+    expect(meta?.sessionId).toBe('session-a');
+    expect(chromeMock.groupTitles.get(meta!.chromeGroupId)).toBe('✅🦆 handoff followup');
+    expect(chromeMock.groupColors.get(meta!.chromeGroupId)).toBe('green');
+  });
+
+  it('stores explicit completion state in metadata instead of only title and color', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.addCompletionPrefix(context!.currentTabId);
+    await tabGroupManager.setGroupColor(context!.currentTabId, chrome.tabGroups.Color.GREEN);
+
+    let meta = manager.groupMetadata.get(context!.currentTabId) as
+      | { status?: string; chromeGroupId: number }
+      | undefined;
+    expect(meta?.status).toBe('completed');
+    expect(chromeMock.groupTitles.get(meta!.chromeGroupId)).toBe('✅🦆SuperDuck');
+    expect(chromeMock.groupColors.get(meta!.chromeGroupId)).toBe('green');
+
+    await tabGroupManager.setGroupColor(context!.currentTabId, chrome.tabGroups.Color.ORANGE);
+
+    meta = manager.groupMetadata.get(context!.currentTabId) as
+      | { status?: string; chromeGroupId: number }
+      | undefined;
+    expect(meta?.status).toBe('completed');
+    expect(chromeMock.groupColors.get(meta!.chromeGroupId)).toBe('orange');
+
+    await tabGroupManager.addLoadingPrefix(context!.currentTabId);
+
+    meta = manager.groupMetadata.get(context!.currentTabId) as
+      | { status?: string; chromeGroupId: number }
+      | undefined;
+    expect(meta?.status).toBe('active');
+  });
+
+  it('resumes a same-session handoff tab for write access', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+
+    await expect(
+      tabGroupManager.resolveTabForContext(context!.currentTabId, context!.currentTabId, {
+        browserSessionScope: { sessionId: 'session-a' },
+        tabAccess: 'write'
+      })
+    ).resolves.toBe(context!.currentTabId);
+
+    expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+      sessionId: 'session-a',
+      state: 'active'
+    });
+  });
+
+  it('keeps default and explicit sessions separated without using the legacy group pointer', async () => {
     const sidepanel = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true
     });
     expect(sidepanel).toBeDefined();
-    expect(manager.mcpTabGroupId).toBe(sidepanel!.tabGroupId);
 
     const scoped = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
@@ -401,16 +724,12 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     });
     expect(scoped).toBeDefined();
     expect(scoped!.tabGroupId).not.toBe(sidepanel!.tabGroupId);
-    expect(manager.mcpTabGroupId).toBe(sidepanel!.tabGroupId);
 
     await tabGroupManager.getTabForMcp(scoped!.currentTabId, undefined, {
       sessionId: 'session-a'
     });
 
-    expect(manager.mcpTabGroupId).toBe(sidepanel!.tabGroupId);
-    expect(chromeMock.localStore.get(tabGroupManager.MCP_TAB_GROUP_KEY)).toBe(
-      sidepanel!.tabGroupId
-    );
+    expect(chromeMock.localStore.get(tabGroupManager.MCP_TAB_GROUP_KEY)).toBeUndefined();
   });
 
   it('selects a same-session tab from a mixed-session tab group', async () => {
@@ -525,6 +844,46 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     });
   });
 
+  it('lets a new session take over an expired handoff group and refreshes appearance', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a',
+      name: 'old handoff'
+    });
+    expect(context).toBeDefined();
+
+    await tabGroupManager.finalizeMcpTabGroup({
+      sessionId: 'session-a',
+      keep: [{ tabId: context!.currentTabId, status: 'handoff' }]
+    });
+    expect(chromeMock.groupTitles.get(context!.tabGroupId)).toBe('✅🦆 old handoff');
+
+    const expiredAt = Date.now() + HANDOFF_TAB_LEASE_TTL_MS + 1;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(expiredAt);
+
+      const tabInfo = await tabGroupManager.getTabForMcp(context!.currentTabId, undefined, {
+        sessionId: 'session-b'
+      });
+
+      expect(tabInfo.tabId).toBe(context!.currentTabId);
+      expect(await tabLeaseManager.getLease(context!.currentTabId)).toMatchObject({
+        sessionId: 'session-b',
+        state: 'active'
+      });
+      const group = await tabGroupManager.findGroupByTab(context!.currentTabId);
+      expect(group).toMatchObject({
+        sessionId: 'session-b',
+        status: 'active'
+      });
+      expect(chromeMock.groupTitles.get(context!.tabGroupId)).toBe('🦆SuperDuck');
+      expect(chromeMock.groupColors.get(context!.tabGroupId)).toBe('orange');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects explicit access to a same-group tab leased by another session', async () => {
     const context = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
@@ -543,8 +902,9 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     });
 
     await expect(
-      tabGroupManager.getEffectiveTabIdForContext(child.id, context!.currentTabId, {
-        sessionId: 'session-a'
+      tabGroupManager.resolveTabForContext(child.id, context!.currentTabId, {
+        browserSessionScope: { sessionId: 'session-a' },
+        tabAccess: 'write'
       })
     ).rejects.toThrow('already part of browser session session-b');
   });
@@ -820,6 +1180,52 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     });
   });
 
+  it('skips opener children that existed before the browser action snapshot', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const oldChild: MockTab = {
+      id: 24,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://child.example/',
+      title: 'Old child',
+      index: 2,
+      openerTabId: context!.currentTabId
+    };
+    const newChild: MockTab = {
+      id: 25,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://child.example/',
+      title: 'New child',
+      index: 3,
+      openerTabId: context!.currentTabId
+    };
+    chromeMock.tabsById.set(oldChild.id, oldChild);
+    chromeMock.tabsById.set(newChild.id, newChild);
+    chromeMock.tabs.group.mockClear();
+
+    const adopted = await tabGroupManager.adoptChildTabsFromOpener(context!.currentTabId, {
+      sessionId: 'session-a',
+      ignoreExistingTabIds: new Set([oldChild.id]),
+      windowId: 1
+    });
+
+    expect(adopted).toEqual([newChild.id]);
+    expect(chromeMock.tabs.group).toHaveBeenCalledWith({
+      tabIds: [newChild.id],
+      groupId: context!.tabGroupId
+    });
+    expect(chromeMock.tabsById.get(oldChild.id)?.groupId).toBe(-1);
+    expect(await tabLeaseManager.getLease(oldChild.id)).toBeUndefined();
+    expect(await tabLeaseManager.getLease(newChild.id)).toMatchObject({
+      sessionId: 'session-a'
+    });
+  });
+
   it('fresh MCP group supersedes same-session handoff leases', async () => {
     const first = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
@@ -1035,6 +1441,61 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     }
   });
 
+  it('does not track blocklist state for unmanaged Chrome groups', async () => {
+    chromeMock.groupIds.add(300);
+    chromeMock.tabsById.set(41, {
+      id: 41,
+      windowId: 1,
+      groupId: 300,
+      url: 'https://personal.example/',
+      title: 'Personal',
+      index: 0
+    });
+    chromeMock.tabsById.set(42, {
+      id: 42,
+      windowId: 1,
+      groupId: 300,
+      url: 'https://personal.example/other',
+      title: 'Personal other',
+      index: 1
+    });
+    const categorySpy = vi
+      .spyOn(DomainCategoryCache, 'getCategory')
+      .mockResolvedValueOnce('category1');
+
+    try {
+      await tabGroupManager.updateTabBlocklistStatus(41, 'https://personal.example/');
+
+      expect(categorySpy).not.toHaveBeenCalled();
+      expect(manager.groupBlocklistStatuses.has(300)).toBe(false);
+    } finally {
+      categorySpy.mockRestore();
+    }
+  });
+
+  it('does not resolve unmanaged Chrome groups as managed main tabs', async () => {
+    chromeMock.groupIds.add(300);
+    chromeMock.tabsById.set(41, {
+      id: 41,
+      windowId: 1,
+      groupId: 300,
+      url: 'https://personal.example/',
+      title: 'Personal',
+      index: 0
+    });
+    chromeMock.tabsById.set(42, {
+      id: 42,
+      windowId: 1,
+      groupId: 300,
+      url: 'https://personal.example/other',
+      title: 'Personal other',
+      index: 1
+    });
+
+    await expect(tabGroupManager.getMainTabId(42)).resolves.toBeNull();
+    await expect(tabGroupManager.isInGroup(42)).resolves.toBe(false);
+  });
+
   it('createChildTabInGroup reuses an opener popup that is mid-redirect (url matches neither target nor pendingUrl) instead of duplicating', async () => {
     const context = await tabGroupManager.getOrCreateMcpTabContext({
       createIfEmpty: true,
@@ -1182,6 +1643,45 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     );
 
     expect(found).toBe(popupId);
+  });
+
+  it('awaitOpenerChildTabId ignores opener children that existed before the action', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    const targetUrl = 'https://child.example/';
+    const oldPopupId = 44;
+    const newPopupId = 45;
+    chromeMock.tabsById.set(oldPopupId, {
+      id: oldPopupId,
+      windowId: 1,
+      groupId: -1,
+      url: targetUrl,
+      title: 'Old popup',
+      index: 9,
+      openerTabId: context!.currentTabId
+    });
+    setTimeout(() => {
+      chromeMock.tabsById.set(newPopupId, {
+        id: newPopupId,
+        windowId: 1,
+        groupId: -1,
+        url: targetUrl,
+        title: 'New popup',
+        index: 10,
+        openerTabId: context!.currentTabId
+      });
+    }, 30);
+
+    const found = await tabGroupManager.awaitOpenerChildTabId(
+      context!.currentTabId,
+      targetUrl,
+      1000,
+      { ignoreExistingTabIds: new Set([oldPopupId]), windowId: 1 }
+    );
+
+    expect(found).toBe(newPopupId);
   });
 
   it('awaitOpenerChildTabId returns undefined when no popup materializes within budget', async () => {

@@ -27,6 +27,13 @@ import * as validation from './tabGroupValidation';
 import * as navIsolation from './tabNavigationIsolation';
 import * as finalizeMod from './tabGroupFinalize';
 import type { ChildTabNavigationPolicy } from './tabNavigationIsolation';
+import type { BrowserSessionScope } from '../sessionScope';
+import type { ToolTabAccess } from '../pageToolsSupport/types';
+
+interface BrowserSessionToolContext {
+  browserSessionScope: BrowserSessionScope;
+  tabAccess: ToolTabAccess;
+}
 
 export class TabGroupManager {
   static instance: TabGroupManager;
@@ -39,7 +46,6 @@ export class TabGroupManager {
   blocklistListeners = new Set<(groupId: number, category: string | undefined) => void>();
   pendingRegroups = new Map<number, PendingRegroup>();
   processingMainTabRemoval = new Set<number>();
-  mcpTabGroupId: number | null = null;
   MCP_TAB_GROUP_KEY = StorageKeys.MCP_TAB_GROUP_ID;
   MCP_TAB_GROUP_OWNER_KEY = StorageKeys.MCP_TAB_GROUP_OWNER;
   tabGroupListenerSubscriptionId: string | null = null;
@@ -149,10 +155,6 @@ export class TabGroupManager {
     return lifecycle.createGroup(this, tabId, options);
   }
 
-  async adoptOrphanedGroup(tabId: number, chromeGroupId: number): Promise<GroupWithMembers> {
-    return lifecycle.adoptOrphanedGroup(this, tabId, chromeGroupId);
-  }
-
   async addTabToGroup(
     mainTabId: number,
     tabId: number,
@@ -213,29 +215,19 @@ export class TabGroupManager {
     return validation.isTabInSameGroup(this, tabId1, tabId2);
   }
 
-  async getValidTabIds(tabId: number): Promise<number[]> {
-    return validation.getValidTabIds(this, tabId);
-  }
-
-  async getValidTabsWithMetadata(
-    tabId: number
+  async getValidTabsWithMetadataForContext(
+    tabId: number,
+    context: BrowserSessionToolContext
   ): Promise<{ id: number; title: string; url: string }[]> {
-    return validation.getValidTabsWithMetadata(this, tabId);
+    return validation.getValidTabsWithMetadataForContext(this, tabId, context);
   }
 
-  async getEffectiveTabId(
-    requestedTabId: number | undefined,
-    currentTabId: number
-  ): Promise<number> {
-    return validation.getEffectiveTabId(this, requestedTabId, currentTabId);
-  }
-
-  async getEffectiveTabIdForContext(
+  async resolveTabForContext(
     requestedTabId: number | undefined,
     currentTabId: number,
-    options?: { sessionId?: string }
+    context: BrowserSessionToolContext
   ): Promise<number> {
-    return validation.getEffectiveTabIdForContext(this, requestedTabId, currentTabId, options);
+    return validation.resolveTabForContext(this, requestedTabId, currentTabId, context);
   }
 
   async updateTabBlocklistStatus(tabId: number, url: string): Promise<void> {
@@ -414,7 +406,7 @@ export class TabGroupManager {
   async getTabForMcp(
     tabId?: number,
     tabGroupId?: number,
-    options?: { sessionId?: string }
+    options?: { sessionId?: string; claimUnleased?: boolean }
   ): Promise<{ tabId: number | undefined; domain?: string; url?: string }> {
     return mcp.getTabForMcp(this, tabId, tabGroupId, options);
   }
@@ -463,18 +455,6 @@ export class TabGroupManager {
     return mcp.getOrCreateMcpTabContext(this, options);
   }
 
-  async saveMcpTabGroupId(): Promise<void> {
-    return mcp.saveMcpTabGroupId(this);
-  }
-
-  async loadMcpTabGroupId(): Promise<void> {
-    return mcp.loadMcpTabGroupId(this);
-  }
-
-  async findMcpTabGroupByCharacteristics(): Promise<number | null> {
-    return mcp.findMcpTabGroupByCharacteristics(this);
-  }
-
   startTabCreationListener(): void {
     navIsolation.startTabCreationListener(this);
   }
@@ -497,7 +477,11 @@ export class TabGroupManager {
 
   async adoptChildTabsFromOpener(
     openerTabId: number,
-    options?: { sessionId?: string }
+    options?: {
+      sessionId?: string;
+      ignoreExistingTabIds?: ReadonlySet<number>;
+      windowId?: number;
+    }
   ): Promise<number[]> {
     return navIsolation.adoptChildTabsFromOpener(this, openerTabId, options);
   }
@@ -505,9 +489,10 @@ export class TabGroupManager {
   async awaitOpenerChildTabId(
     openerTabId: number,
     url: string,
-    budgetMs: number
+    budgetMs: number,
+    options?: { ignoreExistingTabIds?: ReadonlySet<number>; windowId?: number }
   ): Promise<number | undefined> {
-    return navIsolation.awaitOpenerChildTabId(openerTabId, url, budgetMs);
+    return navIsolation.awaitOpenerChildTabId(openerTabId, url, budgetMs, options);
   }
 
   async createChildTabInGroup(

@@ -10,6 +10,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
   name: 'file_upload',
   description:
     'Upload one or multiple files from the local filesystem to a file input element on the page. Do not click on file upload buttons or file inputs — clicking opens a native file picker dialog that you cannot see or interact with. Instead, use read_page or find to locate the file input element, then use this tool with its ref to upload files directly. The paths must be absolute file paths on the local machine.',
+  tabAccess: 'write',
   parameters: {
     paths: {
       type: 'array',
@@ -36,11 +37,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
       if (!params?.ref) throw new Error('ref parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
-        params.tabId,
-        context.tabId,
-        { sessionId: context.browserSessionScope?.sessionId }
-      );
+      const effectiveTabId = await context.resolveTabId(params.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const activeTabId = tab.id;
@@ -156,7 +153,10 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
         return parts[parts.length - 1];
       });
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       return {
         output: `Uploaded ${params.paths.length} file(s) to file input: ${fileNames.join(', ')}`,
         tabContext: {

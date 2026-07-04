@@ -21,7 +21,7 @@ export {
   toolsToProviderSchema,
   parseArrayInput
 } from './pageTools';
-export type { ToolContext, ToolResult, ToolDefinition } from './pageTools';
+export type { ToolContext, ToolResult, ToolDefinition, ToolTabAccess } from './pageTools';
 export { computerTool } from './inputTools/computerTool';
 export { formInputTool } from './inputTools/formInputTool';
 export { uploadImageTool } from './mediaTools/uploadImageTool';

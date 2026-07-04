@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ToolContext } from './pageToolsSupport/types';
 
 const tabLeaseMock = vi.hoisted(() => ({
   assertTabAvailableForSession: vi.fn(),
   claimTab: vi.fn(),
   getLease: vi.fn()
+}));
+
+const tabGroupMock = vi.hoisted(() => ({
+  resolveTabForContext: vi.fn()
 }));
 
 vi.mock('./cdp', () => ({
@@ -14,6 +19,10 @@ vi.mock('./cdp', () => ({
 
 vi.mock('./tabState/tabLeases', () => ({
   tabLeaseManager: tabLeaseMock
+}));
+
+vi.mock('./tabState', () => ({
+  tabGroupManager: tabGroupMock
 }));
 
 import {
@@ -31,7 +40,20 @@ describe('superduckListTabsTool', () => {
   const getLastFocused = vi.fn();
   const executeScript = vi.fn();
 
-  const scopedContext = (sessionId: string) => ({ browserSessionScope: { sessionId } }) as never;
+  const scopedContext = (sessionId: string, tabId?: number): ToolContext => {
+    const browserSessionScope = { sessionId };
+    return {
+      tabId,
+      browserSessionScope,
+      tabAccess: 'read',
+      permissionManager: {} as ToolContext['permissionManager'],
+      resolveTabId: async (requestedTabId, options) =>
+        await tabGroupMock.resolveTabForContext(requestedTabId, tabId, {
+          browserSessionScope,
+          tabAccess: options?.tabAccess ?? 'read'
+        })
+    };
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -39,6 +61,21 @@ describe('superduckListTabsTool', () => {
     tabLeaseMock.assertTabAvailableForSession.mockResolvedValue(undefined);
     tabLeaseMock.claimTab.mockResolvedValue(undefined);
     tabLeaseMock.getLease.mockResolvedValue(undefined);
+    tabGroupMock.resolveTabForContext.mockReset();
+    tabGroupMock.resolveTabForContext.mockImplementation(
+      async (
+        requested: number | undefined,
+        current: number,
+        context: { browserSessionScope: { sessionId: string } }
+      ) => {
+        const tabId = requested ?? current;
+        await tabLeaseMock.assertTabAvailableForSession(
+          context.browserSessionScope.sessionId,
+          tabId
+        );
+        return tabId;
+      }
+    );
     vi.stubGlobal('chrome', {
       tabs: {
         get: tabsGet,
@@ -71,7 +108,7 @@ describe('superduckListTabsTool', () => {
     ]);
     getLastFocused.mockResolvedValue({ id: 10 });
 
-    const result = await superduckListTabsTool.execute({}, {} as never);
+    const result = await superduckListTabsTool.execute({}, scopedContext('__default__'));
 
     expect(result.error).toBeUndefined();
     expect(JSON.parse(result.output ?? '')).toEqual({
@@ -150,7 +187,7 @@ describe('superduckListTabsTool', () => {
 
     const result = await superduckActiveContextTool.execute(
       { tabId: 2 },
-      scopedContext('session-b')
+      scopedContext('session-b', 2)
     );
 
     expect(result).toEqual({
@@ -161,21 +198,18 @@ describe('superduckListTabsTool', () => {
   });
 
   it('rejects the implicit active tab when it is leased by another browser session', async () => {
-    getLastFocused.mockResolvedValue({ id: 10 });
-    tabsQuery.mockResolvedValue([
-      {
-        id: 4,
-        windowId: 10,
-        url: 'https://active-owned.test',
-        title: 'Active owned',
-        active: true
-      }
-    ]);
+    tabsGet.mockResolvedValue({
+      id: 4,
+      windowId: 10,
+      url: 'https://active-owned.test',
+      title: 'Active owned',
+      active: true
+    });
     tabLeaseMock.assertTabAvailableForSession.mockRejectedValueOnce(
       new Error('Tab 4 is already part of browser session session-a')
     );
 
-    const result = await superduckActiveContextTool.execute({}, scopedContext('session-b'));
+    const result = await superduckActiveContextTool.execute({}, scopedContext('session-b', 4));
 
     expect(result).toEqual({
       error: 'superduck_active_context failed: Tab 4 is already part of browser session session-a'
@@ -205,7 +239,7 @@ describe('superduckListTabsTool', () => {
     tabsQuery.mockReturnValue(new Promise(() => undefined));
     getLastFocused.mockResolvedValue({ id: 10 });
 
-    const resultPromise = superduckListTabsTool.execute({}, {} as never);
+    const resultPromise = superduckListTabsTool.execute({}, scopedContext('__default__'));
     await vi.advanceTimersByTimeAsync(5_000);
 
     await expect(resultPromise).resolves.toEqual({
@@ -217,7 +251,7 @@ describe('superduckListTabsTool', () => {
     tabsQuery.mockResolvedValue([]);
     getLastFocused.mockReturnValue(new Promise(() => undefined));
 
-    const resultPromise = superduckListTabsTool.execute({}, {} as never);
+    const resultPromise = superduckListTabsTool.execute({}, scopedContext('__default__'));
     await vi.advanceTimersByTimeAsync(5_000);
 
     await expect(resultPromise).resolves.toEqual({

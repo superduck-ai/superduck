@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { resolveToolExecutionSession } from './sessionScope';
+import {
+  DEFAULT_BROWSER_SESSION_ID,
+  hasReservedBrowserSessionArgs,
+  reservedBrowserSessionArgsError,
+  resolveToolExecutionSession
+} from './sessionScope';
 
 describe('resolveToolExecutionSession', () => {
   it('keeps logical sidepanel sessions out of browser lease scope', () => {
@@ -10,7 +15,7 @@ describe('resolveToolExecutionSession', () => {
 
     expect(resolved).toEqual({
       sessionId: 'chat-session',
-      browserScope: undefined
+      browserScope: { sessionId: DEFAULT_BROWSER_SESSION_ID }
     });
   });
 
@@ -27,15 +32,21 @@ describe('resolveToolExecutionSession', () => {
     });
   });
 
-  it('falls back to browser session args for MCP callers', () => {
+  it('defaults browser lease scope when no envelope browser session exists', () => {
     const resolved = resolveToolExecutionSession({
-      defaultSessionId: 'native',
-      args: { session_id: 'mcp-session' }
+      defaultSessionId: 'native'
     });
 
     expect(resolved).toEqual({
-      sessionId: 'mcp-session',
-      browserScope: { sessionId: 'mcp-session' }
+      sessionId: 'native',
+      browserScope: { sessionId: DEFAULT_BROWSER_SESSION_ID }
     });
+  });
+
+  it('detects reserved browser session args for the transport boundary', () => {
+    expect(hasReservedBrowserSessionArgs({ session_id: 'mcp-session' })).toBe(true);
+    expect(hasReservedBrowserSessionArgs({ sessionId: 'mcp-session' })).toBe(true);
+    expect(hasReservedBrowserSessionArgs({ tabId: 1 })).toBe(false);
+    expect(reservedBrowserSessionArgsError()).toContain('tool request envelope');
   });
 });

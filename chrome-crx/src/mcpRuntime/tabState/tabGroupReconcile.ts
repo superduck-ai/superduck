@@ -1,8 +1,8 @@
 import type { TabGroupManager } from './tabGroups';
 import { getTabEventManager } from './tabEvents';
-import { TAB_GROUP_TITLE } from './types';
 import { getMemberOrigin } from './tabNavigationIsolation';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
+import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
 
 export async function handleTabGroupChange(
   mgr: TabGroupManager,
@@ -62,8 +62,7 @@ export async function handleTabGroupChange(
             });
             if (
               (await chrome.tabGroups.update(newChromeGroupId, {
-                title: TAB_GROUP_TITLE,
-                color: chrome.tabGroups.Color.ORANGE,
+                ...buildGroupAppearanceUpdate(mgr, meta),
                 collapsed: false
               }),
               (meta.chromeGroupId = newChromeGroupId),

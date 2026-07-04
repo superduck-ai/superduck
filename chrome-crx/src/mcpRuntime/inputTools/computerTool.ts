@@ -176,7 +176,16 @@ async function createTabsForWindowOpenEvents(
     seenUrls.add(url);
 
     try {
-      let existingTabId = await tabGroupManager.awaitOpenerChildTabId(openerTabId, url, 400);
+      const snapshotFilter = {
+        ignoreExistingTabIds: preActionSnapshot.tabIds,
+        windowId: preActionSnapshot.windowId
+      };
+      let existingTabId = await tabGroupManager.awaitOpenerChildTabId(
+        openerTabId,
+        url,
+        400,
+        snapshotFilter
+      );
       let allowUnlinkedExistingTab = false;
       if (typeof existingTabId !== 'number') {
         existingTabId = await awaitNewWindowOpenCandidateTabId(
@@ -191,9 +200,10 @@ async function createTabsForWindowOpenEvents(
         typeof existingTabId === 'number'
           ? await createPolicyCheckedChildTab(openerTabId, url, policy, {
               existingTabId,
-              allowUnlinkedExistingTab
+              allowUnlinkedExistingTab,
+              ...snapshotFilter
             })
-          : await createPolicyCheckedChildTab(openerTabId, url, policy);
+          : await createPolicyCheckedChildTab(openerTabId, url, policy, snapshotFilter);
       if (typeof tabId === 'number') createdTabIds.push(tabId);
     } catch (err) {
       if (!(err instanceof BrowserSessionConflictError)) throw err;
@@ -207,6 +217,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
   name: 'computer',
   description:
     "Use a mouse and keyboard to interact with a web browser, and take screenshots. If you don't have a valid tab ID, use tabs_context first to get available tabs.\n* The screen's resolution is {self.display_width_px}x{self.display_height_px}.\n* For click actions, ALWAYS prefer using `ref` from read_page or find tools. ref-based clicks are more accurate and work with all AI models. Workflow: call read_page first to get element refs, then click using the ref.\n* Only use `coordinate` as a last resort when ref is unavailable (e.g., canvas, image maps, or custom-rendered graphics).\n* If you tried clicking on a program or link but it failed to load, even after waiting, try calling read_page again to get fresh refs and retry.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
+  tabAccess: 'write',
   parameters: {
     action: {
       type: 'string',
@@ -313,11 +324,7 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
       if (!toolParams.action) throw new Error('Action parameter is required');
       if (!context?.tabId) throw new Error('No active tab found in context');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabIdForContext(
-        toolParams.tabId,
-        context.tabId,
-        { sessionId: context.browserSessionScope?.sessionId }
-      );
+      const effectiveTabId = await context.resolveTabId(toolParams.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
 
@@ -517,7 +524,9 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         result = await tabGroupManager.withPreservedActiveTab(effectiveTabId, runAction);
         await new Promise((resolve) => setTimeout(resolve, 150));
         const rawAdoptedTabIds = await tabGroupManager.adoptChildTabsFromOpener(effectiveTabId, {
-          sessionId: browserScope?.sessionId
+          sessionId: browserScope?.sessionId,
+          ignoreExistingTabIds: preActionSnapshot.tabIds,
+          windowId: preActionSnapshot.windowId
         });
         let adoptedTabIds = await filterPolicyAllowedTabs(rawAdoptedTabIds, navigationPolicy);
         if (adoptedTabIds.length === 0) {
@@ -553,7 +562,10 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
         result = await runAction();
       }
 
-      const availableTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const availableTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       const executedOnTabId =
         openedTabIdsForContext.length > 0
           ? openedTabIdsForContext[openedTabIdsForContext.length - 1]

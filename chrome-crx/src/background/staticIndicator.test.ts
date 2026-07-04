@@ -5,6 +5,7 @@ const fixtures = vi.hoisted(() => ({
   getGroupMemberIds: vi.fn(),
   clearIndicatorsForGroup: vi.fn(),
   hideAgentIndicatorsForTab: vi.fn(),
+  dismissStaticIndicatorsForGroup: vi.fn(),
   addCompletionPrefix: vi.fn(),
   setGroupColor: vi.fn(),
   initialize: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('../mcpRuntime', () => ({
     getGroupMemberIds: fixtures.getGroupMemberIds,
     clearIndicatorsForGroup: fixtures.clearIndicatorsForGroup,
     hideAgentIndicatorsForTab: fixtures.hideAgentIndicatorsForTab,
+    dismissStaticIndicatorsForGroup: fixtures.dismissStaticIndicatorsForGroup,
     addCompletionPrefix: fixtures.addCompletionPrefix,
     setGroupColor: fixtures.setGroupColor,
     initialize: fixtures.initialize,
@@ -76,6 +78,7 @@ describe('createStaticIndicatorController', () => {
     fixtures.getGroupMemberIds.mockReturnValue([10, 11]);
     fixtures.clearIndicatorsForGroup.mockResolvedValue(undefined);
     fixtures.hideAgentIndicatorsForTab.mockResolvedValue(undefined);
+    fixtures.dismissStaticIndicatorsForGroup.mockResolvedValue(undefined);
     fixtures.addCompletionPrefix.mockResolvedValue(undefined);
     fixtures.setGroupColor.mockResolvedValue(undefined);
     fixtures.setTabIndicatorState.mockResolvedValue(undefined);
@@ -85,6 +88,86 @@ describe('createStaticIndicatorController', () => {
     chromeMock.alarms.create.mockReset();
     chromeMock.alarms.clear.mockReset();
     chromeMock.tabs.get.mockResolvedValue({ id: 11 });
+  });
+
+  it('accepts static indicator heartbeat only for managed groups', async () => {
+    fixtures.findGroupByTab.mockResolvedValue({
+      mainTabId: 10,
+      chromeGroupId: 50,
+      isUnmanaged: false
+    });
+    chromeMock.tabs.get.mockResolvedValue({ id: 11, groupId: 50 });
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    await controller.handleHeartbeat(
+      { tab: { id: 11 } } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith({ success: true });
+    expect(chromeMock.tabs.query).not.toHaveBeenCalled();
+    expect(chromeMock.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects static indicator heartbeat from unmanaged Chrome groups', async () => {
+    fixtures.findGroupByTab.mockResolvedValue({
+      mainTabId: 20,
+      chromeGroupId: 50,
+      isUnmanaged: true,
+      memberTabs: [
+        { tabId: 20, url: '', title: '', joinedAt: 0 },
+        { tabId: 21, url: '', title: '', joinedAt: 0 }
+      ]
+    });
+    chromeMock.tabs.get.mockResolvedValue({ id: 21, groupId: 50 });
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    await controller.handleHeartbeat(
+      { tab: { id: 21 } } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith({ success: false });
+    expect(chromeMock.tabs.query).not.toHaveBeenCalled();
+    expect(chromeMock.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('dismisses static indicators only for managed groups', async () => {
+    fixtures.findGroupByTab.mockResolvedValue({
+      mainTabId: 10,
+      chromeGroupId: 50,
+      isUnmanaged: false
+    });
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    await controller.dismissForSenderGroup(
+      { tab: { id: 11 } } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(fixtures.dismissStaticIndicatorsForGroup).toHaveBeenCalledWith(50);
+    expect(sendResponse).toHaveBeenCalledWith({ success: true });
+  });
+
+  it('does not dismiss static indicators for unmanaged Chrome groups', async () => {
+    fixtures.findGroupByTab.mockResolvedValue({
+      mainTabId: 20,
+      chromeGroupId: 50,
+      isUnmanaged: true
+    });
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    await controller.dismissForSenderGroup(
+      { tab: { id: 21 } } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(fixtures.dismissStaticIndicatorsForGroup).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ success: false });
   });
 
   it('clears the group and marks it complete when a sidepanel turn finishes', async () => {
@@ -154,12 +237,7 @@ describe('createStaticIndicatorController', () => {
     }
   });
 
-  it('hides indicators on live member tabs even when the SW group metadata is stale', async () => {
-    // Sidepanel-driven turns create the group in the sidepanel's
-    // tabGroupManager instance; the service worker's copy may know nothing
-    // about it (findGroupByTab falls back to a synthetic "unmanaged" group and
-    // clearIndicatorsForGroup no-ops). The turn-end clear must still deliver
-    // HIDE to every live member tab.
+  it('does not apply group-level turn cleanup to unmanaged Chrome groups', async () => {
     fixtures.findGroupByTab.mockResolvedValue({
       mainTabId: 20,
       isUnmanaged: true,
@@ -177,7 +255,10 @@ describe('createStaticIndicatorController', () => {
       sendResponse
     );
 
-    expect(fixtures.hideAgentIndicatorsForTab).toHaveBeenCalledWith(20);
+    expect(fixtures.clearIndicatorsForGroup).not.toHaveBeenCalled();
+    expect(fixtures.addCompletionPrefix).not.toHaveBeenCalled();
+    expect(fixtures.setGroupColor).not.toHaveBeenCalled();
+    expect(fixtures.hideAgentIndicatorsForTab).not.toHaveBeenCalledWith(20);
     expect(fixtures.hideAgentIndicatorsForTab).toHaveBeenCalledWith(21);
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
   });
@@ -210,6 +291,37 @@ describe('createStaticIndicatorController', () => {
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
   });
 
+  it('preserves other persisted turn deadlines when cold-start cleanup clears one tab', async () => {
+    fixtures.getStorageValue.mockResolvedValue({
+      '11': {
+        tabId: 11,
+        turnKey: '11-old',
+        dueAt: 121_000
+      },
+      '22': {
+        tabId: 22,
+        turnKey: '22-old',
+        dueAt: 122_000
+      }
+    });
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    await controller.handleAgentTurnActive(
+      { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: false },
+      sendResponse
+    );
+
+    expect(fixtures.setStorageValue).toHaveBeenCalledWith('turnActiveDeadlines', {
+      '22': {
+        tabId: 22,
+        turnKey: '22-old',
+        dueAt: 122_000
+      }
+    });
+    expect(sendResponse).toHaveBeenCalledWith({ success: true });
+  });
+
   it('persists active turn cleanup as an absolute deadline and alarm', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
@@ -234,6 +346,34 @@ describe('createStaticIndicatorController', () => {
         when: 121_000
       });
       expect(sendResponse).toHaveBeenCalledWith({ success: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not start active turn tracking for unmanaged Chrome groups', async () => {
+    fixtures.findGroupByTab.mockResolvedValue({
+      mainTabId: 20,
+      chromeGroupId: 50,
+      isUnmanaged: true
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const controller = createStaticIndicatorController();
+      const sendResponse = vi.fn();
+
+      await controller.handleAgentTurnActive(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: true },
+        sendResponse
+      );
+
+      expect(fixtures.setTabIndicatorState).not.toHaveBeenCalled();
+      expect(chromeMock.alarms.create).not.toHaveBeenCalled();
+      expect(fixtures.setStorageValue).not.toHaveBeenCalledWith('turnActiveDeadlines', {
+        '11': expect.anything()
+      });
+      expect(sendResponse).toHaveBeenCalledWith({ success: false });
     } finally {
       vi.useRealTimers();
     }

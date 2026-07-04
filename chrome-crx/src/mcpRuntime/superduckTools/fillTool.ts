@@ -6,6 +6,7 @@ export const superduckFillTool: ToolDefinition<FillArgs> = {
   name: 'superduck_fill',
   description:
     'SuperDuck CLI: set the value of a form field on the active tab and dispatch input/change events.',
+  tabAccess: 'write',
   parameters: {
     selector: { type: 'string', description: 'CSS selector for the input/textarea/select' },
     value: { type: 'string', description: 'Value to set' },

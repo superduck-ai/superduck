@@ -77,7 +77,16 @@ const chromeMock = vi.hoisted(() => {
               }
             ];
           }
-          return [];
+          return [
+            {
+              id: 7,
+              windowId: 1,
+              groupId: 123,
+              url: 'chrome://newtab',
+              title: 'New Tab',
+              index: 0
+            }
+          ];
         }
       ),
       sendMessage: vi.fn(async () => {}),
@@ -132,7 +141,6 @@ const { createPolicyCheckedChildTab, moveSearchNavigationToNewTab, filterPolicyA
 type MutableTabGroupManager = typeof tabGroupManager & {
   groupMetadata: Map<number, unknown>;
   initialized: boolean;
-  mcpTabGroupId: number | null;
   childTabNavigationPoliciesByOpener: Map<number, { timeoutId?: ReturnType<typeof setTimeout> }>;
 };
 
@@ -141,7 +149,6 @@ const manager = tabGroupManager as MutableTabGroupManager;
 beforeEach(() => {
   manager.groupMetadata.clear();
   manager.initialized = true;
-  manager.mcpTabGroupId = null;
   chromeMock.sessionStore.clear();
   (
     tabLeaseManager as unknown as { leases: Map<number, unknown>; initialized: boolean }
@@ -186,7 +193,11 @@ describe('TabGroupManager MCP tab groups', () => {
     expect(chromeMock.tabs.group).toHaveBeenCalledWith({ tabIds: [7] });
     expect(context.currentTabId).toBe(7);
     expect(context.tabGroupId).toBe(123);
-    expect(manager.mcpTabGroupId).toBe(123);
+    expect(await tabLeaseManager.getLease(7)).toMatchObject({
+      sessionId: '__default__',
+      state: 'active',
+      groupId: 123
+    });
   });
 
   it('records the user tab as protected without activating the agent tab', async () => {
@@ -202,12 +213,11 @@ describe('TabGroupManager MCP tab groups', () => {
   });
 
   it('uses the current MCP group when an MCP tool omits tabId', async () => {
+    await tabGroupManager.createMcpTabGroup();
     const tabInfo = await tabGroupManager.getTabForMcp();
 
-    expect(tabInfo).toEqual({
-      tabId: 10,
-      domain: 'example.com',
-      url: 'https://example.com/'
+    expect(tabInfo).toMatchObject({
+      tabId: 7
     });
   });
 

@@ -5,6 +5,7 @@ export const superduckListTabsTool: ToolDefinition<Record<string, never>> = {
   name: 'superduck_list_tabs',
   description:
     'SuperDuck CLI: list all tabs across all windows (id, windowId, url, title, active).',
+  tabAccess: 'read',
   parameters: {},
   execute: async (_args, context) => {
     try {

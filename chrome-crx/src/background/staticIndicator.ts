@@ -1,7 +1,7 @@
-import { StorageKeys, getStorageValue, setStorageValue } from '../extensionServices';
+import { StorageKeys } from '../extensionServices';
 import { tabGroupManager } from '../mcpRuntime';
 import { hasActiveToolContext } from '../mcpRuntime/toolExecution/toolContextState';
-import { PendingDeleteSet } from '../utils/pendingDeleteSet';
+import { PersistentDeadlineStore, type DeadlineState } from '../utils/persistentDeadlineStore';
 
 type SuccessResponse = { success: boolean };
 type AgentTurnActiveMessage = {
@@ -18,6 +18,8 @@ type TurnActiveDeadline = {
 };
 
 type TurnActiveDeadlineStorage = Record<string, TurnActiveDeadline>;
+const TURN_ACTIVE_DEADLINE_KINDS = ['turnActive'] as const;
+type TurnActiveDeadlineKind = (typeof TURN_ACTIVE_DEADLINE_KINDS)[number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -34,8 +36,31 @@ function isTurnActiveDeadline(value: unknown): value is TurnActiveDeadline {
   );
 }
 
+function loadTurnActiveDeadlineState(
+  stored: unknown
+): DeadlineState<TurnActiveDeadlineKind, TurnActiveDeadline> {
+  const next: DeadlineState<TurnActiveDeadlineKind, TurnActiveDeadline> = {
+    turnActive: {}
+  };
+  if (!isRecord(stored)) return next;
+  for (const [key, value] of Object.entries(stored)) {
+    if (!isTurnActiveDeadline(value) || String(value.tabId) !== key) continue;
+    next.turnActive[key] = { ...value };
+  }
+  return next;
+}
+
+function serializeTurnActiveDeadlineState(
+  state: DeadlineState<TurnActiveDeadlineKind, TurnActiveDeadline>
+): TurnActiveDeadlineStorage {
+  return { ...state.turnActive };
+}
+
 export function createStaticIndicatorController() {
-  const mainTabAckCache = new Map<number, { timestamp: number; isAlive: boolean }>();
+  async function findManagedGroupByTab(tabId: number) {
+    const group = await tabGroupManager.findGroupByTab(tabId);
+    return group && !group.isUnmanaged ? group : null;
+  }
 
   async function handleHeartbeat(
     sender: chrome.runtime.MessageSender,
@@ -56,58 +81,8 @@ export function createStaticIndicatorController() {
         return;
       }
 
-      if (await tabGroupManager.findGroupByTab(senderTabId)) {
-        sendResponse({ success: true });
-        return;
-      }
-
-      const groupTabs = await chrome.tabs.query({ groupId });
-
-      const checkTab = async (index: number): Promise<void> => {
-        if (index >= groupTabs.length) {
-          sendResponse({ success: false });
-          return;
-        }
-
-        const candidateTab = groupTabs[index];
-        if (candidateTab.id === senderTabId || !candidateTab.id) {
-          await checkTab(index + 1);
-          return;
-        }
-
-        const candidateTabId = candidateTab.id;
-        const now = Date.now();
-        const cached = mainTabAckCache.get(candidateTabId);
-
-        if (cached && now - cached.timestamp < 3_000) {
-          if (cached.isAlive) {
-            sendResponse({ success: true });
-          } else {
-            await checkTab(index + 1);
-          }
-          return;
-        }
-
-        chrome.runtime.sendMessage(
-          {
-            type: 'MAIN_TAB_ACK_REQUEST',
-            secondaryTabId: senderTabId,
-            mainTabId: candidateTabId,
-            timestamp: now
-          },
-          async (response) => {
-            const isAlive = response?.success ?? false;
-            mainTabAckCache.set(candidateTabId, { timestamp: now, isAlive });
-            if (isAlive) {
-              sendResponse({ success: true });
-            } else {
-              await checkTab(index + 1);
-            }
-          }
-        );
-      };
-
-      await checkTab(0);
+      const group = await findManagedGroupByTab(senderTabId);
+      sendResponse({ success: Boolean(group) });
     } catch {
       sendResponse({ success: false });
     }
@@ -124,16 +99,14 @@ export function createStaticIndicatorController() {
     }
 
     try {
-      const senderTab = await chrome.tabs.get(senderTabId);
-      const groupId = senderTab.groupId;
-
-      if (groupId === undefined || groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
+      await tabGroupManager.initialize();
+      const group = await findManagedGroupByTab(senderTabId);
+      if (!group) {
         sendResponse({ success: false });
         return;
       }
 
-      await tabGroupManager.initialize();
-      await tabGroupManager.dismissStaticIndicatorsForGroup(groupId);
+      await tabGroupManager.dismissStaticIndicatorsForGroup(group.chromeGroupId);
       sendResponse({ success: true });
     } catch {
       sendResponse({ success: false });
@@ -148,9 +121,17 @@ export function createStaticIndicatorController() {
   const TURN_CLEAR_RETRY_MS = 100;
   const TURN_CLEAR_RETRY_ATTEMPTS = 20;
   const TURN_ACTIVE_ALARM_PREFIX = 'superduck.turnActive.';
-  let persistedTurnActiveDeadlines: TurnActiveDeadlineStorage = {};
-  let turnActiveDeadlineRevision = 0;
-  const pendingDeletedTurnActiveDeadlines = new PendingDeleteSet();
+  const turnActiveDeadlineStore = new PersistentDeadlineStore<
+    TurnActiveDeadlineKind,
+    TurnActiveDeadline
+  >({
+    storageKey: StorageKeys.TURN_ACTIVE_DEADLINES,
+    kinds: TURN_ACTIVE_DEADLINE_KINDS,
+    emptyState: { turnActive: {} },
+    loadState: loadTurnActiveDeadlineState,
+    serializeState: serializeTurnActiveDeadlineState,
+    warnLabel: 'turn active deadlines'
+  });
 
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -163,7 +144,7 @@ export function createStaticIndicatorController() {
     const activeTimer = turnActiveTimers.get(tabId);
     if (options.turnKey && activeTimer && activeTimer.turnKey !== options.turnKey) return true;
 
-    const group = await tabGroupManager.findGroupByTab(tabId);
+    const group = await findManagedGroupByTab(tabId);
     if (group) {
       // Sidepanel-driven turns run their tools in the sidepanel context, so
       // this (service worker) instance's group metadata can be stale or empty
@@ -201,62 +182,6 @@ export function createStaticIndicatorController() {
     return Number.isInteger(tabId) ? tabId : undefined;
   }
 
-  async function loadTurnActiveDeadlines(): Promise<TurnActiveDeadlineStorage> {
-    try {
-      const stored = await getStorageValue<unknown>(StorageKeys.TURN_ACTIVE_DEADLINES);
-      const next: TurnActiveDeadlineStorage = {};
-      if (!isRecord(stored)) return next;
-      for (const [key, value] of Object.entries(stored)) {
-        if (!isTurnActiveDeadline(value) || String(value.tabId) !== key) continue;
-        next[key] = { ...value };
-      }
-      return next;
-    } catch {
-      return {};
-    }
-  }
-
-  function mergeTurnActiveDeadlinesFromStorage(
-    loaded: TurnActiveDeadlineStorage
-  ): TurnActiveDeadlineStorage {
-    return { ...loaded, ...persistedTurnActiveDeadlines };
-  }
-
-  function applyPendingTurnActiveDeletes(
-    state: TurnActiveDeadlineStorage
-  ): TurnActiveDeadlineStorage {
-    return pendingDeletedTurnActiveDeadlines.applyTo(state);
-  }
-
-  function clearPersistedTurnActiveDeletes(snapshot: Map<string, number>): void {
-    pendingDeletedTurnActiveDeadlines.clearPersisted(snapshot, persistedTurnActiveDeadlines);
-  }
-
-  function markTurnActiveDeadlineDeleted(key: string): void {
-    pendingDeletedTurnActiveDeadlines.mark(key, turnActiveDeadlineRevision);
-  }
-
-  async function refreshTurnActiveDeadlinesFromStorage(): Promise<void> {
-    const revisionBeforeLoad = turnActiveDeadlineRevision;
-    const loaded = await loadTurnActiveDeadlines();
-    const next =
-      turnActiveDeadlineRevision === revisionBeforeLoad
-        ? loaded
-        : mergeTurnActiveDeadlinesFromStorage(loaded);
-    persistedTurnActiveDeadlines = applyPendingTurnActiveDeletes(next);
-  }
-
-  async function persistTurnActiveDeadlines(): Promise<void> {
-    const deadlinesToPersist = { ...persistedTurnActiveDeadlines };
-    const deleteSnapshot = pendingDeletedTurnActiveDeadlines.snapshot();
-    try {
-      await setStorageValue(StorageKeys.TURN_ACTIVE_DEADLINES, deadlinesToPersist);
-      clearPersistedTurnActiveDeletes(deleteSnapshot);
-    } catch {
-      // best-effort recovery state only
-    }
-  }
-
   function armTurnActiveAlarm(tabId: number, dueAt: number): void {
     try {
       chrome.alarms?.create?.(turnActiveAlarmName(tabId), {
@@ -275,32 +200,27 @@ export function createStaticIndicatorController() {
     }
   }
 
-  function clearTurnActiveDeadline(tabId: number): void {
+  async function clearTurnActiveDeadline(tabId: number): Promise<void> {
+    await turnActiveDeadlineStore.refresh();
     const prev = turnActiveTimers.get(tabId);
     if (prev) clearTimeout(prev.timer);
     turnActiveTimers.delete(tabId);
-    turnActiveDeadlineRevision++;
     const key = String(tabId);
-    delete persistedTurnActiveDeadlines[key];
-    markTurnActiveDeadlineDeleted(key);
+    turnActiveDeadlineStore.remove('turnActive', key);
     clearTurnActiveAlarm(tabId);
-    void persistTurnActiveDeadlines();
   }
 
   async function processTurnActiveDeadline(deadline: TurnActiveDeadline): Promise<void> {
     const key = String(deadline.tabId);
-    const current = persistedTurnActiveDeadlines[key];
+    const current = turnActiveDeadlineStore.get('turnActive', key);
     if (!current || current.turnKey !== deadline.turnKey || current.dueAt !== deadline.dueAt) {
       return;
     }
     const prev = turnActiveTimers.get(deadline.tabId);
     if (prev) clearTimeout(prev.timer);
     turnActiveTimers.delete(deadline.tabId);
-    turnActiveDeadlineRevision++;
-    delete persistedTurnActiveDeadlines[key];
-    markTurnActiveDeadlineDeleted(key);
+    turnActiveDeadlineStore.remove('turnActive', key);
     clearTurnActiveAlarm(deadline.tabId);
-    void persistTurnActiveDeadlines();
     await clearTurnIndicators(deadline.tabId, { turnKey: deadline.turnKey });
   }
 
@@ -320,10 +240,9 @@ export function createStaticIndicatorController() {
   }
 
   async function restoreTurnActiveDeadlines(): Promise<void> {
-    await refreshTurnActiveDeadlinesFromStorage();
+    await turnActiveDeadlineStore.refresh();
     const now = Date.now();
-    let changed = false;
-    for (const [key, deadline] of Object.entries(persistedTurnActiveDeadlines)) {
+    for (const [key, deadline] of turnActiveDeadlineStore.entries('turnActive')) {
       if (deadline.dueAt <= now) {
         await processTurnActiveDeadline(deadline);
         continue;
@@ -331,23 +250,19 @@ export function createStaticIndicatorController() {
       try {
         await chrome.tabs.get(deadline.tabId);
       } catch {
-        turnActiveDeadlineRevision++;
-        delete persistedTurnActiveDeadlines[key];
-        markTurnActiveDeadlineDeleted(key);
+        turnActiveDeadlineStore.remove('turnActive', key);
         clearTurnActiveAlarm(deadline.tabId);
-        changed = true;
         continue;
       }
       armTurnActiveDeadline(deadline);
     }
-    if (changed) void persistTurnActiveDeadlines();
   }
 
   async function handleAlarm(alarmName: string): Promise<boolean> {
     const tabId = parseTurnActiveAlarmName(alarmName);
     if (typeof tabId !== 'number') return false;
-    await refreshTurnActiveDeadlinesFromStorage();
-    const deadline = persistedTurnActiveDeadlines[String(tabId)];
+    await turnActiveDeadlineStore.refresh();
+    const deadline = turnActiveDeadlineStore.get('turnActive', String(tabId));
     if (deadline) await processTurnActiveDeadline(deadline);
     return true;
   }
@@ -377,10 +292,7 @@ export function createStaticIndicatorController() {
       turnKey,
       dueAt: Date.now() + TURN_ACTIVE_TIMEOUT_MS
     };
-    turnActiveDeadlineRevision++;
-    persistedTurnActiveDeadlines[String(tabId)] = deadline;
-    pendingDeletedTurnActiveDeadlines.clear(String(tabId));
-    void persistTurnActiveDeadlines();
+    turnActiveDeadlineStore.set('turnActive', String(tabId), deadline);
     armTurnActiveDeadline(deadline);
   }
 
@@ -397,8 +309,13 @@ export function createStaticIndicatorController() {
     }
     try {
       await tabGroupManager.initialize();
-      clearTurnActiveDeadline(tabId);
+      await clearTurnActiveDeadline(tabId);
       if (active) {
+        const group = await findManagedGroupByTab(tabId);
+        if (!group) {
+          sendResponse({ success: false });
+          return;
+        }
         if (hasActiveToolContext(tabId)) {
           armTurnActiveTimeout(tabId);
           sendResponse({ success: true });

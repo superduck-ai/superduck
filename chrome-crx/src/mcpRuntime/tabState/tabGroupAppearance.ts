@@ -1,0 +1,55 @@
+import type { TabGroupManager } from './tabGroups';
+import {
+  DEFAULT_SESSION_KEY,
+  TAB_GROUP_MARKER,
+  TAB_GROUP_TITLE,
+  type GroupMetadata
+} from './types';
+
+export const COMPLETED_GROUP_PREFIX = '✅';
+
+const PREFIX_PATTERN = /^(⌛|🔔|✅)/;
+
+export function resolveBaseGroupTitle(mgr: TabGroupManager, sessionId?: string): string {
+  const named = sessionId
+    ? mgr.sessionGroupTitles.get(sessionId)
+    : mgr.sessionGroupTitles.get(DEFAULT_SESSION_KEY);
+  return named ? `${TAB_GROUP_MARKER} ${named}` : TAB_GROUP_TITLE;
+}
+
+export function stripStatusPrefix(title: string): string {
+  return title.replace(PREFIX_PATTERN, '').trim();
+}
+
+export function decorateGroupTitleForStatus(
+  title: string,
+  status?: GroupMetadata['status']
+): string {
+  const stripped = stripStatusPrefix(title);
+  return status === 'completed' ? `${COMPLETED_GROUP_PREFIX}${stripped}` : stripped;
+}
+
+export function resolveGroupDisplayTitle(
+  mgr: TabGroupManager,
+  sessionId?: string,
+  status?: GroupMetadata['status']
+): string {
+  return decorateGroupTitleForStatus(resolveBaseGroupTitle(mgr, sessionId), status);
+}
+
+export function resolveGroupDisplayColor(status?: GroupMetadata['status']): chrome.tabGroups.Color {
+  if (status === 'completed') {
+    return chrome.tabGroups.Color.GREEN ?? chrome.tabGroups.Color.ORANGE;
+  }
+  return chrome.tabGroups.Color.ORANGE;
+}
+
+export function buildGroupAppearanceUpdate(
+  mgr: TabGroupManager,
+  meta: Pick<GroupMetadata, 'sessionId' | 'status'>
+): { title: string; color: chrome.tabGroups.Color } {
+  return {
+    title: resolveGroupDisplayTitle(mgr, meta.sessionId, meta.status),
+    color: resolveGroupDisplayColor(meta.status)
+  };
+}
