@@ -44,6 +44,7 @@ export interface ExecuteToolOptions {
   tabId?: number;
   tabGroupId?: number;
   sessionId?: string;
+  browserSessionId?: string;
   clientId?: string;
   source?: string;
   permissionMode?: string;
@@ -83,7 +84,8 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
   const { sessionId, browserScope } = resolveToolExecutionSession({
     defaultSessionId: MCP_NATIVE_SESSION_ID,
     args: argsRecord,
-    sessionId: options.sessionId
+    sessionId: options.sessionId,
+    browserSessionId: options.browserSessionId
   });
 
   if (navigationBlockedError && navigationBlockedTime) {

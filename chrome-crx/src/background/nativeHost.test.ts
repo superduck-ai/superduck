@@ -292,6 +292,12 @@ describe('createNativeHostManager', () => {
         }
       }
     ]);
+    expect(mcpRuntimeMocks.executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-a',
+        browserSessionId: 'session-a'
+      })
+    );
   });
 
   it('shares one in-flight native-host status request across concurrent callers', async () => {

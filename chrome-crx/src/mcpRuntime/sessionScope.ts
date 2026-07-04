@@ -37,10 +37,15 @@ export function resolveToolExecutionSession(options: {
   defaultSessionId: string;
   args?: BrowserSessionSource;
   sessionId?: unknown;
+  browserSessionId?: unknown;
 }): { sessionId: string; browserScope?: BrowserSessionScope } {
-  const explicit = resolveBrowserSessionId({ sessionId: options.sessionId }, options.args);
+  const logicalSessionId = resolveBrowserSessionId({ sessionId: options.sessionId });
+  const browserSessionId = resolveBrowserSessionId(
+    { sessionId: options.browserSessionId },
+    options.args
+  );
   return {
-    sessionId: explicit ?? options.defaultSessionId,
-    browserScope: explicit ? { sessionId: explicit } : undefined
+    sessionId: logicalSessionId ?? browserSessionId ?? options.defaultSessionId,
+    browserScope: browserSessionId ? { sessionId: browserSessionId } : undefined
   };
 }

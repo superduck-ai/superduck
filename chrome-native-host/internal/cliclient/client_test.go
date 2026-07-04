@@ -24,7 +24,7 @@ func TestCallSendsSessionInEnvelope(t *testing.T) {
 	result, err := Call("tabs_context_mcp", map[string]any{"createIfEmpty": true}, Options{
 		SocketPath: socketPath,
 		Timeout:    time.Second,
-		SessionID:  "session-a",
+		SessionID:  " session-a \n",
 	})
 	if err != nil {
 		t.Fatalf("Call() error = %v", err)
@@ -181,6 +181,7 @@ func TestRunToolJSONDoesNotLetStructuredContentOverwriteEnvelopeFields(t *testin
 			"structuredContent": map[string]any{
 				"tool":    "malicious_tool_name",
 				"ok":      false,
+				"error":   "structured error should not appear on a successful envelope",
 				"output":  "structured output should not replace content output",
 				"content": "structured content should be hidden",
 				"tabContext": map[string]any{
@@ -213,6 +214,9 @@ func TestRunToolJSONDoesNotLetStructuredContentOverwriteEnvelopeFields(t *testin
 	}
 	if _, ok := envelope["content"]; ok {
 		t.Fatalf("envelope unexpectedly contains structured content field: %v", envelope)
+	}
+	if _, ok := envelope["error"]; ok {
+		t.Fatalf("envelope unexpectedly contains structured error field on success: %v", envelope)
 	}
 	if _, ok := envelope["tabContext"].(map[string]any); !ok {
 		t.Fatalf("envelope.tabContext has type %T, want map", envelope["tabContext"])
@@ -291,6 +295,33 @@ func TestRunToolJSONKeepsOutputWhenNoTabContextBlock(t *testing.T) {
 	}
 	if got, want := envelope["output"], "7"; got != want {
 		t.Fatalf("envelope.output = %v, want %q (plain output must be untouched)", got, want)
+	}
+}
+
+func TestRunToolJSONKeepsRealOutputThatStartsWithTabContext(t *testing.T) {
+	socketPath, reqCh, wait := startOneShotToolServer(t, map[string]any{
+		"type": "tool_response",
+		"result": map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": "Tab Context:\nThis is page content, not a synthetic tab summary."},
+			},
+		},
+	})
+
+	raw, err := RunToolJSON("read_page", map[string]any{}, Options{
+		SocketPath: socketPath,
+		Timeout:    time.Second,
+	}, &AuditRecord{Cmd: "read_page"})
+	if err := nilErrFromServer(reqCh, wait, err); err != nil {
+		t.Fatalf("RunToolJSON() error = %v", err)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if got, want := envelope["output"], "Tab Context:\nThis is page content, not a synthetic tab summary."; got != want {
+		t.Fatalf("envelope.output = %v, want %q", got, want)
 	}
 }
 

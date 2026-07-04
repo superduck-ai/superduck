@@ -532,9 +532,16 @@ func readOrCreateSessionIDFile(path string) (string, error) {
 	if path = strings.TrimSpace(path); path == "" {
 		return "", fmt.Errorf("empty session file path")
 	}
-	fileExists := false
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	unlock, err := acquireSessionIDFileLock(path)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
 	if data, err := os.ReadFile(path); err == nil {
-		fileExists = true
 		if id := strings.TrimSpace(string(data)); id != "" {
 			return id, nil
 		}
@@ -546,52 +553,63 @@ func readOrCreateSessionIDFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	if fileExists {
-		if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
-			return "", err
-		}
-		return id, nil
-	}
-
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if os.IsExist(err) {
-			return readSessionIDFileCreatedByPeer(path)
-		}
-		return "", err
-	}
-	if _, err := file.WriteString(id + "\n"); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if err := file.Close(); err != nil {
+	if err := writeSessionIDFile(path, id); err != nil {
 		return "", err
 	}
 	return id, nil
 }
 
 func readSessionIDFileCreatedByPeer(path string) (string, error) {
-	for attempt := 0; attempt < 10; attempt++ {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", err
+	return readOrCreateSessionIDFile(path)
+}
+
+func acquireSessionIDFileLock(path string) (func(), error) {
+	lockPath := path + ".lock"
+	for attempt := 0; attempt < 100; attempt++ {
+		file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, _ = file.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
+			_ = file.Close()
+			return func() { _ = os.Remove(lockPath) }, nil
 		}
-		if id := strings.TrimSpace(string(data)); id != "" {
-			return id, nil
+		if !os.IsExist(err) {
+			return nil, err
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	id, err := newRandomCLISessionID()
+	return nil, fmt.Errorf("session file lock %q is held", lockPath)
+}
+
+func writeSessionIDFile(path, id string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".cli-session-id-*")
 	if err != nil {
-		return "", err
+		return err
 	}
-	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
-		return "", err
+	tmpPath := tmp.Name()
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
 	}
-	return id, nil
+	if _, err := tmp.WriteString(id + "\n"); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	removeTemp = false
+	return nil
 }
 
 func newRandomCLISessionID() (string, error) {

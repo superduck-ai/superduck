@@ -246,6 +246,7 @@ export function createNativeHostManager(): NativeHostManager {
           tabId: parseOptionalInt(args.tabId),
           tabGroupId: parseOptionalInt(args.tabGroupId),
           sessionId,
+          browserSessionId: sessionId,
           clientId,
           source: 'native-messaging',
           permissionMode: 'skip_all_permission_checks'

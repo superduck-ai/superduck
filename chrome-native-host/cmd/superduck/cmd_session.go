@@ -78,6 +78,9 @@ func cmdSessionName(argv []string) error {
 		return err
 	}
 	name := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if name == "" {
+		return fmt.Errorf("usage: superduck session name <text>")
+	}
 	args := map[string]any{"name": name}
 
 	rec := cliclient.AuditRecord{Cmd: "session name"}

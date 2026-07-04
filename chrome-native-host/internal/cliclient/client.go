@@ -145,8 +145,8 @@ func callBoth(tool string, args map[string]any, opts Options) (any, any, error) 
 		"args":      args,
 		"client_id": "superduck-cli",
 	}
-	if opts.SessionID != "" {
-		params["session_id"] = opts.SessionID
+	if sid := strings.TrimSpace(opts.SessionID); sid != "" {
+		params["session_id"] = sid
 	}
 	req := map[string]any{
 		"type":   "tool_request",
@@ -264,7 +264,7 @@ func RunToolJSON(tool string, args map[string]any, opts Options, rec *AuditRecor
 		// human-readable output string.
 		if m, ok := structured.(map[string]any); ok {
 			for k, v := range m {
-				if k == "content" || k == "output" {
+				if isJSONEnvelopeReservedKey(k) {
 					continue
 				}
 				if _, exists := envelope[k]; !exists {
@@ -352,7 +352,19 @@ func stripTabContextText(content any) any {
 // clients. Exported so non-RunToolJSON code paths (e.g. screenshot/zoom in
 // cmd_computer.go) strip the same noise consistently.
 func IsTabContextTextBlock(s string) bool {
-	return strings.HasPrefix(strings.TrimSpace(s), "Tab Context:")
+	trimmed := strings.TrimSpace(s)
+	return strings.HasPrefix(trimmed, "Tab Context:") &&
+		(strings.Contains(trimmed, "\n- Available tabs:") ||
+			strings.Contains(trimmed, "\n- Executed on tabId:"))
+}
+
+func isJSONEnvelopeReservedKey(key string) bool {
+	switch key {
+	case "content", "error", "ok", "output", "tool":
+		return true
+	default:
+		return false
+	}
 }
 
 // TimedCall calls tool and updates rec.DurationMs/OK/Err; the caller is responsible

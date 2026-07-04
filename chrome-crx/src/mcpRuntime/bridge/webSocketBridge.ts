@@ -256,6 +256,7 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
       tabId,
       tabGroupId,
       sessionId,
+      browserSessionId: sessionId,
       clientId: clientType,
       source: 'bridge',
       permissionMode,

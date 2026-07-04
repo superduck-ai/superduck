@@ -205,6 +205,12 @@ func TestCmdSessionNameSendsTrimmedName(t *testing.T) {
 	}
 }
 
+func TestCmdSessionNameRejectsEmptyName(t *testing.T) {
+	if err := cmdSessionName([]string{" \t "}); err == nil {
+		t.Fatal("cmdSessionName(empty) error = nil, want usage error")
+	}
+}
+
 func withCLIFlags(t *testing.T, flags globalFlags) {
 	t.Helper()
 	original := gflags
