@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../pageTools';
+import { DEFAULT_BROWSER_SESSION_ID } from '../sessionScope';
 import type { DownloadsArgs } from './types';
 
 export const superduckDownloadsTool: ToolDefinition<DownloadsArgs> = {
@@ -22,10 +23,10 @@ export const superduckDownloadsTool: ToolDefinition<DownloadsArgs> = {
   },
   execute: async (args, context) => {
     try {
-      if (context?.browserSessionScope) {
+      if (context?.browserSessionScope.sessionId !== DEFAULT_BROWSER_SESSION_ID) {
         return {
           error:
-            'superduck_downloads is unavailable for scoped browser sessions because Chrome downloads are global browser history.'
+            'superduck_downloads is unavailable for scoped browser sessions because Chrome downloads are global browser downloads.'
         };
       }
       const limit = Math.min(Math.max(1, args?.limit ?? 20), 100);

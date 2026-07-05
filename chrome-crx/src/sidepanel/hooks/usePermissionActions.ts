@@ -116,10 +116,6 @@ export function usePermissionActions({
           args: toolUse.input,
           tabId: targetTabId,
           sessionId: activeSessionId,
-          // lease 按对话隔离:锚点万一错位到别的 group,这里会让
-          // resolveTabForContext 抛 BrowserSessionConflictError 拦截,
-          // 而不是沉默地把操作打到错的 group。
-          browserSessionId: activeSessionId,
           permissionMode,
           toolUseId: toolUse.id,
           messagesClient: effectiveMessagesClient as any,

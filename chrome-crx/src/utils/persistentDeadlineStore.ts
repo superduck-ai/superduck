@@ -26,6 +26,7 @@ export class PersistentDeadlineStore<K extends string, R> {
   private readonly serializeState: (state: DeadlineState<K, R>) => unknown;
   private readonly warnLabel: string;
   private pendingDeletes: Record<K, PendingDeleteSet>;
+  private persistQueue: Promise<void> = Promise.resolve();
   private revision = 0;
   state: DeadlineState<K, R>;
 
@@ -70,7 +71,7 @@ export class PersistentDeadlineStore<K extends string, R> {
     const byKey = this.state[kind] as Record<string, R>;
     byKey[key] = record;
     this.pendingDeletes[kind].clear(key);
-    void this.persist();
+    this.queuePersist();
   }
 
   remove(kind: K, key: string): R | undefined {
@@ -80,7 +81,7 @@ export class PersistentDeadlineStore<K extends string, R> {
     this.revision++;
     delete byKey[key];
     this.pendingDeletes[kind].mark(key, this.revision);
-    void this.persist();
+    this.queuePersist();
     return record;
   }
 
@@ -96,8 +97,12 @@ export class PersistentDeadlineStore<K extends string, R> {
         removed.push([kind, key, record]);
       }
     }
-    if (removed.length > 0) void this.persist();
+    if (removed.length > 0) this.queuePersist();
     return removed;
+  }
+
+  private queuePersist(): void {
+    this.persistQueue = this.persistQueue.then(() => this.persist());
   }
 
   async persist(): Promise<void> {

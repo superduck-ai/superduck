@@ -22,9 +22,12 @@ export const superduckOpenTool: ToolDefinition<OpenArgs> = {
         if (tab.id !== undefined) {
           const groupId =
             typeof tab.groupId === 'number' && tab.groupId !== -1 ? tab.groupId : undefined;
-          await claimTabForContext(tab.id, context, {
-            groupId
-          });
+          try {
+            await claimTabForContext(tab.id, context, { groupId });
+          } catch (claimErr) {
+            await chrome.tabs.remove(tab.id).catch(() => {});
+            throw claimErr;
+          }
         }
       } else {
         const active = await resolveActiveTab(args?.tabId, context);

@@ -179,7 +179,7 @@ describe('createSidePanelController', () => {
     );
   });
 
-  it('creates a managed group from only the current tab when explicitly opening an unmanaged Chrome group', async () => {
+  it('opens unmanaged Chrome groups without pulling the tab out of the user group', async () => {
     mcpRuntimeMocks.tabGroupManager.findGroupByTab.mockResolvedValue({
       isUnmanaged: true,
       mainTabId: 99,
@@ -194,7 +194,7 @@ describe('createSidePanelController', () => {
     await controller.handleActionClick({ id: 42, windowId: 7 } as chrome.tabs.Tab);
 
     expect(openPanel).toHaveBeenCalledWith({ tabId: 42 });
-    expect(mcpRuntimeMocks.tabGroupManager.createGroup).toHaveBeenCalledWith(42);
+    expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       {
         type: 'SIDE_PANEL_SET_ACTIVE_TAB',

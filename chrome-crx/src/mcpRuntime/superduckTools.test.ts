@@ -29,7 +29,8 @@ import {
   superduckActiveContextTool,
   superduckDownloadsTool,
   superduckHistoryTool,
-  superduckListTabsTool
+  superduckListTabsTool,
+  superduckOpenTool
 } from './superduckTools';
 
 describe('superduckListTabsTool', () => {
@@ -39,6 +40,9 @@ describe('superduckListTabsTool', () => {
   const historySearch = vi.fn();
   const getLastFocused = vi.fn();
   const executeScript = vi.fn();
+  const tabsCreate = vi.fn();
+  const tabsRemove = vi.fn();
+  const tabsUpdate = vi.fn();
 
   const scopedContext = (sessionId: string, tabId?: number): ToolContext => {
     const browserSessionScope = { sessionId };
@@ -78,8 +82,11 @@ describe('superduckListTabsTool', () => {
     );
     vi.stubGlobal('chrome', {
       tabs: {
+        create: tabsCreate,
         get: tabsGet,
-        query: tabsQuery
+        query: tabsQuery,
+        remove: tabsRemove,
+        update: tabsUpdate
       },
       windows: {
         getLastFocused
@@ -218,12 +225,55 @@ describe('superduckListTabsTool', () => {
     expect(executeScript).not.toHaveBeenCalled();
   });
 
+  it('falls back to the focused Chrome tab for implicit active context reads', async () => {
+    getLastFocused.mockResolvedValue({
+      id: 10,
+      tabs: [
+        { id: 3, windowId: 10, active: false, url: 'https://other.test/' },
+        { id: 4, windowId: 10, active: true, url: 'https://active.test/', title: 'Active' }
+      ]
+    });
+    tabsGet.mockResolvedValue({
+      id: 4,
+      windowId: 10,
+      url: 'https://active.test/',
+      title: 'Active',
+      active: true
+    });
+    executeScript.mockResolvedValue([
+      {
+        result: {
+          url: 'https://active.test/',
+          title: 'Active',
+          selection: 'selected',
+          text: 'Visible text'
+        }
+      }
+    ]);
+
+    const result = await superduckActiveContextTool.execute({}, scopedContext('session-b'));
+
+    expect(result.error).toBeUndefined();
+    expect(tabGroupMock.resolveTabForContext).toHaveBeenCalledWith(4, undefined, {
+      browserSessionScope: { sessionId: 'session-b' },
+      tabAccess: 'read'
+    });
+    expect(JSON.parse(result.output ?? '')).toEqual({
+      tabId: 4,
+      windowId: 10,
+      url: 'https://active.test/',
+      title: 'Active',
+      selection: 'selected',
+      text: 'Visible text'
+    });
+  });
+
   it('blocks global downloads and history in scoped browser sessions', async () => {
     await expect(
       superduckDownloadsTool.execute({}, scopedContext('session-b'))
     ).resolves.toMatchObject({
       error:
-        'superduck_downloads is unavailable for scoped browser sessions because Chrome downloads are global browser history.'
+        'superduck_downloads is unavailable for scoped browser sessions because Chrome downloads are global browser downloads.'
     });
     await expect(
       superduckHistoryTool.execute({}, scopedContext('session-b'))
@@ -233,6 +283,62 @@ describe('superduckListTabsTool', () => {
     });
     expect(downloadsSearch).not.toHaveBeenCalled();
     expect(historySearch).not.toHaveBeenCalled();
+  });
+
+  it('allows global downloads and history in the default browser session', async () => {
+    downloadsSearch.mockResolvedValue([
+      {
+        id: 1,
+        filename: '/tmp/report.pdf',
+        finalUrl: 'https://example.com/report.pdf',
+        state: 'complete',
+        fileSize: 10,
+        totalBytes: 10,
+        bytesReceived: 10,
+        startTime: '2026-01-01T00:00:00.000Z',
+        danger: 'safe'
+      }
+    ]);
+    historySearch.mockResolvedValue([
+      {
+        url: 'https://example.com/',
+        title: 'Example',
+        lastVisitTime: Date.parse('2026-01-01T00:00:00.000Z')
+      }
+    ]);
+
+    const downloads = await superduckDownloadsTool.execute({}, scopedContext('__default__'));
+    const history = await superduckHistoryTool.execute({}, scopedContext('__default__'));
+
+    expect(downloads.error).toBeUndefined();
+    expect(JSON.parse(downloads.output ?? '')).toMatchObject({
+      message: 'Found 1 download(s)',
+      downloads: [{ id: 1, filename: '/tmp/report.pdf' }]
+    });
+    expect(history.error).toBeUndefined();
+    expect(JSON.parse(history.output ?? '')).toMatchObject({
+      message: 'Found 1 history entries',
+      history: [{ url: 'https://example.com/', title: 'Example' }]
+    });
+  });
+
+  it('removes a new tab when superduck_open cannot claim it for the session', async () => {
+    tabsCreate.mockResolvedValue({
+      id: 9,
+      windowId: 10,
+      groupId: -1,
+      url: 'https://new.test/'
+    });
+    tabsRemove.mockResolvedValue(undefined);
+    tabLeaseMock.claimTab.mockRejectedValueOnce(new Error('claim failed'));
+
+    const result = await superduckOpenTool.execute(
+      { url: 'https://new.test/', newTab: true },
+      scopedContext('session-b')
+    );
+
+    expect(result).toEqual({ error: 'superduck_open failed: claim failed' });
+    expect(tabsRemove).toHaveBeenCalledWith(9);
   });
 
   it('reports when chrome.tabs.query does not resolve', async () => {

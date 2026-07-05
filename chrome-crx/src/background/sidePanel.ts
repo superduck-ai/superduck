@@ -183,7 +183,12 @@ export function createSidePanelController({
     await tabGroupManager.initialize(true);
     const group = await tabGroupManager.findGroupByTab(tabId);
 
-    if (group && !group.isUnmanaged) {
+    if (group?.isUnmanaged) {
+      await notifySidePanelTargetTab(tabId);
+      return;
+    }
+
+    if (group) {
       if (group.mainTabId !== tabId) {
         try {
           await tabGroupManager.promoteToMainTab(group.mainTabId, tabId);

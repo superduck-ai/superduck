@@ -21,6 +21,7 @@ const fixtures = vi.hoisted(() => {
   const filterPolicyAllowedTabs = vi.fn();
   const awaitOpenerChildTabId = vi.fn();
   const createPolicyCheckedChildTab = vi.fn();
+  const closeTabIfPresent = vi.fn();
 
   return {
     checkPermission,
@@ -41,7 +42,8 @@ const fixtures = vi.hoisted(() => {
     moveSearchNavigationToNewTab,
     filterPolicyAllowedTabs,
     awaitOpenerChildTabId,
-    createPolicyCheckedChildTab
+    createPolicyCheckedChildTab,
+    closeTabIfPresent
   };
 });
 
@@ -130,13 +132,15 @@ vi.mock('./navigationIsolation', () => ({
   moveSearchNavigationToNewTab: fixtures.moveSearchNavigationToNewTab,
   checkDomainCategoryForNavigation: vi.fn(async () => null),
   createPolicyCheckedChildTab: fixtures.createPolicyCheckedChildTab,
-  filterPolicyAllowedTabs: fixtures.filterPolicyAllowedTabs
+  filterPolicyAllowedTabs: fixtures.filterPolicyAllowedTabs,
+  closeTabIfPresent: fixtures.closeTabIfPresent
 }));
 
 const chromeMock = vi.hoisted(() => ({
   tabs: {
     get: vi.fn(),
-    query: vi.fn()
+    query: vi.fn(),
+    remove: vi.fn()
   },
   scripting: {
     executeScript: vi.fn()
@@ -174,6 +178,7 @@ beforeEach(() => {
   for (const fn of Object.values(fixtures)) fn.mockReset();
   chromeMock.tabs.get.mockReset();
   chromeMock.tabs.query.mockReset();
+  chromeMock.tabs.remove.mockReset();
   chromeMock.scripting.executeScript.mockReset();
 
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
@@ -187,6 +192,9 @@ beforeEach(() => {
   fixtures.moveSearchNavigationToNewTab.mockResolvedValue([]);
   fixtures.awaitOpenerChildTabId.mockResolvedValue(undefined);
   fixtures.createPolicyCheckedChildTab.mockResolvedValue(null);
+  fixtures.closeTabIfPresent.mockImplementation(async (tabId: number) => {
+    await chromeMock.tabs.remove(tabId);
+  });
   fixtures.getKeyCode.mockReturnValue('Enter');
   fixtures.click.mockResolvedValue(undefined);
   fixtures.screenshot.mockResolvedValue({
@@ -201,6 +209,7 @@ beforeEach(() => {
   ]);
   chromeMock.tabs.get.mockResolvedValue({ id: 10, windowId: 1, url: 'https://example.com/' });
   chromeMock.tabs.query.mockResolvedValue([{ id: 10, windowId: 1, url: 'https://example.com/' }]);
+  chromeMock.tabs.remove.mockResolvedValue(undefined);
 });
 
 describe('computer search submit isolation (post-action)', () => {
@@ -488,5 +497,46 @@ describe('computer window.open fallback (no duplicate popup)', () => {
     expect(fixtures.createPolicyCheckedChildTab).toHaveBeenCalledTimes(2);
     expect(result.output).toContain('Opened new tab in current group: 99');
     expect(result.tabContext).toMatchObject({ executedOnTabId: 99 });
+  });
+
+  it('does not close pre-existing tabs with the same URL during orphan cleanup', async () => {
+    vi.useFakeTimers();
+    try {
+      fixtures.adoptChildTabsFromOpener.mockResolvedValue([31]);
+      fixtures.filterPolicyAllowedTabs.mockImplementation(async (tabIds: number[]) => tabIds);
+      chromeMock.tabs.query
+        .mockResolvedValueOnce([
+          { id: 10, windowId: 1, url: 'https://example.com/' },
+          { id: 20, windowId: 1, url: 'https://target.example/' }
+        ])
+        .mockResolvedValueOnce([
+          { id: 10, windowId: 1, url: 'https://example.com/' },
+          { id: 20, windowId: 1, url: 'https://target.example/' },
+          { id: 31, windowId: 1, url: 'https://target.example/' },
+          { id: 32, windowId: 1, url: 'https://target.example/' }
+        ])
+        .mockResolvedValueOnce([
+          { id: 10, windowId: 1, url: 'https://example.com/' },
+          { id: 20, windowId: 1, url: 'https://target.example/' },
+          { id: 31, windowId: 1, url: 'https://target.example/' },
+          { id: 32, windowId: 1, url: 'https://target.example/' }
+        ]);
+
+      const resultPromise = computerTool.execute(
+        { action: 'left_click', coordinate: [12, 34], tabId: 10 },
+        context
+      );
+      await vi.advanceTimersByTimeAsync(150);
+      const result = await resultPromise;
+      await vi.advanceTimersByTimeAsync(1500);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+
+      expect(result.tabContext).toMatchObject({ executedOnTabId: 31 });
+      expect(chromeMock.tabs.remove).toHaveBeenCalledTimes(1);
+      expect(chromeMock.tabs.remove).toHaveBeenCalledWith(32);
+      expect(chromeMock.tabs.remove).not.toHaveBeenCalledWith(20);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

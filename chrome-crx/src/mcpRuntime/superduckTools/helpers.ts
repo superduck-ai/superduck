@@ -53,8 +53,17 @@ async function resolveActiveTab(
   explicit: number | undefined,
   context: ToolContext
 ): Promise<chrome.tabs.Tab> {
-  if (typeof context.tabId !== 'number') {
-    throw new Error('No active tab found in context');
+  if (typeof context.tabId !== 'number' && typeof explicit !== 'number') {
+    const focusedWindow = await withChromeApiTimeout(
+      'chrome.windows.getLastFocused',
+      chrome.windows.getLastFocused({ populate: true })
+    );
+    const activeTab = focusedWindow.tabs?.find((tab) => tab.active);
+    if (activeTab?.id === undefined) throw new Error('No active tab found in context');
+    const resolvedTabId = await context.resolveTabId(activeTab.id);
+    const resolvedTab = await chrome.tabs.get(resolvedTabId);
+    if (resolvedTab.id === undefined) throw new Error('Tab has no id');
+    return resolvedTab;
   }
   const effectiveTabId = await context.resolveTabId(explicit);
   const tab = await chrome.tabs.get(effectiveTabId);

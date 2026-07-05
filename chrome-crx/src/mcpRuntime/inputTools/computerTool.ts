@@ -134,7 +134,8 @@ async function scanPendingPopupTab(snapshot: TabWindowSnapshot): Promise<number 
  */
 async function dedupeOrphanTabs(
   windowId: number | undefined,
-  recognizedTabIds: number[]
+  recognizedTabIds: number[],
+  snapshotTabIds: Set<number>
 ): Promise<void> {
   if (typeof windowId !== 'number') return;
   // 等 popup 跳转链走完、url 稳定再比(太早比会卡在 about:blank/中间页)。
@@ -154,6 +155,7 @@ async function dedupeOrphanTabs(
   if (recognizedUrls.size === 0) return;
   for (const t of tabs) {
     if (typeof t.id !== 'number' || recognized.has(t.id)) continue;
+    if (snapshotTabIds.has(t.id)) continue;
     const u = t.url || t.pendingUrl;
     if (u && recognizedUrls.has(u)) {
       await closeTabIfPresent(t.id);
@@ -630,7 +632,11 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
             (t) => typeof t.id === 'number' && !preActionSnapshot.tabIds.has(t.id)
           );
           if (newTabs.length > adoptedTabIds.length) {
-            void dedupeOrphanTabs(preActionSnapshot.windowId, adoptedTabIds).catch(() => {});
+            void dedupeOrphanTabs(
+              preActionSnapshot.windowId,
+              adoptedTabIds,
+              preActionSnapshot.tabIds
+            ).catch(() => {});
           }
         } catch {
           // 查询失败不影响主流程

@@ -257,6 +257,21 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
     return;
   }
   const sessionId = resolveBrowserSessionId(message);
+  if (!sessionId) {
+    sendBridgeMessage({
+      type: 'tool_result',
+      tool_use_id: toolUseId,
+      error: {
+        content: [
+          {
+            type: 'text',
+            text: 'Bridge tool calls require a session_id/sessionId envelope field'
+          }
+        ]
+      }
+    });
+    return;
+  }
   await waitUntilToolCallBooted?.();
   if (tabId !== undefined) {
     try {

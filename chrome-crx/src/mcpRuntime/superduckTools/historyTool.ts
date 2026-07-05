@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../pageTools';
+import { DEFAULT_BROWSER_SESSION_ID } from '../sessionScope';
 import type { HistoryArgs } from './types';
 
 export const superduckHistoryTool: ToolDefinition<HistoryArgs> = {
@@ -27,7 +28,7 @@ export const superduckHistoryTool: ToolDefinition<HistoryArgs> = {
   },
   execute: async (args, context) => {
     try {
-      if (context?.browserSessionScope) {
+      if (context?.browserSessionScope.sessionId !== DEFAULT_BROWSER_SESSION_ID) {
         return {
           error:
             'superduck_history is unavailable for scoped browser sessions because Chrome history is global browser history.'
