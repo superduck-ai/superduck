@@ -1,11 +1,11 @@
-export type FileUploadRefTargetResult =
+export type UploadFileRefTargetResult =
   | { error: string }
   | { fileInput: HTMLInputElement; clickTarget: Element };
 
-export function resolveFileUploadRefTarget(
+export function resolveUploadFileRefTarget(
   element: Element,
   pathCount: number
-): FileUploadRefTargetResult {
+): UploadFileRefTargetResult {
   let fileInput: HTMLInputElement | undefined;
   let clickTarget: Element | undefined;
 
@@ -77,4 +77,4 @@ export function resolveFileUploadRefTarget(
 }
 
 /** Serialized for injection into page scripts (executeScript cannot import modules). */
-export const resolveFileUploadRefTargetSource = resolveFileUploadRefTarget.toString();
+export const resolveUploadFileRefTargetSource = resolveUploadFileRefTarget.toString();

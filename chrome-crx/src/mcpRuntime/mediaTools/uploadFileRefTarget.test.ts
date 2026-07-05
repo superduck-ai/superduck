@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  resolveFileUploadRefTarget,
-  resolveFileUploadRefTargetSource
-} from './fileUploadRefTarget';
+  resolveUploadFileRefTarget,
+  resolveUploadFileRefTargetSource
+} from './uploadFileRefTarget';
 
 type MockInput = {
   tagName: string;
@@ -70,10 +70,10 @@ function withDocument(getElementById: (id: string) => MockInput | null, fn: () =
   }
 }
 
-describe('resolveFileUploadRefTarget', () => {
+describe('resolveUploadFileRefTarget', () => {
   it('accepts a direct file input ref', () => {
     const input = asElement({ tagName: 'INPUT', type: 'file' });
-    expect(resolveFileUploadRefTarget(input, 1)).toEqual({
+    expect(resolveUploadFileRefTarget(input, 1)).toEqual({
       fileInput: input,
       clickTarget: input
     });
@@ -87,7 +87,7 @@ describe('resolveFileUploadRefTarget', () => {
       () => {
         const label = asElement(labelNode);
         const input = asElement(inputNode);
-        expect(resolveFileUploadRefTarget(label, 1)).toEqual({
+        expect(resolveUploadFileRefTarget(label, 1)).toEqual({
           fileInput: input,
           clickTarget: label
         });
@@ -102,7 +102,7 @@ describe('resolveFileUploadRefTarget', () => {
       children: [inputNode]
     });
     const input = asElement(inputNode);
-    expect(resolveFileUploadRefTarget(label, 1)).toEqual({
+    expect(resolveUploadFileRefTarget(label, 1)).toEqual({
       fileInput: input,
       clickTarget: label
     });
@@ -115,7 +115,7 @@ describe('resolveFileUploadRefTarget', () => {
       children: [inputNode]
     });
     const input = asElement(inputNode);
-    expect(resolveFileUploadRefTarget(button, 1)).toEqual({
+    expect(resolveUploadFileRefTarget(button, 1)).toEqual({
       fileInput: input,
       clickTarget: button
     });
@@ -123,14 +123,14 @@ describe('resolveFileUploadRefTarget', () => {
 
   it('rejects multiple paths on a single-file input', () => {
     const input = asElement({ tagName: 'INPUT', type: 'file', multiple: false });
-    expect(resolveFileUploadRefTarget(input, 2)).toMatchObject({
+    expect(resolveUploadFileRefTarget(input, 2)).toMatchObject({
       error: expect.stringMatching(/does not accept multiple files/i)
     });
   });
 
   it('returns a clear error when no file input is found', () => {
     const div = asElement({ tagName: 'DIV' });
-    expect(resolveFileUploadRefTarget(div, 1)).toMatchObject({
+    expect(resolveUploadFileRefTarget(div, 1)).toMatchObject({
       error: expect.stringMatching(/No file input found/i)
     });
   });
@@ -139,9 +139,9 @@ describe('resolveFileUploadRefTarget', () => {
     const input = asElement({ tagName: 'INPUT', type: 'file' });
     const resolveInPage = (
       new Function(
-        `return (${resolveFileUploadRefTargetSource})`
-      ) as () => typeof resolveFileUploadRefTarget
+        `return (${resolveUploadFileRefTargetSource})`
+      ) as () => typeof resolveUploadFileRefTarget
     )();
-    expect(resolveInPage(input, 1)).toEqual(resolveFileUploadRefTarget(input, 1));
+    expect(resolveInPage(input, 1)).toEqual(resolveUploadFileRefTarget(input, 1));
   });
 });

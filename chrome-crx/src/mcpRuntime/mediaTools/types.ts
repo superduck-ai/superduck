@@ -1,6 +1,6 @@
 import { isRecord } from '../../messageTypes';
 
-export interface FileUploadToolInput {
+export interface UploadFileToolInput {
   paths: string[];
   ref?: string;
   coordinate?: [number, number];

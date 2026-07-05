@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateUploadPaths } from './fileUploadValidation';
+import { validateUploadPaths } from './uploadFileValidation';
 
 describe('validateUploadPaths', () => {
   it('accepts unix absolute paths', () => {

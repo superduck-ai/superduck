@@ -29,7 +29,7 @@ import type {
   ToolExecutorProcessOptions
 } from '../core/types';
 
-const TOOLS_WITH_INTERNAL_DEBUGGER_MANAGEMENT = new Set(['browser_batch', 'file_upload']);
+const TOOLS_WITH_INTERNAL_DEBUGGER_MANAGEMENT = new Set(['browser_batch', 'upload_file']);
 const DEBUGGER_ATTACH_TIMEOUT_MS = 10000;
 const TOOLS_WITH_SCRIPT_FALLBACK_ON_DEBUGGER_FAILURE = new Set([
   'read_page',

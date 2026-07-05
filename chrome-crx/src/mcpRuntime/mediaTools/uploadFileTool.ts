@@ -1,9 +1,9 @@
 import { PermissionTools, checkUrlSecurity } from '../domainPermissions';
 import { tabGroupManager } from '../tabState';
 import type { ToolDefinition, ToolResult } from '../pageTools';
-import type { FileUploadToolInput } from './types';
-import { resolveFileUploadRefTargetSource } from './fileUploadRefTarget';
-import { validateUploadPaths } from './fileUploadValidation';
+import type { UploadFileToolInput } from './types';
+import { resolveUploadFileRefTargetSource } from './uploadFileRefTarget';
+import { validateUploadPaths } from './uploadFileValidation';
 
 const FILE_UPLOAD_DESCRIPTION =
   'Upload local files to a file input on the page. Use exactly one of two modes: (1) pass `ref` to target an <input type=file> located via read_page/find; (2) pass `coordinate` to click a visible button/label that opens the native file picker, which is intercepted automatically. Paths must be absolute local filesystem paths.';
@@ -51,7 +51,7 @@ interface FileChooserWaitHandle {
 
 // Self-contained CDP helper: attach, run commands, detach. We avoid the shared
 // cdpDebugger singleton here because its lazy auto-attach path times out when
-// file_upload is the first CDP tool in a sidepanel session (the tab lock /
+// upload_file is the first CDP tool in a sidepanel session (the tab lock /
 // isDebuggerAttached check interacts badly with the test profile). A fresh
 // attach/detach per call is reliable and matches how the working CDP probe
 // operates.
@@ -314,14 +314,14 @@ async function setFileInputFilesBySelectors(
   });
 }
 
-function resolveFileUploadRefInPage(
+function resolveUploadFileRefInPage(
   refId: string,
   uploadAttr: string,
   clickAttr: string,
   pathCount: number,
   resolveFnSource: string
 ): ResolveRefScriptResult {
-  const resolveFileUploadRefTarget = (
+  const resolveUploadFileRefTarget = (
     new Function(`return (${resolveFnSource})`) as () => (
       element: Element,
       count: number
@@ -344,7 +344,7 @@ function resolveFileUploadRefInPage(
     return { error: `Element is no longer in the document: "${refId}"` };
   }
 
-  const result = resolveFileUploadRefTarget(element, pathCount);
+  const result = resolveUploadFileRefTarget(element, pathCount);
   if ('error' in result) return { error: result.error };
 
   result.fileInput.setAttribute(uploadAttr, '1');
@@ -384,8 +384,8 @@ async function uploadViaRef(
 
   const markResult = await chrome.scripting.executeScript({
     target: { tabId },
-    func: resolveFileUploadRefInPage,
-    args: [ref, uploadAttr, clickAttr, paths.length, resolveFileUploadRefTargetSource]
+    func: resolveUploadFileRefInPage,
+    args: [ref, uploadAttr, clickAttr, paths.length, resolveUploadFileRefTargetSource]
   });
 
   if (!markResult || 0 === markResult.length)
@@ -423,8 +423,8 @@ async function uploadViaFileChooser(
   return withDebugger(tabId, async () => interceptAndSetFiles(tabId, coordinate, paths));
 }
 
-export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
-  name: 'file_upload',
+export const uploadFileTool: ToolDefinition<UploadFileToolInput> = {
+  name: 'upload_file',
   description: FILE_UPLOAD_DESCRIPTION,
   parameters: {
     paths: {
@@ -514,7 +514,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
     }
   },
   toProviderSchema: async () => ({
-    name: 'file_upload',
+    name: 'upload_file',
     description: FILE_UPLOAD_DESCRIPTION,
     input_schema: {
       type: 'object',

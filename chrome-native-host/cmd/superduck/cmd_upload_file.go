@@ -113,5 +113,5 @@ func cmdUploadFile(argv []string) error {
 		}
 		args["coordinate"] = []float64{x, y}
 	}
-	return runSimpleTool("file_upload", "upload_file", args)
+	return runSimpleTool("upload_file", "upload_file", args)
 }

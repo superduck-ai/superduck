@@ -48,7 +48,7 @@ async function stopFixtureServer(server: Server): Promise<void> {
   });
 }
 
-async function mockFileUploadLLM(page: Page, toolUse: MockContentBlock): Promise<void> {
+async function mockUploadFileLLM(page: Page, toolUse: MockContentBlock): Promise<void> {
   await page.evaluate(({ toolUseData }) => {
     function buildSse(content: unknown[], stopReason: string): string {
       const events: string[] = [
@@ -102,10 +102,10 @@ async function mockFileUploadLLM(page: Page, toolUse: MockContentBlock): Promise
           .filter((b: any) => b.type === 'tool_result')
           .map((b: any) => (typeof b.content === 'string' ? b.content : JSON.stringify(b.content)))
       );
-      const hasFileUpload =
+      const hasUploadFile =
         Array.isArray(body.tools) &&
-        body.tools.some((tool: { name?: unknown }) => tool.name === 'file_upload');
-      const shouldReturnToolUse = hasFileUpload && !toolUseSent;
+        body.tools.some((tool: { name?: unknown }) => tool.name === 'upload_file');
+      const shouldReturnToolUse = hasUploadFile && !toolUseSent;
       if (shouldReturnToolUse) toolUseSent = true;
       const response = shouldReturnToolUse
         ? { content: [toolUseData], stopReason: 'tool_use' }
@@ -216,7 +216,7 @@ async function withUploadFixture(
   }
 }
 
-test.describe('file_upload tool', () => {
+test.describe('upload_file tool', () => {
   test.setTimeout(120_000);
 
   let fixtureServer: Server;
@@ -246,10 +246,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'explicit-input', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_ref',
-        name: 'file_upload',
+        id: 'tool_upload_file_ref',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
       });
 
@@ -273,10 +273,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'explicit-input', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_multi',
-        name: 'file_upload',
+        id: 'tool_upload_file_multi',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH, secondFile], ref: 'ref_1' }
       });
 
@@ -306,10 +306,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'picker-status', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_bad_ref',
-        name: 'file_upload',
+        id: 'tool_upload_file_bad_ref',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
       });
 
@@ -335,10 +335,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'file-label', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_label',
-        name: 'file_upload',
+        id: 'tool_upload_file_label',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
       });
 
@@ -363,10 +363,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'nested-upload-btn', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_nested',
-        name: 'file_upload',
+        id: 'tool_upload_file_nested',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
       });
 
@@ -391,10 +391,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'wrap-label', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_wrap_label',
-        name: 'file_upload',
+        id: 'tool_upload_file_wrap_label',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
       });
 
@@ -415,10 +415,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'explicit-input', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_relative',
-        name: 'file_upload',
+        id: 'tool_upload_file_relative',
+        name: 'upload_file',
         input: { paths: ['report.txt'], ref: 'ref_1' }
       });
 
@@ -447,10 +447,10 @@ test.describe('file_upload tool', () => {
     }) => {
       await registerRef(serviceWorker, tabId, 'single-input', 'ref_1');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_single_multi',
-        name: 'file_upload',
+        id: 'tool_upload_file_single_multi',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH, secondFile], ref: 'ref_1' }
       });
 
@@ -475,10 +475,10 @@ test.describe('file_upload tool', () => {
     }) => {
       const [cx, cy] = await getButtonCenter(targetPage, '#picker-trigger');
 
-      await mockFileUploadLLM(sidepanel, {
+      await mockUploadFileLLM(sidepanel, {
         type: 'tool_use',
-        id: 'tool_file_upload_coord',
-        name: 'file_upload',
+        id: 'tool_upload_file_coord',
+        name: 'upload_file',
         input: { paths: [TEST_FILE_PATH], coordinate: [cx, cy] }
       });
 

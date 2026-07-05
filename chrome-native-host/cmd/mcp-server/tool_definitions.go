@@ -241,7 +241,7 @@ var toolDefinitions = []toolDefinition{
 		}, "imageId", "tabId"),
 	},
 	{
-		name:        "file_upload",
+		name:        "upload_file",
 		description: "Upload local files to a file input on the page. Use exactly one of two modes: (1) pass `ref` to target an <input type=file> located via read_page/find; (2) pass `coordinate` to click a visible button/label that opens the native file picker, which is intercepted automatically. Paths must be absolute local filesystem paths.",
 		inputSchema: objectSchema(map[string]any{
 			"paths":      arraySchema("Absolute local filesystem paths to the files to upload.", map[string]any{"type": "string"}),
