@@ -171,8 +171,16 @@ async function getButtonCenter(targetPage: Page, selector: string): Promise<[num
 
 async function getFileState(targetPage: Page): Promise<{
   explicit: string | null;
+  single: string | null;
+  label: string | null;
+  wrap: string | null;
+  nested: string | null;
   hidden: string | null;
   explicitCount: number;
+  singleCount: number;
+  labelCount: number;
+  wrapCount: number;
+  nestedCount: number;
   hiddenCount: number;
 }> {
   return targetPage.evaluate(() => (window as any).__getFileNames());
@@ -297,7 +305,148 @@ test.describe('file_upload tool', () => {
     const state = await getFileState(targetPage);
     expect(state.explicitCount).toBe(0);
     const toolResults = await getCapturedToolResults(sidepanel);
-    expect(toolResults.join(' ')).toMatch(/not a file input|Failed/i);
+    expect(toolResults.join(' ')).toMatch(/No file input found|not a file input|Failed/i);
+
+    await sidepanel.close();
+    await targetPage.close();
+  });
+
+  test('uploads a local file via label ref retarget', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    const targetPage = await context.newPage();
+    await targetPage.goto(fixtureUrl('file-upload.html'));
+    const { sidepanel, tabId } = await prepareSidepanel(targetPage, serviceWorker, extensionId);
+    await registerRef(serviceWorker, tabId, 'file-label', 'ref_1');
+
+    await mockFileUploadLLM(sidepanel, {
+      type: 'tool_use',
+      id: 'tool_file_upload_label',
+      name: 'file_upload',
+      input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
+    });
+
+    await sendMessage(sidepanel, 'Upload via the label ref');
+    await waitForReplyDone(sidepanel, 60_000);
+
+    const state = await getFileState(targetPage);
+    expect(state.labelCount).toBe(1);
+    expect(state.label).toBe('report.txt');
+
+    await sidepanel.close();
+    await targetPage.close();
+  });
+
+  test('uploads a local file via button ref with nested input', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    const targetPage = await context.newPage();
+    await targetPage.goto(fixtureUrl('file-upload.html'));
+    const { sidepanel, tabId } = await prepareSidepanel(targetPage, serviceWorker, extensionId);
+    await registerRef(serviceWorker, tabId, 'nested-upload-btn', 'ref_1');
+
+    await mockFileUploadLLM(sidepanel, {
+      type: 'tool_use',
+      id: 'tool_file_upload_nested',
+      name: 'file_upload',
+      input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
+    });
+
+    await sendMessage(sidepanel, 'Upload via nested button ref');
+    await waitForReplyDone(sidepanel, 60_000);
+
+    const state = await getFileState(targetPage);
+    expect(state.nestedCount).toBe(1);
+    expect(state.nested).toBe('report.txt');
+
+    await sidepanel.close();
+    await targetPage.close();
+  });
+
+  test('uploads a local file via wrapping label ref retarget', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    const targetPage = await context.newPage();
+    await targetPage.goto(fixtureUrl('file-upload.html'));
+    const { sidepanel, tabId } = await prepareSidepanel(targetPage, serviceWorker, extensionId);
+    await registerRef(serviceWorker, tabId, 'wrap-label', 'ref_1');
+
+    await mockFileUploadLLM(sidepanel, {
+      type: 'tool_use',
+      id: 'tool_file_upload_wrap_label',
+      name: 'file_upload',
+      input: { paths: [TEST_FILE_PATH], ref: 'ref_1' }
+    });
+
+    await sendMessage(sidepanel, 'Upload via wrapping label ref');
+    await waitForReplyDone(sidepanel, 60_000);
+
+    const state = await getFileState(targetPage);
+    expect(state.wrapCount).toBe(1);
+    expect(state.wrap).toBe('report.txt');
+
+    await sidepanel.close();
+    await targetPage.close();
+  });
+
+  test('surfaces an error for relative paths', async ({ context, extensionId, serviceWorker }) => {
+    const targetPage = await context.newPage();
+    await targetPage.goto(fixtureUrl('file-upload.html'));
+    const { sidepanel, tabId } = await prepareSidepanel(targetPage, serviceWorker, extensionId);
+    await registerRef(serviceWorker, tabId, 'explicit-input', 'ref_1');
+
+    await mockFileUploadLLM(sidepanel, {
+      type: 'tool_use',
+      id: 'tool_file_upload_relative',
+      name: 'file_upload',
+      input: { paths: ['report.txt'], ref: 'ref_1' }
+    });
+
+    await sendMessage(sidepanel, 'Upload with a relative path');
+    await waitForReplyDone(sidepanel, 60_000);
+
+    const state = await getFileState(targetPage);
+    expect(state.explicitCount).toBe(0);
+    const toolResults = await getCapturedToolResults(sidepanel);
+    expect(toolResults.join(' ')).toMatch(/absolute/i);
+
+    await sidepanel.close();
+    await targetPage.close();
+  });
+
+  test('surfaces an error when multiple paths target a single-file input', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    const secondFile = path.join(TEST_FILE_DIR, 'extra.txt');
+    await writeFile(secondFile, 'extra\n', 'utf8');
+
+    const targetPage = await context.newPage();
+    await targetPage.goto(fixtureUrl('file-upload.html'));
+    const { sidepanel, tabId } = await prepareSidepanel(targetPage, serviceWorker, extensionId);
+    await registerRef(serviceWorker, tabId, 'single-input', 'ref_1');
+
+    await mockFileUploadLLM(sidepanel, {
+      type: 'tool_use',
+      id: 'tool_file_upload_single_multi',
+      name: 'file_upload',
+      input: { paths: [TEST_FILE_PATH, secondFile], ref: 'ref_1' }
+    });
+
+    await sendMessage(sidepanel, 'Upload two files to single-input');
+    await waitForReplyDone(sidepanel, 60_000);
+
+    const state = await getFileState(targetPage);
+    expect(state.singleCount).toBe(0);
+    const toolResults = await getCapturedToolResults(sidepanel);
+    expect(toolResults.join(' ')).toMatch(/does not accept multiple files/i);
 
     await sidepanel.close();
     await targetPage.close();

@@ -245,16 +245,16 @@ superduck --session "$SID" --tab "$TAB" upload --image-id <id> --ref ref_9 --fil
 superduck --session "$SID" --tab "$TAB" upload --image-id <id> --coord 500,400
 ```
 
-Upload local files from disk (the browser reads them directly — no content is transferred):
+Upload local files from disk (the browser reads them directly — no content is transferred). Paths must be absolute local filesystem paths.
 
 ```bash
-# Target a known <input type=file> via ref
+# Target a file input via ref (also accepts <label>/<button> that controls or contains one)
 superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/report.pdf --ref ref_9
 
 # Click a button/label that opens the native file picker (intercepted automatically)
 superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/photo.png --coord 500,400
 
-# Multiple files
+# Multiple files (input must have multiple attribute)
 superduck --session "$SID" --tab "$TAB" upload_file --path /abs/a.pdf --path /abs/b.pdf --ref ref_9
 ```
 

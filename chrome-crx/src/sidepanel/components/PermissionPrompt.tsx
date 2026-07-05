@@ -56,6 +56,7 @@ export function InlinePermissionPrompt({
       [PermissionActionType.CLICK]: 'action_click_on',
       [PermissionActionType.TYPE]: 'action_type_text_into',
       [PermissionActionType.UPLOAD_IMAGE]: 'action_upload_an_image_to',
+      [PermissionActionType.UPLOAD_FILE]: 'action_upload_a_file_to',
       [PermissionActionType.DOMAIN_TRANSITION]: 'action_navigate_from',
       [PermissionActionType.EXECUTE_JAVASCRIPT]: 'action_execute_javascript_on'
     };

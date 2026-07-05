@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -16,14 +18,27 @@ func (p *pathListValue) Set(s string) error {
 	return nil
 }
 
+func validateUploadFilePaths(paths []string) error {
+	for _, p := range paths {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("path must be absolute: %s", p)
+		}
+		if _, err := os.Stat(p); err != nil {
+			return fmt.Errorf("path does not exist: %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
 // cmdUploadFile: superduck upload_file --tab <id> --path <p1> [--path <p2> ...] (--ref <r> | --coord x,y)
+// Provide exactly one of --ref or --coord.
 func cmdUploadFile(argv []string) error {
 	fs := flag.NewFlagSet("upload_file", flag.ContinueOnError)
 	var paths pathListValue
 	fs.Var(&paths, "path", "Absolute local file path to upload (repeatable, or use --paths with comma-separated list)")
 	pathsCSV := fs.String("paths", "", "Comma-separated absolute file paths (alternative to repeated --path)")
-	ref := fs.String("ref", "", "Element reference ID of a <input type=file> from read_page/find")
-	coord := fs.String("coord", "", "Viewport x,y of a button/label that opens the native file picker")
+	ref := fs.String("ref", "", "Element reference from read_page/find (mode 1): <input type=file>, or a <label>/<button> that controls or contains one. Mutually exclusive with --coord")
+	coord := fs.String("coord", "", "Viewport x,y of a button/label that opens the native file picker (mode 2). Mutually exclusive with --ref")
 	if err := fs.Parse(reorderFlagsFirst(argv)); err != nil {
 		return err
 	}
@@ -38,6 +53,9 @@ func cmdUploadFile(argv []string) error {
 	}
 	if len(allPaths) == 0 {
 		return fmt.Errorf("at least one --path (or --paths) is required")
+	}
+	if err := validateUploadFilePaths(allPaths); err != nil {
+		return err
 	}
 	if (*ref == "") == (*coord == "") {
 		return fmt.Errorf("provide exactly one of --ref or --coord")

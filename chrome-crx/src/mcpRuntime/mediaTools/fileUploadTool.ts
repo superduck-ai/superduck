@@ -2,12 +2,27 @@ import { PermissionTools, checkUrlSecurity } from '../domainPermissions';
 import { tabGroupManager } from '../tabState';
 import type { ToolDefinition, ToolResult } from '../pageTools';
 import type { FileUploadToolInput } from './types';
-import { isScriptSuccessResult } from './types';
+import { validateUploadPaths } from './fileUploadValidation';
+
+const FILE_UPLOAD_DESCRIPTION =
+  'Upload local files to a file input on the page. Use exactly one of two modes: (1) pass `ref` to target an <input type=file> located via read_page/find; (2) pass `coordinate` to click a visible button/label that opens the native file picker, which is intercepted automatically. Paths must be absolute local filesystem paths.';
+
+const REF_PARAM_DESCRIPTION =
+  'Element reference ID from read_page/find (mode 1): an <input type=file>, or a <label>/<button> that controls or contains one. Mutually exclusive with `coordinate`.';
+
+const COORDINATE_PARAM_DESCRIPTION =
+  'Viewport [x, y] of a button/label that opens the native file picker (mode 2). Mutually exclusive with `ref`.';
 
 interface FileChooserOpenedParams {
   frameId?: string;
   mode?: 'selectSingle' | 'selectMultiple';
   backendNodeId?: number;
+}
+
+interface ResolveRefScriptResult {
+  error?: string;
+  success?: boolean;
+  separateClickTarget?: boolean;
 }
 
 // Self-contained CDP helper: attach, run commands, detach. We avoid the shared
@@ -28,8 +43,11 @@ function sendCdp(tabId: number, method: string, params?: Record<string, unknown>
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Attach can transiently fail or hang when residual state from a prior
-// detach hasn't settled. Retry a few times with a per-attempt timeout.
+function isNotAllowedCdpError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Not allowed/i.test(msg);
+}
+
 function attachOnce(tabId: number, timeoutMs = 3000): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -43,8 +61,6 @@ function attachOnce(tabId: number, timeoutMs = 3000): Promise<void> {
       settled = true;
       clearTimeout(timer);
       const errMsg = chrome.runtime.lastError?.message;
-      // "Another debugger is already attached" is fine — another CDP user
-      // (e.g. computer tool) may already hold the session.
       if (errMsg && !/Another debugger is already attached/i.test(errMsg)) {
         reject(new Error(errMsg));
       } else {
@@ -62,7 +78,6 @@ async function attachDebugger(tabId: number): Promise<void> {
       return;
     } catch (err) {
       lastErr = err;
-      // Clear any half-attached session before retrying.
       await new Promise<void>((resolve) => chrome.debugger.detach({ tabId }, () => resolve()));
       await sleep(250 * (attempt + 1));
     }
@@ -81,28 +96,6 @@ async function withDebugger<T>(tabId: number, fn: () => Promise<T>): Promise<T> 
   } finally {
     await detachDebugger(tabId);
   }
-}
-
-async function setFileInputFilesBySelector(
-  tabId: number,
-  selector: string,
-  paths: string[]
-): Promise<void> {
-  await withDebugger(tabId, async () => {
-    await sendCdp(tabId, 'DOM.enable');
-    const doc = (await sendCdp(tabId, 'DOM.getDocument', { depth: 0 })) as {
-      root?: { nodeId?: number };
-    };
-    const rootId = doc?.root?.nodeId;
-    if (!rootId) throw new Error('DOM.getDocument returned no root nodeId');
-    const queried = (await sendCdp(tabId, 'DOM.querySelector', {
-      nodeId: rootId,
-      selector
-    })) as { nodeId?: number };
-    const nodeId = queried?.nodeId;
-    if (!nodeId) throw new Error(`Element not found for selector: ${selector}`);
-    await sendCdp(tabId, 'DOM.setFileInputFiles', { files: paths, nodeId });
-  });
 }
 
 function dispatchClick(tabId: number, x: number, y: number): Promise<void> {
@@ -131,64 +124,241 @@ function waitForFileChooser(tabId: number, timeoutMs = 5000): Promise<FileChoose
   });
 }
 
+async function interceptAndSetFiles(
+  tabId: number,
+  coordinate: [number, number],
+  paths: string[]
+): Promise<{ error?: string }> {
+  await sendCdp(tabId, 'Page.enable');
+  await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: true });
+  try {
+    const chooserPromise = waitForFileChooser(tabId);
+    await dispatchClick(tabId, coordinate[0], coordinate[1]);
+    const chooser = await chooserPromise;
+    if (!chooser.backendNodeId) {
+      return { error: 'file chooser opened but no backendNodeId was provided' };
+    }
+    await sendCdp(tabId, 'DOM.enable');
+    await sendCdp(tabId, 'DOM.setFileInputFiles', {
+      files: paths,
+      backendNodeId: chooser.backendNodeId
+    });
+    return {};
+  } finally {
+    await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {});
+  }
+}
+
+async function queryNodeId(tabId: number, selector: string): Promise<number> {
+  const doc = (await sendCdp(tabId, 'DOM.getDocument', { depth: 0 })) as {
+    root?: { nodeId?: number };
+  };
+  const rootId = doc?.root?.nodeId;
+  if (!rootId) throw new Error('DOM.getDocument returned no root nodeId');
+  const queried = (await sendCdp(tabId, 'DOM.querySelector', {
+    nodeId: rootId,
+    selector
+  })) as { nodeId?: number };
+  const nodeId = queried?.nodeId;
+  if (!nodeId) throw new Error(`Element not found for selector: ${selector}`);
+  return nodeId;
+}
+
+async function getElementCenter(tabId: number, nodeId: number): Promise<[number, number]> {
+  const boxModel = (await sendCdp(tabId, 'DOM.getBoxModel', { nodeId })) as {
+    model?: { content?: number[] };
+  };
+  const content = boxModel?.model?.content;
+  if (!content || content.length < 8) {
+    throw new Error('DOM.getBoxModel returned no usable content quad');
+  }
+  const xs = [content[0], content[2], content[4], content[6]];
+  const ys = [content[1], content[3], content[5], content[7]];
+  return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+}
+
+async function resolveBackendNodeId(tabId: number, nodeId: number): Promise<number> {
+  const described = (await sendCdp(tabId, 'DOM.describeNode', { nodeId, depth: 0 })) as {
+    node?: { backendNodeId?: number };
+  };
+  const backendNodeId = described?.node?.backendNodeId;
+  if (!backendNodeId) throw new Error('DOM.describeNode returned no backendNodeId');
+  return backendNodeId;
+}
+
+async function setFileInputFilesByNodeId(
+  tabId: number,
+  uploadNodeId: number,
+  clickNodeId: number,
+  paths: string[]
+): Promise<void> {
+  const backendNodeId = await resolveBackendNodeId(tabId, uploadNodeId);
+  try {
+    await sendCdp(tabId, 'DOM.setFileInputFiles', { files: paths, backendNodeId });
+  } catch (err) {
+    if (!isNotAllowedCdpError(err)) throw err;
+    const center = await getElementCenter(tabId, clickNodeId);
+    const fallback = await interceptAndSetFiles(tabId, center, paths);
+    if (fallback.error) throw new Error(fallback.error, { cause: err });
+  }
+}
+
+async function setFileInputFilesBySelectors(
+  tabId: number,
+  uploadSelector: string,
+  clickSelector: string,
+  paths: string[]
+): Promise<void> {
+  await withDebugger(tabId, async () => {
+    await sendCdp(tabId, 'DOM.enable');
+    const uploadNodeId = await queryNodeId(tabId, uploadSelector);
+    const clickNodeId =
+      uploadSelector === clickSelector ? uploadNodeId : await queryNodeId(tabId, clickSelector);
+    await setFileInputFilesByNodeId(tabId, uploadNodeId, clickNodeId, paths);
+  });
+}
+
+// Keep in sync with resolveFileUploadRefTarget() in fileUploadRefTarget.ts.
+function resolveFileUploadRefInPage(
+  refId: string,
+  uploadAttr: string,
+  clickAttr: string,
+  pathCount: number
+): ResolveRefScriptResult {
+  const pageWindow = window as Window & {
+    __superduckElementMap?: Record<string, WeakRef<Element>>;
+  };
+  const elementMap = pageWindow.__superduckElementMap;
+  if (!elementMap?.[refId])
+    return { error: `Element ref not found: "${refId}". The element may have been removed.` };
+  const element = elementMap[refId].deref();
+  if (!element) {
+    delete elementMap[refId];
+    return { error: `Element has been garbage collected: "${refId}"` };
+  }
+  if (!document.contains(element)) {
+    delete elementMap[refId];
+    return { error: `Element is no longer in the document: "${refId}"` };
+  }
+
+  let fileInput: HTMLInputElement | undefined;
+  let clickTarget: Element | undefined;
+
+  if ('INPUT' === element.tagName) {
+    const input = element as HTMLInputElement;
+    if ('file' === input.type) {
+      fileInput = input;
+      clickTarget = element;
+    } else {
+      return {
+        error: `Element is not a file input. Found: <input type="${input.type || 'text'}">`
+      };
+    }
+  } else if ('LABEL' === element.tagName) {
+    const label = element as HTMLLabelElement;
+    const control = label.control;
+    if (control && 'INPUT' === control.tagName && 'file' === (control as HTMLInputElement).type) {
+      fileInput = control as HTMLInputElement;
+      clickTarget = label;
+    } else {
+      const htmlFor = label.getAttribute('for');
+      if (htmlFor) {
+        const linked = document.getElementById(htmlFor);
+        if (linked && 'INPUT' === linked.tagName && 'file' === (linked as HTMLInputElement).type) {
+          fileInput = linked as HTMLInputElement;
+          clickTarget = label;
+        }
+      }
+    }
+    if (!fileInput) {
+      const nestedInLabel = label.querySelectorAll('input[type="file"]');
+      if (1 === nestedInLabel.length) {
+        fileInput = nestedInLabel[0] as HTMLInputElement;
+        clickTarget = label;
+      } else if (nestedInLabel.length > 1) {
+        return {
+          error: `Element contains ${nestedInLabel.length} file inputs; ref must target a single file input`
+        };
+      }
+    }
+  } else {
+    const nested = element.querySelectorAll('input[type="file"]');
+    if (1 === nested.length) {
+      fileInput = nested[0] as HTMLInputElement;
+      clickTarget = element;
+    } else if (nested.length > 1) {
+      return {
+        error: `Element contains ${nested.length} file inputs; ref must target a single file input`
+      };
+    }
+  }
+
+  if (!fileInput || !clickTarget) {
+    const tag = element.tagName.toLowerCase();
+    const typeAttr =
+      'INPUT' === element.tagName && (element as HTMLInputElement).type
+        ? ` type="${(element as HTMLInputElement).type}"`
+        : '';
+    return { error: `No file input found for ref. Found: <${tag}${typeAttr}>` };
+  }
+
+  if (pathCount > 1 && !fileInput.multiple) {
+    return {
+      error: `File input does not accept multiple files but ${pathCount} paths were provided`
+    };
+  }
+
+  fileInput.setAttribute(uploadAttr, '1');
+  const separateClickTarget = clickTarget !== fileInput;
+  if (separateClickTarget) clickTarget.setAttribute(clickAttr, '1');
+  return { success: true, separateClickTarget };
+}
+
 async function uploadViaRef(
   tabId: number,
   ref: string,
   paths: string[]
 ): Promise<{ error?: string }> {
-  const uploadAttr = `data-superduck-upload-${Date.now()}`;
+  const stamp = Date.now();
+  const uploadAttr = `data-superduck-upload-${stamp}`;
+  const clickAttr = `data-superduck-upload-click-${stamp}`;
+
   const markResult = await chrome.scripting.executeScript({
     target: { tabId },
-    func: (refId: string, attr: string) => {
-      const pageWindow = window as Window & {
-        __superduckElementMap?: Record<string, WeakRef<Element>>;
-      };
-      const elementMap = pageWindow.__superduckElementMap;
-      if (!elementMap?.[refId])
-        return { error: `Element ref not found: "${refId}". The element may have been removed.` };
-      const element = elementMap[refId].deref();
-      if (!element) {
-        delete elementMap[refId];
-        return { error: `Element has been garbage collected: "${refId}"` };
-      }
-      if (!document.contains(element)) {
-        delete elementMap[refId];
-        return { error: `Element is no longer in the document: "${refId}"` };
-      }
-      const inputElement = element as HTMLInputElement;
-      if ('INPUT' !== element.tagName || 'file' !== inputElement.type) {
-        return {
-          error: `Element is not a file input. Found: <${element.tagName.toLowerCase()}${inputElement.type ? ` type="${inputElement.type}"` : ''}>`
-        };
-      }
-      element.setAttribute(attr, '1');
-      return { success: true };
-    },
-    args: [ref, uploadAttr]
+    func: resolveFileUploadRefInPage,
+    args: [ref, uploadAttr, clickAttr, paths.length]
   });
 
   if (!markResult || 0 === markResult.length)
     return { error: 'Failed to execute script to find element' };
-  const markOutput = markResult[0]?.result;
-  if (!isScriptSuccessResult(markOutput)) {
+  const markOutput = markResult[0]?.result as ResolveRefScriptResult | undefined;
+  if (!markOutput || markOutput.error) {
+    return { error: markOutput?.error || 'Unexpected response while locating file input element' };
+  }
+  if (!markOutput.success) {
     return { error: 'Unexpected response while locating file input element' };
   }
-  if (markOutput.error) return { error: markOutput.error };
 
-  await setFileInputFilesBySelector(tabId, `[${uploadAttr}="1"]`, paths);
+  const uploadSelector = `[${uploadAttr}="1"]`;
+  const clickSelector = markOutput.separateClickTarget ? `[${clickAttr}="1"]` : uploadSelector;
+
+  try {
+    await setFileInputFilesBySelectors(tabId, uploadSelector, clickSelector, paths);
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Failed to set files on file input'
+    };
+  }
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: (refId: string, attr: string) => {
-      const pageWindow = window as Window & {
-        __superduckElementMap?: Record<string, WeakRef<Element>>;
-      };
-      const elementMap = pageWindow.__superduckElementMap;
-      if (!elementMap?.[refId]) return;
-      const element = elementMap[refId].deref();
-      if (element) element.removeAttribute(attr);
+    func: (uploadMarker: string, clickMarker: string, separateClick: boolean) => {
+      document.querySelector(`[${uploadMarker}="1"]`)?.removeAttribute(uploadMarker);
+      if (separateClick) {
+        document.querySelector(`[${clickMarker}="1"]`)?.removeAttribute(clickMarker);
+      }
     },
-    args: [ref, uploadAttr]
+    args: [uploadAttr, clickAttr, !!markOutput.separateClickTarget]
   });
   return {};
 }
@@ -198,36 +368,12 @@ async function uploadViaFileChooser(
   coordinate: [number, number],
   paths: string[]
 ): Promise<{ error?: string }> {
-  return withDebugger(tabId, async () => {
-    await sendCdp(tabId, 'Page.enable');
-    await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: true });
-    try {
-      const chooserPromise = waitForFileChooser(tabId);
-      await dispatchClick(tabId, coordinate[0], coordinate[1]);
-      const chooser = await chooserPromise;
-      if (!chooser.backendNodeId) {
-        return { error: 'file chooser opened but no backendNodeId was provided' };
-      }
-      // backendNodeId resolves across the attach session, so set files before
-      // withDebugger detaches.
-      await sendCdp(tabId, 'DOM.enable');
-      await sendCdp(tabId, 'DOM.setFileInputFiles', {
-        files: paths,
-        backendNodeId: chooser.backendNodeId
-      });
-      return {};
-    } finally {
-      await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(
-        () => {}
-      );
-    }
-  });
+  return withDebugger(tabId, async () => interceptAndSetFiles(tabId, coordinate, paths));
 }
 
 export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
   name: 'file_upload',
-  description:
-    'Upload one or multiple files from the local filesystem to a file input on the page. Two modes: (1) pass `ref` to target a known <input type=file> located via read_page/find — the browser reads files from the given absolute paths, no file content crosses the wire; (2) pass `coordinate` to click a button/label that opens the native file picker — the picker is intercepted and the files are set automatically. Do not click file inputs manually. Paths must be absolute local filesystem paths.',
+  description: FILE_UPLOAD_DESCRIPTION,
   parameters: {
     paths: {
       type: 'array',
@@ -236,14 +382,12 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
     },
     ref: {
       type: 'string',
-      description:
-        'Element reference ID of a <input type=file> from read_page/find (mode 1). Either this or `coordinate` is required.'
+      description: REF_PARAM_DESCRIPTION
     },
     coordinate: {
       type: 'array',
       items: { type: 'number' },
-      description:
-        'Viewport [x, y] of a button/label that opens the native file picker (mode 2). Either this or `ref` is required.'
+      description: COORDINATE_PARAM_DESCRIPTION
     },
     tabId: {
       type: 'number',
@@ -255,6 +399,10 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
       const params = input;
       if (!params?.paths || !Array.isArray(params.paths) || 0 === params.paths.length)
         throw new Error('paths parameter is required and must be a non-empty array of file paths');
+
+      const pathError = validateUploadPaths(params.paths);
+      if (pathError) throw new Error(pathError);
+
       const hasRef = typeof params.ref === 'string' && params.ref.length > 0;
       const hasCoord = Array.isArray(params.coordinate) && params.coordinate.length === 2;
       if (hasRef === hasCoord)
@@ -276,7 +424,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
         if (permissionResult.needsPrompt) {
           return {
             type: 'permission_required',
-            tool: PermissionTools.UPLOAD_IMAGE,
+            tool: PermissionTools.UPLOAD_FILE,
             url: tabUrl,
             toolUseId,
             actionData: hasRef ? { ref: params.ref } : { coordinate: params.coordinate }
@@ -315,8 +463,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
   },
   toProviderSchema: async () => ({
     name: 'file_upload',
-    description:
-      'Upload one or multiple files from the local filesystem to a file input on the page. Two modes: (1) pass `ref` to target a known <input type=file> located via read_page/find — the browser reads files from the given absolute paths, no file content crosses the wire; (2) pass `coordinate` to click a button/label that opens the native file picker — the picker is intercepted and the files are set automatically. Paths must be absolute local filesystem paths.',
+    description: FILE_UPLOAD_DESCRIPTION,
     input_schema: {
       type: 'object',
       properties: {
@@ -327,14 +474,12 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
         },
         ref: {
           type: 'string',
-          description:
-            'Element reference ID of a <input type=file> from read_page/find (mode 1). Either this or `coordinate` is required.'
+          description: REF_PARAM_DESCRIPTION
         },
         coordinate: {
           type: 'array',
           items: { type: 'number' },
-          description:
-            'Viewport [x, y] of a button/label that opens the native file picker (mode 2). Either this or `ref` is required.'
+          description: COORDINATE_PARAM_DESCRIPTION
         },
         tabId: {
           type: 'number',

@@ -911,6 +911,7 @@
   "action_click_on": "click on",
   "action_type_text_into": "type text into",
   "action_upload_an_image_to": "upload an image to",
+  "action_upload_a_file_to": "upload a file to",
   "action_navigate_from": "navigate from",
   "action_execute_javascript_on": "execute JavaScript on",
   "superduck_wants_to_use_an_mcp_tool": "SuperDuck wants to use an MCP tool",

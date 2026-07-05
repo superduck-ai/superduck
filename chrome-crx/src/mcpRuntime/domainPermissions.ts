@@ -9,6 +9,7 @@ export const PermissionTools = {
   NAVIGATE: 'navigate',
   READ_PAGE_CONTENT: 'read_page_content',
   UPLOAD_IMAGE: 'upload_image',
+  UPLOAD_FILE: 'upload_file',
   TYPE: 'type',
   CLICK: 'click',
   READ_CONSOLE_MESSAGES: 'read_console_messages',
