@@ -45,6 +45,11 @@ import { executeToolUses, type ReminderState } from './agentLoop/executeToolUses
 import { compactInLoop } from './agentLoop/compactInLoop';
 import { handleStreamError, type RetryState } from './agentLoop/handleStreamError';
 import { handleSendPromptError } from './agentLoop/handleSendPromptError';
+import {
+  deriveSidepanelGroupTitle,
+  ensureSidepanelManagedGroup,
+  updateSidepanelGroupTitle
+} from './agentLoop/sidepanelGroupTitle';
 
 // ─── Hook interface ────────────────────────────────────────────────────────────
 
@@ -341,8 +346,7 @@ export function useAgentLoop({
         );
 
         if (title) {
-          await tabGroupManager.initialize();
-          await tabGroupManager.updateGroupTitle(effectiveTabId, title, true);
+          await updateSidepanelGroupTitle(effectiveTabId, title, true);
         }
       } catch {
         // silently fail title generation
@@ -413,6 +417,7 @@ export function useAgentLoop({
       // for the duration of the turn. The matching active:false is sent in the
       // finally block below to dismiss the mask when the response completes.
       if (typeof executionTabId === 'number') {
+        await ensureSidepanelManagedGroup(executionTabId).catch(() => {});
         const sendTurnActive = () => {
           chrome.runtime
             .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: executionTabId, active: true })
@@ -473,6 +478,10 @@ export function useAgentLoop({
 
         // Generate title from first user message
         if (baseMessages.length === 0) {
+          if (typeof executionTabId === 'number') {
+            const fallbackTitle = deriveSidepanelGroupTitle(trimmed, intl.locale);
+            await updateSidepanelGroupTitle(executionTabId, fallbackTitle, true).catch(() => {});
+          }
           const lastMsg = workingMessages[workingMessages.length - 1];
           generateConversationTitle(lastMsg, executionTabId).catch(() => {});
         }

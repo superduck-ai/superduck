@@ -1,15 +1,20 @@
 import type { TabGroupManager } from './tabGroups';
-import { DEFAULT_SESSION_KEY, TAB_GROUP_MARKER } from './types';
-import { decorateGroupTitleForStatus } from './tabGroupAppearance';
+import { DEFAULT_SESSION_KEY, type GroupMetadata } from './types';
+import { decorateGroupTitleForStatus, markGroupTitle } from './tabGroupAppearance';
+
+function findManagedMetadataForTab(mgr: TabGroupManager, tabId: number): GroupMetadata | undefined {
+  const mainTabId = mgr.findMainTabIdSync(tabId);
+  return mainTabId !== undefined ? mgr.groupMetadata.get(mainTabId) : undefined;
+}
 
 export async function updateGroupTitle(
   mgr: TabGroupManager,
-  mainTabId: number,
+  tabId: number,
   title: string,
   isLoading = false
 ): Promise<void> {
-  if (!title || '' === title.trim()) return;
-  const meta = mgr.groupMetadata.get(mainTabId);
+  if (!title.trim()) return;
+  const meta = findManagedMetadataForTab(mgr, tabId);
   if (meta)
     try {
       if (isLoading && meta.status !== 'active') {
@@ -18,10 +23,13 @@ export async function updateGroupTitle(
       }
       const sessionId = meta.sessionId ?? DEFAULT_SESSION_KEY;
       const explicitName = mgr.sessionGroupTitles.get(sessionId);
-      const trimmedTitle = explicitName ?? title.trim();
-      const markedTitle = trimmedTitle.includes(TAB_GROUP_MARKER)
-        ? trimmedTitle
-        : `${TAB_GROUP_MARKER} ${trimmedTitle}`;
+      const requestedTitle = title.trim();
+      if (!explicitName && meta.title !== requestedTitle) {
+        meta.title = requestedTitle;
+        await mgr.saveToStorage();
+      }
+      const trimmedTitle = explicitName ?? requestedTitle;
+      const markedTitle = markGroupTitle(trimmedTitle);
       const statusTitle = decorateGroupTitleForStatus(markedTitle, meta.status);
       const displayTitle = explicitName
         ? statusTitle
@@ -43,11 +51,11 @@ export async function updateGroupTitle(
 
 export async function updateTabGroupPrefix(
   mgr: TabGroupManager,
-  mainTabId: number,
+  tabId: number,
   prefix: string | null,
   removePrefix?: string
 ): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, tabId);
   if (!meta) return;
   let retryCount = 0;
   const prefixPattern = /^(⌛|🔔|✅)/;
@@ -72,7 +80,7 @@ export async function updateTabGroupPrefix(
 }
 
 export async function addCompletionPrefix(mgr: TabGroupManager, mainTabId: number): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
   if (meta) {
     meta.status = 'completed';
     await mgr.saveToStorage();
@@ -81,7 +89,7 @@ export async function addCompletionPrefix(mgr: TabGroupManager, mainTabId: numbe
 }
 
 export async function addLoadingPrefix(mgr: TabGroupManager, mainTabId: number): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
   if (meta && meta.status !== 'active') {
     meta.status = 'active';
     await mgr.saveToStorage();
@@ -97,7 +105,7 @@ export async function removeCompletionPrefix(
   mgr: TabGroupManager,
   mainTabId: number
 ): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
   if (meta?.status === 'completed') {
     meta.status = 'active';
     await mgr.saveToStorage();
@@ -110,7 +118,7 @@ export async function setGroupColor(
   mainTabId: number,
   color: chrome.tabGroups.Color
 ): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
   if (!meta) return;
   try {
     await chrome.tabGroups.update(meta.chromeGroupId, { color });

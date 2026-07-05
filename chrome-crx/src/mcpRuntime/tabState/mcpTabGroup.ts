@@ -68,7 +68,7 @@ async function markManagedGroupActiveForSession(
   meta.sessionId = sessionId;
   meta.status = 'active';
   if (changed) await mgr.saveToStorage();
-  await applyGroupTitle(chromeGroupId, resolveGroupTitle(mgr, sessionId), 'active');
+  await applyGroupTitle(chromeGroupId, resolveBaseGroupTitle(mgr, sessionId, meta.title), 'active');
 }
 
 export async function addTabToIndicatorGroup(
@@ -175,7 +175,12 @@ export async function ensureMcpGroupCharacteristics(
     const group = await chrome.tabGroups.get(chromeGroupId);
     const meta = findMetadataByChromeGroupId(mgr, chromeGroupId);
     const metadataSessionId = meta?.sessionId ?? sessionId;
-    const desiredTitle = resolveGroupDisplayTitle(mgr, metadataSessionId, meta?.status);
+    const desiredTitle = resolveGroupDisplayTitle(
+      mgr,
+      metadataSessionId,
+      meta?.status,
+      meta?.title
+    );
     const desiredColor = resolveGroupDisplayColor(meta?.status);
     const titleOk = group.title === desiredTitle;
     const colorOk = group.color === desiredColor;

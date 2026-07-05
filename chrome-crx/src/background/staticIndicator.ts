@@ -308,7 +308,7 @@ export function createStaticIndicatorController() {
       return;
     }
     try {
-      await tabGroupManager.initialize();
+      await tabGroupManager.initialize(true);
       await clearTurnActiveDeadline(tabId);
       if (active) {
         const group = await findManagedGroupByTab(tabId);

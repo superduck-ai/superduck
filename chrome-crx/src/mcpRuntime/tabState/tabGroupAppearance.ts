@@ -10,11 +10,21 @@ export const COMPLETED_GROUP_PREFIX = '✅';
 
 const PREFIX_PATTERN = /^(⌛|🔔|✅)/;
 
-export function resolveBaseGroupTitle(mgr: TabGroupManager, sessionId?: string): string {
+export function markGroupTitle(title: string): string {
+  const trimmed = title.trim();
+  return trimmed.includes(TAB_GROUP_MARKER) ? trimmed : `${TAB_GROUP_MARKER} ${trimmed}`;
+}
+
+export function resolveBaseGroupTitle(
+  mgr: TabGroupManager,
+  sessionId?: string,
+  fallbackTitle?: string
+): string {
   const named = sessionId
     ? mgr.sessionGroupTitles.get(sessionId)
     : mgr.sessionGroupTitles.get(DEFAULT_SESSION_KEY);
-  return named ? `${TAB_GROUP_MARKER} ${named}` : TAB_GROUP_TITLE;
+  if (named) return markGroupTitle(named);
+  return fallbackTitle ? markGroupTitle(fallbackTitle) : TAB_GROUP_TITLE;
 }
 
 export function stripStatusPrefix(title: string): string {
@@ -32,9 +42,10 @@ export function decorateGroupTitleForStatus(
 export function resolveGroupDisplayTitle(
   mgr: TabGroupManager,
   sessionId?: string,
-  status?: GroupMetadata['status']
+  status?: GroupMetadata['status'],
+  fallbackTitle?: string
 ): string {
-  return decorateGroupTitleForStatus(resolveBaseGroupTitle(mgr, sessionId), status);
+  return decorateGroupTitleForStatus(resolveBaseGroupTitle(mgr, sessionId, fallbackTitle), status);
 }
 
 export function resolveGroupDisplayColor(status?: GroupMetadata['status']): chrome.tabGroups.Color {
@@ -46,10 +57,10 @@ export function resolveGroupDisplayColor(status?: GroupMetadata['status']): chro
 
 export function buildGroupAppearanceUpdate(
   mgr: TabGroupManager,
-  meta: Pick<GroupMetadata, 'sessionId' | 'status'>
+  meta: Pick<GroupMetadata, 'sessionId' | 'status' | 'title'>
 ): { title: string; color: chrome.tabGroups.Color } {
   return {
-    title: resolveGroupDisplayTitle(mgr, meta.sessionId, meta.status),
+    title: resolveGroupDisplayTitle(mgr, meta.sessionId, meta.status, meta.title),
     color: resolveGroupDisplayColor(meta.status)
   };
 }

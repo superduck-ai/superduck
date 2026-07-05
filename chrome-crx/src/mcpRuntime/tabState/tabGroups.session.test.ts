@@ -353,6 +353,48 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(group.title).toBe('⌛🦆 auto again');
   });
 
+  it('updateGroupTitle accepts a managed member tab id', async () => {
+    const ctx = await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true });
+    const mainTabId = ctx?.currentTabId;
+    expect(mainTabId).toBeDefined();
+
+    const child = await chrome.tabs.create({
+      url: 'https://example.com/child',
+      active: false
+    });
+    await tabGroupManager.addTabToGroup(mainTabId as number, child.id!, {
+      origin: 'agent'
+    });
+
+    chromeMock.tabGroups.update.mockClear();
+    await tabGroupManager.updateGroupTitle(child.id!, 'child task', true);
+
+    const group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
+    expect(group.title).toBe('⌛🦆 child task');
+    expect(chromeMock.tabGroups.update).toHaveBeenCalledWith(
+      ctx?.tabGroupId,
+      expect.objectContaining({ title: '⌛🦆 child task' })
+    );
+  });
+
+  it('preserves an automatic task title when a write tool refreshes group appearance', async () => {
+    const ctx = await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true });
+    const mainTabId = ctx?.currentTabId;
+    expect(mainTabId).toBeDefined();
+
+    await tabGroupManager.updateGroupTitle(mainTabId as number, 'research task', true);
+    chromeMock.tabGroups.update.mockClear();
+
+    await tabGroupManager.resolveTabForContext(undefined, mainTabId as number, {
+      browserSessionScope: { sessionId: '__default__' },
+      tabAccess: 'write'
+    });
+
+    const group = await chrome.tabGroups.get(ctx?.tabGroupId as number);
+    expect(group.title).toBe('🦆 research task');
+    expect(group.title).not.toBe('🦆SuperDuck');
+  });
+
   it('updateGroupTitle starts a new active turn from a completed projection', async () => {
     const ctx = await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true });
     const mainTabId = ctx?.currentTabId as number;

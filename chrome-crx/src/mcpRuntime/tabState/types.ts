@@ -19,6 +19,7 @@ export interface GroupMetadata {
   createdAt: number;
   domain: string;
   chromeGroupId: number;
+  title?: string;
   memberStates: Map<number, MemberState>;
   sessionId?: string;
   status?: 'active' | 'handoff' | 'completed';
