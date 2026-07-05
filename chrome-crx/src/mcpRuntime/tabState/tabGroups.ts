@@ -406,7 +406,7 @@ export class TabGroupManager {
   async getTabForMcp(
     tabId?: number,
     tabGroupId?: number,
-    options?: { sessionId?: string; claimUnleased?: boolean }
+    options?: { sessionId?: string; claimUnleased?: boolean; source?: string }
   ): Promise<{ tabId: number | undefined; domain?: string; url?: string }> {
     return mcp.getTabForMcp(this, tabId, tabGroupId, options);
   }
