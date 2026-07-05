@@ -50,6 +50,10 @@ const {
   restoreActiveToolContextsFromStorage
 } = await import('./toolContextState');
 
+async function flushMicrotasks(times = 4): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
 describe('toolContextState idle debugger timers', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -75,7 +79,8 @@ describe('toolContextState idle debugger timers', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await flushMicrotasks(50);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -100,6 +105,7 @@ describe('toolContextState idle debugger timers', () => {
     vi.setSystemTime(1_000);
 
     await startToolContext(7, 'read_page', 'req-1', vi.fn());
+    await flushMicrotasks();
 
     expect(fixtures.setStorageValue).toHaveBeenCalledWith('toolContextDeadlines', {
       idleCleanup: {},
@@ -153,6 +159,7 @@ describe('toolContextState idle debugger timers', () => {
     await startToolContext(7, 'click', 'new-req', vi.fn());
     resumeRemovePrefix();
     await alarmPromise;
+    await flushMicrotasks();
 
     expect(hasActiveToolContext(7)).toBe(true);
     expect(fixtures.hideAgentIndicatorsForTab).not.toHaveBeenCalled();
@@ -173,7 +180,6 @@ describe('toolContextState idle debugger timers', () => {
 
   it('does not resurrect a deleted active-context deadline from stale storage', async () => {
     vi.setSystemTime(1_000);
-    fixtures.setStorageValue.mockReturnValue(new Promise<void>(() => {}));
     fixtures.getStorageValue.mockImplementation(async (key: string) => {
       if (key === 'toolContextDeadlines') {
         return {
@@ -239,6 +245,7 @@ describe('toolContextState idle debugger timers', () => {
     });
 
     await restoreActiveToolContextsFromStorage();
+    await flushMicrotasks();
 
     expect(hasActiveToolContext(7)).toBe(true);
     expect(hasActiveToolContext(8)).toBe(false);
