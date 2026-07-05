@@ -135,7 +135,8 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     if (!skipTabLookup) {
       const tabInfo = await tabGroupManager.getTabForMcp(options.tabId, options.tabGroupId, {
         sessionId: browserScope.sessionId,
-        claimUnleased: toolTabAccess === 'write'
+        claimUnleased: toolTabAccess === 'write',
+        source: options.source
       });
       tabId = tabInfo.tabId;
       domain = tabInfo.domain;

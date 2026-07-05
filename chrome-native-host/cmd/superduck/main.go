@@ -489,8 +489,8 @@ func warnSharedSessionOnce() {
 		return
 	}
 	sharedSessionWarned = true
-	fmt.Fprintln(os.Stderr, "superduck: using a shared default session id; concurrent tasks will share one tab group.")
-	fmt.Fprintln(os.Stderr, "           mint a per-task id with `superduck session new` and pass --session <id> (or export SUPERDUCK_SESSION_ID).")
+	fmt.Fprintln(os.Stderr, "superduck: using a per-shell default session id; commands in the same shell share one tab group.")
+	fmt.Fprintln(os.Stderr, "           concurrent shells are isolated; for strict per-task isolation mint an id with `superduck session new` and pass --session <id>.")
 }
 
 func resolvedBrowserSession() (string, bool) {
@@ -507,25 +507,11 @@ func resolvedBrowserSession() (string, bool) {
 			fmt.Fprintf(os.Stderr, "superduck: SUPERDUCK_SESSION_FILE=%q unusable: %v\n", v, err)
 		}
 	}
-	if id, err := defaultCLISessionID(); err == nil && id != "" {
-		return id, false
-	}
+	// Default: a per-shell session id keyed by parent pid. Concurrent shells
+	// (different ppid) isolate naturally; commands within the same shell share
+	// one tab group (expected reuse). Mint an explicit per-task id with
+	// `superduck session new` for strict isolation.
 	return fmt.Sprintf("cli:ppid:%d", os.Getppid()), false
-}
-
-func defaultCLISessionID() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return defaultCLISessionIDInHome(home)
-}
-
-func defaultCLISessionIDInHome(home string) (string, error) {
-	if home == "" {
-		return "", fmt.Errorf("cannot determine home directory for session id file")
-	}
-	return readOrCreateSessionIDFile(filepath.Join(home, ".superduck", "cli-session-id"))
 }
 
 func readOrCreateSessionIDFile(path string) (string, error) {

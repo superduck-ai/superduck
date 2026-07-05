@@ -269,8 +269,8 @@ func TestResolvedBrowserSessionFallback(t *testing.T) {
 	clearBrowserSessionEnv(t)
 
 	first, explicit := resolvedBrowserSession()
-	if first == "" || !strings.HasPrefix(first, "cli:file:") {
-		t.Fatalf("resolvedBrowserSession() fallback = %q, want cli:file id", first)
+	if first == "" || !strings.HasPrefix(first, "cli:ppid:") {
+		t.Fatalf("resolvedBrowserSession() fallback = %q, want cli:ppid id", first)
 	}
 	if explicit {
 		t.Fatalf("resolvedBrowserSession() explicit = %v, want false for default fallback", explicit)
@@ -328,8 +328,8 @@ func TestResolvedBrowserSessionWarnsWhenSessionFileIsUnusable(t *testing.T) {
 		id, explicit = resolvedBrowserSession()
 	})
 
-	if id == "" || !strings.HasPrefix(id, "cli:file:") {
-		t.Fatalf("resolvedBrowserSession() id = %q, want fallback cli:file id", id)
+	if id == "" || !strings.HasPrefix(id, "cli:ppid:") {
+		t.Fatalf("resolvedBrowserSession() id = %q, want fallback cli:ppid id", id)
 	}
 	if explicit {
 		t.Fatal("resolvedBrowserSession() explicit = true, want false for fallback")
@@ -464,12 +464,6 @@ func TestReadOrCreateSessionIDFilePermissions(t *testing.T) {
 	}
 }
 
-func TestDefaultCLISessionIDRejectsEmptyHome(t *testing.T) {
-	if _, err := defaultCLISessionIDInHome(""); err == nil {
-		t.Fatal("defaultCLISessionIDInHome(\"\") error = nil, want error")
-	}
-}
-
 func TestClientOptsExplicitSessionDoesNotWarn(t *testing.T) {
 	withCLIFlags(t, globalFlags{
 		SocketPath: "/tmp/custom.sock",
@@ -509,13 +503,13 @@ func TestClientOptsDefaultSessionWarnsOnce(t *testing.T) {
 		second = clientOpts()
 	})
 
-	if first.SessionID == "" || !strings.HasPrefix(first.SessionID, "cli:file:") {
-		t.Fatalf("first SessionID = %q, want cli:file fallback", first.SessionID)
+	if first.SessionID == "" || !strings.HasPrefix(first.SessionID, "cli:ppid:") {
+		t.Fatalf("first SessionID = %q, want cli:ppid fallback", first.SessionID)
 	}
 	if second.SessionID != first.SessionID {
 		t.Fatalf("second SessionID = %q, want same as first %q", second.SessionID, first.SessionID)
 	}
-	if got := strings.Count(stderr, "using a shared default session id"); got != 1 {
+	if got := strings.Count(stderr, "using a per-shell default session id"); got != 1 {
 		t.Fatalf("shared-session warning count = %d, want 1; stderr=%q", got, stderr)
 	}
 }

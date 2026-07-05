@@ -46,6 +46,13 @@ function resolveMcpScope(options?: { sessionId?: string }): BrowserSessionScope 
   return resolveBrowserSessionScope(options) ?? { sessionId: DEFAULT_BROWSER_SESSION_ID };
 }
 
+// CLI/MCP 调用来源：native-messaging(CLI 经 native-host)与 bridge(MCP WebSocket)。
+// 这类来源是闭环自动化,操作必须在 session 的 MCP group 内;sidepanel 无 source
+// 走原逻辑(允许协助操作用户已有的任意 tab)。
+function isCliMcpSource(source: string | undefined): boolean {
+  return source === 'bridge' || source === 'native-messaging';
+}
+
 async function resolveManagedChromeGroupId(
   mgr: TabGroupManager,
   chromeGroupId: number | undefined,
@@ -84,7 +91,7 @@ export async function getTabForMcp(
   mgr: TabGroupManager,
   tabId?: number,
   tabGroupId?: number,
-  options: { sessionId?: string; claimUnleased?: boolean } = {}
+  options: { sessionId?: string; claimUnleased?: boolean; source?: string } = {}
 ): Promise<{ tabId: number | undefined; domain?: string; url?: string }> {
   const scope = resolveMcpScope(options);
   const claimUnleased = options.claimUnleased !== false;
@@ -101,6 +108,56 @@ export async function getTabForMcp(
       const existingLease = await tabLeaseManager.getLease(tabId);
       if (existingLease && existingLease.sessionId !== scope.sessionId) {
         throw new BrowserSessionConflictError(tabId, existingLease.sessionId);
+      }
+      if (isCliMcpSource(options.source) && typeof managedGroupId !== 'number') {
+        // CLI/MCP 闭环:散落 tab(不在受管 group)操作前先纳入当前 session 的 MCP group,
+        // 避免操作落在 group 外(典型场景:finalize 后用旧 tab id 继续 turn)。
+        const existing = await getSessionMcpTabContext(mgr, scope, false);
+        let groupId: number;
+        if (existing) {
+          const meta = findMetadataByChromeGroupId(mgr, existing.tabGroupId);
+          await mgr.addTabToGroup(meta?.mainTabId ?? existing.currentTabId, tabId, {
+            origin: 'agent',
+            sessionId: scope.sessionId
+          });
+          // addTabToGroup 吞掉除 BrowserSessionConflictError 外的错误
+          // (tabGroupLifecycle.ts:120 的外层 catch // ignore), 这里必须校验 tab 真的进了
+          // group, 否则归组失败仍会落到"裸操作散落 tab"的原问题。
+          const relocated = await chrome.tabs.get(tabId);
+          if (
+            relocated.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE ||
+            relocated.groupId !== existing.tabGroupId
+          ) {
+            throw new Error(
+              `Failed to regroup tab ${tabId} into session group ${existing.tabGroupId}`
+            );
+          }
+          groupId = existing.tabGroupId;
+        } else {
+          // session 无 group:用散落 tab 本身作种子建新 group,不另开空白 newtab。
+          const created = await mgr.createGroup(tabId, { origin: 'agent' });
+          created.sessionId = scope.sessionId;
+          created.status = 'active';
+          const createdMeta = mgr.groupMetadata.get(created.mainTabId);
+          if (createdMeta) {
+            createdMeta.sessionId = scope.sessionId;
+            createdMeta.status = 'active';
+            await mgr.saveToStorage();
+          }
+          await applyGroupTitle(
+            created.chromeGroupId,
+            resolveGroupTitle(mgr, scope.sessionId),
+            'active'
+          );
+          await tabLeaseManager.claimTab(scope.sessionId, tabId, 'agent', {
+            groupId: created.chromeGroupId
+          });
+          groupId = created.chromeGroupId;
+        }
+        if (claimUnleased) {
+          await markManagedGroupActiveForSession(mgr, groupId, scope.sessionId);
+        }
+        return { tabId, ...getTabRuntimeInfo(tab) };
       }
       const memberOrigin = group?.memberStates.get(tabId)?.origin;
       const shouldClaimUnleased = claimUnleased && !existingLease;

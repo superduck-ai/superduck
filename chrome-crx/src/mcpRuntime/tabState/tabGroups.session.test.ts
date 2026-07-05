@@ -1740,4 +1740,123 @@ describe('TabGroupManager session-scoped MCP leases', () => {
 
     expect(found).toBeUndefined();
   });
+
+  it('CLI/MCP source auto-groups a stale unmanaged tab into the session group', async () => {
+    const ctx = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'cli:x'
+    });
+    await tabGroupManager.finalizeMcpTabGroup({ sessionId: 'cli:x' });
+    const staleTab = ctx!.currentTabId;
+    // finalize(omit) 后 tab 脱组散落
+    expect(chromeMock.tabsById.get(staleTab)?.groupId).toBe(-1);
+
+    const tabInfo = await tabGroupManager.getTabForMcp(staleTab, undefined, {
+      sessionId: 'cli:x',
+      claimUnleased: true,
+      source: 'native-messaging'
+    });
+
+    expect(tabInfo.tabId).toBe(staleTab);
+    const lease = await tabLeaseManager.getLease(staleTab);
+    expect(typeof lease?.groupId).toBe('number');
+    expect(chromeMock.tabs.group).toHaveBeenCalledWith(
+      expect.objectContaining({ tabIds: [staleTab] })
+    );
+    const resumed = await tabGroupManager.getOrCreateMcpTabContext({ sessionId: 'cli:x' });
+    expect(resumed?.availableTabs.map((t) => t.id)).toContain(staleTab);
+  });
+
+  it('sidepanel (no source) leaves a stale tab ungrouped — preserves existing behavior', async () => {
+    const ctx = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'cli:x'
+    });
+    await tabGroupManager.finalizeMcpTabGroup({ sessionId: 'cli:x' });
+    const staleTab = ctx!.currentTabId;
+    chromeMock.tabs.group.mockClear();
+
+    const tabInfo = await tabGroupManager.getTabForMcp(staleTab, undefined, {
+      sessionId: 'cli:x',
+      claimUnleased: true
+      // 故意不传 source —— 模拟 sidepanel
+    });
+
+    expect(tabInfo.tabId).toBe(staleTab);
+    const lease = await tabLeaseManager.getLease(staleTab);
+    expect(lease?.groupId).toBeUndefined();
+    expect(chromeMock.tabs.group).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tabIds: [staleTab] })
+    );
+  });
+
+  it('CLI/MCP source still rejects a tab leased by another session', async () => {
+    const otherTab = await chrome.tabs.create({
+      url: 'https://other.test/',
+      active: false
+    });
+    await tabLeaseManager.claimTab('cli:b', otherTab.id!, 'agent');
+
+    await expect(
+      tabGroupManager.getTabForMcp(otherTab.id, undefined, {
+        sessionId: 'cli:a',
+        claimUnleased: true,
+        source: 'native-messaging'
+      })
+    ).rejects.toThrow('already part of browser session cli:b');
+  });
+
+  it('CLI/MCP source regroups a stale tab into an EXISTING session group (turn2 lists first)', async () => {
+    // turn1: 建 G1 + finalize(omit) → tab 散落
+    const ctx1 = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'cli:x'
+    });
+    await tabGroupManager.finalizeMcpTabGroup({ sessionId: 'cli:x' });
+    const staleTab = ctx1!.currentTabId;
+    expect(chromeMock.tabsById.get(staleTab)?.groupId).toBe(-1);
+
+    // turn2: 先 list 建新 group G2(session 现有 group), G2 含一个新 tab 而非旧 tab
+    const ctx2 = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'cli:x'
+    });
+    expect(ctx2!.currentTabId).not.toBe(staleTab);
+
+    // 用旧散落 tab 操作 → existing 分支:归入 G2
+    const tabInfo = await tabGroupManager.getTabForMcp(staleTab, undefined, {
+      sessionId: 'cli:x',
+      claimUnleased: true,
+      source: 'native-messaging'
+    });
+
+    expect(tabInfo.tabId).toBe(staleTab);
+    expect(chromeMock.tabsById.get(staleTab)?.groupId).toBe(ctx2!.tabGroupId);
+    const lease = await tabLeaseManager.getLease(staleTab);
+    expect(lease?.groupId).toBe(ctx2!.tabGroupId);
+  });
+
+  it('CLI/MCP regroup throws (never operates stale tab) when addTabToGroup fails', async () => {
+    const ctx1 = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'cli:x'
+    });
+    await tabGroupManager.finalizeMcpTabGroup({ sessionId: 'cli:x' });
+    const staleTab = ctx1!.currentTabId;
+    // turn2 先建 G2
+    await tabGroupManager.getOrCreateMcpTabContext({ createIfEmpty: true, sessionId: 'cli:x' });
+
+    // 让 addTabToGroup 内的 chrome.tabs.group 失败(addTabToGroup 会吞掉这个非 Conflict 错误)
+    chromeMock.tabs.group.mockRejectedValueOnce(new Error('chrome.tabs.group failed'));
+
+    await expect(
+      tabGroupManager.getTabForMcp(staleTab, undefined, {
+        sessionId: 'cli:x',
+        claimUnleased: true,
+        source: 'native-messaging'
+      })
+    ).rejects.toThrow();
+    // 归组失败 → 旧 tab 仍散落, 不被裸操作
+    expect(chromeMock.tabsById.get(staleTab)?.groupId).toBe(-1);
+  });
 });
