@@ -528,6 +528,7 @@ export function useSidepanelState() {
     lightningResult,
     preservedTranscriptTabId,
     queryTabId: query.tabId,
+    activeSessionId,
     sendPrompt,
     lockedTabIdRef,
     agentStartedTabIdRef,

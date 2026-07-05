@@ -5,6 +5,7 @@ import { cdpDebugger } from '../cdp';
 import { captureAnnotatedScreenshot } from '../screenshot/annotatedScreenshot';
 import type { ToolContext, ToolDefinition, ToolResult } from '../pageTools';
 import {
+  closeTabIfPresent,
   createPolicyCheckedChildTab,
   filterPolicyAllowedTabs,
   moveSearchNavigationToNewTab
@@ -104,6 +105,62 @@ function isTabStillOpening(tab: chrome.tabs.Tab): boolean {
   return !!tab.pendingUrl || !tab.url || tab.url === 'about:blank' || tab.status === 'loading';
 }
 
+/**
+ * 宽扫:在快照之后、本窗内,找一个「仍在导航中」的新 tab。window.open 触发的
+ * 浏览器 popup 有时 openerTabId 缺失或还在 about:blank/重定向,精确匹配认不出,
+ * 这里兜底把它认出来交给上层复用,避免工具又 chrome.tabs.create 第二个
+ * (治「点击开两个网页」)。
+ */
+async function scanPendingPopupTab(snapshot: TabWindowSnapshot): Promise<number | undefined> {
+  if (typeof chrome.tabs.query !== 'function') return undefined;
+  try {
+    const tabs = await chrome.tabs.query(
+      typeof snapshot.windowId === 'number' ? { windowId: snapshot.windowId } : {}
+    );
+    const pending = tabs.find(
+      (t) => typeof t.id === 'number' && !snapshot.tabIds.has(t.id) && isTabStillOpening(t)
+    );
+    return typeof pending?.id === 'number' ? pending.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 兜底去重:点击后若 window 里新 tab 比工具认领的多(浏览器因 window.open 也
+ * 开了 popup,但延迟出现/重定向中没被认领 → 孤儿),等 popup 加载、url 稳定后,
+ * 把与工具认领 tab 同 url 的孤儿关掉(保留工具认领的那个)。治「点击开两个/
+ * 三个网页」——前面所有"找 popup 复用"的尝试都依赖时机,这条是终局兜底。
+ */
+async function dedupeOrphanTabs(
+  windowId: number | undefined,
+  recognizedTabIds: number[]
+): Promise<void> {
+  if (typeof windowId !== 'number') return;
+  // 等 popup 跳转链走完、url 稳定再比(太早比会卡在 about:blank/中间页)。
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  let tabs: chrome.tabs.Tab[];
+  try {
+    tabs = await chrome.tabs.query({ windowId });
+  } catch {
+    return;
+  }
+  const recognized = new Set(recognizedTabIds);
+  const recognizedUrls = new Set(
+    tabs
+      .filter((t) => typeof t.id === 'number' && recognized.has(t.id) && t.url)
+      .map((t) => t.url as string)
+  );
+  if (recognizedUrls.size === 0) return;
+  for (const t of tabs) {
+    if (typeof t.id !== 'number' || recognized.has(t.id)) continue;
+    const u = t.url || t.pendingUrl;
+    if (u && recognizedUrls.has(u)) {
+      await closeTabIfPresent(t.id);
+    }
+  }
+}
+
 function isRecentSnapshotTab(tab: chrome.tabs.Tab, snapshot: TabWindowSnapshot): boolean {
   const lastAccessed = tab.lastAccessed;
   if (typeof lastAccessed !== 'number' || !Number.isFinite(lastAccessed)) return false;
@@ -195,6 +252,17 @@ async function createTabsForWindowOpenEvents(
           600
         );
         allowUnlinkedExistingTab = typeof existingTabId === 'number';
+      }
+      // 修复(点击开两个网页):window.open 已让浏览器开了一个 popup,但它
+      // openerTabId 缺失或还在 about:blank/重定向,上面的精确匹配没命中。
+      // 再按「快照后新出现 + 仍在导航中」宽扫一次,命中就复用浏览器那个
+      // popup,绝不 chrome.tabs.create 第二个。
+      if (typeof existingTabId !== 'number') {
+        const scanned = await scanPendingPopupTab(preActionSnapshot);
+        if (typeof scanned === 'number') {
+          existingTabId = scanned;
+          allowUnlinkedExistingTab = true;
+        }
       }
       const tabId =
         typeof existingTabId === 'number'
@@ -549,6 +617,23 @@ export const computerTool: ToolDefinition<ComputerToolParams> = {
           for (const tabId of searchTabIds) {
             if (!adoptedTabIds.includes(tabId)) adoptedTabIds.push(tabId);
           }
+        }
+        // 兜底去重:浏览器因 window.open 也开了 popup 却没被认领时,等 url 稳定后
+        // 关闭与工具认领 tab 同 url 的孤儿(保留工具开的那个)。
+        try {
+          const postTabs = await chrome.tabs.query(
+            typeof preActionSnapshot.windowId === 'number'
+              ? { windowId: preActionSnapshot.windowId }
+              : {}
+          );
+          const newTabs = postTabs.filter(
+            (t) => typeof t.id === 'number' && !preActionSnapshot.tabIds.has(t.id)
+          );
+          if (newTabs.length > adoptedTabIds.length) {
+            void dedupeOrphanTabs(preActionSnapshot.windowId, adoptedTabIds).catch(() => {});
+          }
+        } catch {
+          // 查询失败不影响主流程
         }
         if (adoptedTabIds.length > 0) {
           openedTabIdsForContext = adoptedTabIds;
