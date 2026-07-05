@@ -75,3 +75,6 @@ export function resolveFileUploadRefTarget(
 
   return { fileInput, clickTarget };
 }
+
+/** Serialized for injection into page scripts (executeScript cannot import modules). */
+export const resolveFileUploadRefTargetSource = resolveFileUploadRefTarget.toString();

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveFileUploadRefTarget } from './fileUploadRefTarget';
+import {
+  resolveFileUploadRefTarget,
+  resolveFileUploadRefTargetSource
+} from './fileUploadRefTarget';
 
 type MockInput = {
   tagName: string;
@@ -130,5 +133,15 @@ describe('resolveFileUploadRefTarget', () => {
     expect(resolveFileUploadRefTarget(div, 1)).toMatchObject({
       error: expect.stringMatching(/No file input found/i)
     });
+  });
+
+  it('matches the injected page-script resolver source', () => {
+    const input = asElement({ tagName: 'INPUT', type: 'file' });
+    const resolveInPage = (
+      new Function(
+        `return (${resolveFileUploadRefTargetSource})`
+      ) as () => typeof resolveFileUploadRefTarget
+    )();
+    expect(resolveInPage(input, 1)).toEqual(resolveFileUploadRefTarget(input, 1));
   });
 });

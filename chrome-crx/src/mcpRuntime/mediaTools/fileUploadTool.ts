@@ -2,6 +2,7 @@ import { PermissionTools, checkUrlSecurity } from '../domainPermissions';
 import { tabGroupManager } from '../tabState';
 import type { ToolDefinition, ToolResult } from '../pageTools';
 import type { FileUploadToolInput } from './types';
+import { resolveFileUploadRefTargetSource } from './fileUploadRefTarget';
 import { validateUploadPaths } from './fileUploadValidation';
 
 const FILE_UPLOAD_DESCRIPTION =
@@ -12,6 +13,8 @@ const REF_PARAM_DESCRIPTION =
 
 const COORDINATE_PARAM_DESCRIPTION =
   'Viewport [x, y] of a button/label that opens the native file picker (mode 2). Mutually exclusive with `ref`.';
+
+const DEBUGGER_API_TIMEOUT_MS = 3000;
 
 interface FileChooserOpenedParams {
   frameId?: string;
@@ -25,18 +28,43 @@ interface ResolveRefScriptResult {
   separateClickTarget?: boolean;
 }
 
+interface CdpDocumentResult {
+  root?: { nodeId?: number };
+}
+
+interface CdpQuerySelectorResult {
+  nodeId?: number;
+}
+
+interface CdpBoxModelResult {
+  model?: { content?: number[] };
+}
+
+interface CdpDescribeNodeResult {
+  node?: { backendNodeId?: number };
+}
+
+interface FileChooserWaitHandle {
+  promise: Promise<FileChooserOpenedParams>;
+  dispose: () => void;
+}
+
 // Self-contained CDP helper: attach, run commands, detach. We avoid the shared
 // cdpDebugger singleton here because its lazy auto-attach path times out when
 // file_upload is the first CDP tool in a sidepanel session (the tab lock /
 // isDebuggerAttached check interacts badly with the test profile). A fresh
 // attach/detach per call is reliable and matches how the working CDP probe
 // operates.
-function sendCdp(tabId: number, method: string, params?: Record<string, unknown>): Promise<any> {
+function sendCdp<T = unknown>(
+  tabId: number,
+  method: string,
+  params?: Record<string, unknown>
+): Promise<T> {
   return new Promise((resolve, reject) => {
     chrome.debugger.sendCommand({ tabId }, method, params ?? {}, (result) => {
       const err = chrome.runtime.lastError;
       if (err) reject(new Error(err.message));
-      else resolve(result);
+      else resolve(result as T);
     });
   });
 }
@@ -48,7 +76,40 @@ function isNotAllowedCdpError(err: unknown): boolean {
   return /Not allowed/i.test(msg);
 }
 
-function attachOnce(tabId: number, timeoutMs = 3000): Promise<void> {
+function isValidCoordinate(coord: unknown): coord is [number, number] {
+  return (
+    Array.isArray(coord) &&
+    2 === coord.length &&
+    'number' === typeof coord[0] &&
+    'number' === typeof coord[1] &&
+    Number.isFinite(coord[0]) &&
+    Number.isFinite(coord[1])
+  );
+}
+
+function isDebuggerAttached(tabId: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(false);
+    }, DEBUGGER_API_TIMEOUT_MS);
+    chrome.debugger.getTargets((targets) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (chrome.runtime.lastError || !Array.isArray(targets)) {
+        resolve(false);
+        return;
+      }
+      const target = targets.find((t) => t.tabId === tabId);
+      resolve(target?.attached ?? false);
+    });
+  });
+}
+
+function attachOnce(tabId: number, timeoutMs = DEBUGGER_API_TIMEOUT_MS): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -89,12 +150,20 @@ function detachDebugger(tabId: number): Promise<void> {
   return new Promise((resolve) => chrome.debugger.detach({ tabId }, () => resolve()));
 }
 
+async function resetFileChooserIntercept(tabId: number): Promise<void> {
+  await sendCdp(tabId, 'Page.enable').catch(() => {});
+  await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {});
+}
+
 async function withDebugger<T>(tabId: number, fn: () => Promise<T>): Promise<T> {
-  await attachDebugger(tabId);
+  const wasAttached = await isDebuggerAttached(tabId);
+  if (!wasAttached) await attachDebugger(tabId);
   try {
+    await resetFileChooserIntercept(tabId);
     return await fn();
   } finally {
-    await detachDebugger(tabId);
+    await resetFileChooserIntercept(tabId);
+    if (!wasAttached) await detachDebugger(tabId);
   }
 }
 
@@ -107,21 +176,33 @@ function dispatchClick(tabId: number, x: number, y: number): Promise<void> {
   );
 }
 
-function waitForFileChooser(tabId: number, timeoutMs = 5000): Promise<FileChooserOpenedParams> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.debugger.onEvent.removeListener(handler);
+function waitForFileChooser(tabId: number, timeoutMs = 5000): FileChooserWaitHandle {
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let handler: (source: chrome.debugger.Debuggee, method: string, params?: object) => void;
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (timer) clearTimeout(timer);
+    if (handler) chrome.debugger.onEvent.removeListener(handler);
+  };
+
+  const promise = new Promise<FileChooserOpenedParams>((resolve, reject) => {
+    timer = setTimeout(() => {
+      dispose();
       reject(new Error(`file chooser did not open within ${timeoutMs}ms`));
     }, timeoutMs);
-    const handler = (source: chrome.debugger.Debuggee, method: string, params?: object) => {
+    handler = (source: chrome.debugger.Debuggee, method: string, params?: object) => {
       if (source.tabId === tabId && method === 'Page.fileChooserOpened' && params) {
-        clearTimeout(timer);
-        chrome.debugger.onEvent.removeListener(handler);
+        dispose();
         resolve(params as FileChooserOpenedParams);
       }
     };
     chrome.debugger.onEvent.addListener(handler);
   });
+
+  return { promise, dispose };
 }
 
 async function interceptAndSetFiles(
@@ -131,10 +212,10 @@ async function interceptAndSetFiles(
 ): Promise<{ error?: string }> {
   await sendCdp(tabId, 'Page.enable');
   await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: true });
+  const chooserHandle = waitForFileChooser(tabId);
   try {
-    const chooserPromise = waitForFileChooser(tabId);
     await dispatchClick(tabId, coordinate[0], coordinate[1]);
-    const chooser = await chooserPromise;
+    const chooser = await chooserHandle.promise;
     if (!chooser.backendNodeId) {
       return { error: 'file chooser opened but no backendNodeId was provided' };
     }
@@ -144,30 +225,32 @@ async function interceptAndSetFiles(
       backendNodeId: chooser.backendNodeId
     });
     return {};
+  } catch (err) {
+    chooserHandle.dispose();
+    throw err;
   } finally {
+    chooserHandle.dispose();
     await sendCdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {});
+    await sendCdp(tabId, 'DOM.disable').catch(() => {});
+    await sendCdp(tabId, 'Page.disable').catch(() => {});
   }
 }
 
 async function queryNodeId(tabId: number, selector: string): Promise<number> {
-  const doc = (await sendCdp(tabId, 'DOM.getDocument', { depth: 0 })) as {
-    root?: { nodeId?: number };
-  };
+  const doc = await sendCdp<CdpDocumentResult>(tabId, 'DOM.getDocument', { depth: 0 });
   const rootId = doc?.root?.nodeId;
   if (!rootId) throw new Error('DOM.getDocument returned no root nodeId');
-  const queried = (await sendCdp(tabId, 'DOM.querySelector', {
+  const queried = await sendCdp<CdpQuerySelectorResult>(tabId, 'DOM.querySelector', {
     nodeId: rootId,
     selector
-  })) as { nodeId?: number };
+  });
   const nodeId = queried?.nodeId;
   if (!nodeId) throw new Error(`Element not found for selector: ${selector}`);
   return nodeId;
 }
 
 async function getElementCenter(tabId: number, nodeId: number): Promise<[number, number]> {
-  const boxModel = (await sendCdp(tabId, 'DOM.getBoxModel', { nodeId })) as {
-    model?: { content?: number[] };
-  };
+  const boxModel = await sendCdp<CdpBoxModelResult>(tabId, 'DOM.getBoxModel', { nodeId });
   const content = boxModel?.model?.content;
   if (!content || content.length < 8) {
     throw new Error('DOM.getBoxModel returned no usable content quad');
@@ -178,9 +261,10 @@ async function getElementCenter(tabId: number, nodeId: number): Promise<[number,
 }
 
 async function resolveBackendNodeId(tabId: number, nodeId: number): Promise<number> {
-  const described = (await sendCdp(tabId, 'DOM.describeNode', { nodeId, depth: 0 })) as {
-    node?: { backendNodeId?: number };
-  };
+  const described = await sendCdp<CdpDescribeNodeResult>(tabId, 'DOM.describeNode', {
+    nodeId,
+    depth: 0
+  });
   const backendNodeId = described?.node?.backendNodeId;
   if (!backendNodeId) throw new Error('DOM.describeNode returned no backendNodeId');
   return backendNodeId;
@@ -197,7 +281,15 @@ async function setFileInputFilesByNodeId(
     await sendCdp(tabId, 'DOM.setFileInputFiles', { files: paths, backendNodeId });
   } catch (err) {
     if (!isNotAllowedCdpError(err)) throw err;
-    const center = await getElementCenter(tabId, clickNodeId);
+    let center: [number, number];
+    try {
+      center = await getElementCenter(tabId, clickNodeId);
+    } catch {
+      throw new Error(
+        'Direct setFileInputFiles was blocked and the file input has no visible click target for picker fallback. Use `coordinate` with a visible button/label, or ref a visible label/button that controls the hidden input.',
+        { cause: err }
+      );
+    }
     const fallback = await interceptAndSetFiles(tabId, center, paths);
     if (fallback.error) throw new Error(fallback.error, { cause: err });
   }
@@ -211,20 +303,31 @@ async function setFileInputFilesBySelectors(
 ): Promise<void> {
   await withDebugger(tabId, async () => {
     await sendCdp(tabId, 'DOM.enable');
-    const uploadNodeId = await queryNodeId(tabId, uploadSelector);
-    const clickNodeId =
-      uploadSelector === clickSelector ? uploadNodeId : await queryNodeId(tabId, clickSelector);
-    await setFileInputFilesByNodeId(tabId, uploadNodeId, clickNodeId, paths);
+    try {
+      const uploadNodeId = await queryNodeId(tabId, uploadSelector);
+      const clickNodeId =
+        uploadSelector === clickSelector ? uploadNodeId : await queryNodeId(tabId, clickSelector);
+      await setFileInputFilesByNodeId(tabId, uploadNodeId, clickNodeId, paths);
+    } finally {
+      await sendCdp(tabId, 'DOM.disable').catch(() => {});
+    }
   });
 }
 
-// Keep in sync with resolveFileUploadRefTarget() in fileUploadRefTarget.ts.
 function resolveFileUploadRefInPage(
   refId: string,
   uploadAttr: string,
   clickAttr: string,
-  pathCount: number
+  pathCount: number,
+  resolveFnSource: string
 ): ResolveRefScriptResult {
+  const resolveFileUploadRefTarget = (
+    new Function(`return (${resolveFnSource})`) as () => (
+      element: Element,
+      count: number
+    ) => { error: string } | { fileInput: HTMLInputElement; clickTarget: Element }
+  )();
+
   const pageWindow = window as Window & {
     __superduckElementMap?: Record<string, WeakRef<Element>>;
   };
@@ -241,77 +344,33 @@ function resolveFileUploadRefInPage(
     return { error: `Element is no longer in the document: "${refId}"` };
   }
 
-  let fileInput: HTMLInputElement | undefined;
-  let clickTarget: Element | undefined;
+  const result = resolveFileUploadRefTarget(element, pathCount);
+  if ('error' in result) return { error: result.error };
 
-  if ('INPUT' === element.tagName) {
-    const input = element as HTMLInputElement;
-    if ('file' === input.type) {
-      fileInput = input;
-      clickTarget = element;
-    } else {
-      return {
-        error: `Element is not a file input. Found: <input type="${input.type || 'text'}">`
-      };
-    }
-  } else if ('LABEL' === element.tagName) {
-    const label = element as HTMLLabelElement;
-    const control = label.control;
-    if (control && 'INPUT' === control.tagName && 'file' === (control as HTMLInputElement).type) {
-      fileInput = control as HTMLInputElement;
-      clickTarget = label;
-    } else {
-      const htmlFor = label.getAttribute('for');
-      if (htmlFor) {
-        const linked = document.getElementById(htmlFor);
-        if (linked && 'INPUT' === linked.tagName && 'file' === (linked as HTMLInputElement).type) {
-          fileInput = linked as HTMLInputElement;
-          clickTarget = label;
-        }
-      }
-    }
-    if (!fileInput) {
-      const nestedInLabel = label.querySelectorAll('input[type="file"]');
-      if (1 === nestedInLabel.length) {
-        fileInput = nestedInLabel[0] as HTMLInputElement;
-        clickTarget = label;
-      } else if (nestedInLabel.length > 1) {
-        return {
-          error: `Element contains ${nestedInLabel.length} file inputs; ref must target a single file input`
-        };
-      }
-    }
-  } else {
-    const nested = element.querySelectorAll('input[type="file"]');
-    if (1 === nested.length) {
-      fileInput = nested[0] as HTMLInputElement;
-      clickTarget = element;
-    } else if (nested.length > 1) {
-      return {
-        error: `Element contains ${nested.length} file inputs; ref must target a single file input`
-      };
-    }
-  }
-
-  if (!fileInput || !clickTarget) {
-    const tag = element.tagName.toLowerCase();
-    const typeAttr =
-      'INPUT' === element.tagName && (element as HTMLInputElement).type
-        ? ` type="${(element as HTMLInputElement).type}"`
-        : '';
-    return { error: `No file input found for ref. Found: <${tag}${typeAttr}>` };
-  }
-
-  if (pathCount > 1 && !fileInput.multiple) {
-    return {
-      error: `File input does not accept multiple files but ${pathCount} paths were provided`
-    };
-  }
-
-  fileInput.setAttribute(uploadAttr, '1');
-  const separateClickTarget = clickTarget !== fileInput;
-  if (separateClickTarget) clickTarget.setAttribute(clickAttr, '1');
+  result.fileInput.setAttribute(uploadAttr, '1');
+  const separateClickTarget = result.clickTarget !== result.fileInput;
+  if (separateClickTarget) result.clickTarget.setAttribute(clickAttr, '1');
   return { success: true, separateClickTarget };
+}
+
+async function removeUploadMarkers(
+  tabId: number,
+  uploadAttr: string,
+  clickAttr: string,
+  separateClickTarget: boolean
+): Promise<void> {
+  await chrome.scripting
+    .executeScript({
+      target: { tabId },
+      func: (uploadMarker: string, clickMarker: string, separateClick: boolean) => {
+        document.querySelector(`[${uploadMarker}="1"]`)?.removeAttribute(uploadMarker);
+        if (separateClick) {
+          document.querySelector(`[${clickMarker}="1"]`)?.removeAttribute(clickMarker);
+        }
+      },
+      args: [uploadAttr, clickAttr, separateClickTarget]
+    })
+    .catch(() => {});
 }
 
 async function uploadViaRef(
@@ -326,7 +385,7 @@ async function uploadViaRef(
   const markResult = await chrome.scripting.executeScript({
     target: { tabId },
     func: resolveFileUploadRefInPage,
-    args: [ref, uploadAttr, clickAttr, paths.length]
+    args: [ref, uploadAttr, clickAttr, paths.length, resolveFileUploadRefTargetSource]
   });
 
   if (!markResult || 0 === markResult.length)
@@ -341,6 +400,7 @@ async function uploadViaRef(
 
   const uploadSelector = `[${uploadAttr}="1"]`;
   const clickSelector = markOutput.separateClickTarget ? `[${clickAttr}="1"]` : uploadSelector;
+  const separateClickTarget = !!markOutput.separateClickTarget;
 
   try {
     await setFileInputFilesBySelectors(tabId, uploadSelector, clickSelector, paths);
@@ -348,18 +408,10 @@ async function uploadViaRef(
     return {
       error: err instanceof Error ? err.message : 'Failed to set files on file input'
     };
+  } finally {
+    await removeUploadMarkers(tabId, uploadAttr, clickAttr, separateClickTarget);
   }
 
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (uploadMarker: string, clickMarker: string, separateClick: boolean) => {
-      document.querySelector(`[${uploadMarker}="1"]`)?.removeAttribute(uploadMarker);
-      if (separateClick) {
-        document.querySelector(`[${clickMarker}="1"]`)?.removeAttribute(clickMarker);
-      }
-    },
-    args: [uploadAttr, clickAttr, !!markOutput.separateClickTarget]
-  });
   return {};
 }
 
@@ -404,7 +456,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
       if (pathError) throw new Error(pathError);
 
       const hasRef = typeof params.ref === 'string' && params.ref.length > 0;
-      const hasCoord = Array.isArray(params.coordinate) && params.coordinate.length === 2;
+      const hasCoord = isValidCoordinate(params.coordinate);
       if (hasRef === hasCoord)
         throw new Error(
           'Provide exactly one of `ref` (direct input) or `coordinate` (picker intercept)'
@@ -486,7 +538,7 @@ export const fileUploadTool: ToolDefinition<FileUploadToolInput> = {
           description: "Tab ID. Use tabs_context first if you don't have a valid tab ID."
         }
       },
-      required: ['paths', 'tabId']
+      required: ['paths']
     }
   })
 };

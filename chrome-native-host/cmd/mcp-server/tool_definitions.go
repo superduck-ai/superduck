@@ -248,7 +248,7 @@ var toolDefinitions = []toolDefinition{
 			"ref":        stringSchema("Element reference ID from read_page/find (mode 1): an <input type=file>, or a <label>/<button> that controls or contains one. Mutually exclusive with `coordinate`."),
 			"coordinate": arraySchema("Viewport [x, y] of a button/label that opens the native file picker (mode 2). Mutually exclusive with `ref`.", map[string]any{"type": "number"}),
 			"tabId":      numberSchema("Tab ID where the target element is located."),
-		}, "paths", "tabId"),
+		}, "paths"),
 	},
 	{
 		name:        "read_console_messages",
