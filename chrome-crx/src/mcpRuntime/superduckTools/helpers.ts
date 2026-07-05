@@ -1,4 +1,5 @@
 import type { ToolContext } from '../pageTools';
+import { tabGroupManager } from '../tabState';
 import { tabLeaseManager, type TabLeaseOrigin } from '../tabState/tabLeases';
 import type { ActiveContextScriptResult, ToolScriptResult } from './types';
 
@@ -49,6 +50,29 @@ function getBrowserSessionId(context: ToolContext): string {
   return context.browserSessionScope.sessionId;
 }
 
+async function resolveStandaloneTabId(tabId: number, context: ToolContext): Promise<number> {
+  const sessionId = getBrowserSessionId(context);
+  if (context.tabAccess === 'read') {
+    await tabLeaseManager.assertTabAvailableForSession(sessionId, tabId);
+    return tabId;
+  }
+
+  const lease = await tabLeaseManager.getLease(tabId);
+  if (lease) {
+    await tabLeaseManager.claimTab(sessionId, tabId, lease.origin, {
+      groupId: lease.groupId
+    });
+    return tabId;
+  }
+
+  await chrome.tabs.get(tabId);
+  const group = await tabGroupManager.findGroupByTab(tabId);
+  const origin = (group?.memberStates.get(tabId)?.origin ?? 'user') as TabLeaseOrigin;
+  const groupId = group && !group.isUnmanaged ? group.chromeGroupId : undefined;
+  await tabLeaseManager.claimTab(sessionId, tabId, origin, { groupId });
+  return tabId;
+}
+
 async function resolveActiveTab(
   explicit: number | undefined,
   context: ToolContext
@@ -60,7 +84,7 @@ async function resolveActiveTab(
     );
     const activeTab = focusedWindow.tabs?.find((tab) => tab.active);
     if (activeTab?.id === undefined) throw new Error('No active tab found in context');
-    const resolvedTabId = await context.resolveTabId(activeTab.id);
+    const resolvedTabId = await resolveStandaloneTabId(activeTab.id, context);
     const resolvedTab = await chrome.tabs.get(resolvedTabId);
     if (resolvedTab.id === undefined) throw new Error('Tab has no id');
     return resolvedTab;

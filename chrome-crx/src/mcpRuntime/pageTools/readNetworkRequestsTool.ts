@@ -76,18 +76,17 @@ export const readNetworkRequestsTool: ToolDefinition<ReadNetworkRequestsToolInpu
       if (0 === requests.length) {
         let requestType = 'network requests';
         if (urlPattern) requestType = `requests matching "${urlPattern}"`;
+        const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+          context.tabId,
+          context
+        );
         return {
           output: `No ${requestType} found for this tab.\n\nNote: Network tracking starts when this tool is first called. If the page loaded before calling this tool, you may need to refresh the page or perform actions that trigger network requests.`,
           tabContext: {
             currentTabId: context.tabId,
             executedOnTabId: effectiveTabId,
-            availableTabs: await tabGroupManager.getValidTabsWithMetadataForContext(
-              context.tabId,
-              context
-            ),
-            tabCount: (
-              await tabGroupManager.getValidTabsWithMetadataForContext(context.tabId, context)
-            ).length
+            availableTabs: validTabs,
+            tabCount: validTabs.length
           }
         };
       }

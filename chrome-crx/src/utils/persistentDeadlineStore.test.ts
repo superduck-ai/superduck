@@ -30,6 +30,10 @@ function createStore() {
   });
 }
 
+async function flushPromises(times = 6): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
 describe('PersistentDeadlineStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,7 +49,7 @@ describe('PersistentDeadlineStore', () => {
     const store = createStore();
 
     store.set('deadline', 'tab:1', { dueAt: 1 });
-    await Promise.resolve();
+    await flushPromises();
 
     expect(storageMocks.setStorageValue).toHaveBeenCalledTimes(1);
     expect(storageMocks.setStorageValue).toHaveBeenNthCalledWith(1, 'deadlines', {
@@ -53,16 +57,47 @@ describe('PersistentDeadlineStore', () => {
     });
 
     store.set('deadline', 'tab:2', { dueAt: 2 });
-    await Promise.resolve();
+    await flushPromises();
 
     expect(storageMocks.setStorageValue).toHaveBeenCalledTimes(1);
 
     firstWrite.resolve();
     await firstWrite.promise;
-    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await flushPromises();
 
     expect(storageMocks.setStorageValue).toHaveBeenCalledTimes(2);
     expect(storageMocks.setStorageValue).toHaveBeenNthCalledWith(2, 'deadlines', {
+      deadline: {
+        'tab:1': { dueAt: 1 },
+        'tab:2': { dueAt: 2 }
+      }
+    });
+  });
+
+  it('continues persisting after a synchronous serialization failure', async () => {
+    const serializeState = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('serialize failed');
+      })
+      .mockImplementation((state: DeadlineState<Kind, RecordValue>) => state);
+    const store = new PersistentDeadlineStore<Kind, RecordValue>({
+      storageKey: 'deadlines',
+      kinds: ['deadline'],
+      emptyState: { deadline: {} },
+      loadState: (stored): DeadlineState<Kind, RecordValue> =>
+        (stored as DeadlineState<Kind, RecordValue>) ?? { deadline: {} },
+      serializeState
+    });
+
+    store.set('deadline', 'tab:1', { dueAt: 1 });
+    await flushPromises();
+    expect(storageMocks.setStorageValue).not.toHaveBeenCalled();
+
+    store.set('deadline', 'tab:2', { dueAt: 2 });
+    await flushPromises();
+
+    expect(storageMocks.setStorageValue).toHaveBeenCalledWith('deadlines', {
       deadline: {
         'tab:1': { dueAt: 1 },
         'tab:2': { dueAt: 2 }

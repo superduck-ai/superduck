@@ -144,7 +144,6 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
     }
   } catch (err) {
     const isBrowserSessionConflict = err instanceof BrowserSessionConflictError;
-    const message = err instanceof Error ? err.message : String(err);
     trackEvent('superduck.mcp.tool_called', {
       tool_name: options.toolName,
       client_id: clientId,
@@ -153,10 +152,11 @@ async function executeToolInner(options: ExecuteToolOptions): Promise<ExecuteToo
       error_type: isBrowserSessionConflict ? 'browser_session_conflict' : 'no_tabs_available',
       duration_ms: Date.now() - startTime
     });
+    if (isBrowserSessionConflict) {
+      return createErrorResponse(err instanceof Error ? err.message : String(err));
+    }
     return createErrorResponse(
-      isBrowserSessionConflict
-        ? message
-        : 'No tabs available. Please open a new tab or window in your browser.'
+      'No tabs available. Please open a new tab or window in your browser.'
     );
   }
 

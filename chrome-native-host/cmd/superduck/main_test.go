@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -17,7 +18,10 @@ import (
 // resolvedBrowserSessionID is a test convenience that drops the `explicit`
 // bool from resolvedBrowserSession — tests only need the resolved id.
 func resolvedBrowserSessionID() string {
-	id, _ := resolvedBrowserSession()
+	id, _, err := resolvedBrowserSession()
+	if err != nil {
+		panic(err)
+	}
 	return id
 }
 
@@ -167,6 +171,7 @@ func TestSplitGlobalFlagsInvalidUsageExits(t *testing.T) {
 	}{
 		{"invalid tab", []string{"--tab", "abc", "tabs"}, "invalid --tab"},
 		{"zero tab", []string{"--tab", "0", "tabs"}, "invalid --tab: must be positive"},
+		{"negative tab", []string{"--tab", "-1", "tabs"}, "invalid --tab: must be positive"},
 		{"missing tab", []string{"--tab"}, "missing value for --tab"},
 		{"invalid timeout", []string{"--timeout", "abc", "tabs"}, "invalid --timeout"},
 		{"zero timeout", []string{"--timeout", "0", "tabs"}, "invalid --timeout: must be positive"},
@@ -244,19 +249,28 @@ func TestResolvedBrowserSessionPrecedenceAndExplicit(t *testing.T) {
 	t.Setenv("SUPERDUCK_SESSION_ID", "env-session")
 	gflags.SessionID = "flag-session"
 
-	id, explicit := resolvedBrowserSession()
+	id, explicit, err := resolvedBrowserSession()
+	if err != nil {
+		t.Fatalf("resolvedBrowserSession() error = %v", err)
+	}
 	if id != "flag-session" || !explicit {
 		t.Fatalf("flag precedence resolved (%q, %t), want (flag-session, true)", id, explicit)
 	}
 
 	gflags.SessionID = ""
-	id, explicit = resolvedBrowserSession()
+	id, explicit, err = resolvedBrowserSession()
+	if err != nil {
+		t.Fatalf("resolvedBrowserSession() error = %v", err)
+	}
 	if id != "env-session" || !explicit {
 		t.Fatalf("env precedence resolved (%q, %t), want (env-session, true)", id, explicit)
 	}
 
 	t.Setenv("SUPERDUCK_SESSION_ID", "")
-	id, explicit = resolvedBrowserSession()
+	id, explicit, err = resolvedBrowserSession()
+	if err != nil {
+		t.Fatalf("resolvedBrowserSession() error = %v", err)
+	}
 	if id != "file-session" || !explicit {
 		t.Fatalf("file precedence resolved (%q, %t), want (file-session, true)", id, explicit)
 	}
@@ -268,7 +282,10 @@ func TestResolvedBrowserSessionFallback(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	clearBrowserSessionEnv(t)
 
-	first, explicit := resolvedBrowserSession()
+	first, explicit, err := resolvedBrowserSession()
+	if err != nil {
+		t.Fatalf("resolvedBrowserSession() error = %v", err)
+	}
 	if first == "" || !strings.HasPrefix(first, "cli:ppid:") {
 		t.Fatalf("resolvedBrowserSession() fallback = %q, want cli:ppid id", first)
 	}
@@ -309,7 +326,7 @@ func TestResolvedBrowserSessionUsesSessionFile(t *testing.T) {
 	}
 }
 
-func TestResolvedBrowserSessionWarnsWhenSessionFileIsUnusable(t *testing.T) {
+func TestResolvedBrowserSessionErrorsWhenSessionFileIsUnusable(t *testing.T) {
 	withCLIFlags(t, globalFlags{SocketPath: cliclient.DefaultSocketPath, Timeout: 30 * time.Second})
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -322,20 +339,18 @@ func TestResolvedBrowserSessionWarnsWhenSessionFileIsUnusable(t *testing.T) {
 	sessionFile := filepath.Join(blocker, "session-id")
 	t.Setenv("SUPERDUCK_SESSION_FILE", sessionFile)
 
-	var id string
-	var explicit bool
-	stderr := captureStderr(t, func() {
-		id, explicit = resolvedBrowserSession()
-	})
-
-	if id == "" || !strings.HasPrefix(id, "cli:ppid:") {
-		t.Fatalf("resolvedBrowserSession() id = %q, want fallback cli:ppid id", id)
+	id, explicit, err := resolvedBrowserSession()
+	if err == nil {
+		t.Fatal("resolvedBrowserSession() error = nil, want unusable session file error")
 	}
-	if explicit {
-		t.Fatal("resolvedBrowserSession() explicit = true, want false for fallback")
+	if id != "" {
+		t.Fatalf("resolvedBrowserSession() id = %q, want empty on explicit file error", id)
 	}
-	if !strings.Contains(stderr, "SUPERDUCK_SESSION_FILE") || !strings.Contains(stderr, sessionFile) {
-		t.Fatalf("stderr = %q, want SUPERDUCK_SESSION_FILE warning for %q", stderr, sessionFile)
+	if !explicit {
+		t.Fatal("resolvedBrowserSession() explicit = false, want true for explicit file error")
+	}
+	if !strings.Contains(err.Error(), "SUPERDUCK_SESSION_FILE") || !strings.Contains(err.Error(), sessionFile) {
+		t.Fatalf("error = %q, want SUPERDUCK_SESSION_FILE path %q", err, sessionFile)
 	}
 }
 
@@ -416,6 +431,37 @@ func TestReadOrCreateSessionIDFileConcurrentCreateReturnsOneID(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(data)); got != first {
 		t.Fatalf("session file = %q, want %q", got, first)
+	}
+}
+
+func TestReadOrCreateSessionIDFileRecoversDeadOwnerLock(t *testing.T) {
+	tmp := t.TempDir()
+	sessionPath := filepath.Join(tmp, "session-id")
+	cmd := exec.Command("sh", "-c", "exit 0")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	deadPID := cmd.Process.Pid
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if err := os.WriteFile(sessionPath+".lock", []byte(fmt.Sprintf("%d\n", deadPID)), 0o600); err != nil {
+		t.Fatalf("WriteFile(lock) error = %v", err)
+	}
+	oldLockTime := time.Now().Add(-2 * sessionIDFileStaleLockAge)
+	if err := os.Chtimes(sessionPath+".lock", oldLockTime, oldLockTime); err != nil {
+		t.Fatalf("Chtimes(lock) error = %v", err)
+	}
+
+	id, err := readOrCreateSessionIDFile(sessionPath)
+	if err != nil {
+		t.Fatalf("readOrCreateSessionIDFile() error = %v", err)
+	}
+	if !strings.HasPrefix(id, "cli:file:") {
+		t.Fatalf("session id = %q, want cli:file prefix", id)
+	}
+	if _, err := os.Stat(sessionPath + ".lock"); !os.IsNotExist(err) {
+		t.Fatalf("lock still exists or stat error = %v, want removed", err)
 	}
 }
 
@@ -511,6 +557,26 @@ func TestClientOptsDefaultSessionWarnsOnce(t *testing.T) {
 	}
 	if got := strings.Count(stderr, "using a per-shell default session id"); got != 1 {
 		t.Fatalf("shared-session warning count = %d, want 1; stderr=%q", got, stderr)
+	}
+}
+
+func TestClientOptsDefaultSessionWarningCanBeDisabled(t *testing.T) {
+	withCLIFlags(t, globalFlags{SocketPath: cliclient.DefaultSocketPath, Timeout: 30 * time.Second})
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	clearBrowserSessionEnv(t)
+	t.Setenv("SUPERDUCK_QUIET", "1")
+
+	var opts cliclient.Options
+	stderr := captureStderr(t, func() {
+		opts = clientOpts()
+	})
+
+	if opts.SessionID == "" || !strings.HasPrefix(opts.SessionID, "cli:ppid:") {
+		t.Fatalf("SessionID = %q, want cli:ppid fallback", opts.SessionID)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want no shared-session warning", stderr)
 	}
 }
 

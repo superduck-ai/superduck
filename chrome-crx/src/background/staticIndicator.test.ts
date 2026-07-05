@@ -65,6 +65,10 @@ vi.stubGlobal('chrome', chromeMock);
 
 const { createStaticIndicatorController } = await import('./staticIndicator');
 
+async function flushPromises(times = 6): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
 describe('createStaticIndicatorController', () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -291,6 +295,23 @@ describe('createStaticIndicatorController', () => {
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
   });
 
+  it('clears cancellation-style turn cleanup even while a tool context is active', async () => {
+    fixtures.hasActiveToolContext.mockReturnValue(true);
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    await controller.handleAgentTurnActive(
+      { type: 'AGENT_TURN_ACTIVE', tabId: 11, active: false },
+      sendResponse
+    );
+
+    expect(fixtures.clearIndicatorsForGroup).toHaveBeenCalledWith(10);
+    expect(fixtures.hideAgentIndicatorsForTab).toHaveBeenCalledWith(11);
+    expect(fixtures.addCompletionPrefix).not.toHaveBeenCalled();
+    expect(fixtures.setGroupColor).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ success: true });
+  });
+
   it('preserves other persisted turn deadlines when cold-start cleanup clears one tab', async () => {
     fixtures.getStorageValue.mockResolvedValue({
       '11': {
@@ -334,6 +355,7 @@ describe('createStaticIndicatorController', () => {
         sendResponse
       );
 
+      await flushPromises();
       expect(fixtures.setTabIndicatorState).toHaveBeenCalledWith(11, 'pulsing', true, false);
       expect(fixtures.setStorageValue).toHaveBeenLastCalledWith('turnActiveDeadlines', {
         '11': {

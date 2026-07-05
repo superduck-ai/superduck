@@ -274,16 +274,20 @@ export async function hideAgentIndicatorsForTab(
     delete memberState.previousIndicatorState;
     delete memberState.pendingUpdate;
     await mgr.saveToStorage();
-    await sendIndicatorMessage(mgr, tabId, 'HIDE_AGENT_INDICATORS', memberState.isMcp, {
-      critical: true
-    });
-    await sendIndicatorMessage(mgr, tabId, 'HIDE_STATIC_INDICATOR', memberState.isMcp, {
-      critical: true
-    });
+    await Promise.all([
+      sendIndicatorMessage(mgr, tabId, 'HIDE_AGENT_INDICATORS', memberState.isMcp, {
+        critical: true
+      }),
+      sendIndicatorMessage(mgr, tabId, 'HIDE_STATIC_INDICATOR', memberState.isMcp, {
+        critical: true
+      })
+    ]);
     return;
   }
-  await sendIndicatorMessage(mgr, tabId, 'HIDE_AGENT_INDICATORS', true, { critical: true });
-  await sendIndicatorMessage(mgr, tabId, 'HIDE_STATIC_INDICATOR', true, { critical: true });
+  await Promise.all([
+    sendIndicatorMessage(mgr, tabId, 'HIDE_AGENT_INDICATORS', undefined, { critical: true }),
+    sendIndicatorMessage(mgr, tabId, 'HIDE_STATIC_INDICATOR', undefined, { critical: true })
+  ]);
 }
 
 export function queueIndicatorUpdate(mgr: TabGroupManager, tabId: number, state: string): void {

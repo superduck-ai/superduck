@@ -12,7 +12,7 @@ export const tabsContextTool: ToolDefinition<EmptyToolInput> = {
     try {
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const hasBrowserSessionScope = context.browserSessionScope !== undefined;
+      const hasBrowserSessionScope = !!context.browserSessionScope;
       const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
         context.tabId,
         context

@@ -24,6 +24,12 @@ async function ungroupTabs(tabIds: number[]): Promise<void> {
   await chrome.tabs.ungroup(tabIds as [number, ...number[]]);
 }
 
+async function detachDebuggersForTabs(tabIds: number[]): Promise<void> {
+  if (typeof chrome.debugger?.detach !== 'function') return;
+  const { cdpDebugger } = await import('../cdp');
+  await Promise.allSettled([...new Set(tabIds)].map((tabId) => cdpDebugger.detachDebugger(tabId)));
+}
+
 function isFinalizeTabStatus(status: string): status is FinalizeTabStatus {
   return status === 'handoff' || status === 'deliverable';
 }
@@ -78,6 +84,7 @@ export async function finalizeManagedGroup(
   }
 
   await Promise.allSettled(tabIds.map((tabId) => hideAllIndicatorsForTab(mgr, tabId)));
+  await detachDebuggersForTabs(tabIds);
 
   const metadataSnapshot =
     handoffTabIds.length > 0
@@ -138,7 +145,7 @@ async function finalizeSessionMcpTabGroup(
   const context = await buildSessionContextFromLeases(leases);
   if (!context) return undefined;
 
-  const activeTabIds = new Set(context.availableTabs.map((tab) => tab.id).filter(isNumber));
+  const activeTabIds = new Set(context.availableTabs.map((tab) => tab.id));
   const keepByTabId = validateFinalizeKeep(keep, activeTabIds);
   const handoffTabIds = Array.from(keepByTabId.entries())
     .filter(([, status]) => status === 'handoff')
@@ -154,40 +161,48 @@ async function finalizeSessionMcpTabGroup(
   await Promise.allSettled(
     Array.from(activeTabIds).map((tabId) => hideAllIndicatorsForTab(mgr, tabId, true))
   );
-
-  // releaseTabIds already excludes handoff tabs: release === leave the group.
-  await ungroupTabs(releaseTabIds);
-
-  if (handoffTabIds.length > 0) {
-    await tabLeaseManager.handoffTabs(scope.sessionId, handoffTabIds, {
-      groupId: context.tabGroupId,
-      activeTabId: context.currentTabId
-    });
-  }
-  if (releaseTabIds.length > 0) {
-    await tabLeaseManager.releaseTabs(scope.sessionId, releaseTabIds);
-  }
-  if (deliverableTabIds.length > 0) {
-    await tabBadgeManager.markDeliverable(deliverableTabIds);
-  }
+  await detachDebuggersForTabs(Array.from(activeTabIds));
 
   const meta = findMetadataByChromeGroupId(mgr, context.tabGroupId);
-  if (meta) {
+  const metadataSnapshot = meta
+    ? { mainTabId: meta.mainTabId, memberStates: new Map(meta.memberStates) }
+    : undefined;
+
+  try {
+    // releaseTabIds already excludes handoff tabs: release === leave the group.
+    await ungroupTabs(releaseTabIds);
+
     if (handoffTabIds.length > 0) {
-      keepOnlyHandoffTabs(mgr, meta, handoffTabIds);
-    } else {
-      await removeManagedGroupMetadata(mgr, meta);
+      await tabLeaseManager.handoffTabs(scope.sessionId, handoffTabIds, {
+        groupId: context.tabGroupId,
+        activeTabId: context.currentTabId
+      });
     }
-    await mgr.saveToStorage();
+    if (releaseTabIds.length > 0) {
+      await tabLeaseManager.releaseTabs(scope.sessionId, releaseTabIds);
+    }
+    if (deliverableTabIds.length > 0) {
+      await tabBadgeManager.markDeliverable(deliverableTabIds);
+    }
+
+    if (meta) {
+      if (handoffTabIds.length > 0) {
+        keepOnlyHandoffTabs(mgr, meta, handoffTabIds);
+      } else {
+        await removeManagedGroupMetadata(mgr, meta);
+      }
+      await mgr.saveToStorage();
+    }
+  } catch (err) {
+    if (meta && metadataSnapshot) restoreManagedGroupMetadata(mgr, meta, metadataSnapshot);
+    if (meta) await reconcileManagedGroupMetadataWithChrome(mgr, meta).catch(() => {});
+    await mgr.saveToStorage().catch(() => {});
+    throw err;
   }
 
   if (handoffTabIds.length === 0) return undefined;
   await markGroupCompleted(mgr, context.tabGroupId);
   return await getFinalizedTabContext(context.tabGroupId);
-}
-
-function isNumber(value: unknown): value is number {
-  return typeof value === 'number';
 }
 
 function resolveManagedGroupMetadata(

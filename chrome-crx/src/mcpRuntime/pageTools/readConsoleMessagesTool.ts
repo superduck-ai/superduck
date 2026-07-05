@@ -77,18 +77,17 @@ export const readConsoleMessagesTool: ToolDefinition<ReadConsoleMessagesToolInpu
       if (clear) cdpDebugger.clearConsoleMessages(trackedTabId);
 
       if (0 === messages.length) {
+        const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+          context.tabId,
+          context
+        );
         return {
           output: `No console ${onlyErrors ? 'errors or exceptions' : 'messages'} found for this tab.\n\nNote: Console tracking starts when this tool is first called. If the page loaded before calling this tool, you may need to refresh the page to capture console messages from page load.`,
           tabContext: {
             currentTabId: context.tabId,
             executedOnTabId: effectiveTabId,
-            availableTabs: await tabGroupManager.getValidTabsWithMetadataForContext(
-              context.tabId,
-              context
-            ),
-            tabCount: (
-              await tabGroupManager.getValidTabsWithMetadataForContext(context.tabId, context)
-            ).length
+            availableTabs: validTabs,
+            tabCount: validTabs.length
           }
         };
       }

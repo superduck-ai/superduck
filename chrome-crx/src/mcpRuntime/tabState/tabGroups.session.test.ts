@@ -10,6 +10,7 @@ type MockTab = {
   active?: boolean;
   openerTabId?: number;
   pendingUrl?: string;
+  status?: 'loading' | 'complete';
 };
 
 const chromeMock = vi.hoisted(() => {
@@ -1591,12 +1592,48 @@ describe('TabGroupManager session-scoped MCP leases', () => {
 
     const reusedId = await tabGroupManager.createChildTabInGroup(context!.currentTabId, targetUrl, {
       sessionId: 'session-a',
-      existingTabId: popup.id
+      existingTabId: popup.id,
+      allowRedirectedExistingTab: true
     });
 
     expect(reusedId).toBe(popup.id);
     expect(chromeMock.tabs.create).not.toHaveBeenCalled();
     expect(chromeMock.tabsById.get(popup.id)?.groupId).toBe(context!.tabGroupId);
+  });
+
+  it('createChildTabInGroup does not reuse a settled existing popup with a different URL', async () => {
+    const context = await tabGroupManager.getOrCreateMcpTabContext({
+      createIfEmpty: true,
+      sessionId: 'session-a'
+    });
+    expect(context).toBeDefined();
+    const targetUrl = 'https://www.baidu.com/link?url=abc';
+    const popup: MockTab = {
+      id: 41,
+      windowId: 1,
+      groupId: -1,
+      url: 'https://www.deepseek.com/',
+      title: 'DeepSeek',
+      index: 2,
+      openerTabId: context!.currentTabId,
+      status: 'complete'
+    };
+    chromeMock.tabsById.set(popup.id, popup);
+    chromeMock.tabs.create.mockClear();
+
+    const childId = await tabGroupManager.createChildTabInGroup(context!.currentTabId, targetUrl, {
+      sessionId: 'session-a',
+      existingTabId: popup.id
+    });
+
+    expect(childId).not.toBe(popup.id);
+    expect(chromeMock.tabs.create).toHaveBeenCalledWith({
+      url: targetUrl,
+      active: false,
+      openerTabId: context!.currentTabId
+    });
+    expect(chromeMock.tabsById.get(popup.id)?.groupId).toBe(-1);
+    expect(chromeMock.tabsById.get(childId!)?.groupId).toBe(context!.tabGroupId);
   });
 
   it('createChildTabInGroup reuses a specified unlinked popup only when allowed', async () => {
@@ -1620,7 +1657,8 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     const reusedId = await tabGroupManager.createChildTabInGroup(context!.currentTabId, targetUrl, {
       sessionId: 'session-a',
       existingTabId: popup.id,
-      allowUnlinkedExistingTab: true
+      allowUnlinkedExistingTab: true,
+      allowRedirectedExistingTab: true
     });
 
     expect(reusedId).toBe(popup.id);

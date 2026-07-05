@@ -110,7 +110,7 @@ export class AgentIndicatorController {
           }
 
           case 'SHOW_AFTER_TOOL_USE':
-            if (this.hiddenForToolUse && this.agentActive) {
+            if (this.hiddenForToolUse) {
               this.restoreInterruptiveIndicatorsAfterToolUse();
             }
             if (
@@ -441,8 +441,6 @@ export class AgentIndicatorController {
     if (this.stopContainer) this.stopContainer.container.style.display = 'none';
     if (this.blockingOverlayEl) {
       this.blockingOverlayEl.style.display = 'none';
-      this.blockingOverlayEl.style.visibility = 'hidden';
-      this.blockingOverlayEl.style.pointerEvents = 'none';
     }
     if (this.staticIndicatorEl?.parentNode && this.staticActive)
       this.staticIndicatorEl.parentNode.removeChild(this.staticIndicatorEl);

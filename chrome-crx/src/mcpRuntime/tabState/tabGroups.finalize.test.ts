@@ -366,9 +366,11 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     ).rejects.toThrow('ungroup failed');
 
     expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
-    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      tabGroups: expect.objectContaining({ 1: expect.any(Object) })
-    });
+    expect(chromeMock.storage.local.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tabGroups: expect.objectContaining({ 1: expect.any(Object) })
+      })
+    );
     expect(manager.groupMetadata.has(2)).toBe(false);
     const restoredMeta = manager.groupMetadata.get(1);
     expect(restoredMeta?.mainTabId).toBe(1);

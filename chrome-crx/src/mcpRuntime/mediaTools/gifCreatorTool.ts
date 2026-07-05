@@ -1,4 +1,5 @@
 import { PermissionTools, checkUrlSecurity } from '../domainPermissions';
+import { DEFAULT_BROWSER_SESSION_ID } from '../sessionScope';
 import { tabGroupManager } from '../tabState';
 import type { ToolContext, ToolDefinition, ToolResult } from '../pageTools';
 import { gifFrameStorage, getGifFrameDelay } from './gifFrameStorage';
@@ -51,7 +52,7 @@ export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
       if (!tab) throw new Error(`Tab ${effectiveTabId} not found`);
       const groupId = tab.groupId ?? -1;
 
-      if (context.browserSessionScope) {
+      if (context.browserSessionScope.sessionId !== DEFAULT_BROWSER_SESSION_ID) {
         const isManaged = await tabGroupManager.isInGroup(effectiveTabId);
         if (!isManaged) {
           return {

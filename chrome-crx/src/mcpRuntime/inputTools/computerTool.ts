@@ -245,6 +245,7 @@ async function createTabsForWindowOpenEvents(
         400,
         snapshotFilter
       );
+      let allowRedirectedExistingTab = typeof existingTabId === 'number';
       let allowUnlinkedExistingTab = false;
       if (typeof existingTabId !== 'number') {
         existingTabId = await awaitNewWindowOpenCandidateTabId(
@@ -254,6 +255,7 @@ async function createTabsForWindowOpenEvents(
           600
         );
         allowUnlinkedExistingTab = typeof existingTabId === 'number';
+        allowRedirectedExistingTab = typeof existingTabId === 'number';
       }
       // 修复(点击开两个网页):window.open 已让浏览器开了一个 popup,但它
       // openerTabId 缺失或还在 about:blank/重定向,上面的精确匹配没命中。
@@ -264,6 +266,7 @@ async function createTabsForWindowOpenEvents(
         if (typeof scanned === 'number') {
           existingTabId = scanned;
           allowUnlinkedExistingTab = true;
+          allowRedirectedExistingTab = true;
         }
       }
       const tabId =
@@ -271,6 +274,7 @@ async function createTabsForWindowOpenEvents(
           ? await createPolicyCheckedChildTab(openerTabId, url, policy, {
               existingTabId,
               allowUnlinkedExistingTab,
+              allowRedirectedExistingTab,
               ...snapshotFilter
             })
           : await createPolicyCheckedChildTab(openerTabId, url, policy, snapshotFilter);

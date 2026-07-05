@@ -4,7 +4,8 @@ import { normalizeMemberState } from './tabNavigationIsolation';
 
 export async function loadFromStorage(mgr: TabGroupManager): Promise<void> {
   try {
-    const data = (await chrome.storage.local.get(mgr.STORAGE_KEY))[mgr.STORAGE_KEY];
+    const stored = await chrome.storage.local.get([mgr.STORAGE_KEY, mgr.SESSION_TITLES_KEY]);
+    const data = stored[mgr.STORAGE_KEY];
     data &&
       'object' == typeof data &&
       (mgr.groupMetadata = new Map(
@@ -26,7 +27,7 @@ export async function loadFromStorage(mgr: TabGroupManager): Promise<void> {
           return [parseInt(key, 10), entry];
         })
       ));
-    const titles = (await chrome.storage.local.get(mgr.SESSION_TITLES_KEY))[mgr.SESSION_TITLES_KEY];
+    const titles = stored[mgr.SESSION_TITLES_KEY];
     mgr.sessionGroupTitles =
       titles && typeof titles === 'object'
         ? new Map(
@@ -54,8 +55,8 @@ export async function saveToStorage(mgr: TabGroupManager): Promise<void> {
         ];
       })
     );
-    await chrome.storage.local.set({ [mgr.STORAGE_KEY]: serialized });
     await chrome.storage.local.set({
+      [mgr.STORAGE_KEY]: serialized,
       [mgr.SESSION_TITLES_KEY]: Object.fromEntries(mgr.sessionGroupTitles.entries())
     });
   } catch (err) {

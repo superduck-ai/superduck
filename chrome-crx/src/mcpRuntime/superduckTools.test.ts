@@ -8,7 +8,8 @@ const tabLeaseMock = vi.hoisted(() => ({
 }));
 
 const tabGroupMock = vi.hoisted(() => ({
-  resolveTabForContext: vi.fn()
+  resolveTabForContext: vi.fn(),
+  findGroupByTab: vi.fn()
 }));
 
 vi.mock('./cdp', () => ({
@@ -44,17 +45,21 @@ describe('superduckListTabsTool', () => {
   const tabsRemove = vi.fn();
   const tabsUpdate = vi.fn();
 
-  const scopedContext = (sessionId: string, tabId?: number): ToolContext => {
+  const scopedContext = (
+    sessionId: string,
+    tabId?: number,
+    tabAccess: ToolContext['tabAccess'] = 'read'
+  ): ToolContext => {
     const browserSessionScope = { sessionId };
     return {
       tabId,
       browserSessionScope,
-      tabAccess: 'read',
+      tabAccess,
       permissionManager: {} as ToolContext['permissionManager'],
       resolveTabId: async (requestedTabId, options) =>
         await tabGroupMock.resolveTabForContext(requestedTabId, tabId, {
           browserSessionScope,
-          tabAccess: options?.tabAccess ?? 'read'
+          tabAccess: options?.tabAccess ?? tabAccess
         })
     };
   };
@@ -66,6 +71,7 @@ describe('superduckListTabsTool', () => {
     tabLeaseMock.claimTab.mockResolvedValue(undefined);
     tabLeaseMock.getLease.mockResolvedValue(undefined);
     tabGroupMock.resolveTabForContext.mockReset();
+    tabGroupMock.findGroupByTab.mockResolvedValue(null);
     tabGroupMock.resolveTabForContext.mockImplementation(
       async (
         requested: number | undefined,
@@ -254,10 +260,8 @@ describe('superduckListTabsTool', () => {
     const result = await superduckActiveContextTool.execute({}, scopedContext('session-b'));
 
     expect(result.error).toBeUndefined();
-    expect(tabGroupMock.resolveTabForContext).toHaveBeenCalledWith(4, undefined, {
-      browserSessionScope: { sessionId: 'session-b' },
-      tabAccess: 'read'
-    });
+    expect(tabLeaseMock.assertTabAvailableForSession).toHaveBeenCalledWith('session-b', 4);
+    expect(tabGroupMock.resolveTabForContext).not.toHaveBeenCalled();
     expect(JSON.parse(result.output ?? '')).toEqual({
       tabId: 4,
       windowId: 10,
@@ -266,6 +270,38 @@ describe('superduckListTabsTool', () => {
       selection: 'selected',
       text: 'Visible text'
     });
+  });
+
+  it('claims the focused Chrome tab before implicit active-tab writes without a context tab', async () => {
+    getLastFocused.mockResolvedValue({
+      id: 10,
+      tabs: [{ id: 5, windowId: 10, active: true, url: 'https://active.test/', title: 'Active' }]
+    });
+    tabsGet.mockResolvedValue({
+      id: 5,
+      windowId: 10,
+      url: 'https://active.test/',
+      title: 'Active',
+      active: true
+    });
+    tabsUpdate.mockResolvedValue({
+      id: 5,
+      windowId: 10,
+      url: 'https://next.test/',
+      title: 'Next',
+      active: true
+    });
+
+    const result = await superduckOpenTool.execute(
+      { url: 'https://next.test/' },
+      scopedContext('session-b', undefined, 'write')
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(tabLeaseMock.claimTab).toHaveBeenCalledWith('session-b', 5, 'user', {
+      groupId: undefined
+    });
+    expect(tabsUpdate).toHaveBeenCalledWith(5, { url: 'https://next.test/', active: true });
   });
 
   it('blocks global downloads and history in scoped browser sessions', async () => {

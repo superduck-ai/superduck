@@ -78,9 +78,10 @@ export async function addTabToGroup(
     try {
       const existingState = meta.memberStates.get(tabId);
       let claimedForSession = false;
-      if (options.sessionId) {
+      const sessionId = options.sessionId;
+      if (sessionId) {
         const claimedOrigin = (options.origin ?? getMemberOrigin(existingState)) as TabLeaseOrigin;
-        await tabLeaseManager.claimTab(options.sessionId, tabId, claimedOrigin, {
+        await tabLeaseManager.claimTab(sessionId, tabId, claimedOrigin, {
           groupId: meta.chromeGroupId
         });
         claimedForSession = true;
@@ -91,8 +92,8 @@ export async function addTabToGroup(
           groupId: meta.chromeGroupId
         });
       } catch (err) {
-        if (claimedForSession) {
-          await tabLeaseManager.releaseTabs(options.sessionId!, [tabId]).catch(() => {});
+        if (claimedForSession && sessionId) {
+          await tabLeaseManager.releaseTabs(sessionId, [tabId]).catch(() => {});
         }
         throw err;
       }
@@ -119,7 +120,7 @@ export async function addTabToGroup(
         }
     } catch (err) {
       if (err instanceof BrowserSessionConflictError) throw err;
-      // ignore
+      console.warn('[tabGroupLifecycle] addTabToGroup failed', err);
     }
     await mgr.saveToStorage();
   }

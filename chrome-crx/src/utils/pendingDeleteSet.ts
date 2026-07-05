@@ -23,10 +23,10 @@ export class PendingDeleteSet {
   }
 
   clearPersisted<T>(snapshot: PendingDeleteSnapshot, currentState: Record<string, T>): void {
-    for (const [key, version] of snapshot) {
-      if (this.versions.get(key) === version && currentState[key] === undefined) {
-        this.versions.delete(key);
-      }
-    }
+    void snapshot;
+    void currentState;
+    // Keep tombstones for the lifetime of this store so a later stale storage
+    // read cannot resurrect a deleted deadline. A same-process set() clears
+    // the key explicitly when a new deadline is scheduled.
   }
 }

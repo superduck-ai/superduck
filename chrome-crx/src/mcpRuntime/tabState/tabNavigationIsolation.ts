@@ -18,14 +18,21 @@ export interface CreateChildTabOptions {
   sessionId?: string;
   existingTabId?: number;
   allowUnlinkedExistingTab?: boolean;
+  allowRedirectedExistingTab?: boolean;
   ignoreExistingTabIds?: ReadonlySet<number>;
   windowId?: number;
 }
+
+type AdoptTabOptions = { sessionId?: string };
 
 export const CHILD_TAB_NAVIGATION_POLICY_TTL_MS = 30000;
 
 export function getMemberOrigin(state: MemberState | undefined): TabMemberOrigin {
   return state?.origin === 'agent' ? 'agent' : 'user';
+}
+
+function hasTargetUrl(tab: chrome.tabs.Tab, url: string): boolean {
+  return tab.url === url || tab.pendingUrl === url;
 }
 
 export function normalizeMemberState(
@@ -104,7 +111,9 @@ export async function handleTabCreated(mgr: TabGroupManager, tab: chrome.tabs.Ta
     return;
   }
 
-  const adopted = await adoptChildTabFromOpener(mgr, tab, openerTabId, policy ?? {});
+  const adopted = await adoptChildTabFromOpener(mgr, tab, openerTabId, {
+    sessionId: policy?.sessionId
+  });
   if (adopted && policy) {
     guardChildNavigation(tabId, policy, {
       timeoutMs: Math.max(0, policy.expiresAt - Date.now()),
@@ -215,7 +224,10 @@ export async function createChildTabInGroup(
         typeof existingTab.id === 'number' &&
         !options.ignoreExistingTabIds?.has(existingTab.id) &&
         (typeof options.windowId !== 'number' || existingTab.windowId === options.windowId) &&
-        (existingTab.openerTabId === openerTabId || options.allowUnlinkedExistingTab)
+        (existingTab.openerTabId === openerTabId || options.allowUnlinkedExistingTab) &&
+        (hasTargetUrl(existingTab, url) ||
+          isTabStillNavigating(existingTab) ||
+          options.allowRedirectedExistingTab)
       ) {
         await adoptChildTab(mgr, mainTabId, existingTab, adoptOptions);
         return existingTab.id;
@@ -296,7 +308,7 @@ async function adoptChildTabFromOpener(
   mgr: TabGroupManager,
   tab: chrome.tabs.Tab,
   openerTabId: number,
-  options: { sessionId?: string } = {}
+  options: AdoptTabOptions = {}
 ): Promise<boolean> {
   const mainTabId = await findManagedMainTabIdForTab(mgr, openerTabId);
   if (typeof mainTabId !== 'number') return false;
@@ -330,7 +342,7 @@ async function adoptChildTab(
   mgr: TabGroupManager,
   mainTabId: number,
   tab: chrome.tabs.Tab,
-  options: { sessionId?: string } = {}
+  options: AdoptTabOptions = {}
 ): Promise<boolean> {
   const tabId = tab.id;
   if (typeof tabId !== 'number') return false;
@@ -383,6 +395,7 @@ async function adoptChildTab(
     if (claimedForSession && options.sessionId) {
       await tabLeaseManager.releaseTabs(options.sessionId, [tabId]).catch(() => {});
     }
+    if (addedMemberState) await mgr.saveToStorage().catch(() => {});
     if (err instanceof BrowserSessionConflictError) throw err;
     return false;
   }

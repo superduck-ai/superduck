@@ -35,21 +35,30 @@ function parseJSONWithRaw(value, label) {
   }
 }
 
-function stripTabContext(stdout) {
-  return stdout.split(/\n\s*\nTab Context:/)[0].trim();
+async function runSuperduckJSON(args, label) {
+  const stdout = await runSuperduck(['--json', ...args]);
+  return parseJSONWithRaw(stdout, label);
 }
 
 async function extractData(url, selector, outputFile = null) {
+  let sessionId = '';
+  let tabId = '';
   try {
-    // Reuse the current session tab group, creating it only if needed.
-    const tabOutput = await runSuperduck([
-      '--json',
+    sessionId = (await runSuperduck(['session', 'new'])).trim();
+
+    // Reuse this task's session tab group, creating it only if needed.
+    const tabPayload = await runSuperduckJSON([
+      '--session',
+      sessionId,
       'tab_group',
       'list',
-      '--create-if-empty'
-    ]);
-    const tabPayload = parseJSONWithRaw(tabOutput, 'tab_group list');
-    const tabId = tabPayload?.tabContext?.currentTabId;
+      '--create-if-empty',
+      '--name',
+      'Extract data'
+    ], 'tab_group list');
+    tabId = tabPayload?.tabContext?.currentTabId
+      ? String(tabPayload.tabContext.currentTabId)
+      : '';
     if (!tabId) {
       throw new Error(
         `Failed to resolve session tab. Raw payload: ${truncateForError(JSON.stringify(tabPayload))}`
@@ -57,10 +66,10 @@ async function extractData(url, selector, outputFile = null) {
     }
 
     // Navigate to URL
-    await runSuperduck(['--tab', tabId, 'navigate', url]);
+    await runSuperduck(['--session', sessionId, '--tab', tabId, 'navigate', url]);
 
     // Wait for page load (using context to verify)
-    await runSuperduck(['--tab', tabId, 'context']);
+    await runSuperduck(['--session', sessionId, '--tab', tabId, 'context']);
 
     // Extract data using JavaScript
     const selectorLiteral = JSON.stringify(selector);
@@ -68,10 +77,23 @@ async function extractData(url, selector, outputFile = null) {
       ? `JSON.stringify(Array.from(document.querySelectorAll(${selectorLiteral})).map(el => ({ text: el.textContent.trim(), html: el.innerHTML, href: el.href || null })))`
       : `JSON.stringify({ title: document.title, url: window.location.href, text: document.body.innerText.substring(0, 5000) })`;
 
-    const dataOutput = await runSuperduck(['--tab', tabId, 'exec', jsCode]);
-
-    const strippedDataOutput = stripTabContext(dataOutput);
-    const data = parseJSONWithRaw(strippedDataOutput, 'exec');
+    const dataPayload = await runSuperduckJSON([
+      '--session',
+      sessionId,
+      '--tab',
+      tabId,
+      'exec',
+      jsCode
+    ], 'exec');
+    if (!dataPayload.ok) {
+      throw new Error(
+        `exec failed: ${truncateForError(dataPayload.error || JSON.stringify(dataPayload))}`
+      );
+    }
+    const data =
+      typeof dataPayload.output === 'string'
+        ? parseJSONWithRaw(dataPayload.output, 'exec output')
+        : dataPayload.output;
 
     if (outputFile) {
       writeFileSync(outputFile, JSON.stringify(data, null, 2));
@@ -83,7 +105,19 @@ async function extractData(url, selector, outputFile = null) {
     return data;
   } catch (error) {
     console.error('Error:', error.message);
-    process.exit(1);
+    process.exitCode = 1;
+    return null;
+  } finally {
+    if (sessionId && tabId) {
+      await runSuperduck([
+        '--session',
+        sessionId,
+        'tab_group',
+        'finalize',
+        '--deliverable',
+        tabId
+      ]).catch(() => {});
+    }
   }
 }
 

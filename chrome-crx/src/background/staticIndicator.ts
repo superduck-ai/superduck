@@ -6,9 +6,9 @@ import { PersistentDeadlineStore, type DeadlineState } from '../utils/persistent
 type SuccessResponse = { success: boolean };
 type AgentTurnActiveMessage = {
   type?: string;
-  tabId?: unknown;
-  active?: unknown;
-  completed?: unknown;
+  tabId?: number;
+  active?: boolean;
+  completed?: boolean;
 };
 
 type TurnActiveDeadline = {
@@ -83,7 +83,8 @@ export function createStaticIndicatorController() {
 
       const group = await findManagedGroupByTab(senderTabId);
       sendResponse({ success: Boolean(group) });
-    } catch {
+    } catch (err) {
+      console.warn('[staticIndicator] handleAgentTurnActive failed', err);
       sendResponse({ success: false });
     }
   }
@@ -159,9 +160,9 @@ export function createStaticIndicatorController() {
       ]);
       if (!options.force && [...gateIds].some((id) => hasActiveToolContext(id))) return false;
       await tabGroupManager.clearIndicatorsForGroup(group.mainTabId);
-      for (const memberTabId of hideTargets) {
-        await tabGroupManager.hideAgentIndicatorsForTab(memberTabId);
-      }
+      await Promise.all(
+        hideTargets.map((memberTabId) => tabGroupManager.hideAgentIndicatorsForTab(memberTabId))
+      );
       if (options.completed) {
         await tabGroupManager.addCompletionPrefix(group.mainTabId);
         await tabGroupManager.setGroupColor(group.mainTabId, chrome.tabGroups.Color.GREEN);
@@ -212,6 +213,7 @@ export function createStaticIndicatorController() {
 
   async function processTurnActiveDeadline(deadline: TurnActiveDeadline): Promise<void> {
     const key = String(deadline.tabId);
+    await turnActiveDeadlineStore.refresh();
     const current = turnActiveDeadlineStore.get('turnActive', key);
     if (!current || current.turnKey !== deadline.turnKey || current.dueAt !== deadline.dueAt) {
       return;
@@ -269,11 +271,11 @@ export function createStaticIndicatorController() {
 
   async function clearTurnIndicatorsWithRetry(
     tabId: number,
-    options: { completed?: boolean } = {}
+    options: { completed?: boolean; force?: boolean } = {}
   ): Promise<boolean> {
     const attempts = options.completed ? TURN_CLEAR_RETRY_ATTEMPTS : 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
-      const force = options.completed && attempt === attempts - 1;
+      const force = options.force === true || (options.completed && attempt === attempts - 1);
       if (force && turnActiveTimers.has(tabId)) return true;
       const cleared = await clearTurnIndicators(tabId, {
         completed: options.completed,
@@ -323,12 +325,16 @@ export function createStaticIndicatorController() {
         }
         await tabGroupManager.setTabIndicatorState(tabId, 'pulsing', true, false);
         armTurnActiveTimeout(tabId);
+        sendResponse({ success: true });
+        return;
       } else {
-        const cleared = await clearTurnIndicatorsWithRetry(tabId, { completed });
+        const cleared = await clearTurnIndicatorsWithRetry(tabId, {
+          completed,
+          force: !completed
+        });
         sendResponse({ success: cleared });
         return;
       }
-      sendResponse({ success: true });
     } catch {
       sendResponse({ success: false });
     }

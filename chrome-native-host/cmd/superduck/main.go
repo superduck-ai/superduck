@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"chrome-native-host/internal/analytics"
@@ -180,6 +182,8 @@ const (
 	ExitNotConnected = 2
 	ExitToolError    = 3
 	ExitTimeout      = 4
+
+	sessionIDFileStaleLockAge = 30 * time.Second
 )
 
 type globalFlags struct {
@@ -465,7 +469,10 @@ func exitCodeFor(err error) int {
 }
 
 func clientOpts() cliclient.Options {
-	sessionID, explicit := resolvedBrowserSession()
+	sessionID, explicit, err := resolvedBrowserSession()
+	if err != nil {
+		fatalUsage("%v", err)
+	}
 	if !explicit {
 		warnSharedSessionOnce()
 	}
@@ -485,7 +492,7 @@ func clientOpts() cliclient.Options {
 var sharedSessionWarned bool
 
 func warnSharedSessionOnce() {
-	if sharedSessionWarned {
+	if sharedSessionWarned || sessionWarningsDisabled() {
 		return
 	}
 	sharedSessionWarned = true
@@ -493,25 +500,38 @@ func warnSharedSessionOnce() {
 	fmt.Fprintln(os.Stderr, "           concurrent shells are isolated; for strict per-task isolation mint an id with `superduck session new` and pass --session <id>.")
 }
 
-func resolvedBrowserSession() (string, bool) {
+func sessionWarningsDisabled() bool {
+	for _, key := range []string{"SUPERDUCK_QUIET", "SUPERDUCK_NO_WARN"} {
+		value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		if value == "1" || value == "true" || value == "yes" {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvedBrowserSession() (string, bool, error) {
 	if gflags.SessionID != "" {
-		return gflags.SessionID, true
+		return gflags.SessionID, true, nil
 	}
 	if v := os.Getenv("SUPERDUCK_SESSION_ID"); v != "" {
-		return v, true
+		return v, true, nil
 	}
 	if v := os.Getenv("SUPERDUCK_SESSION_FILE"); v != "" {
-		if id, err := readOrCreateSessionIDFile(v); err == nil && id != "" {
-			return id, true
-		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "superduck: SUPERDUCK_SESSION_FILE=%q unusable: %v\n", v, err)
+		id, err := readOrCreateSessionIDFile(v)
+		if err == nil && id != "" {
+			return id, true, nil
 		}
+		if err == nil {
+			err = fmt.Errorf("empty session id")
+		}
+		return "", true, fmt.Errorf("SUPERDUCK_SESSION_FILE=%q unusable: %w", v, err)
 	}
 	// Default: a per-shell session id keyed by parent pid. Concurrent shells
 	// (different ppid) isolate naturally; commands within the same shell share
 	// one tab group (expected reuse). Mint an explicit per-task id with
 	// `superduck session new` for strict isolation.
-	return fmt.Sprintf("cli:ppid:%d", os.Getppid()), false
+	return fmt.Sprintf("cli:ppid:%d", os.Getppid()), false, nil
 }
 
 func readOrCreateSessionIDFile(path string) (string, error) {
@@ -557,9 +577,50 @@ func acquireSessionIDFileLock(path string) (func(), error) {
 		if !os.IsExist(err) {
 			return nil, err
 		}
+		if reclaimStaleSessionIDFileLock(lockPath) {
+			continue
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	return nil, fmt.Errorf("session file lock %q is held", lockPath)
+}
+
+func reclaimStaleSessionIDFileLock(lockPath string) bool {
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 || pid == os.Getpid() {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return removeExpiredSessionIDFileLock(lockPath)
+	}
+	if err := process.Signal(syscall.Signal(0)); err == nil || errors.Is(err, syscall.EPERM) {
+		return removeExpiredSessionIDFileLock(lockPath)
+	}
+	if !errors.Is(err, syscall.ESRCH) && !errors.Is(err, os.ErrProcessDone) {
+		return removeExpiredSessionIDFileLock(lockPath)
+	}
+	return removeSessionIDFileLock(lockPath)
+}
+
+func removeExpiredSessionIDFileLock(lockPath string) bool {
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		return false
+	}
+	if time.Since(info.ModTime()) < sessionIDFileStaleLockAge {
+		return false
+	}
+	return removeSessionIDFileLock(lockPath)
+}
+
+func removeSessionIDFileLock(lockPath string) bool {
+	removeErr := os.Remove(lockPath)
+	return removeErr == nil || os.IsNotExist(removeErr)
 }
 
 func writeSessionIDFile(path, id string) error {

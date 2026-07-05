@@ -102,13 +102,13 @@ export class PersistentDeadlineStore<K extends string, R> {
   }
 
   private queuePersist(): void {
-    this.persistQueue = this.persistQueue.then(() => this.persist());
+    this.persistQueue = this.persistQueue.catch(() => {}).then(() => this.persist());
   }
 
   async persist(): Promise<void> {
-    const stateToPersist = cloneState(this.kinds, this.state);
-    const deleteSnapshot = this.clonePendingDeletes();
     try {
+      const stateToPersist = cloneState(this.kinds, this.state);
+      const deleteSnapshot = this.clonePendingDeletes();
       await setStorageValue(this.storageKey, this.serializeState(stateToPersist));
       this.clearPersistedDeletes(deleteSnapshot);
     } catch (err) {

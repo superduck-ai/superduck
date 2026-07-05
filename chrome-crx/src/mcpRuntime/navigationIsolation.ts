@@ -105,6 +105,7 @@ export async function createPolicyCheckedChildTab(
   options: {
     existingTabId?: number;
     allowUnlinkedExistingTab?: boolean;
+    allowRedirectedExistingTab?: boolean;
     ignoreExistingTabIds?: ReadonlySet<number>;
     windowId?: number;
   } = {}
@@ -114,6 +115,7 @@ export async function createPolicyCheckedChildTab(
     sessionId: policy.sessionId,
     existingTabId: options.existingTabId,
     allowUnlinkedExistingTab: options.allowUnlinkedExistingTab,
+    allowRedirectedExistingTab: options.allowRedirectedExistingTab,
     ignoreExistingTabIds: options.ignoreExistingTabIds,
     windowId: options.windowId
   });

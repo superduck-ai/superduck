@@ -362,6 +362,7 @@ async function rearmRestoredActiveToolContexts(): Promise<void> {
  */
 export async function restoreActiveToolContextsFromStorage(): Promise<void> {
   try {
+    deadlineStore.reset();
     const stored = await getStorageValue<Record<string, PersistedActiveToolContext>>(
       StorageKeys.ACTIVE_TOOL_CONTEXTS
     );
@@ -426,10 +427,11 @@ async function detachIdleDebuggers(mainTabId: number, memberSnapshot: number[]):
   // the timer was scheduled, so detach the union of the snapshot and the
   // current membership.
   const tabIds = new Set([...memberSnapshot, ...tabGroupManager.getGroupMemberIds(mainTabId)]);
-  for (const tabId of tabIds) {
-    if (activeToolContexts.has(tabId)) continue;
-    await cdpDebugger.detachDebugger(tabId).catch(() => {});
-  }
+  await Promise.allSettled(
+    [...tabIds]
+      .filter((tabId) => !activeToolContexts.has(tabId))
+      .map((tabId) => cdpDebugger.detachDebugger(tabId))
+  );
   const state = groupFinalizationState.get(mainTabId);
   if (state && state.timer === null && state.detachTimer === null) {
     groupFinalizationState.delete(mainTabId);

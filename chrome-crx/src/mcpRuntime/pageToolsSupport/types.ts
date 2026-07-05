@@ -75,6 +75,11 @@ export interface ToolContext {
   model?: string;
   messagesClient?: unknown;
   availableTools?: ToolDefinition[];
+  /**
+   * Effective tab access level for the current execution. This may differ
+   * from a tool's static ToolDefinition.tabAccess, for example inside batch
+   * execution, so tool implementations should use this value for lease checks.
+   */
   tabAccess: ToolTabAccess;
 }
 
