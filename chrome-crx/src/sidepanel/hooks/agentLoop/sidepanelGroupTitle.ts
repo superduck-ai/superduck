@@ -12,7 +12,7 @@ export function deriveSidepanelGroupTitle(input: string, locale: string): string
 export async function ensureSidepanelManagedGroup(tabId: number): Promise<void> {
   await tabGroupManager.initialize(true);
   const existing = await tabGroupManager.findGroupByTab(tabId);
-  if (existing && !existing.isUnmanaged) return;
+  if (existing) return;
   await tabGroupManager.createGroup(tabId);
 }
 

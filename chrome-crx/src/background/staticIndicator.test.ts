@@ -138,6 +138,26 @@ describe('createStaticIndicatorController', () => {
     expect(chromeMock.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
+  it('logs heartbeat failures with the heartbeat handler name', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const err = new Error('tab missing');
+    chromeMock.tabs.get.mockRejectedValueOnce(err);
+    const controller = createStaticIndicatorController();
+    const sendResponse = vi.fn();
+
+    try {
+      await controller.handleHeartbeat(
+        { tab: { id: 11 } } as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      expect(warnSpy).toHaveBeenCalledWith('[staticIndicator] handleHeartbeat failed', err);
+      expect(sendResponse).toHaveBeenCalledWith({ success: false });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('dismisses static indicators only for managed groups', async () => {
     fixtures.findGroupByTab.mockResolvedValue({
       mainTabId: 10,

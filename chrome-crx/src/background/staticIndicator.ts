@@ -84,7 +84,7 @@ export function createStaticIndicatorController() {
       const group = await findManagedGroupByTab(senderTabId);
       sendResponse({ success: Boolean(group) });
     } catch (err) {
-      console.warn('[staticIndicator] handleAgentTurnActive failed', err);
+      console.warn('[staticIndicator] handleHeartbeat failed', err);
       sendResponse({ success: false });
     }
   }
