@@ -36,7 +36,7 @@ const chromeMock = vi.hoisted(() => {
         async (id: number): Promise<MockTab> => ({
           id,
           windowId: 1,
-          groupId: id === 7 ? -1 : 123,
+          groupId: 123,
           url: id === 10 ? 'https://example.com/' : 'chrome://newtab',
           title: `Tab ${id}`,
           index: id === 10 ? 0 : 1
