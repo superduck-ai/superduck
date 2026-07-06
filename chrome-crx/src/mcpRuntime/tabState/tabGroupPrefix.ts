@@ -1,5 +1,5 @@
 import type { TabGroupManager } from './tabGroups';
-import { DEFAULT_SESSION_KEY, type GroupMetadata } from './types';
+import type { GroupMetadata } from './types';
 import { decorateGroupTitleForStatus, markGroupTitle } from './tabGroupAppearance';
 
 function findManagedMetadataForTab(mgr: TabGroupManager, tabId: number): GroupMetadata | undefined {
@@ -21,8 +21,7 @@ export async function updateGroupTitle(
         meta.status = 'active';
         await mgr.saveToStorage();
       }
-      const sessionId = meta.sessionId ?? DEFAULT_SESSION_KEY;
-      const explicitName = mgr.sessionGroupTitles.get(sessionId);
+      const explicitName = meta.sessionId ? mgr.sessionGroupTitles.get(meta.sessionId) : undefined;
       const requestedTitle = title.trim();
       if (!explicitName && meta.title !== requestedTitle) {
         meta.title = requestedTitle;

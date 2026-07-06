@@ -160,13 +160,13 @@ describe('extractModelMetadata', () => {
   it('uses max_input_tokens from Anthropic-compatible gateways', () => {
     const metadata = extractModelMetadata({
       data: [
-        { id: 'CVTE-AUTO', max_input_tokens: 1_000_000 },
+        { id: 'GATEWAY-AUTO', max_input_tokens: 1_000_000 },
         { id: 'glm-5.1', max_input_tokens: 200_000 }
       ]
     });
 
-    expect(metadata['CVTE-AUTO']).toMatchObject({
-      id: 'CVTE-AUTO',
+    expect(metadata['GATEWAY-AUTO']).toMatchObject({
+      id: 'GATEWAY-AUTO',
       contextLength: 1_000_000
     });
     expect(metadata['glm-5.1']).toMatchObject({
