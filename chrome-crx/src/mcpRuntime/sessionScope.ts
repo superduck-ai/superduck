@@ -2,14 +2,13 @@ export interface BrowserSessionScope {
   sessionId: string;
 }
 
-export type BrowserSessionSource = Record<string, unknown> & {
+type BrowserSessionSource = Record<string, unknown> & {
   sessionId?: unknown;
   session_id?: unknown;
 };
 
 const SESSION_KEYS = ['session_id', 'sessionId'] as const;
 export const DEFAULT_BROWSER_SESSION_ID = '__default__';
-export const RESERVED_BROWSER_SESSION_ARG_KEYS = SESSION_KEYS;
 
 function parseOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;

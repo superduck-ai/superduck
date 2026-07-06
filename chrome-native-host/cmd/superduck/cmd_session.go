@@ -13,10 +13,10 @@ import (
 //	superduck session new           Mint a fresh browser-automation session id.
 //
 // The CLI has no host runtime to bound a browser session the way Codex's agent
-// runtime does, so a long-running shell would otherwise reuse one global
-// session (the persisted ~/.superduck/cli-session-id file) across unrelated
-// tasks, leaking handoff tabs from one task into the next. Minting a per-task
-// session id and passing it via --session gives each task its own tab scope.
+// runtime does, so a long-running shell would otherwise reuse one per-shell
+// default session across unrelated tasks, leaking handoff tabs from one task
+// into the next. Minting a per-task session id and passing it via --session
+// gives each task its own tab scope.
 func cmdSession(argv []string) error {
 	if len(argv) == 0 {
 		fmt.Fprintln(os.Stderr, sessionUsage)

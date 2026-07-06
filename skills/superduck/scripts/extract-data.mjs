@@ -113,9 +113,7 @@ async function extractData(url, selector, outputFile = null) {
         '--session',
         sessionId,
         'tab_group',
-        'finalize',
-        '--deliverable',
-        tabId
+        'finalize'
       ]).catch(() => {});
     }
   }

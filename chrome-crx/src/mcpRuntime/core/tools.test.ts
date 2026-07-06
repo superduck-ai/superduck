@@ -17,7 +17,6 @@ const fixtures = vi.hoisted(() => {
 vi.mock('../browserAutomation', () => ({
   computerTool: fixtures.tool('computer'),
   findTool: fixtures.tool('find', 'read'),
-  fileUploadTool: fixtures.tool('file_upload'),
   formInputTool: fixtures.tool('form_input'),
   getPageTextTool: fixtures.tool('get_page_text', 'read'),
   gifCreatorTool: fixtures.tool('create_gif'),

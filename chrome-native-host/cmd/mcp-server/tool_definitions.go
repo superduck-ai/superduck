@@ -241,19 +241,6 @@ var toolDefinitions = []toolDefinition{
 		}, "imageId", "tabId"),
 	},
 	{
-		name:        "file_upload",
-		description: "Upload one or more local files from the filesystem to a file input element on the page. Do not click upload buttons or file inputs; locate the file input with read_page or find, then pass its ref. Paths must be absolute file paths on the local machine.",
-		inputSchema: objectSchema(map[string]any{
-			"paths": arraySchema(
-				"Absolute local file paths to upload.",
-				map[string]any{"type": "string"},
-				withMinItems(1),
-			),
-			"ref":   stringSchema("Element reference ID of the file input from read_page or find."),
-			"tabId": numberSchema("Tab ID where the file input is located. Use tabs_context_mcp first if needed."),
-		}, "paths", "ref", "tabId"),
-	},
-	{
 		name:        "read_console_messages",
 		description: "Read browser console messages (console.log, console.error, console.warn, etc.) from a specific tab. Useful for debugging JavaScript errors, viewing application logs, or understanding what's happening in the browser console. Returns console messages from the current domain only. If you don't have a valid tab ID, use tabs_context_mcp first to get available tabs. IMPORTANT: Always provide a pattern to filter messages - without a pattern, you may get too many irrelevant messages.",
 		inputSchema: objectSchema(map[string]any{

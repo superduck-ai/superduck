@@ -1,7 +1,7 @@
 {
   "name": "superduck-cli",
   "version": "0.2.6",
-  "description": "Your browser's session, callable as a tool. CLI bridge from browser-capable agents to your active Chrome tab.",
+  "description": "Your browser's session, callable as a tool. CLI bridge that lets AI agents inspect and operate your Chrome browser.",
   "bin": {
     "superduck": "bin/superduck.js"
   },

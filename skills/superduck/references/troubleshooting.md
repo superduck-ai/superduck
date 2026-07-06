@@ -13,7 +13,7 @@ Common issues and their solutions.
 1. Check if the native host is running:
 
    ```bash
-   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
+   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-${CODEX_HOME:-$HOME/.codex}/skills/superduck}"
    node "$SKILL_DIR/scripts/check-superduck-status.mjs"
    ```
 
@@ -42,13 +42,15 @@ Common issues and their solutions.
 1. Increase timeout:
 
    ```bash
-   superduck --timeout 60 --tab $TAB navigate https://slow-site.com
+   superduck --timeout 60 --session "$SID" --tab "$TAB" navigate https://slow-site.com
    ```
 
 2. For navigation, verify the page loaded with `context` instead of using `wait`:
    ```bash
-   superduck --tab $TAB navigate https://example.com
-   superduck --tab $TAB context  # Verify loaded
+   SID=$(superduck session new)
+   TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+   superduck --session "$SID" --tab "$TAB" navigate https://example.com
+   superduck --session "$SID" --tab "$TAB" context  # Verify loaded
    ```
 
 ## Tab Not Found
@@ -68,13 +70,14 @@ Common issues and their solutions.
 2. Reuse or create the current session tab:
 
    ```bash
-   TAB=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+   SID=$(superduck session new)
+   TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
    ```
 
 3. Replace the current session group only when you intentionally need a separate context:
 
    ```bash
-   TAB=$(superduck --json tab_group new --force | jq -r '.tabContext.currentTabId')
+   TAB=$(superduck --session "$SID" --json tab_group new --force | jq -r '.tabContext.currentTabId')
    ```
 
    Do not run this after `tab_group list --create-if-empty` during normal browser work.
@@ -88,14 +91,14 @@ Common issues and their solutions.
 **Workaround**: Use `sleep` or `context` instead:
 
 ```bash
-# Instead of: superduck --tab $TAB wait 2000
+# Instead of: superduck --session "$SID" --tab "$TAB" wait 2000
 sleep 2
 
 # Or use seconds explicitly:
-superduck --tab $TAB wait 2
+superduck --session "$SID" --tab "$TAB" wait 2
 
 # Or verify page load:
-superduck --tab $TAB context
+superduck --session "$SID" --tab "$TAB" context
 ```
 
 ## GIF Recording Not Working
@@ -109,9 +112,9 @@ performed entirely through CLI commands.
 
 ```bash
 # Take screenshots
-superduck --tab $TAB screenshot --output /tmp/step1.jpg
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/step1.jpg
 # ... perform actions ...
-superduck --tab $TAB screenshot --output /tmp/step2.jpg
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/step2.jpg
 
 # Convert to GIF
 ffmpeg -framerate 1 -i /tmp/step%d.jpg output.gif
@@ -155,11 +158,11 @@ the command output to confirm the final path:
 
 ```bash
 # Auto-name under a directory
-superduck --tab $TAB screenshot --output /tmp/
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/
 # Creates: /tmp/[uuid].jpg
 
 # Stable basename; may become /tmp/my-screenshot.jpg if JPEG is returned
-superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/my-screenshot.jpg
 ```
 
 ## JavaScript Execution Errors
@@ -171,13 +174,13 @@ superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
 1. **Quote escaping**: Use single quotes around JavaScript:
 
    ```bash
-   superduck --tab $TAB exec 'document.title'
+   superduck --session "$SID" --tab "$TAB" exec 'document.title'
    ```
 
 2. **Complex scripts**: Use heredoc or separate file:
 
    ```bash
-   superduck --tab $TAB exec "$(cat script.js)"
+   superduck --session "$SID" --tab "$TAB" exec "$(cat script.js)"
    ```
 
 3. **Return values**: Make sure the script returns a value, and strip the
@@ -194,7 +197,7 @@ superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
 **Solution**: Make scripts executable:
 
 ```bash
-SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
+SKILL_DIR="${SUPERDUCK_SKILL_DIR:-${CODEX_HOME:-$HOME/.codex}/skills/superduck}"
 chmod +x "$SKILL_DIR"/scripts/*.mjs
 chmod +x "$SKILL_DIR"/templates/*.sh
 ```
@@ -214,12 +217,6 @@ superduck doctor
 
 ## Debugging Tips
 
-### Enable Verbose Mode
-
-```bash
-superduck -v --tab $TAB navigate https://example.com
-```
-
 ### Check Logs
 
 ```bash
@@ -235,11 +232,12 @@ Start with basic commands to verify functionality:
 superduck version
 
 # Test session tab group reuse/create
-TAB=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+SID=$(superduck session new)
+TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
 
 # Test simple navigation
-superduck --tab $TAB navigate https://example.com
-superduck --tab $TAB context
+superduck --session "$SID" --tab "$TAB" navigate https://example.com
+superduck --session "$SID" --tab "$TAB" context
 ```
 
 ## Getting Help
@@ -250,7 +248,7 @@ If issues persist:
 
    ```bash
    superduck doctor
-   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-$(pwd)/skills/superduck}"
+   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-${CODEX_HOME:-$HOME/.codex}/skills/superduck}"
    node "$SKILL_DIR/scripts/check-superduck-status.mjs" --json
    ```
 

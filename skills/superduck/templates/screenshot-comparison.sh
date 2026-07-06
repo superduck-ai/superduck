@@ -28,7 +28,7 @@ TAB_ID=""
 
 cleanup() {
   if [ -n "$TAB_ID" ]; then
-    superduck --session "$SID" tab_group finalize --deliverable "$TAB_ID" >/dev/null 2>&1 || true
+    superduck --session "$SID" tab_group finalize >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT

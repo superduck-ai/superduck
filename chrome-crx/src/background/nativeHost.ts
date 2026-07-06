@@ -98,7 +98,7 @@ export interface NativeHostManager {
   handleHeartbeatAlarm: () => Promise<void>;
 }
 
-export interface NativeHostManagerOptions {
+interface NativeHostManagerOptions {
   waitUntilBooted?: () => Promise<void>;
 }
 

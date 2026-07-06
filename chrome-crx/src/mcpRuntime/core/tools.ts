@@ -1,7 +1,6 @@
 import {
   computerTool,
   findTool,
-  fileUploadTool,
   formInputTool,
   getPageTextTool,
   gifCreatorTool,
@@ -57,7 +56,6 @@ export function getAllTools(): ToolRegistryEntry[] {
       turnAnswerStartTool,
       updatePlanTool,
       uploadImageTool,
-      fileUploadTool,
       readConsoleMessagesTool,
       readNetworkRequestsTool,
       gifCreatorTool,
@@ -89,7 +87,6 @@ export const allTools: ToolRegistryEntry[] = [
   turnAnswerStartTool,
   updatePlanTool,
   uploadImageTool,
-  fileUploadTool,
   readConsoleMessagesTool,
   readNetworkRequestsTool,
   gifCreatorTool,

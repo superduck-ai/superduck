@@ -1,9 +1,9 @@
 import { getStorageValue, setStorageValue } from '../extensionServices';
-import { PendingDeleteSet, type PendingDeleteSnapshot } from './pendingDeleteSet';
+import { PendingDeleteSet } from './pendingDeleteSet';
 
 export type DeadlineState<K extends string, R> = Record<K, Record<string, R>>;
 
-export interface PersistentDeadlineStoreOptions<K extends string, R> {
+interface PersistentDeadlineStoreOptions<K extends string, R> {
   storageKey: string;
   kinds: readonly K[];
   emptyState: DeadlineState<K, R>;
@@ -108,9 +108,7 @@ export class PersistentDeadlineStore<K extends string, R> {
   async persist(): Promise<void> {
     try {
       const stateToPersist = cloneState(this.kinds, this.state);
-      const deleteSnapshot = this.clonePendingDeletes();
       await setStorageValue(this.storageKey, this.serializeState(stateToPersist));
-      this.clearPersistedDeletes(deleteSnapshot);
     } catch (err) {
       console.warn(`[core] failed to persist ${this.warnLabel}`, err);
     }
@@ -135,17 +133,5 @@ export class PersistentDeadlineStore<K extends string, R> {
   private applyPendingDeletes(state: DeadlineState<K, R>): DeadlineState<K, R> {
     for (const kind of this.kinds) this.pendingDeletes[kind].applyTo(state[kind]);
     return state;
-  }
-
-  private clonePendingDeletes(): Record<K, PendingDeleteSnapshot> {
-    const snapshot = {} as Record<K, PendingDeleteSnapshot>;
-    for (const kind of this.kinds) snapshot[kind] = this.pendingDeletes[kind].snapshot();
-    return snapshot;
-  }
-
-  private clearPersistedDeletes(snapshot: Record<K, PendingDeleteSnapshot>): void {
-    for (const kind of this.kinds) {
-      this.pendingDeletes[kind].clearPersisted(snapshot[kind], this.state[kind]);
-    }
   }
 }

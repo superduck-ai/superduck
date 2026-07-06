@@ -6,7 +6,7 @@ import {
   type GroupMetadata
 } from './types';
 
-export const COMPLETED_GROUP_PREFIX = '✅';
+const COMPLETED_GROUP_PREFIX = '✅';
 
 const PREFIX_PATTERN = /^(⌛|🔔|✅)/;
 
@@ -27,7 +27,7 @@ export function resolveBaseGroupTitle(
   return fallbackTitle ? markGroupTitle(fallbackTitle) : TAB_GROUP_TITLE;
 }
 
-export function stripStatusPrefix(title: string): string {
+function stripStatusPrefix(title: string): string {
   return title.replace(PREFIX_PATTERN, '').trim();
 }
 

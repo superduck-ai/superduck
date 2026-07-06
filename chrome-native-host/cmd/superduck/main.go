@@ -129,10 +129,6 @@ UPLOAD / SHORTCUTS / GIF (require --tab <id>):
   upload --image-id <id> (--ref R | --coord x,y) [--filename N]
                              Drop a previously captured image onto a file input or drag target
                              (works for hidden <input type=file>).
-  file_upload --ref R <path> [path...]
-                             Upload local files (absolute paths) to a file input. Chrome reads
-                             the files via CDP DOM.setFileInputFiles; locate the input with read_page
-                             (do not click it — that opens a native picker the CLI cannot drive).
   shortcuts list             List saved shortcuts (use --json for machine output).
   shortcuts get <name|id>    Fetch a shortcut's prompt (with vars filled) to stdout.
                              Pipe into your local agent — the CLI does NOT run it.
@@ -149,7 +145,7 @@ GLOBAL FLAGS:
   --session <id>    Browser automation session id. Mint one per task with
                     'superduck session new' so each task owns its own tab group;
                     default SUPERDUCK_SESSION_ID, SUPERDUCK_SESSION_FILE, or
-                    ~/.superduck/cli-session-id (shared across tasks).
+                    a per-shell cli:ppid:<parent-pid> id.
   --socket <path>   Native-host UDS path (default %s)
   --timeout <s>     Per-request timeout in seconds (default 30)
 
@@ -298,8 +294,6 @@ func main() {
 		err = cmdNavigate(rest)
 	case "upload":
 		err = cmdUpload(rest)
-	case "file_upload":
-		err = cmdFileUpload(rest)
 	case "shortcuts":
 		err = cmdShortcuts(rest)
 	case "gif":
@@ -485,10 +479,9 @@ func clientOpts() cliclient.Options {
 
 // warnSharedSessionOnce nudges the user when the session id was NOT explicitly
 // provided (--session / SUPERDUCK_SESSION_ID / SUPERDUCK_SESSION_FILE). In that
-// case every concurrent CLI invocation collapses onto one shared default id
-// (~/.superduck/cli-session-id or cli:ppid:<ppid>), so concurrent tasks share
-// one tab group and trample each other's handoff tabs — the exact failure
-// `superduck session new` exists to prevent.
+// case commands from the same shell reuse cli:ppid:<ppid>, so concurrent tasks
+// in that shell share one tab group and can trample each other's handoff tabs —
+// the exact failure `superduck session new` exists to prevent.
 var sharedSessionWarned bool
 
 func warnSharedSessionOnce() {

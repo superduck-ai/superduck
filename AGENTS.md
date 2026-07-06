@@ -214,9 +214,10 @@ node scripts/validate-agents-md.mjs
 
 ```bash
 SID=$(./superduck session new) # 每任务一个 session，避免并发任务互相踩 tab
-TAB=$(./superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId') # 复用/创建当前会话分组
-./superduck --session "$SID" --tab $TAB navigate https://example.com
-./superduck --session "$SID" --tab $TAB screenshot --output /tmp/
+TAB=$(./superduck --session "$SID" --json tab_group list --create-if-empty --name "CLI smoke" | jq -r '.tabContext.currentTabId')
+./superduck --session "$SID" --tab "$TAB" navigate https://example.com
+./superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/
+./superduck --session "$SID" tab_group finalize
 ```
 
 完整帮助: `./superduck --help`。
