@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Bell } from 'lucide-react';
 import { StorageKeys, setStorageValue } from '../../extensionServices';
-import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
+import { MemoizedFormattedMessage, useIntlSafe } from '../../index-react-dom-intl';
 import { CompactBanner, SAFE_USE_TIPS_URL } from './SidepanelSupportViews';
 import { useUIStore } from '../stores/uiStore';
 import { useAgentStore } from '../stores/agentStore';
@@ -18,6 +18,8 @@ import { getMessageLimitBannerState } from '../conversation/messageLimits';
  * SidepanelBanners — 直接从 stores 读取状态，无 props
  */
 export function SidepanelBanners() {
+  const intl = useIntlSafe();
+
   // ─── Read state from stores ────────────────────────────────────────────
   const runtimeError = useSidepanelViewState().effectiveRuntimeError;
   const lastStopReason = useAgentStore((s) => s.lastStopReason);
@@ -104,7 +106,7 @@ export function SidepanelBanners() {
                         }}
                         className="underline hover:opacity-80 transition-opacity"
                       >
-                        Retry
+                        <MemoizedFormattedMessage defaultMessage="Retry" id="retry" />
                       </button>
                     </>
                   )}
@@ -115,14 +117,20 @@ export function SidepanelBanners() {
               return (
                 <CompactBanner key="refusal" type="refusal">
                   <span className="font-small">
-                    SuperDuck is unable to respond to this request, which appears to violate our{' '}
-                    <button
-                      onClick={() => chrome.tabs.create({ url: SAFE_USE_TIPS_URL })}
-                      className="inline-link"
-                    >
-                      Usage Policy
-                    </button>
-                    . Please start a new chat.
+                    <MemoizedFormattedMessage
+                      defaultMessage="SuperDuck is unable to respond to this request, which appears to violate our <usagePolicyLink>Usage Policy</usagePolicyLink>. Please start a new chat."
+                      id="superduck_is_unable_to_respond_to_this_request"
+                      values={{
+                        usagePolicyLink: (chunks: ReactNode) => (
+                          <button
+                            onClick={() => chrome.tabs.create({ url: SAFE_USE_TIPS_URL })}
+                            className="inline-link"
+                          >
+                            {chunks}
+                          </button>
+                        )
+                      }}
+                    />
                   </span>
                 </CompactBanner>
               );
@@ -179,8 +187,11 @@ export function SidepanelBanners() {
                     await setStorageValue(StorageKeys.NOTIFICATIONS_ENABLED, 'disabled');
                     setShowNotificationBanner(false);
                   }}
-                  actionText="Notify me"
                   actionIcon={<Bell size={16} />}
+                  actionText={intl.formatMessage({
+                    defaultMessage: 'Notify me',
+                    id: 'notify_me'
+                  })}
                   onAction={async () => {
                     setNotificationsEnabled('enabled');
                     void trackEvent('superduck.sidebar.notification_toggled', {
@@ -190,7 +201,10 @@ export function SidepanelBanners() {
                     setShowNotificationBanner(false);
                   }}
                 >
-                  Get notified when tasks complete or need input
+                  <MemoizedFormattedMessage
+                    defaultMessage="Get notified when tasks complete or need input"
+                    id="sidepanel_notification_banner_message"
+                  />
                 </CompactBanner>
               );
             }
