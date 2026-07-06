@@ -84,9 +84,18 @@ function VersionBlockedView({
   return (
     <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center p-4">
       <div className="max-w-xl rounded-xl border border-border-300 bg-bg-000 p-5">
-        <h2 className="text-lg font-medium mb-2">Extension update required</h2>
+        <h2 className="text-lg font-medium mb-2">
+          <MemoizedFormattedMessage
+            defaultMessage="Extension update required"
+            id="sidepanel_update_required"
+          />
+        </h2>
         <p className="text-sm text-text-300 mb-4">
-          Current version {currentVersion} is below minimum supported version {minSupportedVersion}.
+          <MemoizedFormattedMessage
+            defaultMessage="Current version {currentVersion} is below minimum supported version {minSupportedVersion}."
+            id="sidepanel_current_version_below_minimum"
+            values={{ currentVersion, minSupportedVersion }}
+          />
         </p>
         <button
           type="button"
@@ -97,7 +106,10 @@ function VersionBlockedView({
             })
           }
         >
-          Open Chrome Web Store
+          <MemoizedFormattedMessage
+            defaultMessage="Open Chrome Web Store"
+            id="open_chrome_web_store"
+          />
         </button>
       </div>
     </div>
@@ -117,12 +129,27 @@ function BlockedDomainView({
     <div className="h-screen bg-bg-100 text-text-100 flex items-center justify-center p-4">
       <div className="max-w-xl rounded-xl border border-border-300 bg-bg-000 p-5">
         <h2 className="text-lg font-medium mb-2">
-          {isMainTabBlocked ? 'This page is blocked for browser control' : 'Workflow stopped'}
+          {isMainTabBlocked ? (
+            <MemoizedFormattedMessage
+              defaultMessage="This page is blocked for browser control"
+              id="sidepanel_page_blocked_for_browser_control"
+            />
+          ) : (
+            <MemoizedFormattedMessage defaultMessage="Workflow stopped" id="workflow_stopped" />
+          )}
         </h2>
         <p className="text-sm text-text-300 mb-3">
-          {isMainTabBlocked
-            ? 'SuperDuck cannot assist with the content on this page.'
-            : 'SuperDuck landed on a blocked site and cannot complete your request.'}{' '}
+          {isMainTabBlocked ? (
+            <MemoizedFormattedMessage
+              defaultMessage="SuperDuck cannot assist with the content on this page."
+              id="sidepanel_cannot_assist_blocked_page"
+            />
+          ) : (
+            <MemoizedFormattedMessage
+              defaultMessage="SuperDuck landed on a blocked site and cannot complete your request."
+              id="sidepanel_landed_on_blocked_site"
+            />
+          )}{' '}
           <span className="font-mono">({category})</span>
         </p>
         {!isMainTabBlocked ? (
@@ -161,9 +188,14 @@ function PermissionPrompt({ requestId }: { requestId: string }) {
   return (
     <div className="h-screen bg-bg-100 text-text-100 p-4">
       <div className="max-w-xl mx-auto mt-10 rounded-2xl border border-border-300 bg-bg-000 p-5">
-        <h1 className="text-lg font-semibold mb-2">Permission request</h1>
+        <h1 className="text-lg font-semibold mb-2">
+          <MemoizedFormattedMessage defaultMessage="Permission request" id="permission_request" />
+        </h1>
         <p className="text-sm text-text-300 mb-4">
-          SuperDuck is requesting permission to continue. Confirm to allow this action.
+          <MemoizedFormattedMessage
+            defaultMessage="SuperDuck is requesting permission to continue. Confirm to allow this action."
+            id="sidepanel_permission_request_description"
+          />
         </p>
         <div className="flex gap-2">
           <button
@@ -171,7 +203,7 @@ function PermissionPrompt({ requestId }: { requestId: string }) {
             className="px-4 py-2 rounded-lg bg-bg-200 text-text-100 hover:bg-bg-300"
             onClick={() => void sendDecision(false)}
           >
-            Deny
+            <MemoizedFormattedMessage defaultMessage="Deny" id="deny" />
           </button>
           <button
             type="button"
@@ -179,7 +211,7 @@ function PermissionPrompt({ requestId }: { requestId: string }) {
             className="px-4 py-2 rounded-lg bg-accent-main-100 text-oncolor-100 disabled:opacity-50"
             onClick={() => void sendDecision(true)}
           >
-            Allow
+            <MemoizedFormattedMessage defaultMessage="Allow" id="allow" />
           </button>
         </div>
       </div>
@@ -280,6 +312,7 @@ function CompactBanner({
   actionIcon?: React.ReactNode;
   dismissWithGradient?: boolean;
 }) {
+  const intl = useIntlSafe();
   const [hovered, setHovered] = useState(false);
 
   const bgClass =
@@ -342,7 +375,7 @@ function CompactBanner({
             <button
               onClick={onDismiss}
               className="p-1 hover:opacity-70 rounded transition-opacity"
-              aria-label="Dismiss"
+              aria-label={intl.formatMessage({ defaultMessage: 'Dismiss', id: 'dismiss' })}
             >
               <X size={12} />
             </button>
@@ -358,7 +391,7 @@ function CompactBanner({
           <button
             onClick={onDismiss}
             className={`absolute top-3 right-3 p-0.5 transition-all duration-300 ease-out ${hovered ? 'opacity-70 hover:opacity-100' : 'opacity-0 pointer-events-none'}`}
-            aria-label="Dismiss"
+            aria-label={intl.formatMessage({ defaultMessage: 'Dismiss', id: 'dismiss' })}
           >
             <X size={11} />
           </button>
