@@ -83,9 +83,9 @@ EXAMPLES:
   superduck shortcuts list
   superduck shortcuts list --json
   superduck shortcuts get B站搜索 --show-vars
-  superduck shortcuts get B站搜索 cvte                       # positional
-  superduck shortcuts get B站搜索 --var search_query=cvte    # named (agent-friendly)
-  superduck shortcuts get B站搜索 cvte --json | jq .prompt`
+  superduck shortcuts get B站搜索 deepseek                    # positional
+  superduck shortcuts get B站搜索 --var search_query=deepseek # named (agent-friendly)
+  superduck shortcuts get B站搜索 deepseek --json | jq .prompt`
 }
 
 // --- list ---

@@ -306,6 +306,40 @@ describe('TabGroupManager session-scoped MCP leases', () => {
     expect(group.title).toBe('🦆 pre-set name');
   });
 
+  it('lets sidepanel auto titles rename task groups despite a named default MCP session', async () => {
+    await tabGroupManager.nameActiveMcpGroup('pre-set name');
+
+    const tab = await chrome.tabs.create({
+      url: 'https://example.com/task',
+      active: true
+    });
+    const tabId = tab.id as number;
+    const managedGroup = await tabGroupManager.createGroup(tabId);
+
+    chromeMock.tabGroups.update.mockClear();
+    await tabGroupManager.updateGroupTitle(tabId, 'new sidepanel task', true);
+
+    let group = await chrome.tabGroups.get(managedGroup.chromeGroupId);
+    expect(group.title).toBe('⌛🦆 new sidepanel task');
+
+    await tabGroupManager.getTabForMcp(tabId, undefined, {
+      sessionId: '__default__'
+    });
+
+    group = await chrome.tabGroups.get(managedGroup.chromeGroupId);
+    expect(group.title).toBe('🦆 new sidepanel task');
+    expect(group.title).not.toBe('🦆 pre-set name');
+
+    await tabGroupManager.resolveTabForContext(undefined, tabId, {
+      browserSessionScope: { sessionId: '__default__' },
+      tabAccess: 'write'
+    });
+
+    group = await chrome.tabGroups.get(managedGroup.chromeGroupId);
+    expect(group.title).toBe('🦆 new sidepanel task');
+    expect(group.title).not.toBe('🦆 pre-set name');
+  });
+
   it('updateGroupTitle re-names the unscoped group on every conversation, keeping 🦆', async () => {
     // Sidepanel single-session path: the agent works on a managed tab and the
     // loop calls updateGroupTitle once per conversation. The first conversation

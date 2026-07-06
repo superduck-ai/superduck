@@ -12,7 +12,6 @@ export type NativeHostStatusKind =
   | 'checking'
   | 'error'
   | 'connected'
-  | 'hostReady'
   | 'bridge'
   | 'disconnected';
 
@@ -61,6 +60,14 @@ export function normalizeStatus(status: unknown): NativeHostRuntimeStatus {
   };
 }
 
+export function isNativeHostReady(status: NativeHostRuntimeStatus | null): boolean {
+  return (
+    status?.nativeHostInstalled === true &&
+    status.connecting !== true &&
+    status.reconnecting !== true
+  );
+}
+
 export function getStatusKind(
   status: NativeHostRuntimeStatus | null,
   isRefreshing: boolean,
@@ -72,8 +79,7 @@ export function getStatusKind(
   if (!status && isRefreshing) return 'checking';
   if (status?.error) return 'error';
   if (status?.connecting || status?.reconnecting) return 'waiting';
-  if (status?.nativeHostInstalled && status.mcpConnected) return 'connected';
-  if (status?.nativeHostInstalled) return 'hostReady';
+  if (isNativeHostReady(status)) return 'connected';
   if (status?.mcpConnected) return 'bridge';
   return 'disconnected';
 }
@@ -153,24 +159,9 @@ export function getStatusView(
           id: 'native_host_status_connected_pill',
           defaultMessage: 'Connected'
         }),
-        dotClassName: 'bg-accent-secondary-200',
-        iconClassName: 'bg-accent-secondary-900/40 text-accent-secondary-200',
-        pillClassName: 'bg-accent-secondary-900/40 text-accent-secondary-200'
-      };
-
-    case 'hostReady':
-      return {
-        label: intl.formatMessage({
-          id: 'native_host_status_host_ready_label',
-          defaultMessage: 'Waiting'
-        }),
-        pill: intl.formatMessage({
-          id: 'native_host_status_host_ready_pill',
-          defaultMessage: 'Waiting'
-        }),
-        dotClassName: 'bg-warning-100',
-        iconClassName: 'bg-warning-900/40 text-warning-100',
-        pillClassName: 'bg-warning-900/40 text-warning-100'
+        dotClassName: 'bg-success-100',
+        iconClassName: 'bg-success-900/40 text-success-100',
+        pillClassName: 'bg-success-900/40 text-success-100'
       };
 
     case 'bridge':
