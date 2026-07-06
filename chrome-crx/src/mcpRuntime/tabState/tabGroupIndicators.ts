@@ -144,19 +144,8 @@ export async function restoreIndicatorAfterToolUse(
         ) {
           if (await mgr.isGroupDismissed(meta.chromeGroupId)) return;
         }
-        let messageType: string;
-        switch (previousState) {
-          case 'pulsing':
-            messageType = 'SHOW_AFTER_TOOL_USE';
-            break;
-          case 'static':
-            messageType = 'SHOW_AFTER_TOOL_USE';
-            break;
-          case 'none':
-            return;
-          default:
-            messageType = 'SHOW_AFTER_TOOL_USE';
-        }
+        if (previousState === 'none') return;
+        const messageType = 'SHOW_AFTER_TOOL_USE';
         await sendIndicatorMessage(mgr, tabId, messageType);
         break;
       }
@@ -274,6 +263,33 @@ export async function clearIndicatorsForGroup(
   await processIndicatorQueue(mgr);
 }
 
+export async function hideAgentIndicatorsForTab(
+  mgr: TabGroupManager,
+  tabId: number
+): Promise<void> {
+  for (const [, meta] of mgr.groupMetadata.entries()) {
+    const memberState = meta.memberStates.get(tabId);
+    if (!memberState) continue;
+    memberState.indicatorState = 'none';
+    delete memberState.previousIndicatorState;
+    delete memberState.pendingUpdate;
+    await mgr.saveToStorage();
+    await Promise.all([
+      sendIndicatorMessage(mgr, tabId, 'HIDE_AGENT_INDICATORS', memberState.isMcp, {
+        critical: true
+      }),
+      sendIndicatorMessage(mgr, tabId, 'HIDE_STATIC_INDICATOR', memberState.isMcp, {
+        critical: true
+      })
+    ]);
+    return;
+  }
+  await Promise.all([
+    sendIndicatorMessage(mgr, tabId, 'HIDE_AGENT_INDICATORS', undefined, { critical: true }),
+    sendIndicatorMessage(mgr, tabId, 'HIDE_STATIC_INDICATOR', undefined, { critical: true })
+  ]);
+}
+
 export function queueIndicatorUpdate(mgr: TabGroupManager, tabId: number, state: string): void {
   for (const [, meta] of mgr.groupMetadata.entries()) {
     const memberState = meta.memberStates.get(tabId);
@@ -316,29 +332,38 @@ export async function sendIndicatorMessage(
   mgr: TabGroupManager,
   tabId: number,
   messageType: string,
-  isMcp?: boolean
+  isMcp?: boolean,
+  options?: { critical?: boolean }
 ): Promise<boolean> {
   const buildMessage = () => ({ type: messageType, isMcp });
+  const critical = options?.critical ?? messageType.startsWith('HIDE_');
+  const backoffMs = critical ? [0, 200, 500] : [0];
+  const ACK_TIMEOUT_MS = 800;
 
-  try {
-    await chrome.tabs.sendMessage(tabId, buildMessage());
-    return true;
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    const isNoListener =
-      errMsg.includes('Receiving end does not exist') ||
-      errMsg.includes('Could not establish connection');
-    if (!isNoListener) return false;
-
-    contentScriptReadyTabs.delete(tabId);
-    const injected = await ensureIndicatorContentScript(tabId);
-    if (!injected) return false;
-
+  const sendOnce = async (): Promise<boolean> => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      await chrome.tabs.sendMessage(tabId, buildMessage());
-      return true;
+      const result = await Promise.race([
+        chrome.tabs.sendMessage(tabId, buildMessage()),
+        new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), ACK_TIMEOUT_MS);
+        })
+      ]);
+      if (timeoutId) clearTimeout(timeoutId);
+      return (result as { success?: boolean } | null)?.success === true;
     } catch {
+      if (timeoutId) clearTimeout(timeoutId);
       return false;
     }
+  };
+
+  if (await sendOnce()) return true;
+
+  for (const delay of backoffMs) {
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    contentScriptReadyTabs.delete(tabId);
+    if (!(await ensureIndicatorContentScript(tabId))) continue;
+    if (await sendOnce()) return true;
   }
+  return false;
 }

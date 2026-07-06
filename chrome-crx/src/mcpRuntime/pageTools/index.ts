@@ -1,4 +1,9 @@
-export type { ToolContext, ToolResult, ToolDefinition } from '../pageToolsSupport/types';
+export type {
+  ToolContext,
+  ToolResult,
+  ToolDefinition,
+  ToolTabAccess
+} from '../pageToolsSupport/types';
 export {
   coerceToolInputTypes,
   validateToolInput,

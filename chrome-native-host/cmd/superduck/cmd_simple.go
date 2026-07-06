@@ -15,6 +15,10 @@ func runSimpleTool(toolName, cmdLabel string, args map[string]any) error {
 		return fmt.Errorf("--tab <id> is required for %s", cmdLabel)
 	}
 	args["tabId"] = gflags.Tab
+	return runToolOutput(toolName, cmdLabel, args)
+}
+
+func runToolOutput(toolName, cmdLabel string, args map[string]any) error {
 	rec := cliclient.AuditRecord{Cmd: cmdLabel}
 	if gflags.JSON {
 		raw, err := cliclient.RunToolJSON(toolName, args, clientOpts(), &rec)

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { StorageKeys, getStorageValue } from '../../extensionServices';
-import { getToolSchemasForMcp } from '../../mcpRuntime';
+import { getToolSchemasForSidepanel } from '../../mcpRuntime';
 import type { ToolProviderSchema } from '../../mcpRuntime/pageToolsSupport/types';
 import type { NotificationPreference } from '../types';
 
@@ -49,7 +49,7 @@ export function useInitialization({
   useEffect(() => {
     (async () => {
       try {
-        const schemas = await getToolSchemasForMcp();
+        const schemas = await getToolSchemasForSidepanel();
         setToolSchemas(Array.isArray(schemas) ? (schemas as ToolProviderSchema[]) : []);
       } catch {
         setToolSchemas([]);

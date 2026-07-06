@@ -7,7 +7,6 @@ const mcpRuntimeMocks = vi.hoisted(() => ({
   tabGroupManager: {
     initialize: vi.fn(),
     findGroupByTab: vi.fn(),
-    adoptOrphanedGroup: vi.fn(),
     promoteToMainTab: vi.fn(),
     createGroup: vi.fn()
   },
@@ -43,7 +42,10 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     sendMcpNotification: vi.fn(),
     executeScheduledTask: vi.fn(),
     handleStaticIndicatorHeartbeat: vi.fn(),
-    handleDismissStaticIndicator: vi.fn()
+    handleDismissStaticIndicator: vi.fn(),
+    handleAgentTurnActive: vi.fn(async (_message, sendResponse) => {
+      sendResponse({ success: true });
+    })
   };
 
   beforeEach(() => {
@@ -72,7 +74,6 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     mcpRuntimeMocks.tabGroupManager.initialize.mockResolvedValue(undefined);
     mcpRuntimeMocks.tabGroupManager.findGroupByTab.mockResolvedValue(null);
     mcpRuntimeMocks.tabGroupManager.createGroup.mockResolvedValue(undefined);
-    mcpRuntimeMocks.tabGroupManager.adoptOrphanedGroup.mockResolvedValue(undefined);
     mcpRuntimeMocks.tabGroupManager.promoteToMainTab.mockResolvedValue(undefined);
 
     vi.stubGlobal('chrome', {
@@ -131,7 +132,6 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     expect(mcpRuntimeMocks.tabGroupManager.initialize).toHaveBeenCalledWith(true);
     expect(mcpRuntimeMocks.tabGroupManager.findGroupByTab).toHaveBeenCalledWith(99);
     expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
-    expect(mcpRuntimeMocks.tabGroupManager.adoptOrphanedGroup).not.toHaveBeenCalled();
     expect(mcpRuntimeMocks.tabGroupManager.promoteToMainTab).not.toHaveBeenCalled();
     expect(runtimeSendMessage).not.toHaveBeenCalledWith(
       {
@@ -153,7 +153,6 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     await expect(dispatchPanelReady()).resolves.toEqual({ success: true });
 
     expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
-    expect(mcpRuntimeMocks.tabGroupManager.adoptOrphanedGroup).not.toHaveBeenCalled();
     expect(mcpRuntimeMocks.tabGroupManager.promoteToMainTab).not.toHaveBeenCalled();
     expect(runtimeSendMessage).not.toHaveBeenCalled();
   });
@@ -168,7 +167,6 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
     await expect(dispatchPanelReady()).resolves.toEqual({ success: true });
 
     expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
-    expect(mcpRuntimeMocks.tabGroupManager.adoptOrphanedGroup).not.toHaveBeenCalled();
     expect(mcpRuntimeMocks.tabGroupManager.promoteToMainTab).not.toHaveBeenCalled();
     expect(runtimeSendMessage).toHaveBeenCalledWith(
       {
@@ -300,5 +298,24 @@ describe('registerRuntimeMessageListener PANEL_READY', () => {
       }
     });
     expect(deps.getNativeHostStatus).not.toHaveBeenCalled();
+  });
+
+  it('routes AGENT_TURN_ACTIVE to handleAgentTurnActive with the message payload', async () => {
+    expect(messageListener).toBeDefined();
+    const response = await new Promise<Record<string, unknown>>((resolve) => {
+      const handled = messageListener?.(
+        { type: 'AGENT_TURN_ACTIVE', tabId: 42, active: false } as any,
+        {},
+        resolve
+      );
+      expect(handled).toBe(true);
+    });
+
+    expect(response).toEqual({ success: true });
+    expect(deps.handleAgentTurnActive).toHaveBeenCalledTimes(1);
+    expect(deps.handleAgentTurnActive).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'AGENT_TURN_ACTIVE', tabId: 42, active: false }),
+      expect.any(Function)
+    );
   });
 });

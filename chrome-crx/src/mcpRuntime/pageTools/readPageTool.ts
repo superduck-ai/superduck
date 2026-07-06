@@ -28,6 +28,7 @@ export const readPageTool: ToolDefinition<ReadPageToolInput> = {
   name: 'read_page',
   description:
     "Get an accessibility tree representation of elements on the page. By default returns all elements including non-visible ones. Can optionally filter for only interactive elements, limit tree depth, or focus on a specific element. Returns a structured tree that represents how screen readers see the page content. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters - if exceeded, specify a depth limit or ref_id/selector to focus on a specific element. After an interaction (click/fill/scroll), prefer diff:true to receive only the changes since the last read_page (saves tokens in long agent loops). Use selector to scope a snapshot to a CSS-selected subtree (faster and smaller than reading the whole page).",
+  tabAccess: 'read',
   parameters: {
     filter: {
       type: 'string',
@@ -90,7 +91,7 @@ export const readPageTool: ToolDefinition<ReadPageToolInput> = {
       };
     }
 
-    const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+    const effectiveTabId = await context.resolveTabId(tabId);
     const tab = await chrome.tabs.get(effectiveTabId);
     if (!tab.id) throw new Error('Active tab has no ID');
     const trackedTabId = tab.id;
@@ -168,7 +169,10 @@ export const readPageTool: ToolDefinition<ReadPageToolInput> = {
             });
 
             const viewportInfo = `Viewport: ${lockedResult.viewport.width}x${lockedResult.viewport.height}`;
-            const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+            const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+              context.tabId,
+              context
+            );
 
             let outputContent = lockedResult.snapshotResult.content;
             const variantKey = snapshotVariantKey({
@@ -263,7 +267,10 @@ export const readPageTool: ToolDefinition<ReadPageToolInput> = {
       if (result.error) return { error: result.error };
 
       const viewportInfo = `Viewport: ${result.viewport.width}x${result.viewport.height}`;
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       // 降级路径产物与 CDP 路径格式不同，不能作为后续 diff:true 的基线，跳过缓存写入。
       return {
         output: `${result.pageContent}\n\n${viewportInfo}`,

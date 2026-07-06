@@ -30,6 +30,7 @@ export const updatePlanTool: ToolDefinition<UpdatePlanToolInput> = {
   name: 'update_plan',
   description:
     'Present a plan to the user for approval before taking actions. The user will see the domains you intend to visit and your approach. Once approved, you can proceed with actions on the approved domains without additional permission prompts.',
+  tabAccess: 'read',
   parameters: updatePlanInputSchema.properties,
   async execute(input, context): Promise<ToolResult> {
     const validationError = (function validatePlan(

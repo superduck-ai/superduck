@@ -11,17 +11,20 @@ Common issues and their solutions.
 **Solutions**:
 
 1. Check if the native host is running:
+
    ```bash
-   SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-${CODEX_HOME:-$HOME/.codex}/skills/superduck}"
    node "$SKILL_DIR/scripts/check-superduck-status.mjs"
    ```
 
 2. Verify the socket file exists:
+
    ```bash
    ls -la /tmp/chrome-native-host.sock
    ```
 
 3. Try running `superduck doctor` for diagnostics:
+
    ```bash
    superduck doctor
    ```
@@ -37,14 +40,17 @@ Common issues and their solutions.
 **Solutions**:
 
 1. Increase timeout:
+
    ```bash
-   superduck --timeout 60 --tab $TAB navigate https://slow-site.com
+   superduck --timeout 60 --session "$SID" --tab "$TAB" navigate https://slow-site.com
    ```
 
 2. For navigation, verify the page loaded with `context` instead of using `wait`:
    ```bash
-   superduck --tab $TAB navigate https://example.com
-   superduck --tab $TAB context  # Verify loaded
+   SID=$(superduck session new)
+   TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
+   superduck --session "$SID" --tab "$TAB" navigate https://example.com
+   superduck --session "$SID" --tab "$TAB" context  # Verify loaded
    ```
 
 ## Tab Not Found
@@ -56,19 +62,25 @@ Common issues and their solutions.
 **Solutions**:
 
 1. List current tabs:
+
    ```bash
    superduck tabs
    ```
 
-2. Create a fresh tab:
+2. Reuse or create the current session tab:
+
    ```bash
-   TAB=$(superduck tab_group new | grep -o 'Tab ID: [0-9]*' | grep -o '[0-9]*')
+   SID=$(superduck session new)
+   TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
    ```
 
-3. Use existing tab group:
+3. Replace the current session group only when you intentionally need a separate context:
+
    ```bash
-   superduck tab_group list --create-if-empty
+   TAB=$(superduck --session "$SID" --json tab_group new --force | jq -r '.tabContext.currentTabId')
    ```
+
+   Do not run this after `tab_group list --create-if-empty` during normal browser work.
 
 ## Wait Command Issues
 
@@ -79,14 +91,14 @@ Common issues and their solutions.
 **Workaround**: Use `sleep` or `context` instead:
 
 ```bash
-# Instead of: superduck --tab $TAB wait 2000
+# Instead of: superduck --session "$SID" --tab "$TAB" wait 2000
 sleep 2
 
 # Or use seconds explicitly:
-superduck --tab $TAB wait 2
+superduck --session "$SID" --tab "$TAB" wait 2
 
 # Or verify page load:
-superduck --tab $TAB context
+superduck --session "$SID" --tab "$TAB" context
 ```
 
 ## GIF Recording Not Working
@@ -100,9 +112,9 @@ performed entirely through CLI commands.
 
 ```bash
 # Take screenshots
-superduck --tab $TAB screenshot --output /tmp/step1.jpg
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/step1.jpg
 # ... perform actions ...
-superduck --tab $TAB screenshot --output /tmp/step2.jpg
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/step2.jpg
 
 # Convert to GIF
 ffmpeg -framerate 1 -i /tmp/step%d.jpg output.gif
@@ -117,11 +129,13 @@ ffmpeg -framerate 1 -i /tmp/step%d.jpg output.gif
 **Solutions**:
 
 1. Check installation:
+
    ```bash
    which superduck
    ```
 
 2. Install or add to PATH:
+
    ```bash
    # If installed but not in PATH
    export PATH="/usr/local/bin:$PATH"
@@ -144,11 +158,11 @@ the command output to confirm the final path:
 
 ```bash
 # Auto-name under a directory
-superduck --tab $TAB screenshot --output /tmp/
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/
 # Creates: /tmp/[uuid].jpg
 
 # Stable basename; may become /tmp/my-screenshot.jpg if JPEG is returned
-superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
+superduck --session "$SID" --tab "$TAB" screenshot --output /tmp/my-screenshot.jpg
 ```
 
 ## JavaScript Execution Errors
@@ -158,13 +172,15 @@ superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
 **Common Issues**:
 
 1. **Quote escaping**: Use single quotes around JavaScript:
+
    ```bash
-   superduck --tab $TAB exec 'document.title'
+   superduck --session "$SID" --tab "$TAB" exec 'document.title'
    ```
 
 2. **Complex scripts**: Use heredoc or separate file:
+
    ```bash
-   superduck --tab $TAB exec "$(cat script.js)"
+   superduck --session "$SID" --tab "$TAB" exec "$(cat script.js)"
    ```
 
 3. **Return values**: Make sure the script returns a value, and strip the
@@ -181,7 +197,7 @@ superduck --tab $TAB screenshot --output /tmp/my-screenshot.jpg
 **Solution**: Make scripts executable:
 
 ```bash
-SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+SKILL_DIR="${SUPERDUCK_SKILL_DIR:-${CODEX_HOME:-$HOME/.codex}/skills/superduck}"
 chmod +x "$SKILL_DIR"/scripts/*.mjs
 chmod +x "$SKILL_DIR"/templates/*.sh
 ```
@@ -201,12 +217,6 @@ superduck doctor
 
 ## Debugging Tips
 
-### Enable Verbose Mode
-
-```bash
-superduck -v --tab $TAB navigate https://example.com
-```
-
 ### Check Logs
 
 ```bash
@@ -221,12 +231,13 @@ Start with basic commands to verify functionality:
 # Test version
 superduck version
 
-# Test tab creation
-superduck tab_group new
+# Test session tab group reuse/create
+SID=$(superduck session new)
+TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
 
 # Test simple navigation
-superduck --tab $TAB navigate https://example.com
-superduck --tab $TAB context
+superduck --session "$SID" --tab "$TAB" navigate https://example.com
+superduck --session "$SID" --tab "$TAB" context
 ```
 
 ## Getting Help
@@ -234,13 +245,15 @@ superduck --tab $TAB context
 If issues persist:
 
 1. Run diagnostics:
+
    ```bash
    superduck doctor
-   SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/superduck"
+   SKILL_DIR="${SUPERDUCK_SKILL_DIR:-${CODEX_HOME:-$HOME/.codex}/skills/superduck}"
    node "$SKILL_DIR/scripts/check-superduck-status.mjs" --json
    ```
 
 2. Check socket status:
+
    ```bash
    ls -la /tmp/chrome-native-host.sock
    ```

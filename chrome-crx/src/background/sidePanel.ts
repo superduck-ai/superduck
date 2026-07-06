@@ -44,9 +44,13 @@ export interface OpenSidePanelRequest {
 
 export interface SidePanelControllerDeps {
   connectNativeHost: () => Promise<boolean>;
+  waitUntilBooted?: () => Promise<void>;
 }
 
-export function createSidePanelController({ connectNativeHost }: SidePanelControllerDeps) {
+export function createSidePanelController({
+  connectNativeHost,
+  waitUntilBooted
+}: SidePanelControllerDeps) {
   function setSidePanelOptions(
     options: Parameters<typeof chrome.sidePanel.setOptions>[0]
   ): Promise<void> {
@@ -175,17 +179,17 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
       );
     }
 
+    await waitUntilBooted?.();
     await tabGroupManager.initialize(true);
     const group = await tabGroupManager.findGroupByTab(tabId);
 
+    if (group?.isUnmanaged) {
+      await notifySidePanelTargetTab(tabId);
+      return;
+    }
+
     if (group) {
-      if (group.isUnmanaged) {
-        try {
-          await tabGroupManager.adoptOrphanedGroup(tabId, group.chromeGroupId);
-        } catch {
-          // ignore
-        }
-      } else if (group.mainTabId !== tabId) {
+      if (group.mainTabId !== tabId) {
         try {
           await tabGroupManager.promoteToMainTab(group.mainTabId, tabId);
           migrateGroupFinalizationState(group.mainTabId, tabId);
@@ -209,11 +213,12 @@ export function createSidePanelController({ connectNativeHost }: SidePanelContro
 
   async function handleTabActivated(activeInfo: { tabId: number; windowId: number }) {
     try {
+      await waitUntilBooted?.();
       await tabGroupManager.initialize(true);
       const group = await tabGroupManager.findGroupByTab(activeInfo.tabId);
 
-      // `isUnmanaged` means a regular Chrome group that can be adopted only
-      // after an explicit open action; activation alone is not consent.
+      // `isUnmanaged` means a regular Chrome group. Activation alone must not
+      // claim it or enable the side panel for the whole user-created group.
       if (group && !group.isUnmanaged) {
         await enableSidePanelForTab(activeInfo.tabId);
         return;

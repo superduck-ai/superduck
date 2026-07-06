@@ -1,51 +1,49 @@
 import type { TabGroupManager } from './tabGroups';
-import { TAB_GROUP_TITLE } from './types';
+import { DEFAULT_SESSION_KEY, type GroupMetadata } from './types';
+import { decorateGroupTitleForStatus, markGroupTitle } from './tabGroupAppearance';
+
+function findManagedMetadataForTab(mgr: TabGroupManager, tabId: number): GroupMetadata | undefined {
+  const mainTabId = mgr.findMainTabIdSync(tabId);
+  return mainTabId !== undefined ? mgr.groupMetadata.get(mainTabId) : undefined;
+}
 
 export async function updateGroupTitle(
   mgr: TabGroupManager,
-  mainTabId: number,
+  tabId: number,
   title: string,
   isLoading = false
 ): Promise<void> {
-  if (!title || '' === title.trim()) return;
-  const meta = mgr.groupMetadata.get(mainTabId);
+  if (!title.trim()) return;
+  const meta = findManagedMetadataForTab(mgr, tabId);
   if (meta)
     try {
-      if ((await chrome.tabGroups.get(meta.chromeGroupId)).title !== TAB_GROUP_TITLE) return;
-      const otherGroupColors = (await chrome.tabGroups.query({}))
-        .filter((g) => g.id !== meta.chromeGroupId)
-        .map((g) => g.color)
-        .filter((color): color is chrome.tabGroups.Color => typeof color === 'string');
-      const allColors = [
-        chrome.tabGroups.Color.GREY,
-        chrome.tabGroups.Color.BLUE,
-        chrome.tabGroups.Color.RED,
-        chrome.tabGroups.Color.YELLOW,
-        chrome.tabGroups.Color.GREEN,
-        chrome.tabGroups.Color.PINK,
-        chrome.tabGroups.Color.PURPLE,
-        chrome.tabGroups.Color.CYAN,
-        chrome.tabGroups.Color.ORANGE
-      ];
-      const unusedColors = allColors.filter((c) => !otherGroupColors.includes(c));
-      let chosenColor: chrome.tabGroups.Color;
-      if (unusedColors.length > 0) chosenColor = unusedColors[0];
-      else {
-        const colorCounts = new Map<chrome.tabGroups.Color, number>();
-        allColors.forEach((c) => colorCounts.set(c, 0));
-        otherGroupColors.forEach((c) => {
-          colorCounts.set(c, (colorCounts.get(c) || 0) + 1);
-        });
-        let minCount = Infinity;
-        chosenColor = chrome.tabGroups.Color.ORANGE;
-        for (const [color, count] of colorCounts.entries())
-          count < minCount && ((minCount = count), (chosenColor = color));
+      if (isLoading && meta.status !== 'active') {
+        meta.status = 'active';
+        await mgr.saveToStorage();
       }
-      const displayTitle = isLoading ? `⌛${title.trim()}` : title.trim();
-      await chrome.tabGroups.update(meta.chromeGroupId, {
-        title: displayTitle,
-        color: chosenColor
-      });
+      const sessionId = meta.sessionId ?? DEFAULT_SESSION_KEY;
+      const explicitName = mgr.sessionGroupTitles.get(sessionId);
+      const requestedTitle = title.trim();
+      if (!explicitName && meta.title !== requestedTitle) {
+        meta.title = requestedTitle;
+        await mgr.saveToStorage();
+      }
+      const trimmedTitle = explicitName ?? requestedTitle;
+      const markedTitle = markGroupTitle(trimmedTitle);
+      const statusTitle = decorateGroupTitleForStatus(markedTitle, meta.status);
+      const displayTitle = explicitName
+        ? statusTitle
+        : isLoading
+          ? `⌛${statusTitle}`
+          : statusTitle;
+      const currentGroup = await chrome.tabGroups.get(meta.chromeGroupId);
+      const patch: { title?: string; color?: chrome.tabGroups.Color } = {};
+      if ((currentGroup.title || '') !== displayTitle) patch.title = displayTitle;
+      if (isLoading && currentGroup.color !== chrome.tabGroups.Color.ORANGE) {
+        patch.color = chrome.tabGroups.Color.ORANGE;
+      }
+      if (Object.keys(patch).length === 0) return;
+      await chrome.tabGroups.update(meta.chromeGroupId, patch);
     } catch {
       // ignore
     }
@@ -53,11 +51,11 @@ export async function updateGroupTitle(
 
 export async function updateTabGroupPrefix(
   mgr: TabGroupManager,
-  mainTabId: number,
+  tabId: number,
   prefix: string | null,
   removePrefix?: string
 ): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, tabId);
   if (!meta) return;
   let retryCount = 0;
   const prefixPattern = /^(⌛|🔔|✅)/;
@@ -82,10 +80,20 @@ export async function updateTabGroupPrefix(
 }
 
 export async function addCompletionPrefix(mgr: TabGroupManager, mainTabId: number): Promise<void> {
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
+  if (meta) {
+    meta.status = 'completed';
+    await mgr.saveToStorage();
+  }
   await updateTabGroupPrefix(mgr, mainTabId, '✅');
 }
 
 export async function addLoadingPrefix(mgr: TabGroupManager, mainTabId: number): Promise<void> {
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
+  if (meta && meta.status !== 'active') {
+    meta.status = 'active';
+    await mgr.saveToStorage();
+  }
   await updateTabGroupPrefix(mgr, mainTabId, '⌛');
 }
 
@@ -97,6 +105,11 @@ export async function removeCompletionPrefix(
   mgr: TabGroupManager,
   mainTabId: number
 ): Promise<void> {
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
+  if (meta?.status === 'completed') {
+    meta.status = 'active';
+    await mgr.saveToStorage();
+  }
   await updateTabGroupPrefix(mgr, mainTabId, null, '✅');
 }
 
@@ -105,7 +118,7 @@ export async function setGroupColor(
   mainTabId: number,
   color: chrome.tabGroups.Color
 ): Promise<void> {
-  const meta = mgr.groupMetadata.get(mainTabId);
+  const meta = findManagedMetadataForTab(mgr, mainTabId);
   if (!meta) return;
   try {
     await chrome.tabGroups.update(meta.chromeGroupId, { color });

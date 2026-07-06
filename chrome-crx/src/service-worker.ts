@@ -4,10 +4,17 @@ import {
   initializeExtensionPermissions,
   isAgentActive,
   setOnAgentBecameIdle,
+  setBridgeToolCallBootWaiter,
+  setNavigationGuardBootWaiter,
+  tabBadgeManager,
   tabGroupManager,
   trackEvent,
 } from "./mcpRuntime";
-import { restoreActiveToolContextsFromStorage, restoreActiveToolCountFromStorage } from "./mcpRuntime/core";
+import {
+  handleToolContextAlarm,
+  restoreActiveToolContextsFromStorage,
+  restoreActiveToolCountFromStorage,
+} from "./mcpRuntime/core";
 import { restoreGifFrameStorageFromStorage } from "./mcpRuntime/mediaTools/gifFrameStorage";
 import { createExtensionUrlHandler } from "./background/extensionUrl";
 import { createNativeHostManager } from "./background/nativeHost";
@@ -18,9 +25,10 @@ import { createSidePanelController } from "./background/sidePanel";
 import { createStaticIndicatorController } from "./background/staticIndicator";
 import { createDownloadTracker } from "./background/downloadTracker";
 
-const nativeHostManager = createNativeHostManager();
+const nativeHostManager = createNativeHostManager({ waitUntilBooted: ensureServiceWorkerBooted });
 const sidePanelController = createSidePanelController({
   connectNativeHost: nativeHostManager.connect,
+  waitUntilBooted: ensureServiceWorkerBooted,
 });
 const scheduledTaskManager = createScheduledTaskManager();
 const extensionUrlHandler = createExtensionUrlHandler({
@@ -33,8 +41,50 @@ const downloadTracker = createDownloadTracker({
   sendNotification: nativeHostManager.sendMcpNotification,
 });
 
-void connectBridge();
-void nativeHostManager.connect();
+let serviceWorkerBootPromise: Promise<void> | null = null;
+
+async function runBootStep(label: string, step: () => unknown | Promise<unknown>): Promise<void> {
+  try {
+    await step();
+  } catch (err) {
+    console.warn(`[superduck] service worker boot step failed: ${label}`, err);
+  }
+}
+
+async function ensureServiceWorkerBooted(): Promise<void> {
+  if (serviceWorkerBootPromise) return serviceWorkerBootPromise;
+  serviceWorkerBootPromise = (async () => {
+    await runBootStep("extension permissions initialize", initializeExtensionPermissions);
+    void runBootStep("bridge connect", connectBridge);
+    void runBootStep("native host connect", nativeHostManager.connect);
+    await runBootStep("tab group initialize", async () => {
+      await tabGroupManager.initialize();
+      tabGroupManager.startTabGroupChangeListener();
+    });
+    await runBootStep("active tool contexts restore", restoreActiveToolContextsFromStorage);
+    await runBootStep("active tool count restore", restoreActiveToolCountFromStorage);
+    await runBootStep("gif frame storage restore", restoreGifFrameStorageFromStorage);
+    await runBootStep("static indicator deadlines restore", () =>
+      staticIndicatorController.restoreTurnActiveDeadlines()
+    );
+    await runBootStep("pending update replay", replayPendingUpdateIfAny);
+    void tabBadgeManager.initialize();
+    await runBootStep("scheduled alarms restore", scheduledTaskManager.restoreScheduledAlarms);
+  })();
+  return serviceWorkerBootPromise;
+}
+
+function runAfterServiceWorkerBoot(label: string, action: () => unknown | Promise<unknown>): void {
+  void (async () => {
+    await ensureServiceWorkerBooted();
+    await action();
+  })().catch((err) => {
+    console.warn(`[superduck] event handler failed after service worker boot: ${label}`, err);
+  });
+}
+
+setBridgeToolCallBootWaiter(ensureServiceWorkerBooted);
+setNavigationGuardBootWaiter(ensureServiceWorkerBooted);
 
 // The manifest declares a default sidepanel path, but the product only wants
 // SuperDuck-managed tabs to show it. Keep the default panel disabled and open
@@ -91,37 +141,17 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     // ignore
   }
 
-  initializeExtensionPermissions();
-  await tabGroupManager.initialize();
+  await ensureServiceWorkerBooted();
 
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
     void sidePanelController.openOptionsForSetup().catch(() => {});
   }
 
   void nativeHostManager.connect();
-  await scheduledTaskManager.restoreScheduledAlarms();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  initializeExtensionPermissions();
-  await restoreActiveToolContextsFromStorage();
-  await restoreActiveToolCountFromStorage();
-  await restoreGifFrameStorageFromStorage();
-  // Replay any pending update that arrived while the SW was killed —
-  // onUpdateAvailable is a one-shot event and is not redelivered.
-  await replayPendingUpdateIfAny();
-  await tabGroupManager.initialize();
-  // Re-register the tab group change listener. MV3 service-worker
-  // listeners do not survive a restart, and the previous flow waited
-  // for the next mcp_connected message — sometimes hours or never —
-  // leaving tab events silently dropped. The listener is idempotent
-  // in the `tabGroupManager` wrapper, and the underlying
-  // `TabEventManager` singleton is fresh in the new SW so no
-  // double-registration can occur here.
-  tabGroupManager.startTabGroupChangeListener();
-  void connectBridge();
-  void nativeHostManager.connect();
-  await scheduledTaskManager.restoreScheduledAlarms();
+  await ensureServiceWorkerBooted();
 });
 
 chrome.permissions.onAdded.addListener((permissions) => {
@@ -145,7 +175,9 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  void sidePanelController.handleTabActivated(activeInfo);
+  runAfterServiceWorkerBoot("tab activated", () =>
+    sidePanelController.handleTabActivated(activeInfo)
+  );
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -206,17 +238,30 @@ registerRuntimeMessageListener({
   resetNativeHost: nativeHostManager.reset,
   sendMcpNotification: nativeHostManager.sendMcpNotification,
   executeScheduledTask: scheduledTaskManager.executeScheduledTask,
-  handleStaticIndicatorHeartbeat: staticIndicatorController.handleHeartbeat,
-  handleDismissStaticIndicator: staticIndicatorController.dismissForSenderGroup,
+  waitUntilBooted: ensureServiceWorkerBooted,
+  handleStaticIndicatorHeartbeat: async (sender, sendResponse) => {
+    await ensureServiceWorkerBooted();
+    await staticIndicatorController.handleHeartbeat(sender, sendResponse);
+  },
+  handleDismissStaticIndicator: async (sender, sendResponse) => {
+    await ensureServiceWorkerBooted();
+    await staticIndicatorController.dismissForSenderGroup(sender, sendResponse);
+  },
+  handleAgentTurnActive: async (message, sendResponse) => {
+    await ensureServiceWorkerBooted();
+    await staticIndicatorController.handleAgentTurnActive(message, sendResponse);
+  },
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void tabGroupManager.handleTabClosed(tabId);
+  runAfterServiceWorkerBoot("tab removed", () => tabGroupManager.handleTabClosed(tabId));
 });
 
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId === 0) {
-    void extensionUrlHandler.handleExtensionUrl(details.url, details.tabId);
+    runAfterServiceWorkerBoot("web navigation before navigate", () =>
+      extensionUrlHandler.handleExtensionUrl(details.url, details.tabId)
+    );
   }
 });
 
@@ -225,7 +270,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     void nativeHostManager.handleHeartbeatAlarm();
     return;
   }
-  void scheduledTaskManager.handleAlarm(alarm);
+  void (async () => {
+    await ensureServiceWorkerBooted();
+    if (await handleToolContextAlarm(alarm.name)) return;
+    if (await staticIndicatorController.handleAlarm(alarm.name)) return;
+    await scheduledTaskManager.handleAlarm(alarm);
+  })();
 });
 
 registerExternalMessageListener({
@@ -233,9 +283,11 @@ registerExternalMessageListener({
 });
 
 chrome.downloads.onCreated.addListener((item) => {
-  downloadTracker.handleDownloadCreated(item);
+  runAfterServiceWorkerBoot("download created", () => downloadTracker.handleDownloadCreated(item));
 });
 
 chrome.downloads.onChanged.addListener((delta) => {
-  downloadTracker.handleDownloadChanged(delta);
+  runAfterServiceWorkerBoot("download changed", () => downloadTracker.handleDownloadChanged(delta));
 });
+
+void ensureServiceWorkerBooted();

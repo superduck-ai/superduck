@@ -1,10 +1,12 @@
 import type { ToolDefinition } from '../pageTools';
+import { DEFAULT_BROWSER_SESSION_ID } from '../sessionScope';
 import type { DownloadsArgs } from './types';
 
 export const superduckDownloadsTool: ToolDefinition<DownloadsArgs> = {
   name: 'superduck_downloads',
   description:
     'SuperDuck CLI: query recent Chrome downloads. Returns filename, url, status, fileSize, startTime for each download. Optionally filter by filename text or state (in_progress, complete, interrupted).',
+  tabAccess: 'read',
   parameters: {
     query: {
       type: 'string',
@@ -19,8 +21,14 @@ export const superduckDownloadsTool: ToolDefinition<DownloadsArgs> = {
       description: 'Filter by download state: "in_progress", "complete", or "interrupted"'
     }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
+      if (context?.browserSessionScope.sessionId !== DEFAULT_BROWSER_SESSION_ID) {
+        return {
+          error:
+            'superduck_downloads is unavailable for scoped browser sessions because Chrome downloads are global browser downloads.'
+        };
+      }
       const limit = Math.min(Math.max(1, args?.limit ?? 20), 100);
       const searchQuery: chrome.downloads.DownloadQuery = {
         limit,

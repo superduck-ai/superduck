@@ -1,6 +1,5 @@
 import type { TabGroupManager } from './tabGroups';
 import {
-  TAB_GROUP_TITLE,
   type AddTabToGroupOptions,
   type CreateGroupOptions,
   type GroupMetadata,
@@ -8,6 +7,8 @@ import {
 } from './types';
 import { getMemberOrigin } from './tabNavigationIsolation';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
+import { BrowserSessionConflictError, tabLeaseManager, type TabLeaseOrigin } from './tabLeases';
+import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
 
 export async function createGroup(
   mgr: TabGroupManager,
@@ -45,8 +46,7 @@ export async function createGroup(
     }
   if (!chromeGroupId) throw new Error('Failed to create Chrome tab group');
   await chrome.tabGroups.update(chromeGroupId, {
-    title: TAB_GROUP_TITLE,
-    color: chrome.tabGroups.Color.ORANGE,
+    ...buildGroupAppearanceUpdate(mgr, {}),
     collapsed: false
   });
   const metadata: GroupMetadata = {
@@ -67,45 +67,6 @@ export async function createGroup(
   return { ...metadata, memberTabs: members };
 }
 
-export async function adoptOrphanedGroup(
-  mgr: TabGroupManager,
-  tabId: number,
-  chromeGroupId: number
-): Promise<GroupWithMembers> {
-  const existing = await mgr.findGroupByMainTab(tabId);
-  if (existing) return existing;
-  const tab = await chrome.tabs.get(tabId);
-  if (!tab.url) throw new Error('Tab has no URL');
-  const domain = new URL(tab.url).hostname;
-  if (tab.groupId !== chromeGroupId)
-    throw new Error(`Tab ${tabId} is not in Chrome group ${chromeGroupId}`);
-  const metadata: GroupMetadata = {
-    mainTabId: tabId,
-    createdAt: Date.now(),
-    domain,
-    chromeGroupId,
-    memberStates: new Map()
-  };
-  metadata.memberStates.set(tabId, {
-    indicatorState: 'none',
-    origin: 'user',
-    disposition: 'active'
-  });
-  const groupTabs = await chrome.tabs.query({ groupId: chromeGroupId });
-  for (const t of groupTabs)
-    t.id &&
-      t.id !== tabId &&
-      metadata.memberStates.set(t.id, {
-        indicatorState: 'static',
-        origin: 'user',
-        disposition: 'active'
-      });
-  mgr.groupMetadata.set(tabId, metadata);
-  await mgr.saveToStorage();
-  const members = await mgr.getGroupMembers(chromeGroupId);
-  return { ...metadata, memberTabs: members };
-}
-
 export async function addTabToGroup(
   mgr: TabGroupManager,
   mainTabId: number,
@@ -115,11 +76,27 @@ export async function addTabToGroup(
   const meta = mgr.groupMetadata.get(mainTabId);
   if (meta) {
     try {
-      await chrome.tabs.group({
-        tabIds: [tabId],
-        groupId: meta.chromeGroupId
-      });
       const existingState = meta.memberStates.get(tabId);
+      let claimedForSession = false;
+      const sessionId = options.sessionId;
+      if (sessionId) {
+        const claimedOrigin = (options.origin ?? getMemberOrigin(existingState)) as TabLeaseOrigin;
+        await tabLeaseManager.claimTab(sessionId, tabId, claimedOrigin, {
+          groupId: meta.chromeGroupId
+        });
+        claimedForSession = true;
+      }
+      try {
+        await chrome.tabs.group({
+          tabIds: [tabId],
+          groupId: meta.chromeGroupId
+        });
+      } catch (err) {
+        if (claimedForSession && sessionId) {
+          await tabLeaseManager.releaseTabs(sessionId, [tabId]).catch(() => {});
+        }
+        throw err;
+      }
       meta.memberStates.set(tabId, {
         ...(existingState ?? {}),
         indicatorState: existingState?.indicatorState ?? (tabId === mainTabId ? 'none' : 'static'),
@@ -142,7 +119,8 @@ export async function addTabToGroup(
           // ignore
         }
     } catch (err) {
-      // ignore
+      if (err instanceof BrowserSessionConflictError) throw err;
+      console.warn('[tabGroupLifecycle] addTabToGroup failed', err);
     }
     await mgr.saveToStorage();
   }

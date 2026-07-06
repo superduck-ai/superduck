@@ -4,6 +4,7 @@ import type {
   ApiResponseMessage,
   CreateApiMessageParams
 } from '../../messageTypes';
+import type { BrowserSessionScope } from '../sessionScope';
 
 export interface ToolSchemaProperty {
   type?: string | string[];
@@ -37,10 +38,31 @@ export interface ToolTabSummary {
   url?: string;
 }
 
+export type ToolTabAccess = 'read' | 'write';
+
 export interface ToolContext {
+  /**
+   * Current executor anchor tab. Tool implementations should not use this as a
+   * target tab for browser operations. Resolve requested/default tab targets
+   * through resolveTabId so browser-session lease checks are applied.
+   */
   tabId?: number;
+  resolveTabId: (
+    requestedTabId?: number,
+    options?: { tabAccess?: ToolTabAccess }
+  ) => Promise<number>;
   toolUseId?: string;
+  /**
+   * Executor/conversation session used for tracing and in-memory tool caches.
+   * This does not imply ownership of browser tabs.
+   */
   sessionId?: string;
+  /**
+   * Real browser lease scope. The executor always supplies this, using the
+   * explicit transport session when present and the default browser session for
+   * in-extension UI calls.
+   */
+  browserSessionScope: BrowserSessionScope;
   messages?: ApiConversationMessage[];
   permissionManager: PermissionManager;
   createApiMessage?: (
@@ -53,6 +75,12 @@ export interface ToolContext {
   model?: string;
   messagesClient?: unknown;
   availableTools?: ToolDefinition[];
+  /**
+   * Effective tab access level for the current execution. This may differ
+   * from a tool's static ToolDefinition.tabAccess, for example inside batch
+   * execution, so tool implementations should use this value for lease checks.
+   */
+  tabAccess: ToolTabAccess;
 }
 
 export interface ToolResult {
@@ -79,6 +107,7 @@ export interface ToolResult {
 export interface ToolDefinition<TInput = unknown, TResult extends ToolResult = ToolResult> {
   name: string;
   description: string;
+  tabAccess: ToolTabAccess;
   parameters: Record<string, ToolSchemaProperty>;
   execute: (input: TInput, context: ToolContext) => Promise<TResult>;
   toProviderSchema: (context?: ToolContext) => Promise<ToolProviderSchema> | ToolProviderSchema;

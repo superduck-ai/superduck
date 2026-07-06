@@ -1,10 +1,12 @@
 import type { ToolDefinition } from '../pageTools';
+import { DEFAULT_BROWSER_SESSION_ID } from '../sessionScope';
 import type { HistoryArgs } from './types';
 
 export const superduckHistoryTool: ToolDefinition<HistoryArgs> = {
   name: 'superduck_history',
   description:
     "SuperDuck CLI: search the user's Chrome browsing history. Returns url, title, and dateVisited for each entry. Supports text search, result limit, and date range filtering.",
+  tabAccess: 'read',
   parameters: {
     query: {
       type: 'string',
@@ -24,8 +26,14 @@ export const superduckHistoryTool: ToolDefinition<HistoryArgs> = {
       description: 'End date filter (ISO 8601 string)'
     }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
+      if (context?.browserSessionScope.sessionId !== DEFAULT_BROWSER_SESSION_ID) {
+        return {
+          error:
+            'superduck_history is unavailable for scoped browser sessions because Chrome history is global browser history.'
+        };
+      }
       const query = typeof args?.query === 'string' ? args.query : '';
       const limit = Math.min(Math.max(1, args?.limit ?? 100), 500);
 

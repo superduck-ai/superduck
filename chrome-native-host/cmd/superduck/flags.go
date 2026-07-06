@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
-// splitGlobalFlags pulls --json/--tab/--socket/--timeout out of argv
-// regardless of position, so subcommands can use stdlib flag for the rest.
+// splitGlobalFlags pulls global flags out of argv regardless of position, so
+// subcommands can use stdlib flag for the rest.
 func splitGlobalFlags(in []string) []string {
 	out := make([]string, 0, len(in))
 	i := 0
@@ -18,20 +19,37 @@ func splitGlobalFlags(in []string) []string {
 		case a == "--json":
 			gflags.JSON = true
 			i++
-		case a == "--tab" && i+1 < len(in):
-			n, err := strconv.Atoi(in[i+1])
+		case a == "--tab":
+			value := requireGlobalFlagValue(in, i, a)
+			n, err := strconv.Atoi(value)
 			if err != nil {
 				fatalUsage("invalid --tab: %v", err)
 			}
+			if n <= 0 {
+				fatalUsage("invalid --tab: must be positive")
+			}
 			gflags.Tab = n
 			i += 2
-		case a == "--socket" && i+1 < len(in):
-			gflags.SocketPath = in[i+1]
+		case a == "--session" || a == "--session-id":
+			gflags.SessionID = requireGlobalFlagValue(in, i, a)
 			i += 2
-		case a == "--timeout" && i+1 < len(in):
-			s, err := strconv.Atoi(in[i+1])
+		case strings.HasPrefix(a, "--session="):
+			gflags.SessionID = requireGlobalFlagInlineValue(a, "--session")
+			i++
+		case strings.HasPrefix(a, "--session-id="):
+			gflags.SessionID = requireGlobalFlagInlineValue(a, "--session-id")
+			i++
+		case a == "--socket":
+			gflags.SocketPath = requireGlobalFlagValue(in, i, a)
+			i += 2
+		case a == "--timeout":
+			value := requireGlobalFlagValue(in, i, a)
+			s, err := strconv.Atoi(value)
 			if err != nil {
 				fatalUsage("invalid --timeout: %v", err)
+			}
+			if s <= 0 {
+				fatalUsage("invalid --timeout: must be positive")
 			}
 			gflags.Timeout = time.Duration(s) * time.Second
 			gflags.TimeoutSet = true
@@ -42,6 +60,25 @@ func splitGlobalFlags(in []string) []string {
 		}
 	}
 	return out
+}
+
+func requireGlobalFlagValue(in []string, index int, flag string) string {
+	if index+1 >= len(in) || strings.TrimSpace(in[index+1]) == "" || strings.HasPrefix(in[index+1], "--") {
+		fatalUsage("missing value for %s", flag)
+	}
+	return in[index+1]
+}
+
+func requireGlobalFlagInlineValue(arg string, flag string) string {
+	prefix := flag + "="
+	if !strings.HasPrefix(arg, prefix) {
+		fatalUsage("missing value for %s", flag)
+	}
+	value := strings.TrimSpace(strings.TrimPrefix(arg, prefix))
+	if value == "" {
+		fatalUsage("missing value for %s", flag)
+	}
+	return value
 }
 
 func fatalUsage(format string, args ...any) {

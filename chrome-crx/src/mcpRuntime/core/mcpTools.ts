@@ -1,38 +1,76 @@
 import { formatTabsOutput } from './urlUtils';
 import { tabGroupManager } from '../tabState';
-import type { ToolDefinition } from '../browserAutomation';
+import type { ToolContext, ToolDefinition } from '../browserAutomation';
 
 interface TabsContextMcpArgs {
   createIfEmpty?: boolean;
+  name?: string;
+}
+
+interface TabsCreateMcpArgs {
+  force?: boolean;
+}
+
+interface TabsFinalizeMcpArgs {
+  keep?: {
+    tabId?: number;
+    status?: 'handoff' | 'deliverable';
+  }[];
+}
+
+interface TabsNameSessionMcpArgs {
+  name?: string;
+}
+
+function scopedMcpOptions(context: ToolContext): { sessionId: string } {
+  return context.browserSessionScope;
 }
 
 export const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
   name: 'tabs_context_mcp',
   description:
     'Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse one of the returned tab IDs for same-page navigation within the current group. When the current page should remain open, use tabs_create with a URL or navigate with newTab:true to open the target in a new background tab inside this group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.',
+  tabAccess: 'write',
   parameters: {
     createIfEmpty: {
       type: 'boolean',
       description:
-        'Creates a new MCP tab group if none exists, creates a new Window with a new tab group containing an empty tab (which can be used for this conversation). If a MCP tab group already exists, this parameter has no effect.'
+        'Creates a new MCP tab group if none exists, creating an empty tab that can be used for this conversation. If an MCP tab group already exists, this parameter has no effect.'
+    },
+    name: {
+      type: 'string',
+      description:
+        'Title for the MCP tab group when createIfEmpty creates one. The duck marker is auto-prepended. Ignored if a group already exists or createIfEmpty is not set.'
     }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const { createIfEmpty } = args || {};
+      const { createIfEmpty, name } = args || {};
       await tabGroupManager.initialize();
-      const context = await tabGroupManager.getOrCreateMcpTabContext({
-        createIfEmpty
+      const tabContext = await tabGroupManager.getOrCreateMcpTabContext({
+        createIfEmpty,
+        name,
+        ...scopedMcpOptions(context)
       });
-      if (!context)
+      if (!tabContext) {
         return {
           output: 'No MCP tab groups found. Use createIfEmpty: true to create one.'
         };
-      const tabGroupId = context.tabGroupId;
-      const availableTabs = context.availableTabs;
+      }
+
+      const tabGroupId = tabContext.tabGroupId;
+      const availableTabs = tabContext.availableTabs;
+      let groupTitle = '';
+      try {
+        const group = await chrome.tabGroups.get(tabGroupId);
+        groupTitle = group?.title ?? '';
+      } catch {
+        // ignore
+      }
+
       return {
-        output: formatTabsOutput(availableTabs, tabGroupId),
-        tabContext: { ...context, tabGroupId }
+        output: `${groupTitle ? `[${groupTitle}] ` : ''}${formatTabsOutput(availableTabs, tabGroupId)}`,
+        tabContext: { ...tabContext, tabGroupId }
       };
     } catch (err) {
       return {
@@ -50,7 +88,12 @@ export const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
         createIfEmpty: {
           type: 'boolean',
           description:
-            'Creates a new MCP tab group if none exists, creates a new Window with a new tab group containing an empty tab (which can be used for this conversation). If a MCP tab group already exists, this parameter has no effect.'
+            'Creates a new MCP tab group if none exists, creating an empty tab that can be used for this conversation. If an MCP tab group already exists, this parameter has no effect.'
+        },
+        name: {
+          type: 'string',
+          description:
+            'Title for the MCP tab group when createIfEmpty creates one. The duck marker is auto-prepended. Ignored if a group already exists or createIfEmpty is not set.'
         }
       },
       required: []
@@ -58,20 +101,32 @@ export const tabsContextMcpTool: ToolDefinition<TabsContextMcpArgs> = {
   })
 };
 
-export const tabsCreateMcpTool: ToolDefinition = {
+export const tabsCreateMcpTool: ToolDefinition<TabsCreateMcpArgs> = {
   name: 'tabs_create_mcp',
   description:
-    'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. To keep the current MCP group and open another page inside it, use tabs_create with a URL or navigate with newTab:true instead.',
-  parameters: {},
-  execute: async () => {
+    'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. If this session already has a group, this tool fails unless force is true. To keep the current MCP group, reuse a tab from tabs_context_mcp.',
+  tabAccess: 'write',
+  parameters: {
+    force: {
+      type: 'boolean',
+      description:
+        'Replace the current session group with a fresh group. Leave false for normal browser work.'
+    }
+  },
+  execute: async (args, context) => {
     try {
       await tabGroupManager.initialize();
-      const context = await tabGroupManager.createMcpTabGroup({ active: false });
+      const input = args ?? {};
+      const tabContext = await tabGroupManager.createMcpTabGroup({
+        active: false,
+        replaceExisting: input.force === true,
+        ...scopedMcpOptions(context)
+      });
       return {
-        output: `Created new tab. Tab ID: ${context.currentTabId}`,
+        output: `Created new tab. Tab ID: ${tabContext.currentTabId}`,
         tabContext: {
-          ...context,
-          executedOnTabId: context.currentTabId
+          ...tabContext,
+          executedOnTabId: tabContext.currentTabId
         }
       };
     } catch (err) {
@@ -83,27 +138,31 @@ export const tabsCreateMcpTool: ToolDefinition = {
   toProviderSchema: async () => ({
     name: 'tabs_create_mcp',
     description:
-      'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. To keep the current MCP group and open another page inside it, use tabs_create with a URL or navigate with newTab:true instead.',
-    input_schema: { type: 'object', properties: {}, required: [] }
+      'Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. If this session already has a group, this tool fails unless force is true. To keep the current MCP group, reuse a tab from tabs_context_mcp.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        force: {
+          type: 'boolean',
+          description:
+            'Replace the current session group with a fresh group. Leave false for normal browser work.'
+        }
+      },
+      required: []
+    }
   })
 };
-
-interface TabsFinalizeMcpArgs {
-  keep?: {
-    tabId?: number;
-    status?: 'handoff' | 'deliverable';
-  }[];
-}
 
 export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
   name: 'tabs_finalize_mcp',
   description:
-    'Finalize the current MCP tab group with Codex-compatible cleanup semantics. Use this once as the final SuperDuck browser action of the turn. Omit tabs by default. Tabs kept as handoff remain in the managed group for a later turn. Tabs kept as deliverable stay open but leave the managed group. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs stay open and leave the managed group.',
+    'Finalize the current MCP tab group with explicit tab disposition semantics. Use this only when you are explicitly deciding which tabs become handoff, deliverable, or released. Tabs kept as handoff remain in the managed group for a later turn. Tabs kept as deliverable stay open but leave the managed group. Omitted tabs are ungrouped and left open.',
+  tabAccess: 'write',
   parameters: {
     keep: {
       type: 'array',
       description:
-        "Optional list of tabs to keep after cleanup. Each entry is { tabId, status }, where status is 'handoff' or 'deliverable'.",
+        "Optional list of tabs to keep after finalization. Each entry is { tabId, status }, where status is 'handoff' or 'deliverable'.",
       items: {
         type: 'object',
         properties: {
@@ -119,7 +178,7 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
       }
     }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
       await tabGroupManager.initialize();
       const keep = (args?.keep ?? []).map((entry) => {
@@ -133,15 +192,18 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
         }
         return { tabId, status };
       });
-      const context = await tabGroupManager.finalizeMcpTabGroup({ keep });
-      if (!context) {
+      const tabContext = await tabGroupManager.finalizeMcpTabGroup({
+        keep,
+        ...scopedMcpOptions(context)
+      });
+      if (!tabContext) {
         return {
           output: 'Finalized MCP tab group. No tabs remain in the managed group.'
         };
       }
       return {
-        output: formatTabsOutput(context.availableTabs, context.tabGroupId),
-        tabContext: context
+        output: formatTabsOutput(tabContext.availableTabs, tabContext.tabGroupId),
+        tabContext
       };
     } catch (err) {
       return {
@@ -152,7 +214,7 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
   toProviderSchema: async () => ({
     name: 'tabs_finalize_mcp',
     description:
-      'Finalize the current MCP tab group. Use this once as the final SuperDuck browser action. Omit tabs by default. Use status handoff only when a later turn should continue from the live page, or deliverable when the tab itself is a user-facing output/requested open page. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs are released and left open.',
+      'Finalize the current MCP tab group by explicitly choosing tab dispositions. Use status handoff when a later turn should continue from the live page, or deliverable when the tab itself is a user-facing output/requested open page. Omitted tabs are ungrouped and left open.',
     input_schema: {
       type: 'object',
       properties: {
@@ -175,6 +237,52 @@ export const tabsFinalizeMcpTool: ToolDefinition<TabsFinalizeMcpArgs> = {
         }
       },
       required: []
+    }
+  })
+};
+
+export const tabsNameSessionMcpTool: ToolDefinition<TabsNameSessionMcpArgs> = {
+  name: 'tabs_name_session_mcp',
+  description:
+    'Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name. The name becomes the Chrome tab group title for this session. The session id is supplied by the tool request envelope, not by tool arguments.',
+  tabAccess: 'write',
+  parameters: {
+    name: {
+      type: 'string',
+      description:
+        'Short task-relevant name for the session. Pass an empty string to clear the name and revert to the default group title.'
+    }
+  },
+  execute: async (args, context) => {
+    try {
+      const name = typeof args?.name === 'string' ? args.name : '';
+      await tabGroupManager.initialize();
+      const result = await tabGroupManager.nameSession(context.browserSessionScope.sessionId, name);
+      return {
+        output: result
+          ? `Session group titled "${result.title}".`
+          : 'Session name stored. No active tab group yet; the title will apply when the session creates or reuses a group.'
+      };
+    } catch (err) {
+      return {
+        error: `Failed to name session: ${err instanceof Error ? err.message : 'Unknown error'}`
+      };
+    }
+  },
+  toProviderSchema: async () => ({
+    name: 'tabs_name_session_mcp',
+    description:
+      'Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name. The session id is supplied by the tool request envelope, not by tool arguments.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            'Short task-relevant name for the session. Empty string clears the name and reverts to the default group title.'
+        }
+      },
+      required: ['name']
     }
   })
 };

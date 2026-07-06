@@ -1,10 +1,8 @@
 import type { ToolDefinition } from '../pageToolsSupport/types';
-import type { BatchAction } from './types';
-import {
-  READ_ONLY_TOOLS,
-  PAGE_OBSERVATION_TOOLS,
-  SUMMARY_STEP_OUTPUT_MAX_CHARS
-} from './constants';
+import { PAGE_OBSERVATION_TOOLS, SUMMARY_STEP_OUTPUT_MAX_CHARS } from './constants';
+import { isReadOnlyAction } from './access';
+
+export { getBatchActionToolName, isReadOnlyAction } from './access';
 
 let cachedRegistry: { tools: ToolDefinition[]; map: Map<string, ToolDefinition> } | null = null;
 
@@ -40,19 +38,6 @@ export function summarizeStepInput(toolName: string, input: Record<string, unkno
   }
   if (toolName === 'read_page' && typeof input.filter === 'string') return `filter=${input.filter}`;
   return toolName;
-}
-
-export function getBatchActionToolName(action: BatchAction): string | undefined {
-  if (typeof action.tool === 'string') return action.tool;
-  const alias = (action as { name?: unknown }).name;
-  return typeof alias === 'string' ? alias : undefined;
-}
-
-export function isReadOnlyAction(toolName: string, input: Record<string, unknown>): boolean {
-  if (READ_ONLY_TOOLS.has(toolName)) return true;
-  if (toolName !== 'computer') return false;
-  const computerAction = input.action;
-  return computerAction === 'screenshot' || computerAction === 'wait' || computerAction === 'zoom';
 }
 
 export function isPageObservationAction(toolName: string): boolean {

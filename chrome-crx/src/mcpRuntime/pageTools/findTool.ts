@@ -43,6 +43,7 @@ export const findTool: ToolDefinition<FindToolInput> = {
   name: 'find',
   description:
     'Find elements on the page using natural language. Can search for elements by their purpose (e.g., "search bar", "login button") or by text content (e.g., "organic mango product"). Returns up to 20 matching elements with references that can be used with other tools. If more than 20 matches exist, you\'ll be notified to use a more specific query. If you don\'t have a valid tab ID, use tabs_context first to get available tabs.',
+  tabAccess: 'read',
   parameters: {
     query: {
       type: 'string',
@@ -62,7 +63,7 @@ export const findTool: ToolDefinition<FindToolInput> = {
       if (!query) throw new Error('Query parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const effectiveTabId = await context.resolveTabId(tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const trackedTabId = tab.id;
@@ -186,7 +187,10 @@ export const findTool: ToolDefinition<FindToolInput> = {
         .join('\n');
 
       matches.length; // side effect
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       return {
         output: `${summary}\n\n${formattedMatches}`,
         tabContext: {

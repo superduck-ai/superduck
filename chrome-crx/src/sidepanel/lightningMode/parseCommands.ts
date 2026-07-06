@@ -2,10 +2,16 @@ import type { MutableRefObject } from 'react';
 import type { Span } from '@opentelemetry/api';
 import { tabGroupManager } from '../../mcpRuntime';
 import { shouldShowPlanMode } from '../../mcpRuntime/pageToolsSupport/helpers';
+import { DEFAULT_BROWSER_SESSION_ID } from '../../mcpRuntime/sessionScope';
 import { parseCompactCommands, type LightningMessage, type ParsedCommand } from './commands';
 import { getPageType } from '../conversation/planMode';
 import { pushTiming } from './runtime';
 import type { Phases } from './streamResponse';
+
+const DEFAULT_BROWSER_SESSION_CONTEXT = {
+  browserSessionScope: { sessionId: DEFAULT_BROWSER_SESSION_ID },
+  tabAccess: 'read' as const
+};
 
 export type StError = {
   action: 'error';
@@ -105,7 +111,10 @@ export async function parseCommands(params: ParseCommandsParams): Promise<ParseC
     };
   } else if (stIndex === 0) {
     const selectTabCommand = commands[0];
-    const tabs = await tabGroupManager.getValidTabsWithMetadata(activeTabId);
+    const tabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+      activeTabId,
+      DEFAULT_BROWSER_SESSION_CONTEXT
+    );
     const tabIds = new Set(
       tabs.map((tab) => tab.id).filter((tabId): tabId is number => typeof tabId === 'number')
     );

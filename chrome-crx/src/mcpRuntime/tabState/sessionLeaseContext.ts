@@ -49,20 +49,65 @@ export async function buildSessionContextFromLeases(
     return (a.index ?? 0) - (b.index ?? 0);
   });
 
-  const firstLease = leaseByTabId.get(tabs[0].id);
-  const tabGroupNone = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
-  const tabGroupId =
-    firstLease?.groupId ?? (tabs[0].groupId !== tabGroupNone ? tabs[0].groupId : undefined);
+  let currentTab = tabs[0];
+  let tabGroupId: number | undefined;
+  for (const tab of tabs) {
+    const resolvedGroupId = await resolveUsableLiveGroupId(tab, leaseByTabId.get(tab.id));
+    if (typeof resolvedGroupId !== 'number') continue;
+    currentTab = tab;
+    tabGroupId = resolvedGroupId;
+    break;
+  }
   if (typeof tabGroupId !== 'number') return undefined;
 
+  const availableTabs = tabs.filter((tab) =>
+    isTabInResolvedGroup(tab, leaseByTabId.get(tab.id), tabGroupId)
+  );
+
   return {
-    currentTabId: tabs[0].id,
-    availableTabs: tabs.map((tab) => ({
+    currentTabId: currentTab.id,
+    availableTabs: availableTabs.map((tab) => ({
       id: tab.id,
       title: tab.title || '',
       url: tab.url || ''
     })),
-    tabCount: tabs.length,
+    tabCount: availableTabs.length,
     tabGroupId
   };
+}
+
+async function resolveUsableLiveGroupId(
+  tab: chrome.tabs.Tab & { id: number },
+  lease: TabLease | undefined
+): Promise<number | undefined> {
+  const liveGroupId = getLiveTabGroupId(tab);
+  if (!canValidateTabGroups()) {
+    return lease?.groupId ?? liveGroupId;
+  }
+  if (typeof liveGroupId !== 'number') return undefined;
+  try {
+    await chrome.tabGroups.get(liveGroupId);
+    return liveGroupId;
+  } catch {
+    return undefined;
+  }
+}
+
+function isTabInResolvedGroup(
+  tab: chrome.tabs.Tab & { id: number },
+  lease: TabLease | undefined,
+  tabGroupId: number
+): boolean {
+  const liveGroupId = getLiveTabGroupId(tab);
+  if (typeof liveGroupId === 'number') return liveGroupId === tabGroupId;
+  return !canValidateTabGroups() && lease?.groupId === tabGroupId;
+}
+
+function getLiveTabGroupId(tab: chrome.tabs.Tab): number | undefined {
+  const tabGroupNone = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
+  return tab.groupId !== tabGroupNone ? tab.groupId : undefined;
+}
+
+function canValidateTabGroups(): boolean {
+  return Boolean(chrome.tabGroups && typeof chrome.tabGroups.get === 'function');
 }

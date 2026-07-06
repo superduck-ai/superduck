@@ -2,7 +2,7 @@
 
 > Your browser's session, callable as a tool.
 
-`superduck` is a CLI that lets agents (Claude Code, Codex, etc.) read from and fetch as the user's currently-running Chrome — same login state, same cookies, same active tab.
+`superduck` is a CLI bridge that lets AI agents inspect and operate your Chrome browser - same login state, same cookies, managed browser tabs.
 
 ## Install
 
@@ -22,9 +22,15 @@ All green → you're ready.
 ## Quick start
 
 ```bash
-superduck context                       # see what the user is reading
-superduck fetch https://api.example.com # using their cookies
-superduck tabs
+superduck context                       # read the active tab's url/title/selection/visible text
+
+SID=$(superduck session new)
+TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty --name "Quick start" | jq -r '.tabContext.currentTabId')
+superduck --session "$SID" --tab "$TAB" navigate https://example.com/
+superduck --session "$SID" --tab "$TAB" read_page      # read page content + accessibility tree
+superduck --session "$SID" --tab "$TAB" page_text      # extract main article text
+superduck --session "$SID" --tab "$TAB" read_page --filter interactive  # find refs for actions
+superduck --session "$SID" tab_group finalize
 ```
 
 See [SKILL.md](./SKILL.md) for the agent-facing usage doc.

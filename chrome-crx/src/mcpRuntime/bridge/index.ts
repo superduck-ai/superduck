@@ -1,5 +1,6 @@
 export {
   connectBridge,
+  setBridgeToolCallBootWaiter,
   reconnectMcp,
   isBridgeConnected,
   sendMcpNotificationViaBridge

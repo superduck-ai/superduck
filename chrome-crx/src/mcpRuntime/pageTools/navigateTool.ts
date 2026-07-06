@@ -1,5 +1,6 @@
 import { PermissionTools } from '../domainPermissions';
 import { tabGroupManager } from '../tabState';
+import { tabLeaseManager } from '../tabState/tabLeases';
 import { checkDomainCategoryForNavigation } from '../navigationIsolation';
 import type { ToolDefinition, ToolResult } from '../pageToolsSupport/types';
 import type { NavigateToolInput } from './types';
@@ -27,6 +28,7 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
   name: 'navigate',
   description:
     "Navigate to a URL in an existing tab, open a URL in a new background tab in the same tab group, or go forward/back in browser history. Use newTab:true when the current page should remain open, such as opening search results, detail pages, or comparison pages. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+  tabAccess: 'write',
   parameters: {
     url: {
       type: 'string',
@@ -50,7 +52,7 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
       if (!url) throw new Error('URL parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+      const effectiveTabId = await context.resolveTabId(tabId);
       const isHistoryNavigation = ['back', 'forward'].includes(url.toLowerCase());
       if (newTab && isHistoryNavigation) {
         throw new Error('newTab is not supported with back/forward navigation');
@@ -68,7 +70,10 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
         await chrome.tabs.goBack(tab.id);
         await new Promise((resolve) => setTimeout(resolve, 100));
         const updatedTab = await chrome.tabs.get(tab.id);
-        const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+        const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+          context.tabId,
+          context
+        );
         return {
           output: `Navigated back to ${updatedTab.url}`,
           tabContext: {
@@ -84,7 +89,10 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
         await chrome.tabs.goForward(tab.id);
         await new Promise((resolve) => setTimeout(resolve, 100));
         const updatedTab = await chrome.tabs.get(tab.id);
-        const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+        const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+          context.tabId,
+          context
+        );
         return {
           output: `Navigated forward to ${updatedTab.url}`,
           tabContext: {
@@ -123,11 +131,28 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
         if (!createdTab.id) throw new Error('Failed to create tab - no tab ID returned');
         const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
         if (mainTabId) {
-          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id, { origin: 'agent' });
-        } else if (tab.groupId && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-          await chrome.tabs.group({ tabIds: createdTab.id, groupId: tab.groupId });
+          await tabGroupManager.addTabToGroup(mainTabId, createdTab.id, {
+            origin: 'agent',
+            sessionId: context.browserSessionScope.sessionId
+          });
         }
-        const validTabs = await tabGroupManager.getValidTabsWithMetadata(effectiveTabId);
+        const groupedTab = await chrome.tabs.get(createdTab.id);
+        const groupId =
+          groupedTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE
+            ? groupedTab.groupId
+            : undefined;
+        await tabLeaseManager.claimTab(
+          context.browserSessionScope.sessionId,
+          createdTab.id,
+          'agent',
+          {
+            groupId
+          }
+        );
+        const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+          effectiveTabId,
+          context
+        );
         return {
           output: `Opened ${normalizedUrl} in new tab. Tab ID: ${createdTab.id}`,
           tabContext: {
@@ -142,7 +167,10 @@ export const navigateTool: ToolDefinition<NavigateToolInput> = {
       await chrome.tabs.update(effectiveTabId, { url: normalizedUrl });
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       return {
         output: `Navigated to ${normalizedUrl}`,
         tabContext: {

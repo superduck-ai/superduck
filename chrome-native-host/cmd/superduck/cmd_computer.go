@@ -25,6 +25,12 @@ func runAction(action string, args map[string]any) error {
 	}
 	args["action"] = action
 	args["tabId"] = gflags.Tab
+	// CLI users pass real CSS viewport coordinates (from read_page/exec
+	// getBoundingClientRect or typed by hand), not coordinates read off a
+	// scaled screenshot. Tell the extension's `computer` tool to treat them as
+	// viewport space so it skips the screenshot→viewport remapping (which would
+	// otherwise offset them when a screenshot context exists).
+	args["coordinate_space"] = "viewport"
 	rec := cliclient.AuditRecord{Cmd: action}
 	v, err := callWithRetry("computer", args, 4, 400*time.Millisecond)
 	rec.OK = err == nil
@@ -201,6 +207,12 @@ func extractScreenshotPayload(v any) (string, *imagePart) {
 		switch m["type"] {
 		case "text":
 			if s, _ := m["text"].(string); s != "" {
+				// Skip the synthetic "Tab Context" block (see cliclient.IsTabContextTextBlock);
+				// for image captures it is noise already available via the
+				// structured tabContext field in other code paths.
+				if cliclient.IsTabContextTextBlock(s) {
+					continue
+				}
 				if text.Len() > 0 {
 					text.WriteByte('\n')
 				}

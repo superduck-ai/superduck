@@ -10,7 +10,7 @@ export interface PreparedAction {
   action: BatchAction;
   toolName: string;
   tool: ToolDefinition;
-  input: Record<string, unknown>;
+  input: Record<string, unknown> & { tabId?: number };
 }
 
 export interface PrepareSuccess {
@@ -58,7 +58,10 @@ export async function prepareBatchActions(
   const resultMode = params.resultMode || 'summary';
   const screenshotMode = params.screenshot || 'last';
   const preparedActions: PreparedAction[] = [];
-  let batchTabId = params.tabId ?? context.tabId;
+  let batchTabId = typeof params.tabId === 'number' ? params.tabId : context.tabId;
+  if (typeof batchTabId === 'number') {
+    batchTabId = await context.resolveTabId(batchTabId);
+  }
 
   for (let i = 0; i < params.actions.length; i++) {
     const action = params.actions[i];
@@ -245,7 +248,7 @@ export async function prepareBatchActions(
     const coercedInput = coerced as Record<string, unknown>;
     const childTabId = typeof coercedInput.tabId === 'number' ? coercedInput.tabId : undefined;
     if (batchTabId == null && childTabId != null) {
-      batchTabId = childTabId;
+      batchTabId = await context.resolveTabId(childTabId);
     }
     if (batchTabId != null) {
       if (childTabId != null && childTabId !== batchTabId) {

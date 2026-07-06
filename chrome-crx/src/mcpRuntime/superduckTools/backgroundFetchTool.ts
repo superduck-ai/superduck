@@ -6,6 +6,7 @@ export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> =
   name: 'superduck_background_fetch',
   description:
     "SuperDuck CLI: fetch a URL from the extension background, automatically including the user's Chrome cookies for the target origin. Default: same eTLD+1 as source tab; pass allowCrossOrigin=true to bypass.",
+  tabAccess: 'read',
   parameters: {
     url: { type: 'string', description: 'URL to fetch' },
     method: { type: 'string', description: 'HTTP method (default GET)' },
@@ -17,7 +18,7 @@ export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> =
     },
     allowCrossOrigin: { type: 'boolean', description: 'Allow target origin != source eTLD+1' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
       const url = String(args?.url || '');
       if (!url) return { error: 'url is required' };
@@ -28,7 +29,7 @@ export const superduckBackgroundFetchTool: ToolDefinition<BackgroundFetchArgs> =
         return { error: `invalid url: ${url}` };
       }
 
-      const sourceTab = await resolveActiveTab(args?.sourceTabId);
+      const sourceTab = await resolveActiveTab(args?.sourceTabId, context);
       let sourceETld = '';
       if (sourceTab.url) {
         try {

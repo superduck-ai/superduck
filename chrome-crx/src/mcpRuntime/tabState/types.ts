@@ -1,6 +1,6 @@
 export const TAB_GROUP_MARKER = '🦆';
 export const TAB_GROUP_TITLE = '🦆SuperDuck';
-export const DEFAULT_SESSION_KEY = '__default__';
+export { DEFAULT_BROWSER_SESSION_ID as DEFAULT_SESSION_KEY } from '../sessionScope';
 
 export type TabMemberOrigin = 'agent' | 'user';
 export type TabMemberDisposition = 'active' | 'handoff';
@@ -19,7 +19,10 @@ export interface GroupMetadata {
   createdAt: number;
   domain: string;
   chromeGroupId: number;
+  title?: string;
   memberStates: Map<number, MemberState>;
+  sessionId?: string;
+  status?: 'active' | 'handoff' | 'completed';
   isUnmanaged?: boolean;
   hasLegacyMemberOrigins?: boolean;
 }

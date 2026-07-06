@@ -43,6 +43,7 @@ const { validateToolInput } = await import('./helpers');
 const computerToolDef: ToolDefinition = {
   name: 'computer',
   description: 'Drive the browser via synthesized input events',
+  tabAccess: 'write',
   parameters: {
     action: {
       type: 'string',
@@ -93,6 +94,7 @@ const computerToolDef: ToolDefinition = {
 const navigateToolDef: ToolDefinition = {
   name: 'navigate',
   description: 'Navigate to a URL',
+  tabAccess: 'write',
   parameters: {
     url: { type: 'string', required: true, description: 'Destination URL' },
     tabId: { type: 'number', description: 'Tab to navigate' }
@@ -135,6 +137,7 @@ describe('validateToolInput — required fields', () => {
     const rootRequiredTool: ToolDefinition = {
       name: 'rootRequired',
       description: '',
+      tabAccess: 'write',
       parameters: {
         required: ['url'],
         url: { type: 'string' }
@@ -173,6 +176,7 @@ describe('validateToolInput — type checks', () => {
     const integerTool: ToolDefinition = {
       name: 'integerTool',
       description: '',
+      tabAccess: 'write',
       parameters: {
         keep: {
           type: 'array',
@@ -214,6 +218,7 @@ describe('validateToolInput — type checks', () => {
     const unionTool: ToolDefinition = {
       name: 'unionTool',
       description: '',
+      tabAccess: 'write',
       parameters: {
         text: { type: ['string', 'null'] }
       },

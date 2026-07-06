@@ -9,7 +9,7 @@ import (
 
 func TestRegisterToolsUsesValidSchemas(t *testing.T) {
 	t.Parallel()
-	if got, want := len(toolDefinitions), 21; got != want {
+	if got, want := len(toolDefinitions), 22; got != want {
 		t.Fatalf("toolDefinitions length = %d, want %d", got, want)
 	}
 
@@ -64,6 +64,49 @@ func TestTabsFinalizeMCPToolDefinition(t *testing.T) {
 	}
 	if !containsString(enumValues, "handoff") || !containsString(enumValues, "deliverable") {
 		t.Fatalf("status enum = %v, want handoff and deliverable", enumValues)
+	}
+}
+
+func TestTabsContextMCPToolDefinitionSupportsName(t *testing.T) {
+	t.Parallel()
+
+	tool := findToolDefinition("tabs_context_mcp")
+	if tool == nil {
+		t.Fatal("tabs_context_mcp tool definition not found")
+	}
+	properties, ok := tool.inputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("tabs_context_mcp properties has type %T, want map[string]any", tool.inputSchema["properties"])
+	}
+	createIfEmpty, ok := properties["createIfEmpty"].(map[string]any)
+	if !ok {
+		t.Fatalf("createIfEmpty schema has type %T, want map[string]any", properties["createIfEmpty"])
+	}
+	if got, want := createIfEmpty["type"], "boolean"; got != want {
+		t.Fatalf("createIfEmpty type = %v, want %q", got, want)
+	}
+	name, ok := properties["name"].(map[string]any)
+	if !ok {
+		t.Fatalf("name schema has type %T, want map[string]any", properties["name"])
+	}
+	if got, want := name["type"], "string"; got != want {
+		t.Fatalf("name type = %v, want %q", got, want)
+	}
+}
+
+func TestTabsNameSessionMCPToolDefinitionRequiresName(t *testing.T) {
+	t.Parallel()
+
+	tool := findToolDefinition("tabs_name_session_mcp")
+	if tool == nil {
+		t.Fatal("tabs_name_session_mcp tool definition not found")
+	}
+	required, ok := tool.inputSchema["required"].([]string)
+	if !ok {
+		t.Fatalf("tabs_name_session_mcp required has type %T, want []string", tool.inputSchema["required"])
+	}
+	if !containsString(required, "name") {
+		t.Fatalf("tabs_name_session_mcp required = %v, want name", required)
 	}
 }
 

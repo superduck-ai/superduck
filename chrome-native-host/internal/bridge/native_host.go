@@ -33,6 +33,11 @@ type Options struct {
 	LazyConnect bool
 }
 
+type ToolContext struct {
+	ClientID  string
+	SessionID string
+}
+
 type HealthState string
 
 const (
@@ -481,6 +486,11 @@ func (b *NativeHostBridge) reconnect(ctx context.Context) error {
 // ExecuteTool sends a tool request to the native host and returns the result.
 // It respects the context deadline and will attempt reconnection if the connection is lost.
 func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
+	return b.ExecuteToolWithContext(ctx, toolName, args, ToolContext{})
+}
+
+// ExecuteToolWithContext sends a tool request with optional browser session metadata.
+func (b *NativeHostBridge) ExecuteToolWithContext(ctx context.Context, toolName string, args map[string]interface{}, toolCtx ToolContext) (interface{}, error) {
 	// Fail fast if context is already done
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("context already done: %w", err)
@@ -529,15 +539,9 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 		}
 	}()
 
-	// Send tool_request to native host
-	req := map[string]interface{}{
-		"type":   "tool_request",
-		"method": "execute_tool",
-		"params": map[string]interface{}{
-			"tool": toolName,
-			"args": args,
-		},
-	}
+	// Send tool_request to native host. The browser session is an envelope
+	// field; args must remain model/tool input only.
+	req := protocol.NewToolRequest(toolName, args, toolCtx.ClientID, toolCtx.SessionID)
 
 	// Bound each send so a half-open UDS connection can't block forever while
 	// preserving the request-level read deadline derived from ctx.
@@ -582,8 +586,11 @@ func (b *NativeHostBridge) ExecuteTool(ctx context.Context, toolName string, arg
 		return nil, fmt.Errorf("tool error: %v", resp.Error.Content)
 	}
 
-	if resp.Result != nil && resp.Result.StructuredContent != nil {
-		return resp.Result.StructuredContent, nil
+	if resp.Result == nil {
+		return nil, nil
+	}
+	if resp.Result.StructuredContent != nil {
+		return resp.Result, nil
 	}
 
 	return resp.Result.Content, nil

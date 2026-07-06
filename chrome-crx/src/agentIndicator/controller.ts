@@ -74,12 +74,16 @@ export class AgentIndicatorController {
             break;
 
           case 'HIDE_FOR_TOOL_USE': {
-            this.hiddenForToolUse = this.agentActive;
+            const hasInterruptiveIndicators =
+              this.agentActive ||
+              this.blockingOverlayEl !== null ||
+              this.glowBorderEl !== null ||
+              this.waterRipple !== null ||
+              this.stopContainer !== null;
+            this.hiddenForToolUse = hasInterruptiveIndicators;
             this.wasStaticActiveBeforeToolUse = this.staticActive;
 
-            if (this.agentActive) this.hideInterruptiveIndicatorsForToolUse();
-            else if (this.staticActive && this.staticIndicatorEl?.parentNode)
-              this.staticIndicatorEl.parentNode.removeChild(this.staticIndicatorEl);
+            this.hideInterruptiveIndicatorsForToolUse();
 
             const respondOnce = (() => {
               let hasResponded = false;
@@ -106,7 +110,7 @@ export class AgentIndicatorController {
           }
 
           case 'SHOW_AFTER_TOOL_USE':
-            if (this.hiddenForToolUse && this.agentActive) {
+            if (this.hiddenForToolUse) {
               this.restoreInterruptiveIndicatorsAfterToolUse();
             }
             if (
@@ -435,12 +439,16 @@ export class AgentIndicatorController {
     if (this.glowBorderEl) this.glowBorderEl.style.display = 'none';
     if (this.waterRipple) this.waterRipple.container.style.display = 'none';
     if (this.stopContainer) this.stopContainer.container.style.display = 'none';
-    if (this.blockingOverlayEl) this.blockingOverlayEl.style.display = 'none';
+    if (this.blockingOverlayEl) {
+      this.blockingOverlayEl.style.display = 'none';
+    }
     if (this.staticIndicatorEl?.parentNode && this.staticActive)
       this.staticIndicatorEl.parentNode.removeChild(this.staticIndicatorEl);
   }
 
   private restoreInterruptiveIndicatorsAfterToolUse(): void {
+    if (!this.agentActive) return;
+
     if (this.glowBorderEl) {
       this.glowBorderEl.style.display = '';
       this.glowBorderEl.style.opacity = '1';
@@ -457,6 +465,8 @@ export class AgentIndicatorController {
 
     if (this.blockingOverlayEl) {
       this.blockingOverlayEl.style.display = '';
+      this.blockingOverlayEl.style.visibility = '';
+      this.blockingOverlayEl.style.pointerEvents = 'auto';
       this.blockingOverlayEl.style.opacity = '1';
       if (!this.blockingOverlayEl.parentNode)
         this.shadow.getDocumentMountRoot().appendChild(this.blockingOverlayEl);

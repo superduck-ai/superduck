@@ -2,9 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"chrome-native-host/internal/analytics"
@@ -24,8 +30,19 @@ USAGE:
   superduck --tab <id> <command> [flags]      most browser commands need --tab
 
 WORKFLOW:
-  1. TAB=$(superduck tab_group new ...)           create a fresh tab group, grab its tabId
-  2. superduck --tab $TAB navigate <url>          drive that tab from the CLI
+  1. SID=$(superduck session new)                 one session per task — pass --session to
+                                                    every command so concurrent tasks don't
+                                                    collide on each other's tabs
+  2. TAB=$(superduck --session "$SID" --json tab_group list --create-if-empty \
+           --name "🔎 <task>" | jq -r '.tabContext.currentTabId')
+                                                    reuse/create + name the session's tab
+                                                    group (🦆 auto-prepended)
+  3. superduck --session "$SID" --tab "$TAB" navigate <url>
+                                                    drive that tab from the CLI
+  4. superduck --session "$SID" tab_group finalize [--deliverable "$TAB"|--handoff "$TAB"]
+                                                    END every turn that did browser work with
+                                                    finalize; it is the last browser action of
+                                                    the turn — no browser tools after it.
 
 SETUP / DIAGNOSTICS:
   init                       Install native messaging manifest and start the native-host
@@ -39,17 +56,21 @@ SETUP / DIAGNOSTICS:
 ACTIVE-TAB UTILITIES (no --tab required):
   context [--full]           Read url/title/selection/visible text from the active tab
   tabs                       List every Chrome tab the extension can see
+  session new                Mint a fresh browser-automation session id (per-task scope)
+  session name <text>        Name the current session's tab group (distinguish concurrent tasks)
 
 MCP TAB GROUP (each conversation usually owns one group of tabs):
-  tab_group list [--create-if-empty]
+  tab_group list [--create-if-empty] [--name <text>]
                              Show the current MCP tab group's tabs; --create-if-empty
-                             makes one if missing when reusing the current group.
-  tab_group new              Create a new empty tab in a fresh MCP tab group and print
-                             its tabId; that group becomes the current MCP group.
+                             makes one if missing. --name titles it at creation
+                             (🦆 auto-prepended); ignored if a group already exists.
+  tab_group new [--force]    Create a fresh MCP tab group; refuses to replace an
+                             existing session group unless --force is set.
+                             --force discards that session's active/handoff tabs.
   tab_group finalize [--handoff TAB] [--deliverable TAB]
-                             Finalize the current MCP tab group as the last browser action.
-                             Omitted SuperDuck-created tabs are closed; deliverable tabs stay
-                             open outside the group; handoff tabs stay grouped for continuation.
+                             Finalize the current MCP tab group with explicit tab disposition.
+                             Omitted tabs are ungrouped and left open (never closed); deliverable
+                             tabs stay open outside the group (✓ badge); handoff tabs stay grouped.
 
 MOUSE / KEYBOARD (all require --tab <id>):
   left_click <x> <y> [--modifiers M] [--ref R]
@@ -100,8 +121,9 @@ OBSERVABILITY (require --tab <id>):
 WINDOW / NAV (require --tab <id>):
   resize <w> <h>             Resize the browser window — useful for responsive testing.
   navigate <url|back|forward>
-                             Load a URL, or move through history. Pair with 'tab_group new'
-                             to drive a freshly created blank tab.
+                             Load a URL, or move through history. Reuse a tab from
+                             'tab_group list --create-if-empty' unless you explicitly
+                             need a fresh group from 'tab_group new'.
 
 UPLOAD / SHORTCUTS / GIF (require --tab <id>):
   upload --image-id <id> (--ref R | --coord x,y) [--filename N]
@@ -120,12 +142,16 @@ GLOBAL FLAGS:
   --json            Machine-readable output (stdout = single JSON object)
   --tab <id>        Target a specific tab (overrides active-tab resolution).
                     Required for almost every browser command.
+  --session <id>    Browser automation session id. Mint one per task with
+                    'superduck session new' so each task owns its own tab group;
+                    default SUPERDUCK_SESSION_ID, SUPERDUCK_SESSION_FILE, or
+                    a per-shell cli:ppid:<parent-pid> id.
   --socket <path>   Native-host UDS path (default %s)
   --timeout <s>     Per-request timeout in seconds (default 30)
 
 EXAMPLES:
-  # create a fresh tab group to drive
-  TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)
+  # reuse or create the current session tab group
+  TAB=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
   superduck --tab $TAB navigate https://example.com/
 
   # drive the page
@@ -152,11 +178,14 @@ const (
 	ExitNotConnected = 2
 	ExitToolError    = 3
 	ExitTimeout      = 4
+
+	sessionIDFileStaleLockAge = 30 * time.Second
 )
 
 type globalFlags struct {
 	JSON       bool
 	Tab        int
+	SessionID  string
 	SocketPath string
 	Timeout    time.Duration
 	TimeoutSet bool
@@ -217,6 +246,8 @@ func main() {
 		err = cmdTabs(rest)
 	case "tab_group":
 		err = cmdTabGroup(rest)
+	case "session":
+		err = cmdSession(rest)
 	case "screenshot":
 		err = cmdScreenshot(rest)
 	case "left_click":
@@ -432,5 +463,202 @@ func exitCodeFor(err error) int {
 }
 
 func clientOpts() cliclient.Options {
-	return cliclient.Options{SocketPath: gflags.SocketPath, Timeout: gflags.Timeout}
+	sessionID, explicit, err := resolvedBrowserSession()
+	if err != nil {
+		fatalUsage("%v", err)
+	}
+	if !explicit {
+		warnSharedSessionOnce()
+	}
+	return cliclient.Options{
+		SocketPath: gflags.SocketPath,
+		Timeout:    gflags.Timeout,
+		SessionID:  sessionID,
+	}
+}
+
+// warnSharedSessionOnce nudges the user when the session id was NOT explicitly
+// provided (--session / SUPERDUCK_SESSION_ID / SUPERDUCK_SESSION_FILE). In that
+// case commands from the same shell reuse cli:ppid:<ppid>, so concurrent tasks
+// in that shell share one tab group and can trample each other's handoff tabs —
+// the exact failure `superduck session new` exists to prevent.
+var sharedSessionWarned bool
+
+func warnSharedSessionOnce() {
+	if sharedSessionWarned || sessionWarningsDisabled() {
+		return
+	}
+	sharedSessionWarned = true
+	fmt.Fprintln(os.Stderr, "superduck: using a per-shell default session id; commands in the same shell share one tab group.")
+	fmt.Fprintln(os.Stderr, "           concurrent shells are isolated; for strict per-task isolation mint an id with `superduck session new` and pass --session <id>.")
+}
+
+func sessionWarningsDisabled() bool {
+	for _, key := range []string{"SUPERDUCK_QUIET", "SUPERDUCK_NO_WARN"} {
+		value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		if value == "1" || value == "true" || value == "yes" {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvedBrowserSession() (string, bool, error) {
+	if gflags.SessionID != "" {
+		return gflags.SessionID, true, nil
+	}
+	if v := os.Getenv("SUPERDUCK_SESSION_ID"); v != "" {
+		return v, true, nil
+	}
+	if v := os.Getenv("SUPERDUCK_SESSION_FILE"); v != "" {
+		id, err := readOrCreateSessionIDFile(v)
+		if err == nil && id != "" {
+			return id, true, nil
+		}
+		if err == nil {
+			err = fmt.Errorf("empty session id")
+		}
+		return "", true, fmt.Errorf("SUPERDUCK_SESSION_FILE=%q unusable: %w", v, err)
+	}
+	// Default: a per-shell session id keyed by parent pid. Concurrent shells
+	// (different ppid) isolate naturally; commands within the same shell share
+	// one tab group (expected reuse). Mint an explicit per-task id with
+	// `superduck session new` for strict isolation.
+	return fmt.Sprintf("cli:ppid:%d", os.Getppid()), false, nil
+}
+
+func readOrCreateSessionIDFile(path string) (string, error) {
+	if path = strings.TrimSpace(path); path == "" {
+		return "", fmt.Errorf("empty session file path")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	unlock, err := acquireSessionIDFileLock(path)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
+	if data, err := os.ReadFile(path); err == nil {
+		if id := strings.TrimSpace(string(data)); id != "" {
+			return id, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	id, err := newRandomCLISessionID()
+	if err != nil {
+		return "", err
+	}
+	if err := writeSessionIDFile(path, id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func acquireSessionIDFileLock(path string) (func(), error) {
+	lockPath := path + ".lock"
+	for attempt := 0; attempt < 100; attempt++ {
+		file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, _ = file.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
+			_ = file.Close()
+			return func() { _ = os.Remove(lockPath) }, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+		if reclaimStaleSessionIDFileLock(lockPath) {
+			continue
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("session file lock %q is held", lockPath)
+}
+
+func reclaimStaleSessionIDFileLock(lockPath string) bool {
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 || pid == os.Getpid() {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return removeExpiredSessionIDFileLock(lockPath)
+	}
+	if err := process.Signal(syscall.Signal(0)); err == nil || errors.Is(err, syscall.EPERM) {
+		return removeExpiredSessionIDFileLock(lockPath)
+	}
+	if !errors.Is(err, syscall.ESRCH) && !errors.Is(err, os.ErrProcessDone) {
+		return removeExpiredSessionIDFileLock(lockPath)
+	}
+	return removeSessionIDFileLock(lockPath)
+}
+
+func removeExpiredSessionIDFileLock(lockPath string) bool {
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		return false
+	}
+	if time.Since(info.ModTime()) < sessionIDFileStaleLockAge {
+		return false
+	}
+	return removeSessionIDFileLock(lockPath)
+}
+
+func removeSessionIDFileLock(lockPath string) bool {
+	removeErr := os.Remove(lockPath)
+	return removeErr == nil || os.IsNotExist(removeErr)
+}
+
+func writeSessionIDFile(path, id string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".cli-session-id-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.WriteString(id + "\n"); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	removeTemp = false
+	return nil
+}
+
+func newRandomCLISessionID() (string, error) {
+	return newRandomPrefixedID("cli:file:")
+}
+
+// newRandomPrefixedID mints a fresh opaque id: <prefix> + 16 random bytes hex
+// -encoded. Shared by the persisted-file fallback ("cli:file:") and
+// `superduck session new` ("cli:").
+func newRandomPrefixedID(prefix string) (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return prefix + hex.EncodeToString(raw[:]), nil
 }

@@ -9,6 +9,7 @@ export const uploadImageTool: ToolDefinition<UploadImageToolInput> = {
   name: 'upload_image',
   description:
     'Upload a previously captured screenshot or user-uploaded image to a file input or drag & drop target. Supports two approaches: (1) ref - for targeting specific elements, especially hidden file inputs, (2) coordinate - for drag & drop to visible locations like Google Docs. Provide either ref or coordinate, not both.',
+  tabAccess: 'write',
   parameters: {
     imageId: {
       type: 'string',
@@ -49,7 +50,7 @@ export const uploadImageTool: ToolDefinition<UploadImageToolInput> = {
         );
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(params.tabId, context.tabId);
+      const effectiveTabId = await context.resolveTabId(params.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Upload tab has no ID');
       const tabUrl = tab.url;
@@ -251,7 +252,10 @@ export const uploadImageTool: ToolDefinition<UploadImageToolInput> = {
       if (!isScriptOutputResult(uploadOutput)) {
         throw new Error('Unexpected response while uploading image');
       }
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       return {
         ...uploadOutput,
         tabContext: {

@@ -1,3 +1,6 @@
+import type { ToolContext } from '../pageTools';
+import { tabGroupManager } from '../tabState';
+import { tabLeaseManager, type TabLeaseOrigin } from '../tabState/tabLeases';
 import type { ActiveContextScriptResult, ToolScriptResult } from './types';
 
 const LIST_TABS_CHROME_API_TIMEOUT_MS = 5_000;
@@ -43,16 +46,79 @@ function isToolScriptResult(value: unknown): value is ToolScriptResult {
   );
 }
 
-async function resolveActiveTab(explicit?: number): Promise<chrome.tabs.Tab> {
-  if (explicit !== undefined && explicit !== null) {
-    return await chrome.tabs.get(explicit);
+function getBrowserSessionId(context: ToolContext): string {
+  return context.browserSessionScope.sessionId;
+}
+
+async function resolveStandaloneTabId(tabId: number, context: ToolContext): Promise<number> {
+  const sessionId = getBrowserSessionId(context);
+  if (context.tabAccess === 'read') {
+    await tabLeaseManager.assertTabAvailableForSession(sessionId, tabId);
+    return tabId;
   }
-  const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-  const tabs = await chrome.tabs.query({ active: true, windowId: win.id });
-  if (!tabs.length || tabs[0].id === undefined) {
-    throw new Error('No active tab in last focused window');
+
+  const lease = await tabLeaseManager.getLease(tabId);
+  if (lease) {
+    await tabLeaseManager.claimTab(sessionId, tabId, lease.origin, {
+      groupId: lease.groupId
+    });
+    return tabId;
   }
-  return tabs[0];
+
+  await chrome.tabs.get(tabId);
+  const group = await tabGroupManager.findGroupByTab(tabId);
+  const origin = (group?.memberStates.get(tabId)?.origin ?? 'user') as TabLeaseOrigin;
+  const groupId = group && !group.isUnmanaged ? group.chromeGroupId : undefined;
+  await tabLeaseManager.claimTab(sessionId, tabId, origin, { groupId });
+  return tabId;
+}
+
+async function resolveActiveTab(
+  explicit: number | undefined,
+  context: ToolContext
+): Promise<chrome.tabs.Tab> {
+  if (typeof context.tabId !== 'number' && typeof explicit !== 'number') {
+    const focusedWindow = await withChromeApiTimeout(
+      'chrome.windows.getLastFocused',
+      chrome.windows.getLastFocused({ populate: true })
+    );
+    const activeTab = focusedWindow.tabs?.find((tab) => tab.active);
+    if (activeTab?.id === undefined) throw new Error('No active tab found in context');
+    const resolvedTabId = await resolveStandaloneTabId(activeTab.id, context);
+    const resolvedTab = await chrome.tabs.get(resolvedTabId);
+    if (resolvedTab.id === undefined) throw new Error('Tab has no id');
+    return resolvedTab;
+  }
+  const effectiveTabId = await context.resolveTabId(explicit);
+  const tab = await chrome.tabs.get(effectiveTabId);
+  if (tab.id === undefined) throw new Error('Tab has no id');
+  return tab;
+}
+
+async function claimTabForContext(
+  tabId: number,
+  context: ToolContext,
+  options: { groupId?: number; origin?: TabLeaseOrigin } = {}
+): Promise<void> {
+  const sessionId = getBrowserSessionId(context);
+  await tabLeaseManager.claimTab(sessionId, tabId, options.origin ?? 'agent', {
+    groupId: options.groupId
+  });
+}
+
+async function filterTabsForContext(
+  tabs: chrome.tabs.Tab[],
+  context: ToolContext
+): Promise<chrome.tabs.Tab[]> {
+  const sessionId = getBrowserSessionId(context);
+
+  const visibleTabs: chrome.tabs.Tab[] = [];
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue;
+    const lease = await tabLeaseManager.getLease(tab.id);
+    if (!lease || lease.sessionId === sessionId) visibleTabs.push(tab);
+  }
+  return visibleTabs;
 }
 
 function eTLDPlus1(hostname: string): string {
@@ -72,5 +138,7 @@ export {
   isActiveContextScriptResult,
   isToolScriptResult,
   resolveActiveTab,
+  claimTabForContext,
+  filterTabsForContext,
   eTLDPlus1
 };

@@ -17,6 +17,7 @@ const chromeMock = vi.hoisted(() => ({
       index: 0
     })),
     query: vi.fn(async () => []),
+    sendMessage: vi.fn(async (_tabId: number, _message?: unknown) => ({ success: true })),
     onRemoved: { addListener: vi.fn() }
   },
   tabGroups: {
@@ -47,7 +48,6 @@ type AnyMgr = {
     { mainTabId?: number; chromeGroupId: number; memberStates: Map<number, unknown> }
   >;
   groupBlocklistStatuses: Map<number, unknown>;
-  mcpTabGroupId: number | null;
 };
 
 const manager = tabGroupManager as unknown as AnyMgr;
@@ -56,9 +56,9 @@ describe('tabGroupManager.handleTabGroupChange — ungroup regression', () => {
   beforeEach(() => {
     manager.groupMetadata.clear();
     manager.groupBlocklistStatuses.clear();
-    manager.mcpTabGroupId = null;
     chromeMock.tabs.group.mockClear();
     chromeMock.tabs.ungroup.mockClear();
+    chromeMock.tabs.sendMessage.mockClear();
     chromeMock.tabs.query.mockReset();
     chromeMock.tabs.query.mockResolvedValue([]);
     chromeMock.tabGroups.update.mockClear();
@@ -160,7 +160,6 @@ describe('tabGroupManager.handleTabGroupChange — ungroup regression', () => {
 
   it('clears the MCP group pointer when the MCP main tab is manually ungrouped', async () => {
     const m = manager;
-    m.mcpTabGroupId = 100;
     m.groupBlocklistStatuses.set(100, {});
     m.groupMetadata.set(1, {
       mainTabId: 1,
@@ -170,18 +169,20 @@ describe('tabGroupManager.handleTabGroupChange — ungroup regression', () => {
         [2, { indicatorState: 'static', origin: 'agent', disposition: 'active' }]
       ])
     });
+    chromeMock.storage.local.get.mockResolvedValue({
+      mcpTabGroupId: 100,
+      mcpTabGroupOwner: 100
+    });
 
     await tabGroupManager.handleTabGroupChange(1, chromeMock.tabGroups.TAB_GROUP_ID_NONE);
 
     expect(m.groupMetadata.has(1)).toBe(false);
     expect(m.groupBlocklistStatuses.has(100)).toBe(false);
-    expect(m.mcpTabGroupId).toBeNull();
     expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
   });
 
-  it('updates the stored MCP group pointer when the MCP main tab is regrouped', async () => {
+  it('clears the legacy MCP group pointer when the MCP main tab is regrouped', async () => {
     const m = manager;
-    m.mcpTabGroupId = 100;
     m.groupMetadata.set(1, {
       mainTabId: 1,
       chromeGroupId: 100,
@@ -199,16 +200,22 @@ describe('tabGroupManager.handleTabGroupChange — ungroup regression', () => {
 
     const meta = m.groupMetadata.get(1);
     expect(meta?.chromeGroupId).toBe(9999);
-    expect(m.mcpTabGroupId).toBe(9999);
-    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      mcpTabGroupId: 9999,
-      mcpTabGroupOwner: 9999
-    });
+    expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
+    expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupOwner');
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpTabGroupId: expect.any(Number),
+        mcpTabGroupOwner: expect.any(Number)
+      })
+    );
   });
 
   it('clears a stored MCP group pointer when deleteGroup removes that group before the pointer is loaded', async () => {
     const m = manager;
-    chromeMock.storage.local.get.mockResolvedValueOnce({ mcpTabGroupId: 100 });
+    chromeMock.storage.local.get.mockResolvedValueOnce({
+      mcpTabGroupId: 100,
+      mcpTabGroupOwner: 100
+    });
     m.groupMetadata.set(1, {
       mainTabId: 1,
       chromeGroupId: 100,

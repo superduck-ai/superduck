@@ -6,6 +6,7 @@ export const superduckActiveContextTool: ToolDefinition<ActiveContextArgs> = {
   name: 'superduck_active_context',
   description:
     "SuperDuck CLI: get url/title/selection/visible-text from the user's currently active Chrome tab (last focused window). Use full=true for full page innerText (warns about token cost).",
+  tabAccess: 'read',
   parameters: {
     tabId: {
       type: 'number',
@@ -14,9 +15,9 @@ export const superduckActiveContextTool: ToolDefinition<ActiveContextArgs> = {
     },
     full: { type: 'boolean', description: 'Return whole-page innerText instead of viewport text' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveActiveTab(args?.tabId, context);
       if (tab.id === undefined) return { error: 'Tab has no id' };
 
       const full = !!args?.full;

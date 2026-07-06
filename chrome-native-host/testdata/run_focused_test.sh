@@ -125,7 +125,7 @@ assert "form_input toggles checkbox"    "[ '$AGREE_VAL' = 'true'   ]" "got '$AGR
 
 # ---- upload ----------------------------------------------------------------
 echo
-echo "==> upload (file_upload via --ref + image-id)"
+echo "==> upload (upload_image via --ref + image-id)"
 SHOT_OUT=$("$SD" --tab "$TAB" screenshot --output "$OUT/" 2>&1 || true)
 echo "$SHOT_OUT" >"$OUT/screenshot.txt"
 SHOT_FILE=$(ls "$OUT"/*.jpg "$OUT"/*.png 2>/dev/null | head -1)

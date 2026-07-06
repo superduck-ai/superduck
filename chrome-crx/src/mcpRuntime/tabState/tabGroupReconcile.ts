@@ -1,8 +1,8 @@
 import type { TabGroupManager } from './tabGroups';
 import { getTabEventManager } from './tabEvents';
-import { TAB_GROUP_TITLE } from './types';
 import { getMemberOrigin } from './tabNavigationIsolation';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
+import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
 
 export async function handleTabGroupChange(
   mgr: TabGroupManager,
@@ -62,8 +62,7 @@ export async function handleTabGroupChange(
             });
             if (
               (await chrome.tabGroups.update(newChromeGroupId, {
-                title: TAB_GROUP_TITLE,
-                color: chrome.tabGroups.Color.ORANGE,
+                ...buildGroupAppearanceUpdate(mgr, meta),
                 collapsed: false
               }),
               (meta.chromeGroupId = newChromeGroupId),
@@ -153,7 +152,10 @@ export async function handleTabGroupChange(
       }
 }
 
-export async function reconcileWithChrome(mgr: TabGroupManager): Promise<void> {
+export async function reconcileWithChrome(
+  mgr: TabGroupManager,
+  clearStalePulsing = false
+): Promise<void> {
   const allTabs = await chrome.tabs.query({});
   const activeGroupIds = new Set<number>();
   for (const tab of allTabs)
@@ -192,6 +194,20 @@ export async function reconcileWithChrome(mgr: TabGroupManager): Promise<void> {
   for (const id of toRemove) {
     const meta = mgr.groupMetadata.get(id);
     if (meta) await removeManagedGroupMetadata(mgr, meta);
+  }
+  if (clearStalePulsing) {
+    for (const [, meta] of mgr.groupMetadata.entries()) {
+      for (const [memberId, memberState] of meta.memberStates) {
+        if (memberState.indicatorState !== 'pulsing') continue;
+        memberState.indicatorState = 'none';
+        try {
+          await mgr.sendIndicatorMessage(memberId, 'HIDE_AGENT_INDICATORS');
+        } catch {
+          // ignore
+        }
+        changed = true;
+      }
+    }
   }
   (toRemove.length > 0 || changed) && (await mgr.saveToStorage());
 }

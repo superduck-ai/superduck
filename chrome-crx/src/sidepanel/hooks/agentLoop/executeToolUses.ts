@@ -13,7 +13,6 @@ const BATCH_REMINDER_ELIGIBLE_TOOLS = new Set([
   'update_plan',
   'gif_creator',
   'resize_window',
-  'file_upload',
   'tabs_create',
   'tabs_create_mcp'
 ]);

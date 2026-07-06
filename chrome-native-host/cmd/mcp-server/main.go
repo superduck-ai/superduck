@@ -17,6 +17,8 @@ import (
 // MCP client doesn't specify a deadline.
 const defaultToolTimeout = 30 * time.Second
 
+var mcpProcessSessionID = fmt.Sprintf("mcp:%d", os.Getpid())
+
 func main() {
 	analytics.EnsureInstallID()
 
@@ -84,13 +86,31 @@ func createToolHandler(nativeHost *bridge.NativeHostBridge, toolName string) fun
 			defer cancel()
 		}
 
-		result, err := nativeHost.ExecuteTool(ctx, toolName, input)
+		result, err := nativeHost.ExecuteToolWithContext(ctx, toolName, input, bridge.ToolContext{
+			ClientID:  "superduck-mcp-server",
+			SessionID: browserSessionID(req),
+		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("tool execution failed: %w", err)
 		}
 
 		return buildCallToolResult(result), nil, nil
 	}
+}
+
+func browserSessionID(req *mcp.CallToolRequest) string {
+	if v := os.Getenv("SUPERDUCK_SESSION_ID"); v != "" {
+		return v
+	}
+	if req != nil && req.Session != nil {
+		if id := req.Session.ID(); id != "" {
+			return "mcp:" + id
+		}
+	}
+	if id := analytics.EnsureInstallID(); id != "" {
+		return "mcp:install:" + id
+	}
+	return mcpProcessSessionID
 }
 
 func createHealthToolHandler(nativeHost *bridge.NativeHostBridge) func(context.Context, *mcp.CallToolRequest, map[string]interface{}) (*mcp.CallToolResult, any, error) {

@@ -170,7 +170,8 @@ export async function findOrphanedTabs(mgr: TabGroupManager): Promise<
 }
 
 export async function isInGroup(mgr: TabGroupManager, tabId: number): Promise<boolean> {
-  return null !== (await findGroupByTab(mgr, tabId));
+  const group = await findGroupByTab(mgr, tabId);
+  return Boolean(group && !group.isUnmanaged);
 }
 
 export function isMainTab(mgr: TabGroupManager, tabId: number): boolean {
@@ -193,7 +194,7 @@ export function getGroupMemberIds(mgr: TabGroupManager, mainTabId: number): numb
 
 export async function getMainTabId(mgr: TabGroupManager, tabId: number): Promise<number | null> {
   const group = await findGroupByTab(mgr, tabId);
-  return group?.mainTabId || null;
+  return group && !group.isUnmanaged ? group.mainTabId : null;
 }
 
 export async function getGroup(

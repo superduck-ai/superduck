@@ -90,6 +90,8 @@ export enum StorageKeys {
   GIF_FRAMES = 'gifFrames',
   GIF_RECORDING_GROUPS = 'gifRecordingGroups',
   ACTIVE_TOOL_CONTEXTS = 'activeToolContexts',
+  TOOL_CONTEXT_DEADLINES = 'toolContextDeadlines',
+  TURN_ACTIVE_DEADLINES = 'turnActiveDeadlines',
   ACTIVE_TOOL_COUNT = 'activeToolCount',
   PENDING_UPDATE_VERSION = 'pendingUpdateVersion'
 }

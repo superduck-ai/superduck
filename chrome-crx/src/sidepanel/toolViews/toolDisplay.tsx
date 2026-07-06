@@ -433,7 +433,6 @@ export const BROWSER_TOOLS = new Set([
   'tabs_context',
   'tabs_context_mcp',
   'upload_image',
-  'file_upload',
   'read_console_messages',
   'read_network_requests',
   'resize_window',

@@ -9,6 +9,7 @@ export const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
   name: 'tabs_create',
   description:
     'Creates a new background tab in the current tab group, optionally opening a URL immediately. Use this when the user asks for a new tab or when the workflow should keep the current page open while opening another page, such as search results, detail pages, or comparison pages.',
+  tabAccess: 'write',
   parameters: {
     url: {
       type: 'string',
@@ -26,8 +27,8 @@ export const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
       if (!context?.tabId) throw new Error('No active tab found');
       const { url, tabId } = input || {};
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
-      const currentTab = await chrome.tabs.get(effectiveTabId);
+      const effectiveTabId = await context.resolveTabId(tabId);
+      await chrome.tabs.get(effectiveTabId);
       const targetUrl = url ? normalizeHttpUrlForNavigation(url) : 'chrome://newtab';
 
       if (url) {
@@ -60,12 +61,17 @@ export const tabsCreateTool: ToolDefinition<TabsCreateToolInput> = {
 
       const mainTabId = await tabGroupManager.getMainTabId(effectiveTabId);
       if (mainTabId) {
-        await tabGroupManager.addTabToGroup(mainTabId, newTab.id, { origin: 'agent' });
-      } else if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-        await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
+        const browserScope = context.browserSessionScope;
+        await tabGroupManager.addTabToGroup(mainTabId, newTab.id, {
+          origin: 'agent',
+          sessionId: browserScope?.sessionId
+        });
       }
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(effectiveTabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        effectiveTabId,
+        context
+      );
       return {
         output: url
           ? `Opened ${targetUrl} in new tab. Tab ID: ${newTab.id}`

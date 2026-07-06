@@ -18,6 +18,7 @@ export const formInputTool: ToolDefinition<FormInputToolParams> = {
   name: 'form_input',
   description:
     "Set values in form elements using element reference ID from the read_page or find tools. If you don't have a valid tab ID, use tabs_context first to get available tabs.",
+  tabAccess: 'write',
   parameters: {
     ref: {
       type: 'string',
@@ -42,7 +43,7 @@ export const formInputTool: ToolDefinition<FormInputToolParams> = {
         throw new Error('Value parameter is required');
       if (!context?.tabId) throw new Error('No active tab found');
 
-      const effectiveTabId = await tabGroupManager.getEffectiveTabId(params.tabId, context.tabId);
+      const effectiveTabId = await context.resolveTabId(params.tabId);
       const tab = await chrome.tabs.get(effectiveTabId);
       if (!tab.id) throw new Error('Active tab has no ID');
       const activeTabId = tab.id;
@@ -304,7 +305,10 @@ export const formInputTool: ToolDefinition<FormInputToolParams> = {
         }
       }
 
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
       return {
         ...formResult,
         tabContext: {
