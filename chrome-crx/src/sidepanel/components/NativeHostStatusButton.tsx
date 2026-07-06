@@ -323,7 +323,7 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
               <p
                 className={`inline-flex items-center gap-1.5 text-xs leading-5 ${
                   resetFeedback.type === 'success'
-                    ? 'text-accent-secondary-200'
+                    ? 'text-success-100'
                     : resetFeedback.type === 'pending'
                       ? 'text-text-300'
                       : resetFeedback.type === 'warning'

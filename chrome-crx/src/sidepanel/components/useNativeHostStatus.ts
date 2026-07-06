@@ -4,6 +4,7 @@ import {
   type NativeHostResetFeedback,
   type NativeHostRuntimeStatus,
   getErrorMessage,
+  isNativeHostReady,
   normalizeStatus
 } from './nativeHostStatusView';
 
@@ -146,7 +147,7 @@ export function useNativeHostStatus({
         if (requestIdRef.current !== requestId) return;
         setStatus(latestStatus);
 
-        if (latestStatus.nativeHostInstalled && latestStatus.mcpConnected) {
+        if (isNativeHostReady(latestStatus)) {
           setIsAwaitingReconnect(false);
           setResetFeedback({
             type: 'success',

@@ -1,7 +1,7 @@
 import type { TabGroupManager } from './tabGroups';
 import { BrowserSessionConflictError, tabLeaseManager, type TabLeaseOrigin } from './tabLeases';
 import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
-import type { BrowserSessionScope } from '../sessionScope';
+import { DEFAULT_BROWSER_SESSION_ID, type BrowserSessionScope } from '../sessionScope';
 import type { ToolTabAccess } from '../pageToolsSupport/types';
 
 interface BrowserSessionToolContext {
@@ -82,8 +82,10 @@ async function markManagedGroupActiveForSession(
 ): Promise<void> {
   for (const meta of mgr.groupMetadata.values()) {
     if (meta.chromeGroupId !== chromeGroupId) continue;
-    const changed = meta.sessionId !== sessionId || meta.status !== 'active';
-    meta.sessionId = sessionId;
+    const shouldBindSession =
+      meta.sessionId !== undefined || sessionId !== DEFAULT_BROWSER_SESSION_ID;
+    const changed = (shouldBindSession && meta.sessionId !== sessionId) || meta.status !== 'active';
+    if (shouldBindSession) meta.sessionId = sessionId;
     meta.status = 'active';
     if (changed) await mgr.saveToStorage();
     try {

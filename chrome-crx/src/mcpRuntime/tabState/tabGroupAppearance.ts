@@ -1,10 +1,5 @@
 import type { TabGroupManager } from './tabGroups';
-import {
-  DEFAULT_SESSION_KEY,
-  TAB_GROUP_MARKER,
-  TAB_GROUP_TITLE,
-  type GroupMetadata
-} from './types';
+import { TAB_GROUP_MARKER, TAB_GROUP_TITLE, type GroupMetadata } from './types';
 
 const COMPLETED_GROUP_PREFIX = '✅';
 
@@ -20,9 +15,7 @@ export function resolveBaseGroupTitle(
   sessionId?: string,
   fallbackTitle?: string
 ): string {
-  const named = sessionId
-    ? mgr.sessionGroupTitles.get(sessionId)
-    : mgr.sessionGroupTitles.get(DEFAULT_SESSION_KEY);
+  const named = sessionId ? mgr.sessionGroupTitles.get(sessionId) : undefined;
   if (named) return markGroupTitle(named);
   return fallbackTitle ? markGroupTitle(fallbackTitle) : TAB_GROUP_TITLE;
 }

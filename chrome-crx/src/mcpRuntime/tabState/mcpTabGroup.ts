@@ -71,11 +71,17 @@ async function markManagedGroupActiveForSession(
 ): Promise<void> {
   const meta = findMetadataByChromeGroupId(mgr, chromeGroupId);
   if (!meta) return;
-  const changed = meta.sessionId !== sessionId || meta.status !== 'active';
-  meta.sessionId = sessionId;
+  const shouldBindSession =
+    meta.sessionId !== undefined || sessionId !== DEFAULT_BROWSER_SESSION_ID;
+  const changed = (shouldBindSession && meta.sessionId !== sessionId) || meta.status !== 'active';
+  if (shouldBindSession) meta.sessionId = sessionId;
   meta.status = 'active';
   if (changed) await mgr.saveToStorage();
-  await applyGroupTitle(chromeGroupId, resolveBaseGroupTitle(mgr, sessionId, meta.title), 'active');
+  await applyGroupTitle(
+    chromeGroupId,
+    resolveBaseGroupTitle(mgr, shouldBindSession ? sessionId : undefined, meta.title),
+    'active'
+  );
 }
 
 export async function addTabToIndicatorGroup(
@@ -231,7 +237,10 @@ export async function ensureMcpGroupCharacteristics(
   try {
     const group = await chrome.tabGroups.get(chromeGroupId);
     const meta = findMetadataByChromeGroupId(mgr, chromeGroupId);
-    const metadataSessionId = meta?.sessionId ?? sessionId;
+    const shouldUsePassedSession =
+      sessionId !== undefined &&
+      (meta?.sessionId !== undefined || sessionId !== DEFAULT_BROWSER_SESSION_ID);
+    const metadataSessionId = meta?.sessionId ?? (shouldUsePassedSession ? sessionId : undefined);
     const desiredTitle = resolveGroupDisplayTitle(
       mgr,
       metadataSessionId,
@@ -409,7 +418,7 @@ export function migrateLegacyStoredMcpGroup(meta: GroupMetadata): boolean {
 }
 
 export function resolveGroupTitle(mgr: TabGroupManager, sessionId?: string): string {
-  return resolveBaseGroupTitle(mgr, sessionId);
+  return resolveBaseGroupTitle(mgr, sessionId ?? DEFAULT_BROWSER_SESSION_ID);
 }
 
 export async function nameSession(
