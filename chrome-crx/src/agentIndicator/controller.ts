@@ -447,6 +447,8 @@ export class AgentIndicatorController {
   }
 
   private restoreInterruptiveIndicatorsAfterToolUse(): void {
+    if (!this.agentActive) return;
+
     if (this.glowBorderEl) {
       this.glowBorderEl.style.display = '';
       this.glowBorderEl.style.opacity = '1';
