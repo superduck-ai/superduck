@@ -37,7 +37,7 @@ export async function updateTabBlocklistStatus(
   url: string
 ): Promise<void> {
   const group = await mgr.findGroupByTab(tabId);
-  if (!group) return;
+  if (!group || group.isUnmanaged) return;
   const isBlockedHtml = url.includes('blocked.html');
   const category = isBlockedHtml ? 'category1' : await DomainCategoryCache.getCategory(url);
   await updateGroupBlocklistStatus(mgr, group.chromeGroupId, tabId, category, isBlockedHtml);

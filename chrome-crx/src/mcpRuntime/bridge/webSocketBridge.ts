@@ -3,6 +3,11 @@ import { trackEvent } from '../analytics';
 import { handleProviderRuntimeMessage } from '../providerClient';
 import { executeTool, setRequestBridgePermissionFn } from '../toolExecution/toolExecution';
 import { isBridgeMessage, isStringArray, parseOptionalNumber } from '../core/utils';
+import {
+  hasReservedBrowserSessionArgs,
+  reservedBrowserSessionArgsError,
+  resolveBrowserSessionId
+} from '../sessionScope';
 import type {
   BridgeMessage,
   NavigatorWithUserAgentData,
@@ -16,8 +21,13 @@ let retryCount: number = 0;
 let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 let cachedDeviceId: string | null = null;
 let currentDeviceId: string | null = null;
+let waitUntilToolCallBooted: (() => Promise<void>) | undefined;
 
 const MAX_BRIDGE_RETRIES = 15;
+
+export function setBridgeToolCallBootWaiter(waiter: (() => Promise<void>) | undefined): void {
+  waitUntilToolCallBooted = waiter;
+}
 
 async function getBridgeDisplayName(): Promise<string | undefined> {
   return (await chrome.storage.local.get('bridgeDisplayName')).bridgeDisplayName as
@@ -236,6 +246,33 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
   if (!toolUseId || !toolName) return;
   const tabId = parseOptionalNumber(args.tabId);
   const tabGroupId = parseOptionalNumber(args.tabGroupId);
+  if (hasReservedBrowserSessionArgs(args)) {
+    sendBridgeMessage({
+      type: 'tool_result',
+      tool_use_id: toolUseId,
+      error: {
+        content: [{ type: 'text', text: reservedBrowserSessionArgsError() }]
+      }
+    });
+    return;
+  }
+  const sessionId = resolveBrowserSessionId(message);
+  if (!sessionId) {
+    sendBridgeMessage({
+      type: 'tool_result',
+      tool_use_id: toolUseId,
+      error: {
+        content: [
+          {
+            type: 'text',
+            text: 'Bridge tool calls require a session_id/sessionId envelope field'
+          }
+        ]
+      }
+    });
+    return;
+  }
+  await waitUntilToolCallBooted?.();
   if (tabId !== undefined) {
     try {
       await chrome.tabs.get(tabId);
@@ -253,6 +290,8 @@ async function handleBridgeToolCall(message: BridgeMessage): Promise<void> {
       args,
       tabId,
       tabGroupId,
+      sessionId,
+      browserSessionId: sessionId,
       clientId: clientType,
       source: 'bridge',
       permissionMode,

@@ -6,14 +6,15 @@ export const superduckFillTool: ToolDefinition<FillArgs> = {
   name: 'superduck_fill',
   description:
     'SuperDuck CLI: set the value of a form field on the active tab and dispatch input/change events.',
+  tabAccess: 'write',
   parameters: {
     selector: { type: 'string', description: 'CSS selector for the input/textarea/select' },
     value: { type: 'string', description: 'Value to set' },
     tabId: { type: 'number' }
   },
-  execute: async (args) => {
+  execute: async (args, context) => {
     try {
-      const tab = await resolveActiveTab(args?.tabId);
+      const tab = await resolveActiveTab(args?.tabId, context);
       if (tab.id === undefined) return { error: 'active tab has no id' };
       const selector = String(args?.selector || '');
       if (!selector) return { error: 'selector is required' };

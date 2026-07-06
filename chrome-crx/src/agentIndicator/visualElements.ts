@@ -70,8 +70,8 @@ export function createGlowBorder(): HTMLElement {
 }
 
 export function createBlockingOverlay(): HTMLElement {
-  // 全屏透明遮罩，拦截真实用户输入。CDP Input.dispatchMouseEvent / dispatchKeyEvent
-  // 是浏览器层注入，不经过 DOM 事件分发，不受 pointer-events 影响。
+  // Full-screen transparent mask for real user input. CDP mouse events still
+  // hit-test page DOM, so tool execution must hide this overlay before input.
   const overlay = document.createElement('div');
   overlay.id = BLOCKING_OVERLAY_ID;
   overlay.style.cssText = `

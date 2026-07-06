@@ -10,6 +10,8 @@ const fixtures = vi.hoisted(() => {
   const waitForTabLoading = vi.fn();
   const attachDebugger = vi.fn();
   const isDebuggerAttached = vi.fn();
+  const assertTabAvailableForSession = vi.fn();
+  const resolveTabForContext = vi.fn();
 
   const computerTool = {
     name: 'computer',
@@ -123,6 +125,8 @@ const fixtures = vi.hoisted(() => {
     waitForTabLoading,
     attachDebugger,
     isDebuggerAttached,
+    assertTabAvailableForSession,
+    resolveTabForContext,
     tools: [computerTool, navigateTool, readPageTool, findTool, formInputTool]
   };
 });
@@ -133,6 +137,19 @@ vi.mock('./core/tools', () => ({
 
 vi.mock('./tabState/tabLifecycle', () => ({
   waitForTabLoading: fixtures.waitForTabLoading
+}));
+
+vi.mock('./tabState', () => ({
+  waitForTabLoading: fixtures.waitForTabLoading,
+  tabGroupManager: {
+    resolveTabForContext: fixtures.resolveTabForContext
+  }
+}));
+
+vi.mock('./tabState/tabLeases', () => ({
+  tabLeaseManager: {
+    assertTabAvailableForSession: fixtures.assertTabAvailableForSession
+  }
 }));
 
 vi.mock('./cdp', () => ({
@@ -156,6 +173,13 @@ const { batchTool } = await import('./batchTool');
 const context: ToolContext = {
   tabId: 7,
   toolUseId: 'batch-test',
+  browserSessionScope: { sessionId: 'session-a' },
+  tabAccess: 'write',
+  resolveTabId: async (requestedTabId, options) =>
+    await fixtures.resolveTabForContext(requestedTabId, 7, {
+      browserSessionScope: { sessionId: 'session-a' },
+      tabAccess: options?.tabAccess ?? 'write'
+    }),
   permissionManager: {} as ToolContext['permissionManager']
 };
 
@@ -189,7 +213,17 @@ describe('browser_batch runtime contract', () => {
     fixtures.waitForTabLoading.mockReset();
     fixtures.attachDebugger.mockReset();
     fixtures.isDebuggerAttached.mockReset();
+    fixtures.assertTabAvailableForSession.mockReset();
+    fixtures.resolveTabForContext.mockReset();
     fixtures.isDebuggerAttached.mockResolvedValue(true);
+    fixtures.assertTabAvailableForSession.mockResolvedValue(undefined);
+    fixtures.resolveTabForContext.mockImplementation(
+      async (requested: number | undefined, current: number, ctx: ToolContext) => {
+        const tabId = requested ?? current;
+        await fixtures.assertTabAvailableForSession(ctx.browserSessionScope.sessionId, tabId);
+        return tabId;
+      }
+    );
     mockChromeTab({ id: 7, url: 'https://example.com' });
   });
 
@@ -230,12 +264,12 @@ describe('browser_batch runtime contract', () => {
     expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
       1,
       { action: 'wait', duration: 1, tabId: 7 },
-      context
+      expect.objectContaining({ tabAccess: 'read' })
     );
     expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
       2,
       { action: 'screenshot', tabId: 7 },
-      context
+      expect.objectContaining({ tabAccess: 'read' })
     );
     expect(result).toMatchObject({
       completed: 2,
@@ -249,6 +283,71 @@ describe('browser_batch runtime contract', () => {
       remaining: 0,
       stoppedReason: 'completed'
     });
+  });
+
+  it('uses browser-session lease availability for explicit batch tabIds without same-group validation', async () => {
+    fixtures.executeComputer.mockResolvedValue({ output: 'computer action' });
+
+    const result = await batchTool.execute(
+      {
+        tabId: 99,
+        actions: [
+          { tool: 'computer', input: { action: 'wait', duration: 1 } },
+          { tool: 'computer', input: { action: 'screenshot' } }
+        ]
+      },
+      {
+        ...context,
+        browserSessionScope: { sessionId: 'session-a' }
+      }
+    );
+
+    expect(fixtures.assertTabAvailableForSession).toHaveBeenCalledWith('session-a', 99);
+    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
+      1,
+      { action: 'wait', duration: 1, tabId: 99 },
+      expect.objectContaining({ browserSessionScope: { sessionId: 'session-a' } })
+    );
+    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
+      2,
+      { action: 'screenshot', tabId: 99 },
+      expect.objectContaining({ browserSessionScope: { sessionId: 'session-a' } })
+    );
+    expect(result.error).toBeUndefined();
+  });
+
+  it('validates a promoted child tabId before using it as the scoped batch tab', async () => {
+    fixtures.assertTabAvailableForSession.mockRejectedValueOnce(
+      new Error('tab 99 belongs to another browser session')
+    );
+
+    await expect(
+      batchTool.execute(
+        {
+          tabId: 99,
+          actions: [
+            { tool: 'form_input', input: { ref: 'ref_1', value: 'blocked', tabId: 99 } },
+            { tool: 'computer', input: { action: 'screenshot' } }
+          ]
+        },
+        {
+          tabId: 7,
+          toolUseId: 'batch-test',
+          permissionManager: {} as ToolContext['permissionManager'],
+          browserSessionScope: { sessionId: 'session-a' },
+          tabAccess: 'write',
+          resolveTabId: async (requestedTabId, options) =>
+            await fixtures.resolveTabForContext(requestedTabId, 7, {
+              browserSessionScope: { sessionId: 'session-a' },
+              tabAccess: options?.tabAccess ?? 'write'
+            })
+        }
+      )
+    ).rejects.toThrow('tab 99 belongs to another browser session');
+
+    expect(fixtures.assertTabAvailableForSession).toHaveBeenCalledWith('session-a', 99);
+    expect(fixtures.executeFormInput).not.toHaveBeenCalled();
+    expect(fixtures.executeComputer).not.toHaveBeenCalled();
   });
 
   it('validates every child action before running any tool', async () => {
@@ -298,12 +397,12 @@ describe('browser_batch runtime contract', () => {
     expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
       1,
       { action: 'wait', duration: 1, tabId: 7 },
-      context
+      expect.objectContaining({ tabAccess: 'read' })
     );
     expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
       2,
       { action: 'screenshot', tabId: 7 },
-      context
+      expect.objectContaining({ tabAccess: 'read' })
     );
     expect(result).toMatchObject({
       completed: 2,
@@ -353,7 +452,37 @@ describe('browser_batch runtime contract', () => {
     expect(fixtures.attachDebugger).toHaveBeenCalledWith(7);
     expect(fixtures.executeComputer).toHaveBeenCalledWith(
       { action: 'screenshot', tabId: 7 },
+      expect.objectContaining({ tabAccess: 'read' })
+    );
+  });
+
+  it('uses the execution-time resolved tab for CDP child actions', async () => {
+    fixtures.resolveTabForContext.mockReset();
+    fixtures.resolveTabForContext.mockResolvedValueOnce(77).mockResolvedValue(88);
+    fixtures.isDebuggerAttached.mockResolvedValue(false);
+    fixtures.executeComputer.mockResolvedValue({ output: 'computer action' });
+
+    await batchTool.execute(
+      {
+        tabId: 7,
+        actions: [
+          { tool: 'computer', input: { action: 'wait', duration: 1 } },
+          { tool: 'computer', input: { action: 'screenshot' } }
+        ]
+      },
       context
+    );
+
+    expect(fixtures.attachDebugger).toHaveBeenCalledWith(88);
+    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
+      1,
+      { action: 'wait', duration: 1, tabId: 88 },
+      expect.objectContaining({ tabAccess: 'read' })
+    );
+    expect(fixtures.executeComputer).toHaveBeenNthCalledWith(
+      2,
+      { action: 'screenshot', tabId: 88 },
+      expect.objectContaining({ tabAccess: 'read' })
     );
   });
 
@@ -758,11 +887,11 @@ describe('browser_batch runtime contract', () => {
 
     expect(fixtures.executeFormInput).toHaveBeenCalledWith(
       { ref: 'ref_1', value: 'deepseek', tabId: 7 },
-      context
+      expect.objectContaining({ tabAccess: 'write' })
     );
     expect(fixtures.executeComputer).toHaveBeenCalledWith(
       { action: 'key', text: 'Enter', tabId: 7 },
-      context
+      expect.objectContaining({ tabAccess: 'write' })
     );
     expect(result).toMatchObject({
       completed: 2,

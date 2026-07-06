@@ -15,6 +15,7 @@ export const turnAnswerStartTool: ToolDefinition<EmptyToolInput> = {
   name: 'turn_answer_start',
   description:
     'Call this immediately before your text response to the user for this turn. Required every turn - whether or not you made tool calls. After calling, write your response. No more tools after this.',
+  tabAccess: 'read',
   parameters: {},
   execute: async () => ({ output: 'Proceed with your response.' }),
   toProviderSchema() {

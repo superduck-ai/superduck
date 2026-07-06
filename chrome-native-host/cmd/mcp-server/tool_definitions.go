@@ -321,28 +321,38 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "tabs_context_mcp",
-		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it creates a new group and makes that group current.",
+		description: "Get context information about the current MCP tab group. Returns all tab IDs inside the group if it exists. CRITICAL: You must get the context at least once before using other browser automation tools so you know what tabs exist. Reuse returned tab IDs for navigation within the current group. Use tabs_create_mcp only when you need a fresh MCP tab group; it fails if this session already has a group unless force is true.",
 		inputSchema: objectSchema(map[string]any{
 			"createIfEmpty": booleanSchema("Creates a new MCP tab group if none exists. If one already exists, this has no effect."),
+			"name":          stringSchema("Title for the MCP tab group when createIfEmpty creates one. The duck marker is auto-prepended. Ignored if a group already exists or createIfEmpty is not set."),
 		}),
 	},
 	{
 		name:        "tabs_create_mcp",
-		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.",
-		inputSchema: objectSchema(map[string]any{}),
+		description: "Creates a new empty tab in a fresh MCP tab group and makes that group current. IMPORTANT: Only use this when you need to start a separate MCP tab-group context. If this session already has a group, this tool fails unless force is true. For navigation within the current group, reuse an existing tab ID with the navigate tool instead.",
+		inputSchema: objectSchema(map[string]any{
+			"force": booleanSchema("Replace the current session group with a fresh group. Leave false for normal browser work."),
+		}),
 	},
 	{
 		name:        "tabs_finalize_mcp",
-		description: "Finalize the current MCP tab group with Codex-compatible cleanup semantics. Use this once as the final SuperDuck browser action of the turn. Omit tabs by default. Tabs kept as handoff remain in the managed group for continuation. Tabs kept as deliverable stay open but leave the managed group. Omitted SuperDuck-created tabs are closed; omitted user-origin tabs stay open and leave the managed group.",
+		description: "Finalize the current MCP tab group with explicit tab disposition semantics. Tabs kept as handoff remain in the managed group for continuation. Tabs kept as deliverable stay open but leave the managed group. Omitted tabs are ungrouped and left open; finalize releases the managed group and never closes the user's pages.",
 		inputSchema: objectSchema(map[string]any{
 			"keep": arraySchema(
-				"Optional list of tabs to keep after cleanup. Each item is {tabId, status}, where status is handoff or deliverable.",
+				"Optional list of tabs to keep after finalization. Each item is {tabId, status}, where status is handoff or deliverable.",
 				objectProperty("", map[string]any{
 					"tabId":  numberSchema("Tab ID to keep."),
 					"status": stringSchema("Post-finalize disposition for this tab.", withEnum("handoff", "deliverable")),
 				}, "tabId", "status"),
 			),
 		}),
+	},
+	{
+		name:        "tabs_name_session_mcp",
+		description: "Name the current browser session so its tab group is visually distinguishable from other concurrent sessions. Call once at the start of a browser task with a short, task-relevant name (an emoji prefix is fine). The session id is supplied by the tool request envelope, not by tool arguments.",
+		inputSchema: objectSchema(map[string]any{
+			"name": stringSchema("Short task-relevant name for the session. Empty string clears the name and reverts to the default group title."),
+		}, "name"),
 	},
 	{
 		name:        "shortcuts_list",

@@ -125,6 +125,7 @@ export const shortcutsListTool: ToolDefinition = {
   name: 'shortcuts_list',
   description:
     'List all available shortcuts and workflows (shortcuts and workflows are interchangeable). Returns each shortcut with its command, type, starting URL, declared {{var}} placeholders, model, and skipPermissions flag — enough for an external agent to plan execution without a follow-up shortcuts_get call.',
+  tabAccess: 'read',
   parameters: {},
   execute: async () => {
     try {
@@ -170,6 +171,7 @@ export const shortcutsGetTool: ToolDefinition<ShortcutLookupArgs> = {
   name: 'shortcuts_get',
   description:
     'Fetch the raw prompt text of a shortcut by id or command, without executing it. Use this when an external agent (e.g. CLI) wants to retrieve the shortcut definition and run it locally instead of triggering the in-browser sidepanel agent.',
+  tabAccess: 'read',
   parameters: {
     shortcutId: { type: 'string', description: 'The ID of the shortcut to fetch' },
     command: {
@@ -241,6 +243,7 @@ export const shortcutsExecuteTool: ToolDefinition<ShortcutLookupArgs> = {
   name: 'shortcuts_execute',
   description:
     'Execute a shortcut or workflow by running it in a new sidepanel window using the current tab (shortcuts and workflows are interchangeable). Use shortcuts_list first to see available shortcuts. This starts the execution and returns immediately - it does not wait for completion.',
+  tabAccess: 'write',
   parameters: {
     shortcutId: {
       type: 'string',

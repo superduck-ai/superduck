@@ -5,7 +5,6 @@ const mcpRuntimeMocks = vi.hoisted(() => ({
   tabGroupManager: {
     initialize: vi.fn(),
     findGroupByTab: vi.fn(),
-    adoptOrphanedGroup: vi.fn(),
     promoteToMainTab: vi.fn(),
     createGroup: vi.fn()
   }
@@ -178,6 +177,60 @@ describe('createSidePanelController', () => {
       },
       expect.any(Function)
     );
+  });
+
+  it('opens unmanaged Chrome groups without pulling the tab out of the user group', async () => {
+    mcpRuntimeMocks.tabGroupManager.findGroupByTab.mockResolvedValue({
+      isUnmanaged: true,
+      mainTabId: 99,
+      chromeGroupId: 5
+    });
+    tabsGet.mockResolvedValue({ id: 42, windowId: 7, groupId: 5 });
+
+    const controller = createSidePanelController({
+      connectNativeHost: vi.fn(async () => true)
+    });
+
+    await controller.handleActionClick({ id: 42, windowId: 7 } as chrome.tabs.Tab);
+
+    expect(openPanel).toHaveBeenCalledWith({ tabId: 42 });
+    expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: 'SIDE_PANEL_SET_ACTIVE_TAB',
+        tabId: 42,
+        windowId: 7
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('opens the sidepanel before waiting for boot, then mutates tab-group state after boot', async () => {
+    let resolveBoot!: () => void;
+    const waitUntilBooted = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveBoot = resolve;
+        })
+    );
+    mcpRuntimeMocks.tabGroupManager.findGroupByTab.mockResolvedValue(null);
+
+    const controller = createSidePanelController({
+      connectNativeHost: vi.fn(async () => true),
+      waitUntilBooted
+    });
+
+    const openPromise = controller.handleActionClick({ id: 42, windowId: 7 } as chrome.tabs.Tab);
+    await Promise.resolve();
+
+    expect(openPanel).toHaveBeenCalledWith({ tabId: 42 });
+    expect(waitUntilBooted).toHaveBeenCalled();
+    expect(mcpRuntimeMocks.tabGroupManager.createGroup).not.toHaveBeenCalled();
+
+    resolveBoot();
+    await openPromise;
+
+    expect(mcpRuntimeMocks.tabGroupManager.createGroup).toHaveBeenCalledWith(42);
   });
 
   it('keeps the sidepanel enabled when activating a managed SuperDuck group tab', async () => {

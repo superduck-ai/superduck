@@ -3,12 +3,15 @@ import { getStorageArea, isRecord } from './chromeStorage';
 
 export type TabLeaseOrigin = 'agent' | 'user';
 export type TabLeaseState = 'active' | 'handoff';
+export const ACTIVE_TAB_LEASE_TTL_MS = 30 * 60 * 1000;
+export const HANDOFF_TAB_LEASE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface TabLease {
   tabId: number;
   sessionId: string;
   origin: TabLeaseOrigin;
   claimedAt: number;
+  updatedAt?: number;
   state: TabLeaseState;
   groupId?: number;
   /**
@@ -66,6 +69,9 @@ function parseLease(tabIdKey: string, value: unknown): TabLease | undefined {
   if (typeof value.groupId === 'number' && Number.isInteger(value.groupId)) {
     lease.groupId = value.groupId;
   }
+  if (typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)) {
+    lease.updatedAt = value.updatedAt;
+  }
   if (typeof value.isActiveHandoff === 'boolean') {
     lease.isActiveHandoff = value.isActiveHandoff;
   }
@@ -74,6 +80,18 @@ function parseLease(tabIdKey: string, value: unknown): TabLease | undefined {
 
 function cloneLease(lease: TabLease): TabLease {
   return { ...lease };
+}
+
+function leaseUpdatedAt(lease: TabLease): number {
+  return lease.updatedAt ?? lease.claimedAt;
+}
+
+function leaseTtlMs(lease: TabLease): number {
+  return lease.state === 'handoff' ? HANDOFF_TAB_LEASE_TTL_MS : ACTIVE_TAB_LEASE_TTL_MS;
+}
+
+function isStaleLease(lease: TabLease, now = Date.now()): boolean {
+  return now - leaseUpdatedAt(lease) > leaseTtlMs(lease);
 }
 
 class TabLeaseManager {
@@ -147,22 +165,6 @@ class TabLeaseManager {
     }
   }
 
-  private async withRead<T>(action: () => T | Promise<T>): Promise<T> {
-    const previous = this.mutationQueue;
-    let release!: () => void;
-    const readFinished = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    this.mutationQueue = previous.then(() => readFinished);
-    await previous.catch(() => {});
-    try {
-      await this.initialize();
-      return await action();
-    } finally {
-      release();
-    }
-  }
-
   async initialize(force = false): Promise<void> {
     if (this.initialized && !force) return;
     await this.loadFromStorage();
@@ -191,6 +193,23 @@ class TabLeaseManager {
     await storage.set({ [this.storageKey]: { leases } });
   }
 
+  private async pruneStaleLeasesLocked(tabIds?: Iterable<number>): Promise<number[]> {
+    const now = Date.now();
+    const candidates = tabIds ? Array.from(tabIds) : Array.from(this.leases.keys());
+    const staleTabIds: number[] = [];
+    for (const tabId of candidates) {
+      const lease = this.leases.get(tabId);
+      if (!lease || !isStaleLease(lease, now)) continue;
+      this.leases.delete(tabId);
+      staleTabIds.push(tabId);
+    }
+    if (staleTabIds.length > 0) {
+      await this.saveToStorage();
+      this.notifyLeaseChangeListeners(staleTabIds, '');
+    }
+    return staleTabIds;
+  }
+
   async claimTab(
     sessionId: string,
     tabId: number,
@@ -198,7 +217,11 @@ class TabLeaseManager {
     extras: { groupId?: number } = {}
   ): Promise<TabLease> {
     return await this.withMutation(async () => {
-      const existing = this.leases.get(tabId);
+      let existing = this.leases.get(tabId);
+      if (existing && isStaleLease(existing)) {
+        await this.pruneStaleLeasesLocked([tabId]);
+        existing = undefined;
+      }
       if (existing) {
         if (existing.sessionId !== sessionId) {
           throw new BrowserSessionConflictError(tabId, existing.sessionId);
@@ -206,6 +229,7 @@ class TabLeaseManager {
         const updated: TabLease = {
           ...existing,
           state: 'active',
+          updatedAt: Date.now(),
           // Re-claiming starts a fresh interaction context; any prior
           // handoff "primary tab" marker is no longer meaningful.
           isActiveHandoff: false
@@ -222,6 +246,7 @@ class TabLeaseManager {
         sessionId,
         origin,
         claimedAt: Date.now(),
+        updatedAt: Date.now(),
         state: 'active'
       };
       if (typeof extras.groupId === 'number') lease.groupId = extras.groupId;
@@ -233,7 +258,8 @@ class TabLeaseManager {
   }
 
   async assertTabAvailableForSession(sessionId: string, tabId: number): Promise<void> {
-    await this.withRead(() => {
+    await this.withMutation(async () => {
+      await this.pruneStaleLeasesLocked([tabId]);
       const lease = this.leases.get(tabId);
       if (lease && lease.sessionId !== sessionId) {
         throw new BrowserSessionConflictError(tabId, lease.sessionId);
@@ -242,26 +268,29 @@ class TabLeaseManager {
   }
 
   async getLease(tabId: number): Promise<TabLease | undefined> {
-    return await this.withRead(() => {
+    return await this.withMutation(async () => {
+      await this.pruneStaleLeasesLocked([tabId]);
       const lease = this.leases.get(tabId);
       return lease ? cloneLease(lease) : undefined;
     });
   }
 
   async getSessionActiveLeases(sessionId: string): Promise<TabLease[]> {
-    return await this.withRead(() =>
-      Array.from(this.leases.values())
+    return await this.withMutation(async () => {
+      await this.pruneStaleLeasesLocked();
+      return Array.from(this.leases.values())
         .filter((lease) => lease.sessionId === sessionId && lease.state === 'active')
-        .map(cloneLease)
-    );
+        .map(cloneLease);
+    });
   }
 
   async getActiveLeasedTabIds(): Promise<number[]> {
-    return await this.withRead(() =>
-      Array.from(this.leases.values())
+    return await this.withMutation(async () => {
+      await this.pruneStaleLeasesLocked();
+      return Array.from(this.leases.values())
         .filter((lease) => lease.state === 'active')
-        .map((lease) => lease.tabId)
-    );
+        .map((lease) => lease.tabId);
+    });
   }
 
   async handoffTabs(
@@ -286,6 +315,7 @@ class TabLeaseManager {
         const updated: TabLease = {
           ...lease,
           state: 'handoff',
+          updatedAt: Date.now(),
           // Exactly one handoff tab may be marked as the primary continuation
           // point; the rest are explicitly cleared so a stale marker from a
           // previous handoff never survives.
@@ -305,6 +335,7 @@ class TabLeaseManager {
 
   async resumeHandoffTabs(sessionId: string, tabIds?: number[]): Promise<TabLease[]> {
     return await this.withMutation(async () => {
+      await this.pruneStaleLeasesLocked(tabIds);
       const allowed = tabIds ? new Set(tabIds) : undefined;
       const resumed: TabLease[] = [];
       const changedTabIds: number[] = [];
@@ -313,7 +344,8 @@ class TabLeaseManager {
         if (allowed && !allowed.has(tabId)) continue;
         const updated: TabLease = {
           ...lease,
-          state: 'active'
+          state: 'active',
+          updatedAt: Date.now()
           // isActiveHandoff is intentionally preserved: buildSessionContextFromLeases
           // reads it to pick currentTabId after resume. The next handoffTabs
           // call refreshes it.
@@ -382,7 +414,7 @@ class TabLeaseManager {
       const lease = this.leases.get(oldTabId);
       if (!lease) return;
       this.leases.delete(oldTabId);
-      this.leases.set(newTabId, { ...lease, tabId: newTabId });
+      this.leases.set(newTabId, { ...lease, tabId: newTabId, updatedAt: Date.now() });
       await this.saveToStorage();
       this.notifyLeaseChangeListeners([oldTabId, newTabId], lease.sessionId);
     });

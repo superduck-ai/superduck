@@ -40,7 +40,9 @@ const chromeMock = vi.hoisted(() => {
         return tabs;
       }),
       sendMessage: vi.fn(async () => {}),
-      onRemoved: { addListener: vi.fn() }
+      onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
+      onActivated: { addListener: vi.fn(), removeListener: vi.fn() },
+      onRemoved: { addListener: vi.fn(), removeListener: vi.fn() }
     },
     tabGroups: {
       TAB_GROUP_ID_NONE: -1,
@@ -64,10 +66,10 @@ const chromeMock = vi.hoisted(() => {
 vi.stubGlobal('chrome', chromeMock);
 
 const { tabGroupManager } = await import('./tabGroups');
+const { tabLeaseManager } = await import('./tabLeases');
 
 type AnyMgr = {
   initialized: boolean;
-  mcpTabGroupId: number | null;
   groupMetadata: Map<
     number,
     {
@@ -128,9 +130,12 @@ function seedGroup(mainTabId: number, members: Array<[number, 'agent' | 'user']>
 describe('tabGroupManager.finalizeManagedGroup', () => {
   beforeEach(() => {
     manager.initialized = true;
-    manager.mcpTabGroupId = null;
     manager.groupMetadata.clear();
     manager.groupBlocklistStatuses.clear();
+    (
+      tabLeaseManager as unknown as { leases: Map<number, unknown>; initialized: boolean }
+    ).leases.clear();
+    (tabLeaseManager as unknown as { initialized: boolean }).initialized = false;
     chromeMock.tabsById.clear();
     chromeMock.tabs.remove.mockClear();
     chromeMock.tabs.ungroup.mockClear();
@@ -141,7 +146,7 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     chromeMock.storage.local.remove.mockClear();
   });
 
-  it('keeps handoff tabs in the managed group, ungroups deliverables, and closes omitted agent tabs', async () => {
+  it('keeps handoff tabs in the managed group, ungroups deliverables, and leaves omitted tabs open', async () => {
     seedTabs([1, 2, 3, 4]);
     seedGroup(1, [
       [1, 'user'],
@@ -158,10 +163,12 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
       ]
     });
 
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
-    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1, 3]);
-    expect(chromeMock.tabsById.has(2)).toBe(false);
+    // Omitted tabs are ungrouped and left open, never closed.
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1, 2, 3]);
+    expect(chromeMock.tabsById.has(2)).toBe(true);
     expect(chromeMock.tabsById.get(1)?.groupId).toBe(-1);
+    expect(chromeMock.tabsById.get(2)?.groupId).toBe(-1);
     expect(chromeMock.tabsById.get(3)?.groupId).toBe(-1);
     expect(chromeMock.tabsById.get(4)?.groupId).toBe(100);
 
@@ -179,15 +186,23 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
       tabCount: 1,
       tabGroupId: 100
     });
+
+    // Regression: explicit finalize is the ONLY path that turns a managed
+    // group GREEN + ✅. A retained handoff group must be marked complete;
+    // idle tool-context cleanup must never reach this (idle ≠ done).
+    const updates = chromeMock.tabGroups.update.mock.calls as unknown as Array<
+      [unknown, { title?: string; color?: string }]
+    >;
+    expect(updates.some(([, patch]) => patch?.color === 'green')).toBe(true);
+    expect(updates.some(([, patch]) => patch?.title?.startsWith('✅'))).toBe(true);
   });
 
-  it('clears the MCP group id when all SuperDuck-created tabs are omitted and closed', async () => {
+  it('clears the MCP group id when all SuperDuck-created tabs are omitted and ungrouped', async () => {
     seedTabs([1, 2]);
     seedGroup(1, [
       [1, 'agent'],
       [2, 'agent']
     ]);
-    manager.mcpTabGroupId = 100;
     chromeMock.storage.local.get.mockResolvedValueOnce({
       mcpTabGroupId: 100,
       mcpTabGroupOwner: 100
@@ -196,16 +211,17 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     const context = await tabGroupManager.finalizeMcpTabGroup();
 
     expect(context).toBeUndefined();
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([1, 2]);
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1, 2]);
+    expect(chromeMock.tabsById.has(1)).toBe(true);
+    expect(chromeMock.tabsById.has(2)).toBe(true);
     expect(manager.groupMetadata.has(1)).toBe(false);
-    expect(manager.mcpTabGroupId).toBeNull();
     expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
   });
 
   it('preserves agent origin across indicator state updates before finalizing', async () => {
     seedTabs([1]);
     seedGroup(1, [[1, 'agent']]);
-    manager.mcpTabGroupId = 100;
     chromeMock.storage.local.get.mockResolvedValueOnce({
       mcpTabGroupId: 100,
       mcpTabGroupOwner: 100
@@ -215,8 +231,8 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     const context = await tabGroupManager.finalizeMcpTabGroup();
 
     expect(context).toBeUndefined();
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([1]);
-    expect(chromeMock.tabs.ungroup).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1]);
   });
 
   it('does not finalize a styled sidepanel group when no MCP group pointer is stored', async () => {
@@ -262,21 +278,21 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
         [2, { indicatorState: 'static' }]
       ])
     });
-    chromeMock.storage.local.get.mockResolvedValueOnce({ mcpTabGroupId: 100 });
+    chromeMock.storage.local.get.mockResolvedValueOnce({
+      mcpTabGroupId: 100,
+      mcpTabGroupOwner: 100
+    });
 
     const context = await tabGroupManager.finalizeMcpTabGroup();
 
     expect(context).toBeUndefined();
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([1, 2]);
-    expect(chromeMock.tabs.ungroup).not.toHaveBeenCalled();
-    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      mcpTabGroupId: 100,
-      mcpTabGroupOwner: 100
-    });
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1, 2]);
+    expect(chromeMock.storage.local.remove).toHaveBeenCalledWith('mcpTabGroupId');
     expect(manager.groupMetadata.has(1)).toBe(false);
   });
 
-  it('does not persist or finalize a styled group discovered through MCP context', async () => {
+  it('finalizes a default-session group after explicit MCP tab access claims it', async () => {
     seedTabs([1]);
     seedGroup(1, [[1, 'agent']]);
     chromeMock.tabGroups.query.mockResolvedValueOnce([
@@ -287,27 +303,32 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     const tabInfo = await tabGroupManager.getTabForMcp(1);
     const finalized = await tabGroupManager.finalizeMcpTabGroup();
 
-    expect(context).toMatchObject({ tabGroupId: 100, tabCount: 1 });
+    expect(context).toBeUndefined();
     expect(tabInfo).toMatchObject({ tabId: 1, domain: 'example.com' });
     expect(chromeMock.storage.local.set).not.toHaveBeenCalledWith({ mcpTabGroupId: 100 });
     expect(finalized).toBeUndefined();
     expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
-    expect(chromeMock.tabs.ungroup).not.toHaveBeenCalled();
-    expect(manager.groupMetadata.has(1)).toBe(true);
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1]);
+    expect(manager.groupMetadata.has(1)).toBe(false);
     expect(chromeMock.tabsById.has(1)).toBe(true);
   });
 
-  it('rekeys handoff metadata before closing an omitted main tab', async () => {
+  it('rekeys handoff metadata before ungrouping an omitted main tab', async () => {
     seedTabs([1, 2]);
     seedGroup(1, [
       [1, 'agent'],
       [2, 'agent']
     ]);
-    chromeMock.tabs.remove.mockImplementationOnce(async (tabIds: number | number[]) => {
+    // keepOnlyHandoffTabs rekeys mainTabId 1 -> 2 before the omitted main tab
+    // is ungrouped, so the handoff metadata is consistent at ungroup time.
+    chromeMock.tabs.ungroup.mockImplementationOnce(async (tabIds: number | number[]) => {
       expect(manager.groupMetadata.has(1)).toBe(false);
       expect(manager.groupMetadata.get(2)?.mainTabId).toBe(2);
       const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
-      for (const id of ids) chromeMock.tabsById.delete(id);
+      for (const id of ids) {
+        const tab = chromeMock.tabsById.get(id);
+        if (tab) tab.groupId = -1;
+      }
     });
 
     const context = await tabGroupManager.finalizeManagedGroup({
@@ -315,7 +336,10 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
       keep: [{ tabId: 2, status: 'handoff' }]
     });
 
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([1]);
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1]);
+    expect(chromeMock.tabsById.has(1)).toBe(true);
+    expect(chromeMock.tabsById.get(1)?.groupId).toBe(-1);
     expect(context).toMatchObject({
       currentTabId: 2,
       tabCount: 1,
@@ -342,9 +366,11 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     ).rejects.toThrow('ungroup failed');
 
     expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
-    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      tabGroups: expect.objectContaining({ 1: expect.any(Object) })
-    });
+    expect(chromeMock.storage.local.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tabGroups: expect.objectContaining({ 1: expect.any(Object) })
+      })
+    );
     expect(manager.groupMetadata.has(2)).toBe(false);
     const restoredMeta = manager.groupMetadata.get(1);
     expect(restoredMeta?.mainTabId).toBe(1);
@@ -361,25 +387,24 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     });
   });
 
-  it('restores handoff metadata and surfaces errors when remove fails', async () => {
+  it('restores handoff metadata and surfaces errors when ungroup fails (all agent tabs)', async () => {
     seedTabs([1, 2]);
     seedGroup(1, [
       [1, 'agent'],
       [2, 'agent']
     ]);
-    chromeMock.tabs.remove.mockRejectedValueOnce(new Error('remove failed'));
+    chromeMock.tabs.ungroup.mockRejectedValueOnce(new Error('ungroup failed'));
 
     await expect(
       tabGroupManager.finalizeManagedGroup({
         mainTabId: 1,
         keep: [{ tabId: 2, status: 'handoff' }]
       })
-    ).rejects.toThrow('remove failed');
+    ).rejects.toThrow('ungroup failed');
 
-    expect(chromeMock.tabs.ungroup).not.toHaveBeenCalled();
-    expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      tabGroups: expect.objectContaining({ 1: expect.any(Object) })
-    });
+    // tab 1 omitted -> ungroup [1]; fails -> handoff metadata restored to snapshot.
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([1]);
     expect(manager.groupMetadata.has(2)).toBe(false);
     const restoredMeta = manager.groupMetadata.get(1);
     expect(restoredMeta?.mainTabId).toBe(1);
@@ -396,7 +421,7 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
     });
   });
 
-  it('removes already closed tabs from metadata when a later ungroup fails', async () => {
+  it('leaves omitted tabs open and restores metadata when ungroup fails', async () => {
     seedTabs([1, 2, 3]);
     seedGroup(1, [
       [1, 'agent'],
@@ -415,19 +440,10 @@ describe('tabGroupManager.finalizeManagedGroup', () => {
       })
     ).rejects.toThrow('ungroup failed');
 
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([1]);
-    expect(chromeMock.tabsById.has(1)).toBe(false);
-    const currentMeta = manager.groupMetadata.get(2);
-    expect(currentMeta?.mainTabId).toBe(2);
-    expect(Array.from(currentMeta?.memberStates.keys() ?? [])).toEqual([2, 3]);
-    expect(currentMeta?.memberStates.get(2)).toMatchObject({
-      origin: 'user',
-      disposition: 'active'
-    });
-    expect(currentMeta?.memberStates.get(3)).toMatchObject({
-      origin: 'agent',
-      disposition: 'active'
-    });
+    // Omitted tab 1 is never closed; ungroup failed so tabs stay put.
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabsById.has(1)).toBe(true);
+    expect(chromeMock.tabs.ungroup).toHaveBeenCalledWith([2, 1]);
   });
 
   it('rejects keep entries for tabs outside the managed group', async () => {

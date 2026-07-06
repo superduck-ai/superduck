@@ -12,7 +12,8 @@ const chromeMock = vi.hoisted(() => ({
     }
   },
   tabGroups: {
-    TAB_GROUP_ID_NONE: -1
+    TAB_GROUP_ID_NONE: -1,
+    get: vi.fn(async (id: number) => ({ id }))
   },
   storage: {
     session: {
@@ -73,6 +74,8 @@ function makeTab(
 describe('buildSessionContextFromLeases', () => {
   beforeEach(() => {
     chromeMock.tabs.get.mockReset();
+    chromeMock.tabGroups.get.mockReset();
+    chromeMock.tabGroups.get.mockImplementation(async (id: number) => ({ id }));
   });
 
   it('starts tab lookups in parallel before awaiting individual results', async () => {
@@ -141,5 +144,57 @@ describe('buildSessionContextFromLeases', () => {
     } finally {
       chromeMock.tabGroups = tabGroups;
     }
+  });
+
+  it('ignores a stale lease group when the live tab has been ungrouped', async () => {
+    chromeMock.tabs.get.mockImplementation(async (tabId: number) => {
+      if (tabId === 10) return makeTab({ id: 10, groupId: -1, index: 0, windowId: 1 });
+      if (tabId === 11) return makeTab({ id: 11, groupId: 200, index: 1, windowId: 1 });
+      throw new Error('missing tab');
+    });
+    const leases: TabLease[] = [
+      {
+        tabId: 10,
+        sessionId: 'session-a',
+        origin: 'agent',
+        claimedAt: 1,
+        state: 'active',
+        groupId: 100
+      },
+      {
+        tabId: 11,
+        sessionId: 'session-a',
+        origin: 'agent',
+        claimedAt: 2,
+        state: 'active',
+        groupId: 200
+      }
+    ];
+
+    await expect(buildSessionContextFromLeases(leases)).resolves.toMatchObject({
+      currentTabId: 11,
+      availableTabs: [{ id: 11, title: '', url: 'https://example.com/' }],
+      tabCount: 1,
+      tabGroupId: 200
+    });
+  });
+
+  it('returns undefined instead of a dead Chrome group from a stale lease', async () => {
+    chromeMock.tabs.get.mockImplementation(async (tabId: number) =>
+      makeTab({ id: tabId, groupId: 100, index: 0, windowId: 1 })
+    );
+    chromeMock.tabGroups.get.mockRejectedValueOnce(new Error('missing group'));
+    const leases: TabLease[] = [
+      {
+        tabId: 10,
+        sessionId: 'session-a',
+        origin: 'agent',
+        claimedAt: 1,
+        state: 'active',
+        groupId: 100
+      }
+    ];
+
+    await expect(buildSessionContextFromLeases(leases)).resolves.toBeUndefined();
   });
 });

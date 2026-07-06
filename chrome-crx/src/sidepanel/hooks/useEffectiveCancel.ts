@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { trackEvent } from '../../mcpRuntime';
-import { tabGroupManager } from '../../mcpRuntime';
 
 export interface UseEffectiveCancelProps {
   isPurlMode: boolean;
@@ -40,8 +39,9 @@ export function useEffectiveCancel({
     // Use lockedTabId to target the correct tab (the one agent was running on).
     const cancelTabId = lockedTabIdRef.current ?? queryTabId;
     if (typeof cancelTabId === 'number') {
-      chrome.tabs.sendMessage(cancelTabId, { type: 'HIDE_AGENT_INDICATORS' }).catch(() => {});
-      tabGroupManager.setTabIndicatorState(cancelTabId, 'none').catch(() => {});
+      chrome.runtime
+        .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: cancelTabId, active: false })
+        .catch(() => {});
     }
   }, [
     isPurlMode,

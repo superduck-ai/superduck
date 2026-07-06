@@ -1,6 +1,6 @@
 import type { TabGroupManager } from './tabGroups';
-import { TAB_GROUP_TITLE } from './types';
 import { removeManagedGroupMetadata } from './tabGroupFinalize';
+import { buildGroupAppearanceUpdate } from './tabGroupAppearance';
 
 export function scheduleRegroupRetry(mgr: TabGroupManager, tabId: number): void {
   const pending = mgr.pendingRegroups.get(tabId);
@@ -21,8 +21,7 @@ export async function attemptRegroup(mgr: TabGroupManager, tabId: number): Promi
       const newGroupId = await chrome.tabs.group({ tabIds: [tabId] });
       if (
         (await chrome.tabGroups.update(newGroupId, {
-          title: TAB_GROUP_TITLE,
-          color: chrome.tabGroups.Color.ORANGE,
+          ...buildGroupAppearanceUpdate(mgr, pending.metadata),
           collapsed: false
         }),
         (pending.metadata.chromeGroupId = newGroupId),
@@ -54,8 +53,7 @@ export async function attemptRegroup(mgr: TabGroupManager, tabId: number): Promi
           const newGroupId = await chrome.tabs.group({ tabIds: [tabId] });
           if (
             (await chrome.tabGroups.update(newGroupId, {
-              title: TAB_GROUP_TITLE,
-              color: chrome.tabGroups.Color.ORANGE,
+              ...buildGroupAppearanceUpdate(mgr, pending.metadata),
               collapsed: false
             }),
             (pending.metadata.chromeGroupId = newGroupId),

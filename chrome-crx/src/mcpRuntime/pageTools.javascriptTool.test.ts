@@ -3,7 +3,7 @@ import type { ToolContext } from './pageToolsSupport/types';
 
 const fixtures = vi.hoisted(() => {
   const checkPermission = vi.fn();
-  const getEffectiveTabId = vi.fn();
+  const resolveTabForContext = vi.fn();
   const getValidTabsWithMetadata = vi.fn();
   const withPreservedActiveTab = vi.fn();
   const adoptChildTabsFromOpener = vi.fn();
@@ -18,7 +18,7 @@ const fixtures = vi.hoisted(() => {
 
   return {
     checkPermission,
-    getEffectiveTabId,
+    resolveTabForContext,
     getValidTabsWithMetadata,
     withPreservedActiveTab,
     adoptChildTabsFromOpener,
@@ -38,8 +38,9 @@ vi.mock('./tabState', () => ({
     getCategory: vi.fn(async () => null)
   },
   tabGroupManager: {
-    getEffectiveTabId: fixtures.getEffectiveTabId,
+    resolveTabForContext: fixtures.resolveTabForContext,
     getValidTabsWithMetadata: fixtures.getValidTabsWithMetadata,
+    getValidTabsWithMetadataForContext: fixtures.getValidTabsWithMetadata,
     withPreservedActiveTab: fixtures.withPreservedActiveTab,
     adoptChildTabsFromOpener: fixtures.adoptChildTabsFromOpener,
     rememberChildTabNavigationPolicy: fixtures.rememberChildTabNavigationPolicy
@@ -113,6 +114,13 @@ const { javascriptTool } = await import('./pageTools');
 const context: ToolContext = {
   tabId: 10,
   toolUseId: 'tool-use-1',
+  browserSessionScope: { sessionId: 'session-a' },
+  tabAccess: 'write',
+  resolveTabId: async (requestedTabId, options) =>
+    await fixtures.resolveTabForContext(requestedTabId, 10, {
+      browserSessionScope: { sessionId: 'session-a' },
+      tabAccess: options?.tabAccess ?? 'write'
+    }),
   permissionManager: {
     checkPermission: fixtures.checkPermission
   } as unknown as ToolContext['permissionManager']
@@ -123,7 +131,7 @@ beforeEach(() => {
   chromeMock.tabs.get.mockReset();
 
   fixtures.checkPermission.mockResolvedValue({ allowed: true });
-  fixtures.getEffectiveTabId.mockResolvedValue(10);
+  fixtures.resolveTabForContext.mockResolvedValue(10);
   fixtures.withPreservedActiveTab.mockImplementation(
     async (_tabId: number, action: () => Promise<unknown>) => action()
   );

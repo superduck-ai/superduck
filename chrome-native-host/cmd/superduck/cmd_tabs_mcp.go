@@ -14,7 +14,7 @@ import (
 // cmdTabGroup dispatches the `tab_group <subcommand>` family.
 //
 //	superduck tab_group list [--create-if-empty]
-//	superduck tab_group new
+//	superduck tab_group new [--force]
 //	superduck tab_group finalize [--handoff TAB] [--deliverable TAB]
 func cmdTabGroup(argv []string) error {
 	if len(argv) == 0 {
@@ -32,16 +32,19 @@ func cmdTabGroup(argv []string) error {
 		fmt.Println(`usage: superduck tab_group <subcommand> [flags]
 
 Subcommands:
-  list [--create-if-empty]  Show the MCP tab group's tabs.
+  list [--create-if-empty] [--name <text>]
+                            Show the MCP tab group's tabs.
                             With --create-if-empty, create one when missing.
-  new                       Create a fresh MCP tab group with one tab; prints its tabId.
-  finalize                  Finalize the current MCP tab group as the last browser action.
+                            --name <text> titles the new group when creating.
+  new [--force]             Create a fresh MCP tab group with one tab; refuses
+                            to replace an existing session group unless --force is set.
+                            --force discards that session's active/handoff tabs.
+  finalize                  Finalize the current MCP tab group as an explicit tab disposition.
       --handoff TAB         Keep TAB in the managed group for continuation.
       --deliverable TAB     Keep TAB open but remove it from the managed group.
 
 Examples:
-  superduck tab_group list
-  TAB=$(superduck tab_group new | sed -n 's/.*Tab ID: *\([0-9]*\).*/\1/p' | head -1)
+  TAB=$(superduck --json tab_group list --create-if-empty | jq -r '.tabContext.currentTabId')
   superduck tab_group finalize --deliverable "$TAB"`)
 		return nil
 	default:
@@ -64,10 +67,11 @@ func (l *tabIDList) Set(value string) error {
 	return nil
 }
 
-// cmdTabGroupList: superduck tab_group list [--create-if-empty]
+// cmdTabGroupList: superduck tab_group list [--create-if-empty] [--name <text>]
 func cmdTabGroupList(argv []string) error {
 	fs := flag.NewFlagSet("tab_group list", flag.ContinueOnError)
 	createIfEmpty := fs.Bool("create-if-empty", false, "Create a new MCP tab group if none exists")
+	name := fs.String("name", "", "Title the MCP tab group when creating it (🦆 marker is auto-prepended). Ignored if a group already exists.")
 	if err := fs.Parse(argv); err != nil {
 		return err
 	}
@@ -76,42 +80,27 @@ func cmdTabGroupList(argv []string) error {
 	if *createIfEmpty {
 		args["createIfEmpty"] = true
 	}
+	if *name != "" {
+		args["name"] = *name
+	}
 
-	rec := cliclient.AuditRecord{Cmd: "tab_group list"}
-	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_context_mcp", args, clientOpts(), &rec)
-		if raw != "" {
-			fmt.Println(raw)
-		}
-		return err
-	}
-	raw, err := cliclient.RunTool("tabs_context_mcp", args, clientOpts(), &rec)
-	if err != nil {
-		return err
-	}
-	return printGroupResult(raw)
+	return runTabGroupTool("tabs_context_mcp", "tab_group list", args)
 }
 
-// cmdTabGroupNew: superduck tab_group new
+// cmdTabGroupNew: superduck tab_group new [--force]
 func cmdTabGroupNew(argv []string) error {
 	fs := flag.NewFlagSet("tab_group new", flag.ContinueOnError)
+	force := fs.Bool("force", false, "Discard the current session's active/handoff tabs and create a fresh group")
 	if err := fs.Parse(argv); err != nil {
 		return err
 	}
 
-	rec := cliclient.AuditRecord{Cmd: "tab_group new"}
-	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_create_mcp", nil, clientOpts(), &rec)
-		if raw != "" {
-			fmt.Println(raw)
-		}
-		return err
+	args := map[string]any{}
+	if *force {
+		args["force"] = true
 	}
-	raw, err := cliclient.RunTool("tabs_create_mcp", nil, clientOpts(), &rec)
-	if err != nil {
-		return err
-	}
-	return printGroupResult(raw)
+
+	return runTabGroupTool("tabs_create_mcp", "tab_group new", args)
 }
 
 // cmdTabGroupFinalize: superduck tab_group finalize [--handoff TAB] [--deliverable TAB]
@@ -137,27 +126,27 @@ func cmdTabGroupFinalize(argv []string) error {
 		args["keep"] = keep
 	}
 
-	rec := cliclient.AuditRecord{Cmd: "tab_group finalize"}
+	return runTabGroupTool("tabs_finalize_mcp", "tab_group finalize", args)
+}
+
+func runTabGroupTool(toolName string, cmdLabel string, args map[string]any) error {
+	rec := cliclient.AuditRecord{Cmd: cmdLabel}
+	raw, err := cliclient.RunToolJSON(toolName, args, clientOpts(), &rec)
 	if gflags.JSON {
-		raw, err := cliclient.RunToolJSON("tabs_finalize_mcp", args, clientOpts(), &rec)
 		if raw != "" {
 			fmt.Println(raw)
 		}
 		return err
 	}
-	raw, err := cliclient.RunTool("tabs_finalize_mcp", args, clientOpts(), &rec)
-	if err != nil {
-		return err
+	if raw != "" {
+		if printErr := printGroupResult(raw); printErr != nil && err == nil {
+			return printErr
+		}
 	}
-	return printGroupResult(raw)
+	return err
 }
 
 func printGroupResult(raw string) error {
-	if gflags.JSON {
-		fmt.Println(raw)
-		return nil
-	}
-
 	var data struct {
 		Output     string `json:"output"`
 		Error      string `json:"error"`

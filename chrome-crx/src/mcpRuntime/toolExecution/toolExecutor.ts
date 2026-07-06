@@ -13,6 +13,8 @@ import { compressBase64Image } from '../../utils/imageCompressor';
 import { extractAppName } from '../core/urlUtils';
 import { trackEvent } from '../analytics';
 import { allTools, mcpToolNames } from '../core/tools';
+import type { BrowserSessionScope } from '../sessionScope';
+import { tabGroupManager } from '../tabState';
 
 export const MCP_NATIVE_SESSION_ID = `mcp_native_${Date.now()}`;
 import { recordToolAction } from './toolRecording';
@@ -25,15 +27,23 @@ import type {
   ToolUseRequest,
   PermissionPromptHandler,
   PermissionPromptRequest,
-  ErrorResponse
+  ErrorResponse,
+  ExecuteToolResponse
 } from '../core/types';
-import type { ToolResult, ToolTabSummary } from '../pageToolsSupport/types';
+import type {
+  ToolContext,
+  ToolResult,
+  ToolTabAccess,
+  ToolTabSummary
+} from '../pageToolsSupport/types';
 
 export interface ToolExecutorContext {
   tabId?: number;
   tabGroupId?: number;
   model: string;
   sessionId: string;
+  browserSessionScope: BrowserSessionScope;
+  tabAccess: ToolTabAccess;
   messagesClient?: MessagesClient;
   permissionManager: PermissionManagerClass;
   onPermissionRequired?: PermissionPromptHandler;
@@ -70,20 +80,32 @@ export class ToolExecutor {
         if (permissions) span.setAttribute('permissions', permissions);
         if (action) span.setAttribute('action', action);
 
-        const executionContext = {
+        const tool = allTools.find((t) => t.name === toolName);
+        if (!tool) throw new Error(`Unknown tool: ${toolName}`);
+        const tabAccess = toolName === 'browser_batch' ? this.context.tabAccess : tool.tabAccess;
+
+        const executionContext: ToolContext = {
           toolUseId,
           tabId: this.context.tabId,
           tabGroupId: this.context.tabGroupId,
           model: this.context.model,
           sessionId: this.context.sessionId,
+          browserSessionScope: this.context.browserSessionScope,
+          tabAccess,
+          resolveTabId: async (requestedTabId, options) => {
+            if (typeof this.context.tabId !== 'number') {
+              throw new Error('No active tab found in context');
+            }
+            return await tabGroupManager.resolveTabForContext(requestedTabId, this.context.tabId, {
+              browserSessionScope: this.context.browserSessionScope,
+              tabAccess: options?.tabAccess ?? tabAccess
+            });
+          },
           messagesClient: this.context.messagesClient,
           permissionManager: permissionManagerOverride ?? this.context.permissionManager,
           createApiMessage: this.createApiMessage(),
           availableTools: allTools
         };
-
-        const tool = allTools.find((t) => t.name === toolName);
-        if (!tool) throw new Error(`Unknown tool: ${toolName}`);
 
         const trackData: Record<string, unknown> = {
           name: toolName,
@@ -200,8 +222,8 @@ export class ToolExecutor {
   async processToolResults(
     toolUses: ToolUseRequest[],
     options?: ToolExecutorProcessOptions
-  ): Promise<ApiToolResultBlock[]> {
-    const results: ApiToolResultBlock[] = [];
+  ): Promise<ExecuteToolResponse[]> {
+    const results: ExecuteToolResponse[] = [];
 
     const formatContent = async (result: ToolResult): Promise<ApiToolResultBlock['content']> => {
       if (result.error) return result.error;
@@ -244,12 +266,13 @@ export class ToolExecutor {
     const formatToolResult = async (
       toolUseId: string,
       result: ToolResult
-    ): Promise<ApiToolResultBlock> => {
+    ): Promise<ExecuteToolResponse> => {
       const isError = !!result.error || result.is_error === true;
       return {
         type: 'tool_result',
         tool_use_id: toolUseId,
         content: await formatContent(result),
+        ...(result.tabContext && { tabContext: result.tabContext }),
         ...(isError && { is_error: true })
       };
     };
@@ -341,27 +364,26 @@ export class ToolExecutor {
   }
 }
 
-let toolExecutorInstance: ToolExecutor | undefined;
-
 export async function getOrCreateToolExecutor(
-  tabId?: number,
-  tabGroupId?: number
+  tabId: number | undefined,
+  tabGroupId: number | undefined,
+  sessionId: string,
+  browserSessionScope: BrowserSessionScope,
+  messagesClientOverride: MessagesClient | null | undefined,
+  tabAccess: ToolTabAccess
 ): Promise<ToolExecutor> {
-  if (toolExecutorInstance) {
-    toolExecutorInstance.context.tabId = tabId;
-    toolExecutorInstance.context.tabGroupId = tabGroupId;
-    // Refresh the messagesClient if it's missing (e.g., auth wasn't ready on first creation)
-    if (!toolExecutorInstance.context.messagesClient) {
-      const refreshed = await refreshMessagesClient();
-      if (refreshed) toolExecutorInstance.context.messagesClient = refreshed;
-    }
-    return toolExecutorInstance;
-  }
-  const [client, model] = await Promise.all([refreshMessagesClient(), getSelectedModel()]);
-  toolExecutorInstance = new ToolExecutor({
+  const [client, model] = await Promise.all([
+    messagesClientOverride === undefined
+      ? refreshMessagesClient()
+      : Promise.resolve(messagesClientOverride ?? undefined),
+    getSelectedModel()
+  ]);
+  return new ToolExecutor({
     messagesClient: client,
     permissionManager: new PermissionManagerClass(() => false, {}),
-    sessionId: MCP_NATIVE_SESSION_ID,
+    sessionId,
+    browserSessionScope,
+    tabAccess,
     tabId,
     tabGroupId,
     model,
@@ -369,7 +391,6 @@ export async function getOrCreateToolExecutor(
       await showPermissionPrompt(permission, tabId),
     refreshClient: refreshMessagesClient
   });
-  return toolExecutorInstance;
 }
 
 export const createErrorResponse = (text: string): ErrorResponse => ({

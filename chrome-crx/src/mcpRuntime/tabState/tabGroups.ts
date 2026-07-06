@@ -9,7 +9,7 @@ import {
   type CreateGroupOptions,
   type AddTabToGroupOptions,
   type FinalizeManagedGroupOptions,
-  type FinalizeTabsKeep,
+  type FinalizeMcpTabGroupOptions,
   type FinalizedTabContext
 } from './types';
 
@@ -27,21 +27,25 @@ import * as validation from './tabGroupValidation';
 import * as navIsolation from './tabNavigationIsolation';
 import * as finalizeMod from './tabGroupFinalize';
 import type { ChildTabNavigationPolicy } from './tabNavigationIsolation';
+import type { BrowserSessionScope } from '../sessionScope';
+import type { ToolTabAccess } from '../pageToolsSupport/types';
 
-// =============================================================================
-// Section 5: TabGroupManager
-// =============================================================================
+interface BrowserSessionToolContext {
+  browserSessionScope: BrowserSessionScope;
+  tabAccess: ToolTabAccess;
+}
 
 export class TabGroupManager {
   static instance: TabGroupManager;
   groupMetadata = new Map<number, GroupMetadata>();
+  sessionGroupTitles = new Map<string, string>();
   initialized = false;
   STORAGE_KEY = StorageKeys.TAB_GROUPS;
+  SESSION_TITLES_KEY = StorageKeys.TAB_GROUP_SESSION_TITLES;
   groupBlocklistStatuses = new Map<number, GroupBlocklistStatus>();
   blocklistListeners = new Set<(groupId: number, category: string | undefined) => void>();
   pendingRegroups = new Map<number, PendingRegroup>();
   processingMainTabRemoval = new Set<number>();
-  mcpTabGroupId: number | null = null;
   MCP_TAB_GROUP_KEY = StorageKeys.MCP_TAB_GROUP_ID;
   MCP_TAB_GROUP_OWNER_KEY = StorageKeys.MCP_TAB_GROUP_OWNER;
   tabGroupListenerSubscriptionId: string | null = null;
@@ -67,7 +71,6 @@ export class TabGroupManager {
     );
   }
 
-  // --- storage ---
   async initialize(force = false): Promise<void> {
     return storage.initialize(this, force);
   }
@@ -88,7 +91,6 @@ export class TabGroupManager {
     return storage.isGroupDismissed(this, chromeGroupId);
   }
 
-  // --- queries ---
   findMainTabInChromeGroup(chromeGroupId: number): number | null {
     return queries.findMainTabInChromeGroup(this, chromeGroupId);
   }
@@ -149,13 +151,8 @@ export class TabGroupManager {
     return queries.getGroup(this, mainTabId);
   }
 
-  // --- lifecycle ---
   async createGroup(tabId: number, options?: CreateGroupOptions): Promise<GroupWithMembers> {
     return lifecycle.createGroup(this, tabId, options);
-  }
-
-  async adoptOrphanedGroup(tabId: number, chromeGroupId: number): Promise<GroupWithMembers> {
-    return lifecycle.adoptOrphanedGroup(this, tabId, chromeGroupId);
   }
 
   async addTabToGroup(
@@ -186,7 +183,6 @@ export class TabGroupManager {
     return lifecycle.handleTabClosed(this, tabId);
   }
 
-  // --- regroup ---
   scheduleRegroupRetry(tabId: number): void {
     regroup.scheduleRegroupRetry(this, tabId);
   }
@@ -195,7 +191,6 @@ export class TabGroupManager {
     return regroup.attemptRegroup(this, tabId);
   }
 
-  // --- reconcile ---
   startTabGroupChangeListener(): void {
     reconcile.startTabGroupChangeListener(this);
   }
@@ -208,38 +203,33 @@ export class TabGroupManager {
     return reconcile.handleTabGroupChange(this, tabId, newGroupId);
   }
 
-  async reconcileWithChrome(): Promise<void> {
-    return reconcile.reconcileWithChrome(this);
+  async reconcileWithChrome(clearStalePulsing = false): Promise<void> {
+    return reconcile.reconcileWithChrome(this, clearStalePulsing);
   }
 
-  // --- promotion ---
   async promoteToMainTab(oldMainTabId: number, newMainTabId: number): Promise<void> {
     return promotion.promoteToMainTab(this, oldMainTabId, newMainTabId);
   }
 
-  // --- validation ---
   async isTabInSameGroup(tabId1: number, tabId2: number): Promise<boolean> {
     return validation.isTabInSameGroup(this, tabId1, tabId2);
   }
 
-  async getValidTabIds(tabId: number): Promise<number[]> {
-    return validation.getValidTabIds(this, tabId);
-  }
-
-  async getValidTabsWithMetadata(
-    tabId: number
+  async getValidTabsWithMetadataForContext(
+    tabId: number,
+    context: BrowserSessionToolContext
   ): Promise<{ id: number; title: string; url: string }[]> {
-    return validation.getValidTabsWithMetadata(this, tabId);
+    return validation.getValidTabsWithMetadataForContext(this, tabId, context);
   }
 
-  async getEffectiveTabId(
+  async resolveTabForContext(
     requestedTabId: number | undefined,
-    currentTabId: number
+    currentTabId: number,
+    context: BrowserSessionToolContext
   ): Promise<number> {
-    return validation.getEffectiveTabId(this, requestedTabId, currentTabId);
+    return validation.resolveTabForContext(this, requestedTabId, currentTabId, context);
   }
 
-  // --- blocklist ---
   async updateTabBlocklistStatus(tabId: number, url: string): Promise<void> {
     return blocklist.updateTabBlocklistStatus(this, tabId, url);
   }
@@ -295,7 +285,6 @@ export class TabGroupManager {
     blocklist.clearBlocklistCache(this);
   }
 
-  // --- indicators ---
   async setTabIndicatorState(
     tabId: number,
     state: string,
@@ -349,6 +338,10 @@ export class TabGroupManager {
     return indicators.clearIndicatorsForGroup(this, mainTabId);
   }
 
+  async hideAgentIndicatorsForTab(tabId: number): Promise<void> {
+    return indicators.hideAgentIndicatorsForTab(this, tabId);
+  }
+
   queueIndicatorUpdate(tabId: number, state: string): void {
     indicators.queueIndicatorUpdate(this, tabId, state);
   }
@@ -360,12 +353,12 @@ export class TabGroupManager {
   async sendIndicatorMessage(
     tabId: number,
     messageType: string,
-    isMcp?: boolean
+    isMcp?: boolean,
+    options?: { critical?: boolean }
   ): Promise<boolean> {
-    return indicators.sendIndicatorMessage(this, tabId, messageType, isMcp);
+    return indicators.sendIndicatorMessage(this, tabId, messageType, isMcp, options);
   }
 
-  // --- prefix ---
   async updateGroupTitle(mainTabId: number, title: string, isLoading = false): Promise<void> {
     return prefixMod.updateGroupTitle(this, mainTabId, title, isLoading);
   }
@@ -402,7 +395,6 @@ export class TabGroupManager {
     return prefixMod.removePrefix(this, mainTabId);
   }
 
-  // --- mcp ---
   async addTabToIndicatorGroup(options: {
     tabId: number;
     isRunning: boolean;
@@ -413,24 +405,45 @@ export class TabGroupManager {
 
   async getTabForMcp(
     tabId?: number,
-    tabGroupId?: number
+    tabGroupId?: number,
+    options?: { sessionId?: string; claimUnleased?: boolean; source?: string }
   ): Promise<{ tabId: number | undefined; domain?: string; url?: string }> {
-    return mcp.getTabForMcp(this, tabId, tabGroupId);
+    return mcp.getTabForMcp(this, tabId, tabGroupId, options);
   }
 
   async isTabMcp(tabId: number): Promise<boolean> {
     return mcp.isTabMcp(this, tabId);
   }
 
-  async ensureMcpGroupCharacteristics(chromeGroupId: number): Promise<void> {
-    return mcp.ensureMcpGroupCharacteristics(this, chromeGroupId);
+  resolveGroupTitle(sessionId?: string): string {
+    return mcp.resolveGroupTitle(this, sessionId);
+  }
+
+  async nameSession(sessionId: string, name: string): Promise<{ title: string } | undefined> {
+    return mcp.nameSession(this, sessionId, name);
+  }
+
+  async nameActiveMcpGroup(name: string): Promise<{ title: string } | undefined> {
+    return mcp.nameActiveMcpGroup(this, name);
+  }
+
+  async applyGroupTitle(chromeGroupId: number, title: string): Promise<void> {
+    return mcp.applyGroupTitle(chromeGroupId, title);
+  }
+
+  async ensureMcpGroupCharacteristics(chromeGroupId: number, sessionId?: string): Promise<void> {
+    return mcp.ensureMcpGroupCharacteristics(this, chromeGroupId, sessionId);
   }
 
   async clearMcpTabGroup(): Promise<void> {
     return mcp.clearMcpTabGroup(this);
   }
 
-  async getOrCreateMcpTabContext(options?: { createIfEmpty?: boolean }): Promise<
+  async getOrCreateMcpTabContext(options?: {
+    createIfEmpty?: boolean;
+    name?: string;
+    sessionId?: string;
+  }): Promise<
     | {
         currentTabId: number;
         availableTabs: { id: number; title: string; url: string }[];
@@ -442,19 +455,6 @@ export class TabGroupManager {
     return mcp.getOrCreateMcpTabContext(this, options);
   }
 
-  async saveMcpTabGroupId(): Promise<void> {
-    return mcp.saveMcpTabGroupId(this);
-  }
-
-  async loadMcpTabGroupId(): Promise<void> {
-    return mcp.loadMcpTabGroupId(this);
-  }
-
-  async findMcpTabGroupByCharacteristics(): Promise<number | null> {
-    return mcp.findMcpTabGroupByCharacteristics(this);
-  }
-
-  // --- navigation isolation ---
   startTabCreationListener(): void {
     navIsolation.startTabCreationListener(this);
   }
@@ -475,16 +475,40 @@ export class TabGroupManager {
     return navIsolation.rememberChildTabNavigationPolicy(this, openerTabId, policy, ttlMs);
   }
 
-  async adoptChildTabsFromOpener(openerTabId: number): Promise<number[]> {
-    return navIsolation.adoptChildTabsFromOpener(this, openerTabId);
+  async adoptChildTabsFromOpener(
+    openerTabId: number,
+    options?: {
+      sessionId?: string;
+      ignoreExistingTabIds?: ReadonlySet<number>;
+      windowId?: number;
+    }
+  ): Promise<number[]> {
+    return navIsolation.adoptChildTabsFromOpener(this, openerTabId, options);
   }
 
-  async createChildTabInGroup(openerTabId: number, url: string): Promise<number | undefined> {
-    return navIsolation.createChildTabInGroup(this, openerTabId, url);
+  async awaitOpenerChildTabId(
+    openerTabId: number,
+    url: string,
+    budgetMs: number,
+    options?: { ignoreExistingTabIds?: ReadonlySet<number>; windowId?: number }
+  ): Promise<number | undefined> {
+    return navIsolation.awaitOpenerChildTabId(openerTabId, url, budgetMs, options);
   }
 
-  // --- mcp group extras ---
-  async createMcpTabGroup(options?: { active?: boolean }): Promise<{
+  async createChildTabInGroup(
+    openerTabId: number,
+    url: string,
+    options?: navIsolation.CreateChildTabOptions
+  ): Promise<number | undefined> {
+    return navIsolation.createChildTabInGroup(this, openerTabId, url, options);
+  }
+
+  async createMcpTabGroup(options?: {
+    active?: boolean;
+    sessionId?: string;
+    replaceExisting?: boolean;
+    name?: string;
+  }): Promise<{
     currentTabId: number;
     availableTabs: { id: number; title: string; url: string }[];
     tabCount: number;
@@ -508,16 +532,15 @@ export class TabGroupManager {
     return mcp.updateMcpTabGroupIdAfterRegroup(this, oldChromeGroupId, newChromeGroupId);
   }
 
-  // --- finalize ---
   async finalizeManagedGroup(
     options?: FinalizeManagedGroupOptions
   ): Promise<FinalizedTabContext | undefined> {
     return finalizeMod.finalizeManagedGroup(this, options);
   }
 
-  async finalizeMcpTabGroup(options?: {
-    keep?: FinalizeTabsKeep[];
-  }): Promise<FinalizedTabContext | undefined> {
+  async finalizeMcpTabGroup(
+    options?: FinalizeMcpTabGroupOptions
+  ): Promise<FinalizedTabContext | undefined> {
     return finalizeMod.finalizeMcpTabGroup(this, options);
   }
 }

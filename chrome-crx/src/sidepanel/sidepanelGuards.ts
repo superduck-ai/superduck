@@ -157,6 +157,15 @@ export function getTabSessionKey(tabId: number): string {
 }
 
 /**
+ * 对话(session)→锚点 tab 的反向映射存储 key。
+ * agent 整轮工具的归属 group 由这个锚点决定,锁定后即使浏览器焦点 tab
+ * 漂到别的 group,对话也只操作它绑定的 group(治「B 的点击跑到 A」串组)。
+ */
+export function getSessionTabKey(sessionId: string): string {
+  return `sidepanel_session_tab_${sessionId}`;
+}
+
+/**
  * Returns the storage keys to remove so a deleted session is no longer
  * referenced by the tab→session alias map or the global last-active key.
  *
@@ -164,7 +173,8 @@ export function getTabSessionKey(tabId: number): string {
  * so the caller can batch the removal with its other delete operations.
  */
 export async function collectTabSessionKeysToRemove(sessionId: string): Promise<string[]> {
-  const keys: string[] = [];
+  // session→锚点 tab 的反向映射 key 是已知的,直接列出(无需扫描)。
+  const keys: string[] = [getSessionTabKey(sessionId)];
   try {
     // chrome.storage.local exposes the full keys list via getKeys() in
     // Chrome 130+; fall back to Object.keys on the full data bag for

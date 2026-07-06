@@ -2,14 +2,14 @@ import type { MutableRefObject } from 'react';
 import type { Span } from '@opentelemetry/api';
 import { PermissionManager } from '@/permissions/PermissionManager';
 import { withTracing } from '../../observability';
-import {
-  tabGroupManager,
-  formatTabsOutput,
-  navigateTool,
-  computerTool,
-  javascriptTool
-} from '../../mcpRuntime';
+import { formatTabsOutput } from '../../mcpRuntime/core/urlUtils';
+import { computerTool } from '../../mcpRuntime/inputTools/computerTool';
+import { javascriptTool } from '../../mcpRuntime/pageTools/javascriptTool';
+import { navigateTool } from '../../mcpRuntime/pageTools/navigateTool';
 import { filterDomainsByCategory } from '../../mcpRuntime/pageToolsSupport/helpers';
+import type { ToolContext } from '../../mcpRuntime/pageToolsSupport/types';
+import { DEFAULT_BROWSER_SESSION_ID } from '../../mcpRuntime/sessionScope';
+import { tabGroupManager } from '../../mcpRuntime/tabState';
 import { PermissionActionType } from '../../extensionServices';
 import { commandTypeToToolName, type ParsedCommand } from './commands';
 import { executeWithPermission } from './runtime';
@@ -38,6 +38,27 @@ export interface ExecuteCommandsResult {
   cmdResults: CommandExecutionResult[];
   commandCount: number;
   shouldReturn: boolean;
+}
+
+function createLightningToolContext(
+  params: ExecuteCommandsParams,
+  tabId: number,
+  toolUseId: string
+): ToolContext {
+  const browserSessionScope = { sessionId: DEFAULT_BROWSER_SESSION_ID };
+  return {
+    tabId,
+    permissionManager: params.permissionManager,
+    toolUseId,
+    skipIndicator: true,
+    browserSessionScope,
+    tabAccess: 'write',
+    resolveTabId: async (requestedTabId, options) =>
+      await tabGroupManager.resolveTabForContext(requestedTabId, tabId, {
+        browserSessionScope,
+        tabAccess: options?.tabAccess ?? 'write'
+      })
+  };
 }
 
 export async function executeCommands(
@@ -180,23 +201,25 @@ export async function executeCommands(
         if (cmd.type === 'new_tab') {
           const url = cmd.args.url;
           try {
-            const currentTab = await chrome.tabs.get(params.activeTabId);
             const newTab = await chrome.tabs.create({
               url: 'chrome://newtab',
               active: false
             });
             if (!newTab.id) throw new Error('Failed to create tab — no tab ID returned');
 
-            if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-              await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
+            const mainTabId = await tabGroupManager.getMainTabId(params.activeTabId);
+            if (mainTabId) {
+              await tabGroupManager.addTabToGroup(mainTabId, newTab.id, {
+                origin: 'agent',
+                sessionId: DEFAULT_BROWSER_SESSION_ID
+              });
             }
 
-            const toolContext = {
-              tabId: newTab.id,
-              permissionManager: params.permissionManager,
-              toolUseId: `lightning_newtab_${Date.now()}`,
-              skipIndicator: true
-            };
+            const toolContext = createLightningToolContext(
+              params,
+              newTab.id,
+              `lightning_newtab_${Date.now()}`
+            );
             const navResult = await executeWithPermission(
               () => navigateTool.execute({ url, tabId: newTab.id! }, toolContext),
               params.onPermissionRequired
@@ -245,7 +268,15 @@ export async function executeCommands(
 
         if (cmd.type === 'list_tabs') {
           try {
-            const tabs = await tabGroupManager.getValidTabsWithMetadata(params.activeTabId);
+            const toolContext = createLightningToolContext(
+              params,
+              params.activeTabId,
+              `lightning_tabs_${Date.now()}`
+            );
+            const tabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+              params.activeTabId,
+              toolContext
+            );
             const tabsOutput = formatTabsOutput(tabs, undefined, params.activeTabId);
             params.trackToolCall('tabs_context', true);
             results.push({
@@ -269,12 +300,11 @@ export async function executeCommands(
         if (cmd.type === 'navigate') {
           const url = cmd.args.url;
           try {
-            const toolContext = {
-              tabId: params.activeTabId,
-              permissionManager: params.permissionManager,
-              toolUseId: `lightning_nav_${Date.now()}`,
-              skipIndicator: true
-            };
+            const toolContext = createLightningToolContext(
+              params,
+              params.activeTabId,
+              `lightning_nav_${Date.now()}`
+            );
             const navResult = await executeWithPermission(
               () => navigateTool.execute({ url, tabId: params.activeTabId }, toolContext),
               params.onPermissionRequired
@@ -323,12 +353,11 @@ export async function executeCommands(
 
         if (cmd.type === 'js') {
           try {
-            const toolContext = {
-              tabId: params.activeTabId,
-              permissionManager: params.permissionManager,
-              toolUseId: `lightning_js_${Date.now()}`,
-              skipIndicator: true
-            };
+            const toolContext = createLightningToolContext(
+              params,
+              params.activeTabId,
+              `lightning_js_${Date.now()}`
+            );
             const jsResult = await executeWithPermission(
               () =>
                 javascriptTool.execute(
@@ -383,12 +412,11 @@ export async function executeCommands(
 
         const commandInput = { ...cmd.args };
         try {
-          const toolContext = {
-            tabId: params.activeTabId,
-            permissionManager: params.permissionManager,
-            toolUseId: `lightning_${Date.now()}`,
-            skipIndicator: true
-          };
+          const toolContext = createLightningToolContext(
+            params,
+            params.activeTabId,
+            `lightning_${Date.now()}`
+          );
           const compResult = await executeWithPermission(
             () =>
               computerTool.execute(

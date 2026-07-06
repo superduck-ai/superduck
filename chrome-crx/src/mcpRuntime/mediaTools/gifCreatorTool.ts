@@ -1,16 +1,16 @@
 import { PermissionTools, checkUrlSecurity } from '../domainPermissions';
+import { DEFAULT_BROWSER_SESSION_ID } from '../sessionScope';
 import { tabGroupManager } from '../tabState';
 import type { ToolContext, ToolDefinition, ToolResult } from '../pageTools';
 import { gifFrameStorage, getGifFrameDelay } from './gifFrameStorage';
 import type { GifCreatorToolInput, GifGenerationResult } from './types';
 import { isScriptOutputResult } from './types';
 
-const MCP_NATIVE_SESSION = 'mcp-native-session';
-
 export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
   name: 'gif_creator',
   description:
     "Manage GIF recording and export for browser automation sessions. Control when to start/stop recording browser actions (clicks, scrolls, navigation), then export as an animated GIF with visual overlays (click indicators, action labels, progress bar, watermark). All operations are scoped to the tab's group. When starting recording, take a screenshot immediately after to capture the initial state as the first frame. When stopping recording, take a screenshot immediately before to capture the final state as the last frame. For export, either provide 'coordinate' to drag/drop upload to a page element, or set 'download: true' to download the GIF.",
+  tabAccess: 'write',
   parameters: {
     action: {
       type: 'string',
@@ -47,15 +47,16 @@ export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
       if (!params?.action) throw new Error('action parameter is required');
       if (!context?.tabId) throw new Error('No active tab found in context');
 
-      const tab = await chrome.tabs.get(params.tabId);
-      if (!tab) throw new Error(`Tab ${params.tabId} not found`);
+      const effectiveTabId = await context.resolveTabId(params.tabId);
+      const tab = await chrome.tabs.get(effectiveTabId);
+      if (!tab) throw new Error(`Tab ${effectiveTabId} not found`);
       const groupId = tab.groupId ?? -1;
 
-      if (context.sessionId === MCP_NATIVE_SESSION) {
-        const isManaged = await tabGroupManager.isInGroup(params.tabId);
+      if (context.browserSessionScope.sessionId !== DEFAULT_BROWSER_SESSION_ID) {
+        const isManaged = await tabGroupManager.isInGroup(effectiveTabId);
         if (!isManaged) {
           return {
-            error: `Tab ${params.tabId} is not in a managed tab group. GIF recording only works for tabs within a SuperDuck tab group.`
+            error: `Tab ${effectiveTabId} is not in a managed tab group. GIF recording only works for tabs within a SuperDuck tab group.`
           };
         }
       }
@@ -284,7 +285,10 @@ export const gifCreatorTool: ToolDefinition<GifCreatorToolInput> = {
             }
 
             gifFrameStorage.clearFrames(gid);
-            const validTabs = await tabGroupManager.getValidTabsWithMetadata(contextTabId);
+            const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+              contextTabId,
+              context
+            );
             return {
               output: outputMessage,
               tabContext: {

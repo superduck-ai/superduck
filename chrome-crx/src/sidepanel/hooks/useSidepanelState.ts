@@ -385,7 +385,8 @@ export function useSidepanelState() {
       getPermissionManager,
       queryTabId: query.tabId,
       effectiveMessagesClient,
-      permissionMode
+      permissionMode,
+      activeSessionId
     });
 
   const { systemPrompt, createApiMessage, invokeSessionModel } = useModelActions({
@@ -527,6 +528,7 @@ export function useSidepanelState() {
     lightningResult,
     preservedTranscriptTabId,
     queryTabId: query.tabId,
+    activeSessionId,
     sendPrompt,
     lockedTabIdRef,
     agentStartedTabIdRef,

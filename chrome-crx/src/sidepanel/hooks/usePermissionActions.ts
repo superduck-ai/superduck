@@ -21,6 +21,7 @@ export interface UsePermissionActionsProps {
   queryTabId: number | undefined;
   effectiveMessagesClient: unknown;
   permissionMode: string;
+  activeSessionId: string;
 }
 
 /**
@@ -33,7 +34,8 @@ export function usePermissionActions({
   getPermissionManager,
   queryTabId,
   effectiveMessagesClient,
-  permissionMode
+  permissionMode,
+  activeSessionId
 }: UsePermissionActionsProps) {
   const permissionPrompt = usePermissionStore((s) => s.permissionPrompt);
   const setPermissionPrompt = usePermissionStore((s) => s.setPermissionPrompt);
@@ -113,6 +115,7 @@ export function usePermissionActions({
           toolName: toolUse.name,
           args: toolUse.input,
           tabId: targetTabId,
+          sessionId: activeSessionId,
           permissionMode,
           toolUseId: toolUse.id,
           messagesClient: effectiveMessagesClient as any,
@@ -165,7 +168,7 @@ export function usePermissionActions({
         };
       }
     },
-    [queryTabId, onPermissionRequired, effectiveMessagesClient, permissionMode]
+    [queryTabId, onPermissionRequired, effectiveMessagesClient, permissionMode, activeSessionId]
   );
 
   return {

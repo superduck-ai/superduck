@@ -28,6 +28,7 @@ import {
   createDomainTransitionPermission
 } from '../domainPermissions';
 import {
+  handleToolContextAlarm,
   migrateGroupFinalizationState,
   restoreActiveToolContextsFromStorage,
   resetMcpState
@@ -37,11 +38,12 @@ import { createErrorResponse } from '../toolExecution/toolExecutor';
 import { executeTool } from '../toolExecution/toolExecution';
 import {
   connectBridge,
+  setBridgeToolCallBootWaiter,
   reconnectMcp,
   isBridgeConnected,
   sendMcpNotificationViaBridge
 } from '../bridge';
-import '../navigationGuard';
+import { setNavigationGuardBootWaiter } from '../navigationGuard';
 import { coerceToolInput } from './utils';
 import type { ToolProviderSchema } from '../pageToolsSupport/types';
 
@@ -51,9 +53,17 @@ function getToolSchemasForMcp(): Promise<ToolProviderSchema[]> {
   return toolsToProviderSchema(allTools);
 }
 
+const SIDEPANEL_HIDDEN_TOOLS = new Set<string>(['tabs_name_session_mcp']);
+
+function getToolSchemasForSidepanel(): Promise<ToolProviderSchema[]> {
+  return toolsToProviderSchema(allTools.filter((tool) => !SIDEPANEL_HIDDEN_TOOLS.has(tool.name)));
+}
+
 export {
   cdpDebugger,
   connectBridge,
+  setBridgeToolCallBootWaiter,
+  setNavigationGuardBootWaiter,
   reconnectMcp,
   isBridgeConnected,
   sendMcpNotificationViaBridge,
@@ -62,6 +72,7 @@ export {
   createErrorResponse,
   executeTool,
   getToolSchemasForMcp,
+  getToolSchemasForSidepanel,
   getFeatureValue,
   getTabRelationship,
   getCategoryAndUpdateBlocklist,
@@ -87,6 +98,7 @@ export {
   isAgentActive,
   setOnAgentBecameIdle,
   restoreActiveToolCountFromStorage,
+  handleToolContextAlarm,
   migrateGroupFinalizationState,
   restoreActiveToolContextsFromStorage,
   resetMcpState

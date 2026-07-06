@@ -78,41 +78,42 @@ export async function withTimeout<T>(
 
 export async function ensureDebuggerAttachedForBatchStep(
   toolName: string,
-  input: Record<string, unknown>,
+  input: Record<string, unknown> & { tabId?: number },
   context: ToolContext
 ): Promise<void> {
   if (!DEBUGGER_REQUIRED_TOOLS.has(toolName)) return;
-  const targetTabId =
-    typeof input.tabId === 'number'
-      ? input.tabId
-      : typeof context.tabId === 'number'
-        ? context.tabId
-        : undefined;
-  if (targetTabId === undefined) return;
-  const tab = await chrome.tabs.get(targetTabId);
-  if (isSystemUrl(tab.url)) return;
-  const attachTimeoutMs = 10000;
-  try {
-    let wasAttached = false;
+  const targetTabId = input.tabId;
+  if (typeof targetTabId !== 'number') return;
+  if (typeof context.tabId === 'number') {
+    const effectiveTabId = await context.resolveTabId(targetTabId);
+    input.tabId = effectiveTabId;
+    const tab = await chrome.tabs.get(effectiveTabId);
+    if (isSystemUrl(tab.url)) return;
+    const attachTimeoutMs = 10000;
     try {
-      wasAttached = await withTimeout(
-        cdpDebugger.isDebuggerAttached(targetTabId),
+      let wasAttached = false;
+      try {
+        wasAttached = await withTimeout(
+          cdpDebugger.isDebuggerAttached(effectiveTabId),
+          attachTimeoutMs,
+          'Timed out checking debugger attachment'
+        );
+      } catch {
+        wasAttached = false;
+      }
+      await withTimeout(
+        cdpDebugger.attachDebugger(effectiveTabId),
         attachTimeoutMs,
-        'Timed out checking debugger attachment'
+        'Timed out attaching debugger'
       );
-    } catch {
-      wasAttached = false;
+      if (!wasAttached) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch (err) {
+      throw err;
     }
-    await withTimeout(
-      cdpDebugger.attachDebugger(targetTabId),
-      attachTimeoutMs,
-      'Timed out attaching debugger'
-    );
-    if (!wasAttached) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-  } catch (err) {
-    throw err;
+  } else {
+    throw new Error('No active tab found in context');
   }
 }
 

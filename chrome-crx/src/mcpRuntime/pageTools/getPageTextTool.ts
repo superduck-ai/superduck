@@ -7,6 +7,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
   name: 'get_page_text',
   description:
     "Extract raw text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default.",
+  tabAccess: 'read',
   parameters: {
     tabId: {
       type: 'number',
@@ -23,7 +24,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
     const { tabId, max_chars: maxChars } = input || {};
     if (!context?.tabId) throw new Error('No active tab found');
 
-    const effectiveTabId = await tabGroupManager.getEffectiveTabId(tabId, context.tabId);
+    const effectiveTabId = await context.resolveTabId(tabId);
     const tabUrl = (await chrome.tabs.get(effectiveTabId)).url;
     if (!tabUrl) throw new Error('No URL available for active tab');
 
@@ -139,7 +140,10 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
       if (!isMainTextScriptResult(result)) {
         throw new Error('Page script returned unexpected result');
       }
-      const validTabs = await tabGroupManager.getValidTabsWithMetadata(context.tabId);
+      const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        context.tabId,
+        context
+      );
 
       if (result.error) {
         return {

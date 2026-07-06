@@ -1,10 +1,16 @@
 import type { MutableRefObject } from 'react';
 import { tabGroupManager, formatTabsOutput, cdpDebugger } from '../../mcpRuntime';
 import { shouldShowPlanMode } from '../../mcpRuntime/pageToolsSupport/helpers';
+import { DEFAULT_BROWSER_SESSION_ID } from '../../mcpRuntime/sessionScope';
 import { getLightningScreenshotReminder, normalizeImageMediaType } from '../sidepanelGuards';
 import type { LightningMessage } from './commands';
 import type { LightningContentArray } from '../types';
 import type { LightningConfigController } from './config';
+
+const DEFAULT_BROWSER_SESSION_CONTEXT = {
+  browserSessionScope: { sessionId: DEFAULT_BROWSER_SESSION_ID },
+  tabAccess: 'read' as const
+};
 
 export interface BuildUserMessageParams {
   message: string;
@@ -30,7 +36,10 @@ export async function buildUserMessage(
 
   if (params.tabId) {
     try {
-      const tabs = await tabGroupManager.getValidTabsWithMetadata(params.tabId);
+      const tabs = await tabGroupManager.getValidTabsWithMetadataForContext(
+        params.tabId,
+        DEFAULT_BROWSER_SESSION_CONTEXT
+      );
       if (tabs.length > 0) {
         params.tabContextHashRef.current =
           tabs

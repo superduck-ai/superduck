@@ -45,6 +45,11 @@ import { executeToolUses, type ReminderState } from './agentLoop/executeToolUses
 import { compactInLoop } from './agentLoop/compactInLoop';
 import { handleStreamError, type RetryState } from './agentLoop/handleStreamError';
 import { handleSendPromptError } from './agentLoop/handleSendPromptError';
+import {
+  deriveSidepanelGroupTitle,
+  ensureSidepanelManagedGroup,
+  updateSidepanelGroupTitle
+} from './agentLoop/sidepanelGroupTitle';
 
 // ─── Hook interface ────────────────────────────────────────────────────────────
 
@@ -145,8 +150,6 @@ export function useAgentLoop({
   const apiMessages = useChatStore((s) => s.apiMessages);
   const setApiMessages = useChatStore((s) => s.setApiMessages);
   const setMessages = useChatStore((s) => s.setMessages);
-  // setMessageHistory is unused
-  const _setMessageHistory = (_: ApiConversationMessage[]) => {};
   const setIsAgentRunning = useAgentStore((s) => s.setIsAgentRunning);
   const setHasInteractiveTools = useAgentStore((s) => s.setHasInteractiveTools);
   const setCurrentStatus = useAgentStore((s) => s.setCurrentStatus);
@@ -215,7 +218,6 @@ export function useAgentLoop({
           manual,
           messages_before: messagesToCompact.length
         });
-        _setMessageHistory(messagesToCompact);
         const visibleCommandMessage = visibleCommandText
           ? ({
               role: 'user',
@@ -344,8 +346,7 @@ export function useAgentLoop({
         );
 
         if (title) {
-          await tabGroupManager.initialize();
-          await tabGroupManager.updateGroupTitle(effectiveTabId, title, true);
+          await updateSidepanelGroupTitle(effectiveTabId, title, true);
         }
       } catch {
         // silently fail title generation
@@ -409,6 +410,22 @@ export function useAgentLoop({
 
       setRuntimeError(null);
       setIsAgentRunning(true);
+      let turnCompleted = false;
+      let turnHeartbeatInterval: number | null = null;
+      // Mark the turn active in the background so the agent-indicator heartbeat
+      // (authoritative state lives in the service worker) keeps the mask alive
+      // for the duration of the turn. The matching active:false is sent in the
+      // finally block below to dismiss the mask when the response completes.
+      if (typeof executionTabId === 'number') {
+        await ensureSidepanelManagedGroup(executionTabId).catch(() => {});
+        const sendTurnActive = () => {
+          chrome.runtime
+            .sendMessage({ type: 'AGENT_TURN_ACTIVE', tabId: executionTabId, active: true })
+            .catch(() => {});
+        };
+        sendTurnActive();
+        turnHeartbeatInterval = window.setInterval(sendTurnActive, 45_000);
+      }
       abortControllerRef.current?.abort();
       generationStartedAtRef.current = Date.now();
       completionNotificationSentRef.current = false;
@@ -461,6 +478,10 @@ export function useAgentLoop({
 
         // Generate title from first user message
         if (baseMessages.length === 0) {
+          if (typeof executionTabId === 'number') {
+            const fallbackTitle = deriveSidepanelGroupTitle(trimmed, intl.locale);
+            await updateSidepanelGroupTitle(executionTabId, fallbackTitle, true).catch(() => {});
+          }
           const lastMsg = workingMessages[workingMessages.length - 1];
           generateConversationTitle(lastMsg, executionTabId).catch(() => {});
         }
@@ -568,6 +589,7 @@ export function useAgentLoop({
             }
           } while (shouldRetry);
         }
+        turnCompleted = true;
       } catch (error) {
         handleSendPromptError({
           error,
@@ -577,6 +599,9 @@ export function useAgentLoop({
           setRuntimeError
         });
       } finally {
+        if (turnHeartbeatInterval) {
+          window.clearInterval(turnHeartbeatInterval);
+        }
         if (notificationBannerTimerRef.current) {
           window.clearTimeout(notificationBannerTimerRef.current);
           notificationBannerTimerRef.current = null;
@@ -592,11 +617,32 @@ export function useAgentLoop({
         completionNotificationSentRef.current = false;
         // Hide agent indicators and add completion prefix to tab group
         if (typeof executionTabId === 'number') {
-          chrome.tabs
-            .sendMessage(executionTabId, { type: 'HIDE_AGENT_INDICATORS' })
-            .catch(() => {});
-          tabGroupManager.setTabIndicatorState(executionTabId, 'none').catch(() => {});
-          tabGroupManager.addCompletionPrefix(executionTabId).catch(() => {});
+          // Tell the background to release the turn: it clears indicator state
+          // (authoritative) for the whole group and sends HIDE, so the mask
+          // dismisses when the message completes — even if the working tab
+          // differs from executionTabId or a per-tool HIDE was dropped.
+          const response = await chrome.runtime
+            .sendMessage({
+              type: 'AGENT_TURN_ACTIVE',
+              tabId: executionTabId,
+              active: false,
+              completed: turnCompleted
+            })
+            .catch(() => ({ success: false }));
+          if (!response?.success) {
+            const group = await tabGroupManager.findGroupByTab(executionTabId).catch(() => null);
+            if (group && !group.isUnmanaged) {
+              await tabGroupManager.clearIndicatorsForGroup(group.mainTabId).catch(() => {});
+              if (turnCompleted) {
+                await tabGroupManager.addCompletionPrefix(group.mainTabId).catch(() => {});
+                await tabGroupManager
+                  .setGroupColor(group.mainTabId, chrome.tabGroups.Color.GREEN)
+                  .catch(() => {});
+              }
+            } else {
+              await tabGroupManager.hideAgentIndicatorsForTab(executionTabId).catch(() => {});
+            }
+          }
         }
       }
     },

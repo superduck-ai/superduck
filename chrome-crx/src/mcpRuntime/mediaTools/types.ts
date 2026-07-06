@@ -1,11 +1,5 @@
 import { isRecord } from '../../messageTypes';
 
-export interface FileUploadToolInput {
-  paths: string[];
-  ref: string;
-  tabId?: number;
-}
-
 export interface UploadImageToolInput {
   imageId: string;
   ref?: string;

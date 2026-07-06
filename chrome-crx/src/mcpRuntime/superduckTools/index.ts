@@ -15,6 +15,8 @@ export { superduckOpenTool } from './openTool';
 export { superduckClickTool } from './clickTool';
 export { superduckFillTool } from './fillTool';
 export { superduckPressTool } from './pressTool';
+export { superduckDownloadsTool } from './downloadsTool';
+export { superduckHistoryTool } from './historyTool';
 
 export const superduckTools = [
   superduckActiveContextTool,

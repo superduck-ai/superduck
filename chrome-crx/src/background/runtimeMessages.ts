@@ -56,6 +56,7 @@ const HANDLED_MESSAGE_TYPES = new Set([
   'MAIN_TAB_ACK_RESPONSE',
   'STATIC_INDICATOR_HEARTBEAT',
   'DISMISS_STATIC_INDICATOR_FOR_GROUP',
+  'AGENT_TURN_ACTIVE',
   'PANEL_READY',
   'PANEL_CLOSED'
 ]);
@@ -67,12 +68,17 @@ export interface RuntimeMessageListenerDeps {
   resetNativeHost: () => Promise<NativeHostResetResult>;
   sendMcpNotification: (method: string, params?: Record<string, unknown>) => boolean;
   executeScheduledTask: (task: ScheduledTask, runLogId: string) => Promise<void>;
+  waitUntilBooted?: () => Promise<void>;
   handleStaticIndicatorHeartbeat: (
     sender: chrome.runtime.MessageSender,
     sendResponse: RuntimeSendResponse
   ) => Promise<void>;
   handleDismissStaticIndicator: (
     sender: chrome.runtime.MessageSender,
+    sendResponse: RuntimeSendResponse
+  ) => Promise<void>;
+  handleAgentTurnActive: (
+    message: RuntimeMessage,
     sendResponse: RuntimeSendResponse
   ) => Promise<void>;
 }
@@ -211,10 +217,7 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
       }
 
       const resolvedTargetTabId = targetTabId;
-      chrome.tabs
-        .sendMessage(resolvedTargetTabId, { type: 'HIDE_AGENT_INDICATORS' })
-        .catch(() => {});
-      tabGroupManager.setTabIndicatorState(resolvedTargetTabId, 'none').catch(() => {});
+      tabGroupManager.hideAgentIndicatorsForTab(resolvedTargetTabId).catch(() => {});
 
       chrome.runtime
         .sendMessage({ type: 'STOP_AGENT', targetTabId: resolvedTargetTabId })
@@ -268,6 +271,8 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
     }
 
     void (async () => {
+      await deps.waitUntilBooted?.();
+
       if (message.type === 'PLAY_NOTIFICATION_SOUND') {
         try {
           await ensureOffscreenDocument();
@@ -383,6 +388,11 @@ export function registerRuntimeMessageListener(deps: RuntimeMessageListenerDeps)
 
       if (message.type === 'DISMISS_STATIC_INDICATOR_FOR_GROUP') {
         await deps.handleDismissStaticIndicator(sender, sendResponse);
+        return;
+      }
+
+      if (message.type === 'AGENT_TURN_ACTIVE') {
+        await deps.handleAgentTurnActive(message, sendResponse);
         return;
       }
 
