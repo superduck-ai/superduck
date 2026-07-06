@@ -26,6 +26,20 @@ describe('native host status view', () => {
 
   it('keeps transient connection states above the ready state', () => {
     expect(
+      isNativeHostReady({
+        nativeHostInstalled: true,
+        mcpConnected: false,
+        connecting: true
+      })
+    ).toBe(false);
+    expect(
+      isNativeHostReady({
+        nativeHostInstalled: true,
+        mcpConnected: false,
+        reconnecting: true
+      })
+    ).toBe(false);
+    expect(
       getStatusKind(
         {
           nativeHostInstalled: true,

@@ -61,7 +61,11 @@ export function normalizeStatus(status: unknown): NativeHostRuntimeStatus {
 }
 
 export function isNativeHostReady(status: NativeHostRuntimeStatus | null): boolean {
-  return status?.nativeHostInstalled === true;
+  return (
+    status?.nativeHostInstalled === true &&
+    status.connecting !== true &&
+    status.reconnecting !== true
+  );
 }
 
 export function getStatusKind(
