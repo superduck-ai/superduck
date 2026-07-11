@@ -28,6 +28,7 @@ import {
   type ProviderConfig,
   type ProviderModelMetadata
 } from '@/utils/providerStore';
+import { isProviderConfigUsable } from '@/utils/providerConfigStatus';
 import { lookupCachedModelMetadata, testProviderConnection } from '@/utils/providerModelCatalog';
 import { ProviderEditorModal, type ProviderEditorValue } from './ProviderEditorModal';
 import {
@@ -72,7 +73,7 @@ const ProviderConfigSection: React.FC = () => {
     Record<string, ProviderModelMetadata | null>
   >({});
 
-  const shouldShowSetupGuide = isConfigLoaded && config.providers.length === 0;
+  const shouldShowSetupGuide = isConfigLoaded && !isProviderConfigUsable(config);
   const hasSectionNotice = Boolean(saveError || shouldShowSetupGuide);
   const providerMetadataRequests = useMemo(
     () =>

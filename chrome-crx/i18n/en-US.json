@@ -1135,5 +1135,7 @@
   "web_search_failed_for_query": "Search failed for \"{query}\"",
   "wn15NDyLWm": "Shortcut added",
   "workspace": "Workspace",
-  "zfW5u5DbnY": "task-name"
+  "zfW5u5DbnY": "task-name",
+  "failed_to_delete_shortcut": "Failed to delete shortcut",
+  "failed_to_revoke_permission": "Failed to revoke permission"
 }

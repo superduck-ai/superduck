@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Alert,
   AlertDescription,
@@ -427,9 +428,18 @@ const PermissionsTab: React.FC = () => {
   }, [loadPermissions]);
 
   const handleRevoke = async (id: string) => {
-    await permissionManager.revokePermission(id);
-    await loadPermissions();
-    setRevokeConfirmId(null);
+    try {
+      await permissionManager.revokePermission(id);
+      await loadPermissions();
+      setRevokeConfirmId(null);
+    } catch {
+      toast.error(
+        intl.formatMessage({
+          defaultMessage: 'Failed to revoke permission',
+          id: 'failed_to_revoke_permission'
+        })
+      );
+    }
   };
 
   const formatScope = (permission: PermissionRecord): string => {

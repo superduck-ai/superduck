@@ -1133,5 +1133,7 @@
   "web_search_failed_for_query": "搜索“{query}”失败",
   "wn15NDyLWm": "快捷指令已添加",
   "workspace": "工作区",
-  "zfW5u5DbnY": "task-name"
+  "zfW5u5DbnY": "task-name",
+  "failed_to_delete_shortcut": "删除快捷指令失败",
+  "failed_to_revoke_permission": "撤销权限失败"
 }

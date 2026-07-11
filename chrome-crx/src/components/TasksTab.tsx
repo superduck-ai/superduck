@@ -89,14 +89,23 @@ function TasksTab({
   }, [setEditingPrompt, setShowAddForm]);
 
   const handleConfirmDelete = async (id: string) => {
-    await PromptService.deletePrompt(id);
-    if (currentEditingPrompt?.id === id) {
-      setEditingPrompt(null);
-      setShowAddForm(false);
+    try {
+      await PromptService.deletePrompt(id);
+      if (currentEditingPrompt?.id === id) {
+        setEditingPrompt(null);
+        setShowAddForm(false);
+      }
+      setDeleteConfirmId(null);
+      loadPrompts();
+      toast.success(intl.formatMessage({ defaultMessage: 'Shortcut deleted', id: 'RRFjL3H23m' }));
+    } catch {
+      toast.error(
+        intl.formatMessage({
+          defaultMessage: 'Failed to delete shortcut',
+          id: 'failed_to_delete_shortcut'
+        })
+      );
     }
-    setDeleteConfirmId(null);
-    loadPrompts();
-    toast.success(intl.formatMessage({ defaultMessage: 'Shortcut deleted', id: 'RRFjL3H23m' }));
   };
 
   const renderPromptGroup = ({
