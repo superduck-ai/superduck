@@ -4,15 +4,15 @@
  */
 
 @keyframes streaming-caret-blink {
-  0%,
-  49% {
-    opacity: 1;
-  }
+    0%,
+    49% {
+        opacity: 1;
+    }
 
-  50%,
-  100% {
-    opacity: 0;
-  }
+    50%,
+    100% {
+        opacity: 0;
+    }
 }
 
 .superduck-welcome-subtitle {
@@ -119,21 +119,21 @@
 .streaming-markdown > :last-child:not(ul):not(ol):not(.code-block-root)::after,
 .streaming-markdown > :is(ul:last-child, ol:last-child) > li:last-child::after,
 .streaming-markdown > .code-block-root:last-child .code-block__code::after {
-  content: '│';
-  display: inline-block;
-  margin-left: 0.15rem;
-  animation: streaming-caret-blink 1s step-end infinite;
-  color: inherit;
-  user-select: none;
-  pointer-events: none;
+    content: '│';
+    display: inline-block;
+    margin-left: 0.15rem;
+    animation: streaming-caret-blink 1s step-end infinite;
+    color: inherit;
+    user-select: none;
+    pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .streaming-markdown > :last-child:not(ul):not(ol):not(.code-block-root)::after,
-  .streaming-markdown > :is(ul:last-child, ol:last-child) > li:last-child::after,
-  .streaming-markdown > .code-block-root:last-child .code-block__code::after {
-    animation: none;
-  }
+    .streaming-markdown > :last-child:not(ul):not(ol):not(.code-block-root)::after,
+    .streaming-markdown > :is(ul:last-child, ol:last-child) > li:last-child::after,
+    .streaming-markdown > .code-block-root:last-child .code-block__code::after {
+        animation: none;
+    }
 }
 
 /* 高级毛玻璃磨砂效果底色（亮色/暗色及 console 主题兼容） */
