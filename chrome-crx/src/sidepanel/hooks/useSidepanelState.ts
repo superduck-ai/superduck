@@ -503,7 +503,7 @@ export function useSidepanelState() {
   const effectiveIsCompacting =
     isPurlMode && lightningResult ? lightningResult.isCompacting : isCompacting;
   const chatInputSurfaceClass =
-    'superduck-composer-surface relative isolate cursor-text rounded-[1.5rem] border border-border/65 bg-card text-card-foreground transition-[background-color,border-color,box-shadow] hover:border-border/85 dark:border-border dark:bg-card/95 dark:hover:border-border focus-within:outline-none';
+    'superduck-composer-surface relative isolate cursor-text w-full text-card-foreground transition-[background-color,border-color,box-shadow] focus-within:outline-none';
 
   useErrorTracking({
     effectiveRuntimeError,

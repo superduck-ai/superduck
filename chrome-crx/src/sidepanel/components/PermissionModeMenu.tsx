@@ -99,7 +99,7 @@ export function PermissionModeMenu({
               size="sm"
               onClick={(event) => event.stopPropagation()}
               className={cn(
-                'h-8 max-w-[min(10rem,calc(100vw-9.5rem))] gap-1.5 rounded-md bg-transparent px-1.5 text-[13px] font-semibold shadow-none transition-colors focus-visible:ring-ring/30',
+                'superduck-composer-permission-button max-w-[min(10rem,calc(100vw-9.5rem))] bg-transparent text-[13px] font-medium shadow-none transition-colors',
                 isHighRiskMode
                   ? 'text-warning hover:!bg-warning/10 hover:!text-warning hover:*:!text-warning focus:!text-warning focus:*:!text-warning aria-expanded:!bg-warning/10 aria-expanded:!text-warning aria-expanded:*:!text-warning'
                   : 'text-muted-foreground hover:bg-muted/45 hover:text-foreground'
@@ -110,15 +110,17 @@ export function PermissionModeMenu({
           }
         >
           <TriggerIcon
-            size={14}
-            strokeWidth={1.9}
-            className={isHighRiskMode ? 'text-warning' : 'text-muted-foreground'}
+            strokeWidth={1.8}
+            className={cn(
+              'superduck-composer-standard-icon',
+              isHighRiskMode ? 'text-warning' : 'text-muted-foreground'
+            )}
           />
           <span className="min-w-0 truncate">{selectedLabel}</span>
           <ChevronDown
-            size={12}
+            strokeWidth={1.8}
             className={cn(
-              'shrink-0 transition-transform',
+              'superduck-composer-indicator-icon shrink-0 transition-transform',
               isOpen && 'rotate-180',
               isHighRiskMode ? 'text-warning' : 'text-muted-foreground'
             )}

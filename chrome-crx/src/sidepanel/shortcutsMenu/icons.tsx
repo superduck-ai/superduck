@@ -22,7 +22,7 @@ export function InlineSvgIcon({
   // Keep SVG presentation generic so caller-provided className controls size/color.
   const svgWithStyle = svg.replace(
     /<svg/,
-    `<svg style="width: 15px; height: 15px; color: currentColor; display: block; flex-shrink: 0;"`
+    `<svg style="width: 100%; height: 100%; color: currentColor; display: block; flex-shrink: 0;"`
   );
 
   return (

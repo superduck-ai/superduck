@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ArrowUp, Camera, CircleStop, MousePointerClick, Paperclip, Plus, X } from 'lucide-react';
+import { ArrowUp, Camera, CircleStop, Paperclip, Plus, X } from 'lucide-react';
 import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
 import { useIntlSafe } from '../../index-react-dom-intl';
 import { PromptService, type SavedPrompt as StoredSavedPrompt } from '../../extensionServices';
@@ -25,6 +25,8 @@ import { useChatInputStore } from '../stores/chatInputStore';
 import { useSidepanelViewState } from '../contexts/SidepanelViewStateContext';
 import { SidepanelBanners } from './SidepanelBanners';
 import { ShortcutsMenu } from '../shortcutsMenu/ShortcutsMenu';
+import { cursorAiSvg } from '../shortcutsMenu/assets';
+import { InlineSvgIcon } from '../shortcutsMenu/icons';
 import { RotatingTips } from '@/sidepanel/components/RotatingTips';
 import { RichTextInput } from '@/sidepanel/components/RichTextInput';
 import { PermissionModeMenu } from '@/sidepanel/components/PermissionModeMenu';
@@ -136,7 +138,11 @@ export function ChatInputArea() {
                     </div>
                   ) : null}
 
-                  <div className={`px-3.5 ${showCommandMenu ? 'pt-3 pb-1' : 'pt-3.5 pb-1.5'}`}>
+                  <div
+                    className={`min-h-[3.25rem] px-3.5 ${
+                      showCommandMenu ? 'pt-3 pb-2' : 'pt-3.5 pb-2.5'
+                    }`}
+                  >
                     <div className="relative">
                       {/* Shortcuts menu */}
                       {showCommandMenu && (
@@ -262,11 +268,11 @@ export function ChatInputArea() {
                   />
 
                   <div
-                    className={`relative flex items-center justify-between gap-2 px-3 ${
+                    className={`superduck-composer-footer relative grid grid-cols-[minmax(0,1fr)_auto] items-center ${
                       showCommandMenu ? 'pb-2' : 'pb-2.5'
                     }`}
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <div className="superduck-composer-control-group flex min-w-0 items-center">
                       <SimpleTooltip
                         tooltipContent={intl.formatMessage({
                           defaultMessage: 'Actions',
@@ -285,7 +291,7 @@ export function ChatInputArea() {
                                 }}
                                 variant="ghost"
                                 size="icon-sm"
-                                className="size-8 rounded-full text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                className="superduck-composer-icon-button"
                                 aria-label={intl.formatMessage({
                                   defaultMessage: 'Actions',
                                   id: 'actions'
@@ -293,7 +299,7 @@ export function ChatInputArea() {
                               />
                             }
                           >
-                            <Plus size={16} strokeWidth={1.8} />
+                            <Plus className="superduck-composer-standard-icon" strokeWidth={1.8} />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent
                             className="w-max min-w-[176px]"
@@ -507,12 +513,12 @@ export function ChatInputArea() {
                       )}
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {/* Teach SuperDuck button */}
+                    <div className="superduck-composer-primary-actions flex shrink-0 items-center">
+                      {/* Record workflow button */}
                       <SimpleTooltip
                         tooltipContent={intl.formatMessage({
-                          defaultMessage: 'Teach SuperDuck',
-                          id: 'teach_superduck'
+                          defaultMessage: 'Record workflow',
+                          id: 'record_workflow'
                         })}
                         side="top"
                       >
@@ -524,13 +530,16 @@ export function ChatInputArea() {
                           }}
                           variant="ghost"
                           size="icon-sm"
-                          className="size-8 rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                          className="superduck-composer-icon-button"
                           aria-label={intl.formatMessage({
-                            defaultMessage: 'Teach SuperDuck',
-                            id: 'teach_superduck'
+                            defaultMessage: 'Record workflow',
+                            id: 'record_workflow'
                           })}
                         >
-                          <MousePointerClick size={16} strokeWidth={1.8} />
+                          <InlineSvgIcon
+                            svg={cursorAiSvg}
+                            className="superduck-composer-standard-icon"
+                          />
                         </Button>
                       </SimpleTooltip>
 
@@ -540,8 +549,8 @@ export function ChatInputArea() {
                           data-test-id="stop-button"
                           onClick={() => effectiveCancel()}
                           variant="ghost"
-                          size="icon-xs"
-                          className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
+                          size="icon-sm"
+                          className="superduck-composer-icon-button"
                           aria-label={intl.formatMessage({
                             defaultMessage: 'Stop message',
                             id: 'stop_message'
@@ -551,7 +560,10 @@ export function ChatInputArea() {
                             id: 'stop_message'
                           })}
                         >
-                          <CircleStop size={16} />
+                          <CircleStop
+                            className="superduck-composer-standard-icon"
+                            strokeWidth={1.8}
+                          />
                         </Button>
                       ) : (
                         <Button
@@ -564,7 +576,7 @@ export function ChatInputArea() {
                           }
                           variant="ghost"
                           size="icon-sm"
-                          className="size-9 rounded-full bg-foreground/88 text-background shadow-none hover:bg-foreground hover:text-background disabled:bg-muted-foreground/35 disabled:text-background/70 disabled:opacity-100 dark:bg-foreground/75 dark:hover:bg-foreground/90 dark:disabled:bg-muted-foreground/35"
+                          className="superduck-composer-primary-button bg-foreground/88 text-background shadow-none hover:bg-foreground hover:text-background disabled:bg-muted-foreground/45 disabled:text-background/85 disabled:opacity-100 dark:bg-foreground/75 dark:hover:bg-foreground/90 dark:disabled:bg-muted-foreground/45 dark:disabled:text-background/80"
                           aria-label={intl.formatMessage({
                             defaultMessage: 'Send message',
                             id: 'send_message'
@@ -574,7 +586,7 @@ export function ChatInputArea() {
                             id: 'send_message'
                           })}
                         >
-                          <ArrowUp size={16} />
+                          <ArrowUp className="superduck-composer-standard-icon" strokeWidth={2} />
                         </Button>
                       )}
                     </div>
@@ -583,7 +595,7 @@ export function ChatInputArea() {
               </div>
               <div
                 data-testid="ai-disclaimer"
-                className="flex justify-center bg-transparent pt-1.5 text-muted-foreground/90"
+                className="flex justify-center bg-transparent pt-2.5 text-muted-foreground/80"
               >
                 <a
                   data-testid="ai-disclaimer-link"

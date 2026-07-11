@@ -28,7 +28,7 @@ export function RotatingTips({ tips, intervalMs = 4000 }: RotatingTipsProps) {
           animate={{ y: 0, opacity: 1 }}
           exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0 }}
           transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, ease: 'easeInOut' }}
-          className="whitespace-nowrap text-sm leading-6 text-muted-foreground"
+          className="superduck-composer-placeholder whitespace-nowrap text-sm leading-6"
         >
           {tips[index]}
         </motion.span>

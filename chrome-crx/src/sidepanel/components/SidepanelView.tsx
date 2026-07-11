@@ -70,6 +70,18 @@ export function SidepanelView() {
         />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
+          {effectiveApiMessages.length === 0 ? (
+            <div className="superduck-empty-state-layer absolute inset-x-0 top-0 z-10">
+              <EmptyState
+                tabId={queryTabId}
+                onPromptClick={(prompt) => {
+                  setPopulatedInputTargetTabId(undefined);
+                  setInput(prompt);
+                }}
+              />
+            </div>
+          ) : null}
+
           <div className="relative min-h-0 flex-1">
             <MessageScroller
               ref={autoScrollRef}
@@ -81,22 +93,14 @@ export function SidepanelView() {
             >
               <div className="mx-auto flex min-h-full w-full max-w-3xl flex-1 flex-col px-4 pt-1 pb-4 md:px-2">
                 <div className="flex flex-1 flex-col">
-                  {effectiveApiMessages.length === 0 ? (
-                    <EmptyState
-                      tabId={queryTabId}
-                      onPromptClick={(prompt) => {
-                        setPopulatedInputTargetTabId(undefined);
-                        setInput(prompt);
-                      }}
-                    />
-                  ) : (
+                  {effectiveApiMessages.length > 0 ? (
                     <MessageList
                       apiMessages={effectiveApiMessages}
                       streamingTextStore={streamingTextStoreRef.current}
                       isAgentRunning={effectiveIsAgentRunning}
                       scrollRefs={messageListScrollRefs}
                     />
-                  )}
+                  ) : null}
                   <div ref={scrollRefs.extras} className="mt-1 min-h-8 pb-1">
                     {(effectiveIsAgentRunning || effectiveIsCompacting) && !permissionPrompt && (
                       <div
@@ -147,7 +151,7 @@ export function SidepanelView() {
 
           <div
             data-testid="chat-composer-dock"
-            className="relative z-40 mx-auto w-full max-w-3xl shrink-0 bg-background/80 px-4 pt-1.5 pb-3 backdrop-blur-md"
+            className="superduck-composer-dock relative z-40 mx-auto w-full max-w-3xl shrink-0 px-4 pt-1.5 pb-3"
           >
             <ChatInputArea />
           </div>

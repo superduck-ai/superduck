@@ -924,6 +924,7 @@
   "superduck_will_not_purchase_items_create_accounts": "SuperDuck 不会购买商品、创建账户或尝试绕过验证码。",
   "superduck_wants_to_navigate_from_to": "SuperDuck 想要从 {fromDomain} 导航到 {toDomain}",
   "tip_type_message": "输入消息，开始对话…",
+  "tip_type_message_or_shortcut": "输入消息，或使用 / 快捷操作",
   "tip_slash_command": "输入 / 调用快捷操作",
   "tip_workflow": "输入 / 选择录制工作流",
   "tip_schedule": "输入 / 选择创建定时任务",

@@ -84,6 +84,36 @@ export function useCommandMenu({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [showCommandMenu, setShowCommandMenu, setCommandSearchTerm]);
 
+  // Escape dismisses slash suggestions without changing the current draft.
+  // Listen on window capture so this takes priority over the palette's
+  // document listener and the global Escape-to-cancel-agent shortcut.
+  useEffect(() => {
+    if (!showCommandMenu) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.isComposing || e.key === 'Process' || e.key !== 'Escape') return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      commandMenuDismissedRef.current = true;
+      commandMenuDismissedInputRef.current = inputValueRef.current;
+      setShowCommandMenu(false);
+      setCommandSearchTerm('');
+      inputRef.current?.focus();
+    };
+
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [
+    showCommandMenu,
+    inputRef,
+    inputValueRef,
+    commandMenuDismissedRef,
+    commandMenuDismissedInputRef,
+    setShowCommandMenu,
+    setCommandSearchTerm
+  ]);
+
   // Shift+Tab cycles permission modes
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
