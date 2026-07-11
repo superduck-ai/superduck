@@ -29,9 +29,9 @@ export function PermissionOverlay({
   }
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-[10]">
+    <div className="absolute bottom-0 left-0 right-0 z-50">
       <div className="mx-auto max-w-3xl md:px-2">
-        <div className="mx-3 md:mx-0 border border-border-300 rounded-[14px] shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] bg-bg-100">
+        <div className="mx-3 md:mx-0 border border-border rounded-[14px] shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] bg-card">
           <InlinePermissionPrompt
             prompt={permissionPrompt as PermissionPromptData}
             onAllow={handlePermissionAllow}
@@ -39,7 +39,7 @@ export function PermissionOverlay({
             disableAlwaysAllow={permissionMode === 'follow_a_plan'}
           />
         </div>
-        <div className="bg-bg-100 h-3" />
+        <div className="bg-card h-3" />
       </div>
     </div>
   );

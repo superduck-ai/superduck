@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { Check, CircleAlert, ListChecks, LoaderCircle } from 'lucide-react';
+import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
+import { cn } from '@/lib/utils';
 import { useIntlSafe } from '../../../index-react-dom-intl';
 import type { ApiToolResultBlock } from '../../../messageTypes';
 import {
@@ -19,7 +21,6 @@ import {
   TIMELINE_SNAPPY_OUT
 } from '../../toolViews';
 import { useUIStore } from '../../stores/uiStore';
-import { ChecklistIcon } from '@/sidepanel/components/icons';
 import type { ToolInputRecord } from '../../types';
 import {
   getBrowserBatchResultText,
@@ -60,7 +61,15 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
     () => isBrowserBatchError(toolResult, resultText, failedActionIndex),
     [toolResult, resultText, failedActionIndex]
   );
+  const hasMissingResult = !toolResult && !isStreaming;
+  const hasVisibleBatchError = hasBatchError || hasMissingResult;
   const isComplete = !!toolResult || !isStreaming;
+  const isActive = !!isStreaming && !toolResult;
+  const statusIcon = hasVisibleBatchError ? (
+    <CircleAlert size={14} className="text-destructive/55" aria-hidden />
+  ) : isActive ? (
+    <LoaderCircle size={15} className="animate-spin text-muted-foreground" aria-hidden />
+  ) : undefined;
 
   const actionSummaries = useMemo(
     () =>
@@ -81,7 +90,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
             failedActionIndex,
             completedCount: parsedResult.completedCount,
             stepStatuses: parsedResult.stepStatuses,
-            hasBatchError
+            hasBatchError: hasVisibleBatchError
           }),
           error: parsedResult.stepErrors.has(index)
             ? getLocalizedBrowserBatchError(
@@ -93,10 +102,17 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
             : undefined
         };
       }),
-    [actions, intl, toolResult, failedActionIndex, parsedResult, hasBatchError]
+    [actions, intl, toolResult, failedActionIndex, parsedResult, hasVisibleBatchError]
   );
 
   const fallbackErrorText = useMemo(() => {
+    if (hasMissingResult) {
+      return intl.formatMessage({
+        id: 'browser_batch_missing_result_detail',
+        defaultMessage:
+          'The action sequence ended before SuperDuck received a tool result. Check the current page before continuing.'
+      });
+    }
     if (!hasBatchError) return undefined;
     if (failedActionIndex !== null && parsedResult.stepErrors.has(failedActionIndex)) {
       return getLocalizedBrowserBatchError(
@@ -116,7 +132,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
     return firstLine && !firstLine.startsWith('{')
       ? getLocalizedBrowserBatchError(firstLine, undefined, undefined, intl)
       : undefined;
-  }, [failedActionIndex, hasBatchError, intl, parsedResult, resultText]);
+  }, [failedActionIndex, hasBatchError, hasMissingResult, intl, parsedResult, resultText]);
 
   const displayText = useMemo(() => {
     if (actionCount === 0) {
@@ -134,6 +150,12 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
         },
         { count: actionCount }
       );
+    }
+    if (hasMissingResult) {
+      return intl.formatMessage({
+        id: 'browser_batch_missing_result',
+        defaultMessage: 'Action sequence stopped before results returned'
+      });
     }
     if (hasBatchError) {
       if (failedActionIndex !== null) {
@@ -157,7 +179,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
       },
       { count: actionCount }
     );
-  }, [actionCount, failedActionIndex, hasBatchError, intl, isComplete]);
+  }, [actionCount, failedActionIndex, hasBatchError, hasMissingResult, intl, isComplete]);
 
   const screenshotData = useMemo(() => {
     if (!toolResult || typeof toolResult.content === 'string') return null;
@@ -168,7 +190,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
 
   const screenshotLabel = useMemo(() => {
     if (!screenshotData) return undefined;
-    if (hasBatchError) {
+    if (hasVisibleBatchError) {
       const completedCount = parsedResult.completedCount ?? Math.max(0, failedActionIndex ?? 0);
       return completedCount > 0
         ? intl.formatMessage(
@@ -195,7 +217,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
   }, [
     actionCount,
     failedActionIndex,
-    hasBatchError,
+    hasVisibleBatchError,
     intl,
     parsedResult.completedCount,
     screenshotData
@@ -227,7 +249,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
         <img
           src={screenshotData}
           alt={screenshotLabel}
-          className="h-8 rounded border border-border-300"
+          className="h-8 rounded border border-border/20 dark:border-border/20"
           style={{ objectFit: 'contain' }}
         />
       </div>
@@ -235,9 +257,8 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
 
   const screenshotPreview =
     screenshotData && screenshotLabel ? (
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         aria-label={intl.formatMessage({
           id: 'open_browser_batch_screenshot',
           defaultMessage: 'Open action sequence screenshot'
@@ -246,23 +267,18 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
           event.stopPropagation();
           setScreenshotPreviewUrl(screenshotData);
         }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.stopPropagation();
-            event.preventDefault();
-            setScreenshotPreviewUrl(screenshotData);
-          }
-        }}
-        className="mt-2 flex cursor-pointer items-center gap-2 rounded-md border-[0.5px] border-border-300 bg-bg-000/50 px-2 py-1.5 transition-opacity hover:opacity-80"
+        className="mt-2 w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-muted-foreground transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       >
-        <img
-          src={screenshotData}
-          alt={screenshotLabel}
-          className="h-9 w-16 rounded border border-border-300"
-          style={{ objectFit: 'contain' }}
-        />
-        <span className="min-w-0 truncate text-xs text-text-400">{screenshotLabel}</span>
-      </div>
+        <span className="flex items-center gap-2">
+          <img
+            src={screenshotData}
+            alt={screenshotLabel}
+            className="h-9 w-16 rounded border border-border/10 dark:border-border/10"
+            style={{ objectFit: 'contain' }}
+          />
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{screenshotLabel}</span>
+        </span>
+      </button>
     ) : undefined;
 
   return (
@@ -271,8 +287,10 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
       setIsExpanded={setIsExpanded}
       isExpandingDisabled={actionCount === 0}
       isStreaming={!!isStreaming && !toolResult}
-      icon={<ChecklistIcon size={12} className="text-text-500" />}
+      icon={<ListChecks size={14} className="text-muted-foreground" />}
       text={displayText}
+      tone={isActive ? 'active' : 'default'}
+      secondaryIcon={statusIcon}
       secondaryElement={screenshotThumbnail}
       isFirstBlockOfMessage={isFirstBlockOfMessage}
       isLastBlockOfMessage={isLastBlockOfMessage}
@@ -290,41 +308,76 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
         >
           <div className="mx-2.5 mt-1 mb-2">
             {actionSummaries.length > 0 && (
-              <div className="overflow-hidden rounded-lg border-[0.5px] border-border-300 bg-bg-000/50">
-                <ol className="flex flex-col divide-y divide-border-300/70">
+              <div className="rounded-md bg-muted/6 p-1 dark:bg-muted/4">
+                <ol className="flex flex-col gap-0.5">
                   {actionSummaries.map((action, index) => (
-                    <li
-                      key={`${action.toolName}-${index}`}
-                      className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-1.5 px-3 py-2"
-                    >
-                      <span className="flex size-6 shrink-0 items-center justify-center self-start rounded-full border-[0.5px] border-border-300 text-[0.6875rem] leading-none text-text-400">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex min-h-6 items-center gap-2">
-                          <span className="flex size-5 shrink-0 items-center justify-center text-text-400">
-                            {action.icon}
-                          </span>
-                          <span className="min-w-0 break-words text-xs leading-5 text-text-300">
-                            {action.text}
-                          </span>
-                        </div>
-                        {action.status === 'failed' && action.error && (
-                          <span className="mt-1 block whitespace-pre-wrap break-words pl-7 text-[0.6875rem] leading-4 text-danger-200">
-                            {action.error}
-                          </span>
+                    <li key={`${action.toolName}-${index}`}>
+                      <Marker
+                        className={cn(
+                          'min-h-8 rounded-md px-2 py-1.5 text-xs transition-colors',
+                          action.status === 'failed'
+                            ? 'bg-destructive/6 text-destructive'
+                            : hasMissingResult && action.status === 'pending'
+                              ? 'bg-muted/12 text-muted-foreground'
+                              : 'text-muted-foreground'
                         )}
-                      </div>
-                      <span className="flex h-6 shrink-0 items-center justify-end self-start">
-                        {action.status === 'complete' && (
-                          <Check size={13} className="text-text-400" />
-                        )}
-                        {action.status === 'failed' && (
-                          <Badge color="danger" className="min-w-10 justify-center">
-                            {intl.formatMessage({ id: 'failed', defaultMessage: 'Failed' })}
-                          </Badge>
-                        )}
-                      </span>
+                      >
+                        <MarkerIcon
+                          className={cn(
+                            'text-[0.6875rem] tabular-nums',
+                            action.status === 'failed'
+                              ? 'text-destructive'
+                              : 'text-muted-foreground'
+                          )}
+                        >
+                          {action.status === 'complete' ? (
+                            <Check size={13} />
+                          ) : action.status === 'failed' ? (
+                            <CircleAlert size={14} />
+                          ) : (
+                            index + 1
+                          )}
+                        </MarkerIcon>
+                        <MarkerContent className="min-w-0 flex-1 text-inherit">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span
+                              className={cn(
+                                'flex size-4 shrink-0 items-center justify-center',
+                                action.status === 'failed'
+                                  ? 'text-destructive'
+                                  : 'text-muted-foreground'
+                              )}
+                            >
+                              {action.icon}
+                            </span>
+                            <span
+                              className={cn(
+                                'min-w-0 break-words leading-5',
+                                action.status === 'failed'
+                                  ? 'text-foreground'
+                                  : 'text-muted-foreground'
+                              )}
+                            >
+                              {action.text}
+                            </span>
+                            {action.status === 'failed' && (
+                              <Badge color="danger" className="shrink-0">
+                                {intl.formatMessage({ id: 'failed', defaultMessage: 'Failed' })}
+                              </Badge>
+                            )}
+                            {hasMissingResult && action.status === 'pending' && (
+                              <Badge color="flat" className="shrink-0">
+                                {intl.formatMessage({ id: 'stopped', defaultMessage: 'Stopped' })}
+                              </Badge>
+                            )}
+                          </span>
+                          {action.status === 'failed' && action.error && (
+                            <span className="mt-1 block whitespace-pre-wrap break-words text-xs leading-5 text-destructive">
+                              {action.error}
+                            </span>
+                          )}
+                        </MarkerContent>
+                      </Marker>
                     </li>
                   ))}
                 </ol>
@@ -332,7 +385,7 @@ export const BrowserBatchToolCell = React.memo(function BrowserBatchToolCell({
             )}
             {fallbackErrorText &&
               (failedActionIndex === null || !parsedResult.stepErrors.has(failedActionIndex)) && (
-                <div className="mt-2 rounded-md border-[0.5px] border-danger-700/60 bg-danger-900/40 px-2 py-1.5 text-xs text-danger-200">
+                <div className="mt-2 rounded-md bg-destructive/8 px-2.5 py-2 text-xs text-destructive">
                   {fallbackErrorText}
                 </div>
               )}

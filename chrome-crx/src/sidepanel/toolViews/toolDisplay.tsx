@@ -1,34 +1,36 @@
 import React from 'react';
-import { Camera, Code } from 'lucide-react';
-import type { IntlShape } from 'react-intl';
 import {
-  FlowIcon,
-  CircleArrowDownIcon,
-  CircleArrowLeftIcon,
-  CircleArrowRightIcon,
-  CircleArrowUpIcon,
-  HorizontalResizeIcon,
-  EyeIcon,
-  SearchIcon,
-  BracketsIcon,
-  GlobeIcon,
-  UploadIcon,
-  CodeBracketsIcon,
-  TerminalPromptIcon,
-  ChecklistIcon,
-  MonitorIcon,
-  TabsIcon,
-  VerticalResizeIcon,
-  KeyboardIcon,
-  StopwatchIcon,
-  BookIcon,
-  FileDocumentIcon,
-  LightbulbIcon,
-  InboxIcon,
-  RetryIcon,
-  DownloadIcon,
-  ClockIcon
-} from '@/sidepanel/components/icons';
+  BookOpen,
+  Braces,
+  Camera,
+  CircleArrowDown,
+  CircleArrowLeft,
+  CircleArrowRight,
+  CircleArrowUp,
+  Clock,
+  Code,
+  Download,
+  Eye,
+  FileText,
+  Globe,
+  Inbox,
+  Keyboard,
+  Lightbulb,
+  ListChecks,
+  Monitor,
+  MousePointerClick,
+  MoveHorizontal,
+  MoveVertical,
+  PanelsTopLeft,
+  RefreshCw,
+  Search,
+  SquareCode,
+  Terminal,
+  Timer,
+  Upload,
+  Workflow
+} from 'lucide-react';
+import type { IntlShape } from 'react-intl';
 
 type FormatMessageValues = Record<string, string | number | boolean | null | undefined>;
 export type ToolDisplayInput = Record<string, unknown>;
@@ -451,62 +453,59 @@ export function resolveToolIcon(iconName: string, size: number = 12): React.Reac
   switch (iconName) {
     case 'camera':
     case 'gif':
-      return <Camera size={size} className="text-text-300" />;
+      return <Camera size={size} className="text-muted-foreground" />;
     case 'click':
+      return <MousePointerClick size={size} className="text-muted-foreground" />;
     case 'drag':
-      return <MonitorIcon size={size} className="text-text-300" />;
+      return <Monitor size={size} className="text-muted-foreground" />;
     case 'keyboard':
-      return <KeyboardIcon size={size} className="text-text-300" />;
+      return <Keyboard size={size} className="text-muted-foreground" />;
     case 'timer':
-      return <StopwatchIcon size={size} className="text-text-300" />;
+      return <Timer size={size} className="text-muted-foreground" />;
     case 'scroll-up':
-      return <CircleArrowUpIcon size={size} className="text-text-300" />;
+      return <CircleArrowUp size={size} className="text-muted-foreground" />;
     case 'scroll-down':
-      return <CircleArrowDownIcon size={size} className="text-text-300" />;
+      return <CircleArrowDown size={size} className="text-muted-foreground" />;
     case 'scroll-left':
-      return <CircleArrowLeftIcon size={size} className="text-text-300" />;
+      return <CircleArrowLeft size={size} className="text-muted-foreground" />;
     case 'scroll-right':
-      return <CircleArrowRightIcon size={size} className="text-text-300" />;
+      return <CircleArrowRight size={size} className="text-muted-foreground" />;
     case 'zoom':
-      return <HorizontalResizeIcon size={size} className="text-text-300" />;
+      return <MoveHorizontal size={size} className="text-muted-foreground" />;
     case 'eye':
-      return <EyeIcon size={size} className="text-text-300" />;
+      return <Eye size={size} className="text-muted-foreground" />;
     case 'search':
     case 'web-search':
-      return <SearchIcon size={size} className="text-text-300" />;
+      return <Search size={size} className="text-muted-foreground" />;
     case 'form':
-      return <BracketsIcon size={size} className="text-text-300" />;
+      return <Braces size={size} className="text-muted-foreground" />;
     case 'navigate':
     case 'web-fetch':
-      return <GlobeIcon size={size} className="text-text-300" />;
+      return <Globe size={size} className="text-muted-foreground" />;
     case 'tabs':
-      return <TabsIcon size={size} className="text-text-300" />;
+      return <PanelsTopLeft size={size} className="text-muted-foreground" />;
     case 'upload':
-      return <UploadIcon size={size} className="text-text-300" />;
+      return <Upload size={size} className="text-muted-foreground" />;
     case 'code':
-      return (
-        <span className="text-text-300">
-          <Code size={size} color="currentColor" />
-        </span>
-      );
+      return <Code size={size} className="text-muted-foreground" />;
     case 'terminal':
     case 'console':
     case 'network':
-      return <TerminalPromptIcon size={size} className="text-text-300" />;
+      return <Terminal size={size} className="text-muted-foreground" />;
     case 'plan':
     case 'batch':
-      return <ChecklistIcon size={size} className="text-text-300" />;
+      return <ListChecks size={size} className="text-muted-foreground" />;
     case 'resize':
-      return <VerticalResizeIcon size={size} className="text-text-300" />;
+      return <MoveVertical size={size} className="text-muted-foreground" />;
     case 'history':
-      return <ClockIcon size={size} className="text-text-300" />;
+      return <Clock size={size} className="text-muted-foreground" />;
     case 'download':
-      return <DownloadIcon size={size} className="text-text-300" />;
+      return <Download size={size} className="text-muted-foreground" />;
     case 'shuffle':
-      return <MonitorIcon size={size} className="text-text-300" />;
+      return <Monitor size={size} className="text-muted-foreground" />;
     case 'computer':
     default:
-      return <MonitorIcon size={size} className="text-text-300" />;
+      return <Monitor size={size} className="text-muted-foreground" />;
   }
 }
 
@@ -515,37 +514,37 @@ export function resolveToolNameIcon(toolName: string, size: number = 12): React.
   switch (normalized) {
     case 'bash':
     case 'bash_tool':
-      return <TerminalPromptIcon size={size} className="text-text-300" />;
+      return <Terminal size={size} className="text-muted-foreground" />;
     case 'read':
-      return <BookIcon size={size} className="text-text-300" />;
+      return <BookOpen size={size} className="text-muted-foreground" />;
     case 'write':
     case 'create_file':
     case 'open_file':
     case 'update_file':
-      return <FileDocumentIcon size={size} className="text-text-300" />;
+      return <FileText size={size} className="text-muted-foreground" />;
     case 'edit':
     case 'str_replace':
     case 'str_replace_editor':
-      return <FileDocumentIcon size={size} className="text-text-300" />;
+      return <FileText size={size} className="text-muted-foreground" />;
     case 'glob':
     case 'grep':
-      return <SearchIcon size={size} className="text-text-300" />;
+      return <Search size={size} className="text-muted-foreground" />;
     case 'repl':
-      return <CodeBracketsIcon size={size} className="text-text-300" />;
+      return <SquareCode size={size} className="text-muted-foreground" />;
     case 'web_search':
     case 'web_fetch':
-      return <GlobeIcon size={size} className="text-text-300" />;
+      return <Globe size={size} className="text-muted-foreground" />;
     case 'todo_write':
-      return <ChecklistIcon size={size} className="text-text-300" />;
+      return <ListChecks size={size} className="text-muted-foreground" />;
     case 'task':
-      return <FlowIcon size={size} className="text-text-300" />;
+      return <Workflow size={size} className="text-muted-foreground" />;
     case 'ask_user_question':
-      return <LightbulbIcon size={size} className="text-text-300" />;
+      return <Lightbulb size={size} className="text-muted-foreground" />;
     case 'recent_chats':
     case 'conversation_search':
-      return <RetryIcon size={size} className="text-text-300" />;
+      return <RefreshCw size={size} className="text-muted-foreground" />;
     case 'project_knowledge_search':
-      return <InboxIcon size={size} className="text-text-300" />;
+      return <Inbox size={size} className="text-muted-foreground" />;
     default:
       return null;
   }

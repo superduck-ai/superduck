@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
+import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isChineseLocale } from '@/utils/locale';
 
@@ -156,11 +157,7 @@ export function TimeInput({
 
   return (
     <div className={cn('relative', className)}>
-      {label && (
-        <label className="block font-ui-serif text-sm font-semibold text-text-200 mb-1">
-          {label}
-        </label>
-      )}
+      {label && <label className="mb-1 block text-sm font-medium text-foreground">{label}</label>}
       <div className="relative">
         <input
           ref={inputRef}
@@ -191,8 +188,10 @@ export function TimeInput({
             id: 'time_input_placeholder'
           })}
           className={cn(
-            'w-full h-9 px-3 pr-10 py-2 border rounded-lg bg-bg-000 text-text-100 text-sm transition-colors can-focus hover:border-border-200',
-            error ? 'border-danger-100' : 'border-border-300'
+            'h-9 w-full rounded-md border bg-background px-3 py-2 pr-10 text-sm text-foreground shadow-xs transition-colors can-focus placeholder:text-muted-foreground hover:border-ring/50 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30',
+            error
+              ? 'border-destructive hover:border-destructive focus-visible:border-destructive focus-visible:ring-destructive/20'
+              : 'border-input'
           )}
         />
         <button
@@ -201,20 +200,18 @@ export function TimeInput({
             updatePosition();
             setIsOpen((open) => !open);
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-300 hover:text-text-100"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           tabIndex={-1}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          <ChevronDown aria-hidden className="size-4" />
         </button>
       </div>
-      {error && <p className="text-xs text-danger-100 mt-1">{error}</p>}
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       {isOpen && (
         <div
           ref={dropdownRef}
           className={cn(
-            'absolute z-dropdown w-full max-h-48 overflow-auto bg-bg-000 border-0.5 border-border-200 rounded-xl backdrop-blur-xl shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] dark:shadow-[0px_2px_8px_0px_hsl(var(--always-black)/24%)] p-1.5',
+            'absolute z-dropdown max-h-48 w-full overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md',
             position === 'bottom' ? 'mt-1 top-full' : 'mb-1 bottom-full'
           )}
         >
@@ -228,8 +225,8 @@ export function TimeInput({
                 selectTime(option.value);
               }}
               className={cn(
-                'w-full text-left px-2 py-2 rounded-md transition-colors hover:bg-bg-200 text-sm',
-                option.value === value ? 'bg-bg-200 text-text-100' : 'text-text-100'
+                'w-full rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+                option.value === value && 'bg-accent text-accent-foreground'
               )}
             >
               {option.label}

@@ -8,24 +8,24 @@ export function ConversationSummary({ message }: { message: ApiConversationMessa
   const summaryText = typeof message.content === 'string' ? message.content : '';
 
   return (
-    <div className="mb-5 overflow-hidden border-[0.5px] border-border-200 rounded-[10px]">
+    <div className="mb-5 overflow-hidden border-[0.5px] border-border rounded-[10px]">
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`w-full px-4 py-2 transition-colors flex items-center justify-between text-left cursor-pointer ${expanded ? 'bg-bg-000' : 'bg-bg-100 hover:bg-bg-200'}`}
+        className={`w-full px-4 py-2 transition-colors flex items-center justify-between text-left cursor-pointer ${expanded ? 'bg-background' : 'bg-muted/60 hover:bg-muted'}`}
       >
-        <span className="font-small text-text-300">
+        <span className="text-xs leading-[1.4] text-muted-foreground">
           <MemoizedFormattedMessage
             defaultMessage="Conversation summary"
             id="conversation_summary"
           />
         </span>
         <ChevronRight
-          className={`w-4 h-4 text-text-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`}
         />
       </button>
       {expanded && (
-        <div className="px-4 pt-2 pb-4 bg-bg-000">
-          <div className="font-superduck-response text-xs text-text-200 whitespace-pre-wrap">
+        <div className="px-4 pt-2 pb-4 bg-background">
+          <div className="font-superduck-response text-xs text-foreground/85 whitespace-pre-wrap">
             {summaryText}
           </div>
         </div>

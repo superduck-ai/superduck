@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
+import { CircleAlert, Globe, Search } from 'lucide-react';
+import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
 import type { ApiTextContentBlock } from '../../messageTypes';
 import { isRecord, isTextContentBlock } from '../../messageTypes';
 import { useIntlSafe } from '../../index-react-dom-intl';
-import { GlobeIcon, SearchIcon } from '@/sidepanel/components/icons';
 import { ToolUseRow } from './toolUseRow';
 import { isKnowledgeContentBlock, getToolResultContentArray, getToolInputField } from './types';
 import type {
@@ -25,7 +26,7 @@ export function Favicon({ url, size = 16 }: { url: string; size?: number }) {
       return null;
     }
   }, [url, size]);
-  if (!faviconUrl) return <GlobeIcon size={size} className="text-text-300" />;
+  if (!faviconUrl) return <Globe size={size} className="text-muted-foreground" />;
   return (
     <img
       src={faviconUrl}
@@ -63,16 +64,19 @@ const SearchResultRow = React.memo(function SearchResultRow({
     else window.open(url, '_blank', 'noopener,noreferrer');
   }, [onClick, url]);
   return (
-    <div
-      className="flex flex-row gap-3 items-center px-2 py-1.5 w-full rounded-md cursor-pointer transition-colors hover:bg-bg-200"
+    <Marker
+      render={<button type="button" />}
+      className="min-h-8 cursor-pointer rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       onClick={handleClick}
     >
-      <div className="flex-shrink-0">
+      <MarkerIcon>
         <Favicon url={faviconUrl || url} size={12} />
-      </div>
-      <div className="w-0 flex-grow font-small text-text-300 truncate">{title}</div>
-      <div className="text-xs text-text-400 shrink-0">{hostname}</div>
-    </div>
+      </MarkerIcon>
+      <MarkerContent className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="w-0 flex-grow truncate text-xs text-foreground">{title}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{hostname}</span>
+      </MarkerContent>
+    </Marker>
   );
 });
 
@@ -180,12 +184,21 @@ export const WebSearchToolCell = React.memo(function WebSearchToolCell({
   const count = results.length;
   const query = getToolInputField(input, 'query');
 
-  const isComplete = count > 0 || !isStreaming;
-  const displayText = isComplete
-    ? query
-    : intl.formatMessage({ id: 'searching_the_web', defaultMessage: 'Searching the web' });
+  const isError = toolResult?.is_error === true;
+  const isComplete = isError || count > 0 || !isStreaming;
+  const displayText = !isComplete
+    ? intl.formatMessage({ id: 'searching_the_web', defaultMessage: 'Searching the web' })
+    : isError
+      ? query
+        ? intl.formatMessage(
+            { id: 'web_search_failed_for_query', defaultMessage: 'Search failed for "{query}"' },
+            { query }
+          )
+        : intl.formatMessage({ id: 'web_search_failed', defaultMessage: 'Search failed' })
+      : query ||
+        intl.formatMessage({ id: 'web_search_complete', defaultMessage: 'Search complete' });
   const secondaryText =
-    isComplete && count > 0
+    !isError && isComplete && count > 0
       ? intl.formatMessage(
           {
             id: 'search_result_count',
@@ -197,10 +210,14 @@ export const WebSearchToolCell = React.memo(function WebSearchToolCell({
 
   return (
     <ToolUseRow
-      icon={<SearchIcon size={12} className="text-text-300" />}
+      icon={<Search size={14} className="text-muted-foreground" />}
       text={displayText}
       secondaryText={secondaryText}
+      secondaryIcon={
+        isError ? <CircleAlert size={15} className="text-destructive" aria-hidden /> : undefined
+      }
       isStreaming={!isComplete}
+      tone={isError ? 'error' : !isComplete ? 'active' : 'default'}
       hideCaret
       renderMode={renderMode}
       isFirstBlockOfMessage={isFirstBlockOfMessage}
@@ -215,7 +232,7 @@ export const WebSearchToolCell = React.memo(function WebSearchToolCell({
           transition={{ ease: 'easeOut', duration: 0.3 }}
           className="overflow-hidden"
         >
-          <div className="border-[0.5px] border-border-300 rounded-lg p-1 mx-2.5 mt-1 mb-2 max-h-[150px] overflow-y-auto bg-bg-000/50">
+          <div className="mx-2.5 mt-1 mb-2 max-h-[150px] overflow-y-auto rounded-md bg-muted/6 p-1 dark:bg-muted/5">
             <div className="flex flex-col gap-1">
               {results.map((result, index) => (
                 <SearchResultRow

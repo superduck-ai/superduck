@@ -8,7 +8,7 @@ import {
   resolveShortcutMarkersForCopy
 } from '../shortcutsMenu/shortcutMarkers';
 import { ImagePreviewModal } from '@/sidepanel/components/MessageViews';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+import { Button, SimpleTooltip } from '@/components/ui';
 import { getTextFromBlockContent, getBase64ImageBlocks } from '../sidepanelUtils';
 import { isRecord } from '../../messageTypes';
 import type { ApiConversationMessage, ApiToolResultBlock } from '../../messageTypes';
@@ -76,7 +76,7 @@ export function UserMessageRow({
               return (
                 <div
                   key={idx}
-                  className="w-[120px] h-[120px] rounded-lg overflow-hidden border border-border-300/50 hover:border-border-200 shadow-sm shadow-always-black/5 cursor-pointer transition-all"
+                  className="h-[120px] w-[120px] cursor-pointer overflow-hidden rounded-lg border border-border/70 shadow-sm shadow-black/[0.04] transition-all hover:border-border"
                   onClick={() => setPreviewImage(src)}
                 >
                   <img
@@ -94,19 +94,21 @@ export function UserMessageRow({
           <div
             className={
               'relative inline-flex flex-col break-words max-w-full ' +
-              (displayText && !hasToolResults ? 'px-4 py-3 bg-bg-300 rounded-[14px]' : 'w-full')
+              (displayText && !hasToolResults
+                ? 'rounded-lg bg-muted px-4 py-3 text-foreground'
+                : 'w-full')
             }
           >
             {displayText && (
               <div
                 className={
                   'relative transition-all duration-300 ease-in-out' +
-                  (hasToolResults ? ' ml-auto px-4 py-3 bg-bg-300 rounded-[14px]' : '') +
+                  (hasToolResults ? ' ml-auto rounded-lg bg-muted px-4 py-3 text-foreground' : '') +
                   (!expanded && displayText.length > 500 ? ' max-h-[300px] overflow-hidden' : '') +
                   (expanded && displayText.length > 500 ? ' max-h-[50000px] overflow-hidden' : '')
                 }
               >
-                <div className="font-base">
+                <div className="text-sm leading-[1.4]">
                   {hasShortcutMarkers(displayText) ? (
                     renderTextWithShortcutChips(displayText, onEditShortcut)
                   ) : (
@@ -114,12 +116,14 @@ export function UserMessageRow({
                   )}
                 </div>
                 {!expanded && displayText.length > 500 && (
-                  <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-bg-300 to-transparent pointer-events-none transition-opacity duration-300" />
+                  <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-16 bg-gradient-to-t from-muted to-transparent transition-opacity duration-300" />
                 )}
                 {displayText.length > 500 && (
-                  <button
+                  <Button
                     onClick={() => setExpanded(!expanded)}
-                    className="absolute bottom-0.5 right-0 p-1.5 bg-bg-500 hover:bg-bg-200 rounded-full transition-colors border-[0.5px] border-border-400/50 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+                    variant="outline"
+                    size="icon-xs"
+                    className="pointer-events-none absolute right-0 bottom-0.5 size-6 rounded-full border-border/70 bg-background/95 text-muted-foreground opacity-0 shadow-xs group-hover:pointer-events-auto group-hover:opacity-100 hover:text-foreground"
                     aria-label={expanded ? 'Collapse message' : 'Expand message'}
                   >
                     <div
@@ -127,9 +131,9 @@ export function UserMessageRow({
                         'transition-transform duration-300 ' + (expanded ? 'rotate-180' : '')
                       }
                     >
-                      <ChevronDown size={12} className="text-text-300" />
+                      <ChevronDown size={12} />
                     </div>
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -140,30 +144,34 @@ export function UserMessageRow({
           <div className="h-7 flex justify-end items-center">
             <div className="flex items-center gap-0.5 pr-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
               {onSavePrompt && (
-                <Tooltip tooltipContent="Save as shortcut" side="bottom">
-                  <button
+                <SimpleTooltip tooltipContent="Save as shortcut" side="bottom">
+                  <Button
                     onClick={() => onSavePrompt(displayText)}
-                    className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-6 text-muted-foreground hover:text-foreground"
                     aria-label="Save as shortcut"
                   >
                     <Bookmark size={12} />
-                  </button>
-                </Tooltip>
+                  </Button>
+                </SimpleTooltip>
               )}
-              <Tooltip
+              <SimpleTooltip
                 tooltipContent={copied ? 'Copied' : 'Copy'}
                 side="bottom"
                 open={copied || undefined}
                 delayDuration={copied ? 0 : 200}
               >
-                <button
+                <Button
                   onClick={handleCopy}
-                  className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-6 text-muted-foreground hover:text-foreground"
                   aria-label="Copy message"
                 >
                   {copied ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              </Tooltip>
+                </Button>
+              </SimpleTooltip>
             </div>
           </div>
         )}

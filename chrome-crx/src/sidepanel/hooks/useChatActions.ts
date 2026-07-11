@@ -58,7 +58,6 @@ export function useChatActions({
   const setActiveConversationUuid = useSessionStore((s) => s.setActiveConversationUuid);
   const setActiveRemoteSessionId = useSessionStore((s) => s.setActiveRemoteSessionId);
   const setIsAgentRunning = useAgentStore((s) => s.setIsAgentRunning);
-  const setTokensSaved = useAgentStore((s) => s.setTokensSaved);
   const setRuntimeError = useAgentStore((s) => s.setRuntimeError);
   const setLastStopReason = useAgentStore((s) => s.setLastStopReason);
   const setPermissionPrompt = usePermissionStore((s) => s.setPermissionPrompt);
@@ -82,7 +81,6 @@ export function useChatActions({
         .catch(() => {});
     }
     setApiMessages([]);
-    setTokensSaved(null);
     setRuntimeError(null);
     setLastStopReason(null);
     setActiveConversationUuid(null);
@@ -114,7 +112,6 @@ export function useChatActions({
     setMessages,
     setApiMessages,
     setIsAgentRunning,
-    setTokensSaved,
     setRuntimeError,
     setLastStopReason,
     setActiveConversationUuid,
@@ -146,7 +143,6 @@ export function useChatActions({
       setApiMessages([]);
       setRuntimeError(null);
       setLastStopReason(null);
-      setTokensSaved(null);
       streamingTextStoreRef.current.set('');
       setPendingAttachments([]);
       setPreviewAttachmentImage(null);
@@ -187,7 +183,6 @@ export function useChatActions({
       setApiMessages,
       setRuntimeError,
       setLastStopReason,
-      setTokensSaved,
       setPendingAttachments,
       setPreviewAttachmentImage,
       setAttachmentCount,

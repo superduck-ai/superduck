@@ -5,7 +5,7 @@ export const HEX_COLOR_REGEX = /(#[0-9a-fA-F]{6})\b/;
 export function ColorSwatch({ color }: { color: string }) {
   return (
     <span
-      className="inline-block w-3 h-3 border-[0.5px] border-border-200 rounded flex-shrink-0 shadow-sm mr-1 align-middle"
+      className="mr-1 inline-block h-3 w-3 flex-shrink-0 rounded border border-border align-middle shadow-sm"
       style={{ backgroundColor: color }}
     />
   );
@@ -35,7 +35,7 @@ function processColorSwatches(
 function renderCodeWithSwatch(color: string, key: number) {
   return (
     <code
-      className="bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem] inline-flex items-center h-5"
+      className="inline-flex h-5 items-center whitespace-pre-wrap rounded-md border border-border bg-muted px-1 py-px text-[0.9rem] text-foreground"
       key={key}
     >
       <ColorSwatch color={color} />

@@ -1,28 +1,11 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { Mic, X } from 'lucide-react';
 import { GlobeIcon } from '@/sidepanel/components/icons';
 import { Button } from '../../components/ui';
 
 // Import the hero image
 import recordWorkflowHeroImage from '../assets/recordWorkflowHero.png';
-
-// Microphone icon component
-const MicrophoneIcon: React.FC<{ size?: number; weight?: string; className?: string }> = ({
-  size = 16,
-  weight: _weight = 'regular',
-  className = ''
-}) => (
-  <svg width={size} height={size} viewBox="0 0 256 256" fill="currentColor" className={className}>
-    <path d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V232a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z" />
-  </svg>
-);
-
-// X/Close icon component
-const XIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 256 256" fill="currentColor" className={className}>
-    <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
-  </svg>
-);
 
 interface WorkflowModeSelectionModalProps {
   isOpen: boolean;
@@ -118,32 +101,37 @@ export function WorkflowModeSelectionModal({
   if (!isOpen) return null;
 
   return (
-    <div data-test-id="workflow-mode-selection-modal" className="flex flex-col h-full bg-bg-100">
+    <div
+      data-test-id="workflow-mode-selection-modal"
+      className="flex flex-col h-full bg-background text-foreground"
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-3">
+      <div className="flex items-center justify-between px-4 pt-3 pb-3 border-b border-border/40">
         <div className="flex items-center gap-2">
           {faviconUrl && !faviconError ? (
             <img
               src={faviconUrl}
-              className="w-4 h-4"
+              className="w-4 h-4 rounded-sm"
               alt=""
               onError={() => setFaviconError(true)}
             />
           ) : (
-            <GlobeIcon size={16} className="text-text-300" />
+            <GlobeIcon size={16} className="text-muted-foreground" />
           )}
-          <span className="text-text-200 font-base-sm truncate max-w-[200px]">
+          <span className="text-muted-foreground text-xs truncate max-w-[200px]">
             {pageTitle || domain}
           </span>
         </div>
-        <button
+        <Button
           data-test-id="workflow-mode-close-button"
           onClick={onClose}
-          className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label={intl.formatMessage({ defaultMessage: 'Close', id: 'close' })}
         >
-          <XIcon size={12} />
-        </button>
+          <X size={14} />
+        </Button>
       </div>
 
       {/* Content */}
@@ -163,13 +151,13 @@ export function WorkflowModeSelectionModal({
 
           {/* Text Content */}
           <div className="space-y-2">
-            <h2 className="font-base-bold text-text-100">
+            <h2 className="text-lg font-semibold text-foreground">
               <FormattedMessage
                 defaultMessage="Teach SuperDuck your workflow"
                 id="teach_superduck_your_workflow"
               />
             </h2>
-            <p className="text-text-300 font-base max-w-[280px] mx-auto">
+            <p className="text-sm text-muted-foreground max-w-[280px] mx-auto leading-relaxed">
               {hasMicrophonePermission ? (
                 <FormattedMessage
                   defaultMessage="Go through the steps as if you're teaching a new teammate. SuperDuck will learn the process and repeat it for you."
@@ -187,30 +175,30 @@ export function WorkflowModeSelectionModal({
       </div>
 
       {/* Action Button */}
-      <div className="mx-auto mb-3 max-w-3xl w-full px-3">
+      <div className="mx-auto mb-4 max-w-3xl w-full px-4">
         <div
-          className="bg-bg-000 border-[0.5px] border-border-300 hover:border-border-200 rounded-[14px] relative z-30 transition-colors focus-within:outline-none"
+          className="bg-card border border-border hover:border-border/85 rounded-2xl relative z-30 transition-colors focus-within:outline-none"
           style={{ boxShadow: '0 4px 20px 0 rgba(0, 0, 0, 0.04)', outline: 'none' }}
         >
           <div className="flex flex-col gap-2 px-3 py-3">
             {hasMicrophonePermission ? (
               <Button
-                variant="primary"
+                variant="default"
                 size="default"
                 onClick={handleStartRecording}
-                className="w-full justify-center bg-always-black text-oncolor-100 hover:bg-always-black/90"
+                className="w-full justify-center"
               >
-                <MicrophoneIcon size={16} weight="fill" className="mr-2" />
+                <Mic size={14} className="mr-2 shrink-0" />
                 <FormattedMessage defaultMessage="Start recording" id="start_recording" />
               </Button>
             ) : (
               <Button
-                variant="primary"
+                variant="default"
                 size="default"
                 onClick={handleEnableMicrophone}
-                className="w-full justify-center bg-always-black text-oncolor-100 hover:bg-always-black/90"
+                className="w-full justify-center"
               >
-                <MicrophoneIcon size={16} weight="fill" className="mr-2" />
+                <Mic size={14} className="mr-2 shrink-0" />
                 <FormattedMessage defaultMessage="Enable microphone" id="enable_microphone" />
               </Button>
             )}

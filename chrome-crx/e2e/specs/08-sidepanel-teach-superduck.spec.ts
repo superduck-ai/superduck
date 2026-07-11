@@ -67,3 +67,39 @@ test.describe('Sidepanel input toolbar → Teach SuperDuck button', () => {
     await targetPage.close();
   });
 });
+
+test.describe('Sidepanel command palette → Schedule task', () => {
+  test('opens the shortcut form with scheduling enabled', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    await seedStorage(serviceWorker, getDefaultProviderConfig());
+
+    const targetPage = await context.newPage();
+    await targetPage.goto('https://example.com');
+    await targetPage.bringToFront();
+
+    const targetTabId = await getActiveTabId(serviceWorker);
+    const sidepanel = await openSidepanel(context, extensionId, targetTabId);
+    await expect(sidepanel.locator('#root')).toBeVisible();
+
+    const editor = sidepanel.locator('[data-chat-input-editor="true"]');
+    await editor.fill('/');
+
+    const manageButton = sidepanel.locator('#palette-manage');
+    await expect(manageButton).toBeVisible();
+    await manageButton.click();
+
+    const scheduleTaskButton = sidepanel.locator('#palette-sub-schedule-task');
+    await expect(scheduleTaskButton).toBeVisible();
+    await scheduleTaskButton.click();
+
+    await expect(sidepanel.getByRole('heading', { name: 'Create shortcut' })).toBeVisible();
+    await expect(sidepanel.locator('#shortcut-prompt')).toHaveValue('/');
+    await expect(sidepanel.locator('#shortcut-schedule-toggle')).toBeChecked();
+
+    await sidepanel.close();
+    await targetPage.close();
+  });
+});

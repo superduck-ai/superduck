@@ -76,7 +76,7 @@ export function CommandList({
           })}
         </div>
       ) : (
-        <div className="rounded-[10px] px-2 py-2 text-[11px] text-text-300">
+        <div className="rounded-[10px] px-2 py-2 text-[11px] text-muted-foreground">
           {managedCommandItemsCount > 0 ? labels.commandsInsideManageLabel : labels.noCommandsLabel}
         </div>
       )}

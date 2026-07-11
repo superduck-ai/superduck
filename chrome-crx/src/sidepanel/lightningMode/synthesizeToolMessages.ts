@@ -1,10 +1,9 @@
 import type { MutableRefObject } from 'react';
-import { getUpdatedTabContext, pushTiming } from './runtime';
+import { getUpdatedTabContext } from './runtime';
 import { getLightningScreenshotReminder } from '../sidepanelGuards';
 import type { LightningMessage } from './commands';
 import type { CommandExecutionResult, LightningContentArray } from '../types';
 import type { ApiToolResultContentBlock } from '../../messageTypes';
-import type { Phases } from './streamResponse';
 import type { LightningConfigController } from './config';
 
 export interface SynthesizeToolMessagesParams {
@@ -17,8 +16,6 @@ export interface SynthesizeToolMessagesParams {
   config: LightningConfigController;
   activeTabId: number;
   tabContextHashRef: MutableRefObject<string | null>;
-  iterationStart: number;
-  phases: Phases;
   commandCount: number;
   didSwitchTab: boolean;
   maybeCompactLightningMessages: (messages: LightningMessage[]) => Promise<LightningMessage[]>;
@@ -130,12 +127,6 @@ export async function synthesizeToolMessages(
 
   params.allMessages.push({ role: 'user', content: nextUserContent, _syntheticResult: true });
   params.setLnMessages([...params.allMessages]);
-
-  pushTiming({
-    mode: 'lightning',
-    durationMs: Math.round(performance.now() - params.iterationStart),
-    phases: params.phases
-  });
 
   if (params.commandCount > 0 || params.didSwitchTab) {
     const compactedMessages = await params.maybeCompactLightningMessages(params.allMessages);

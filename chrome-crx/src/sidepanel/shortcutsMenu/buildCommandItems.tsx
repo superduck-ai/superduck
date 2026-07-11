@@ -39,7 +39,7 @@ export function buildShortcutCommandItems(
       icon: (
         <InlineSvgIcon
           svg={runShortcutSvg}
-          className="inline-flex h-[15px] w-[15px] text-text-400"
+          className="inline-flex h-[15px] w-[15px] text-muted-foreground"
         />
       ),
       label: `/${commandLabel}`,
@@ -89,7 +89,10 @@ export function buildSecondaryItems(
     {
       key: 'record-workflow',
       icon: (
-        <InlineSvgIcon svg={cursorAiSvg} className="inline-flex h-[15px] w-[15px] text-text-300" />
+        <InlineSvgIcon
+          svg={cursorAiSvg}
+          className="inline-flex h-[15px] w-[15px] text-muted-foreground"
+        />
       ),
       label: intl.formatMessage({ defaultMessage: 'Record workflow', id: 'record_workflow' }),
       onClick: onRecordWorkflow
@@ -99,7 +102,7 @@ export function buildSecondaryItems(
       icon: (
         <InlineSvgIcon
           svg={calendarSparkleSvg}
-          className="inline-flex h-[15px] w-[15px] text-text-300"
+          className="inline-flex h-[15px] w-[15px] text-muted-foreground"
         />
       ),
       label: intl.formatMessage({ defaultMessage: 'Schedule task', id: 'schedule_task' }),

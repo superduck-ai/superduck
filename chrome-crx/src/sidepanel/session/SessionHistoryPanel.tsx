@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Clock, Trash2, X, MessageSquare, ChevronRight } from 'lucide-react';
+import { Clock, Trash2, MessageSquare, ChevronRight } from 'lucide-react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { getStorageValue, setStorageValue } from '../../extensionServices';
 import { loadProviderConfig } from '../../utils/providerStore';
@@ -259,157 +259,132 @@ export function SessionHistoryPanel({
 
   const displayEntries = entries;
 
-  if (!isOpen) return null;
-
   return (
-    <div className="absolute inset-0 z-[20] flex">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-
-      {/* Panel */}
-      <div className="relative ml-auto w-[85%] max-w-[360px] h-full bg-bg-100 border-l border-border-200 shadow-xl flex flex-col animate-slide-in-right">
-        {/* Header */}
-        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border-300">
-          <div className="flex items-center gap-2">
-            <Clock size={14} className="text-text-300" />
-            <h2 className="text-sm font-medium text-text-100">
-              <FormattedMessage id="chat_history_title" defaultMessage="Chat history" />
-            </h2>
-            {displayEntries.length > 0 && (
-              <span className="text-xs text-text-400 bg-bg-300 px-1.5 py-0.5 rounded-full">
-                {displayEntries.length}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-md text-text-300 hover:bg-bg-300 hover:text-text-100 transition-colors"
-            aria-label={translate('chat_history_close')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-sm text-text-400">
-                <FormattedMessage id="loading" defaultMessage="Loading..." />
-              </div>
-            </div>
-          ) : displayEntries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-              <MessageSquare size={24} className="text-text-500 mb-3" />
-              <p className="text-sm text-text-400">
-                <FormattedMessage id="chat_history_empty" defaultMessage="No chat history yet" />
-              </p>
-              <p className="text-xs text-text-500 mt-1">
-                <FormattedMessage
-                  id="chat_history_empty_hint"
-                  defaultMessage="Conversations will be saved here once you start chatting"
-                />
-              </p>
-            </div>
-          ) : (
-            <div className="py-1">
-              {displayEntries.map((entry) => {
-                const isDeleting = deletingId === entry.sessionId;
-                const isActive = entry.sessionId === activeSessionId;
-                const modelLabel = getSessionModelLabel(entry.model, providerNameById);
-                return (
-                  // Outer row is a div, not a button, so the nested
-                  // delete <button> stays valid HTML and reachable for
-                  // keyboard / screen-reader users.
-                  <div
-                    key={entry.sessionId}
-                    role="button"
-                    tabIndex={isDeleting ? -1 : 0}
-                    aria-disabled={isDeleting}
-                    aria-label={`${isActive ? translate('chat_history_current_session') : translate('chat_history_load_session')} ${truncatePreview(entry.preview, 30, translate)}`}
-                    onClick={() => {
-                      if (!isDeleting) handleLoad(entry);
-                    }}
-                    onKeyDown={(e) => {
-                      if (isDeleting) return;
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleLoad(entry);
-                      }
-                    }}
-                    className={
-                      'w-full group flex items-start gap-3 px-4 py-3 text-left hover:bg-bg-200 transition-colors ' +
-                      (isActive ? 'bg-bg-200/70 ' : '') +
-                      (isDeleting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer')
-                    }
-                  >
-                    <div className="shrink-0 mt-0.5">
-                      <MessageSquare
-                        size={14}
-                        className={
-                          isDeleting ? 'text-text-500' : 'text-text-400 group-hover:text-text-200'
-                        }
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-text-200 truncate leading-snug">
-                        {isDeleting
-                          ? translate('chat_history_deleting')
-                          : truncatePreview(entry.preview, 60, translate)}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[11px] text-text-500">
-                          {formatRelativeTime(entry.updatedAt, undefined, translate, intl.locale)}
-                        </span>
-                        {modelLabel && (
-                          <span className="text-[10px] text-text-500 bg-bg-300 px-1 py-0.5 rounded truncate max-w-[80px]">
-                            {modelLabel}
-                          </span>
-                        )}
-                        {isActive && (
-                          <span className="text-[10px] text-text-400 bg-bg-300 px-1 py-0.5 rounded">
-                            <FormattedMessage
-                              id="chat_history_current_badge"
-                              defaultMessage="Current"
-                            />
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {isActive ? null : (
-                        <button
-                          type="button"
-                          onClick={(e) => handleDelete(entry, e)}
-                          className="p-1 rounded-md text-text-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          aria-label={translate('chat_history_delete_conversation')}
-                          title={translate('chat_history_delete_conversation')}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                      {isActive ? null : <ChevronRight size={12} className="text-text-500" />}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+    <div className="w-full flex flex-col bg-popover text-popover-foreground rounded-lg select-none">
+      {/* Header */}
+      <div className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Clock size={14} className="text-muted-foreground" />
+          <h2 className="text-xs font-semibold">
+            <FormattedMessage id="chat_history_title" defaultMessage="Chat history" />
+          </h2>
+          {displayEntries.length > 0 && (
+            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full font-medium">
+              {displayEntries.length}
+            </span>
           )}
         </div>
+      </div>
+
+      {/* Content */}
+      <div className="relative max-h-[320px] overflow-y-auto message-scroller py-1 px-1.5">
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="text-xs text-muted-foreground">
+              <FormattedMessage id="loading" defaultMessage="Loading..." />
+            </div>
+          </div>
+        ) : displayEntries.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 px-4 text-center select-none">
+            <MessageSquare size={20} className="text-muted-foreground/60 mb-2" />
+            <p className="text-xs font-medium text-muted-foreground">
+              <FormattedMessage id="chat_history_empty" defaultMessage="No chat history yet" />
+            </p>
+            <p className="text-[10px] text-muted-foreground/80 mt-0.5">
+              <FormattedMessage
+                id="chat_history_empty_hint"
+                defaultMessage="Conversations will be saved here once you start chatting"
+              />
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {displayEntries.map((entry) => {
+              const isDeleting = deletingId === entry.sessionId;
+              const isActive = entry.sessionId === activeSessionId;
+              const modelLabel = getSessionModelLabel(entry.model, providerNameById);
+              return (
+                <div
+                  key={entry.sessionId}
+                  role="button"
+                  tabIndex={isDeleting ? -1 : 0}
+                  aria-disabled={isDeleting}
+                  aria-label={`${isActive ? translate('chat_history_current_session') : translate('chat_history_load_session')} ${truncatePreview(entry.preview, 30, translate)}`}
+                  onClick={() => {
+                    if (!isDeleting) handleLoad(entry);
+                  }}
+                  onKeyDown={(e) => {
+                    if (isDeleting) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleLoad(entry);
+                    }
+                  }}
+                  className={
+                    'w-full group flex items-start gap-2 px-2.5 py-2 text-left rounded-md transition-colors ' +
+                    (isActive
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground') +
+                    (isDeleting ? ' opacity-50 cursor-not-allowed' : ' cursor-pointer')
+                  }
+                >
+                  <div className="shrink-0 mt-0.5">
+                    <MessageSquare
+                      size={13}
+                      className={
+                        isDeleting
+                          ? 'text-muted-foreground/45'
+                          : 'text-muted-foreground/70 group-hover:text-muted-foreground'
+                      }
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground truncate leading-normal">
+                      {isDeleting
+                        ? translate('chat_history_deleting')
+                        : truncatePreview(entry.preview, 60, translate)}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[10px] text-muted-foreground/80">
+                        {formatRelativeTime(entry.updatedAt, undefined, translate, intl.locale)}
+                      </span>
+                      {modelLabel && (
+                        <span className="text-[9px] text-muted-foreground/80 bg-muted/65 px-1 py-0.5 rounded truncate max-w-[70px]">
+                          {modelLabel}
+                        </span>
+                      )}
+                      {isActive && (
+                        <span className="text-[9px] text-primary/90 bg-primary/10 px-1 py-0.5 rounded font-medium">
+                          <FormattedMessage
+                            id="chat_history_current_badge"
+                            defaultMessage="Current"
+                          />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {isActive ? null : (
+                      <button
+                        type="button"
+                        onClick={(e) => handleDelete(entry, e)}
+                        className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label={translate('chat_history_delete_conversation')}
+                        title={translate('chat_history_delete_conversation')}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                    {isActive ? null : (
+                      <ChevronRight size={12} className="text-muted-foreground/50" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
-// ─── CSS animation (add to a global stylesheet or inline) ─────────────────────
-
-export const SESSION_HISTORY_PANEL_STYLES = `
-@keyframes slide-in-right {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
-.animate-slide-in-right {
-  animation: slide-in-right 0.2s ease-out;
-}
-`;

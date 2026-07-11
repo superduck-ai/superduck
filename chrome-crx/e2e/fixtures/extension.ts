@@ -35,21 +35,50 @@ export const test = base.extend<ExtensionFixtures>({
   },
 
   extensionId: async ({ context }, use) => {
-    let sw = context.serviceWorkers()[0];
-    if (!sw) {
-      sw = await context.waitForEvent("serviceworker");
-    }
+    const sw = await getServiceWorker(context);
     const id = sw.url().split("/")[2];
     await use(id);
   },
 
   serviceWorker: async ({ context }, use) => {
-    let sw = context.serviceWorkers()[0];
-    if (!sw) {
-      sw = await context.waitForEvent("serviceworker");
-    }
+    const sw = await getServiceWorker(context);
     await use(sw);
   },
 });
+
+async function getServiceWorker(context: BrowserContext): Promise<Worker> {
+  const sw = context.serviceWorkers()[0];
+  if (sw) return sw;
+
+  return new Promise<Worker>((resolve, reject) => {
+    let resolved = false;
+    const timer = setInterval(() => {
+      const currentSw = context.serviceWorkers()[0];
+      if (currentSw) {
+        clearInterval(timer);
+        if (!resolved) {
+          resolved = true;
+          resolve(currentSw);
+        }
+      }
+    }, 100);
+
+    context.waitForEvent("serviceworker")
+      .then((eventSw) => {
+        clearInterval(timer);
+        if (!resolved) {
+          resolved = true;
+          resolve(eventSw);
+        }
+      })
+      .catch((err) => {
+        clearInterval(timer);
+        if (!resolved) {
+          resolved = true;
+          reject(err);
+        }
+      });
+  });
+}
 
 export { expect } from "@playwright/test";

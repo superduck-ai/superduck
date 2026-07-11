@@ -131,6 +131,7 @@ interface RichTextInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  ariaLabel?: string;
   placeholder?: string;
   disabled?: boolean;
   onCommandTrigger?: (query: string) => void;
@@ -138,7 +139,7 @@ interface RichTextInputProps {
 }
 
 export const RichTextInput = forwardRef<RichTextInputHandle, RichTextInputProps>(
-  ({ value, onChange, onSubmit, placeholder, disabled }, ref) => {
+  ({ value, onChange, onSubmit, ariaLabel = 'Message SuperDuck', placeholder, disabled }, ref) => {
     const latestValueRef = useRef(value);
     latestValueRef.current = value;
 
@@ -162,9 +163,13 @@ export const RichTextInput = forwardRef<RichTextInputHandle, RichTextInputProps>
       content: value,
       editorProps: {
         attributes: {
+          'aria-label': ariaLabel,
+          'aria-multiline': 'true',
           class:
-            'w-full resize-none focus:outline-none focus:ring-0 focus:border-transparent text-text-100 overflow-y-auto text-sm max-w-none bg-transparent',
-          style: 'min-height: 24px; max-height: 50vh; outline: none;'
+            'w-full resize-none focus:outline-none focus:ring-0 focus:border-transparent text-foreground overflow-y-auto text-sm max-w-none bg-transparent',
+          'data-chat-input-editor': 'true',
+          role: 'textbox',
+          style: 'min-height: 24px; max-height: 160px; outline: none;'
         },
         handleKeyDown: (view, event) => {
           // Enter 提交（不按 Shift）
@@ -250,6 +255,11 @@ export const RichTextInput = forwardRef<RichTextInputHandle, RichTextInputProps>
         }
       }
     }, [placeholder, editor]);
+
+    useEffect(() => {
+      if (!editor) return;
+      editor.view.dom.setAttribute('aria-label', ariaLabel);
+    }, [ariaLabel, editor]);
 
     return <EditorContent editor={editor} />;
   }

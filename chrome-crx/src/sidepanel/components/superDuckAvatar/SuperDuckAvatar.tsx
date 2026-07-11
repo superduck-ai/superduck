@@ -217,7 +217,7 @@ export function SuperDuckAvatar({
         className="inline-block"
       >
         <div
-          className={`w-8 text-accent-brand inline-block select-none ${className}`}
+          className={`w-8 text-brand inline-block select-none ${className}`}
           onMouseDown={handleClick}
         >
           <DuckLogo className="w-full" />
@@ -237,7 +237,7 @@ export function SuperDuckAvatar({
       className="inline-block"
     >
       <div
-        className={`w-8 text-accent-brand inline-block overflow-hidden select-none ${className}`}
+        className={`w-8 text-brand inline-block overflow-hidden select-none ${className}`}
         style={{ aspectRatio }}
         onMouseDown={handleClick}
       >

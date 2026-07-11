@@ -4,7 +4,7 @@ import { useIntlSafe } from '../../index-react-dom-intl';
 import { isTextContentBlock, isToolUseContentBlock } from '../../messageTypes';
 import type { ApiConversationMessage, ApiMessageBlock } from '../../messageTypes';
 import { trackEvent } from '../../mcpRuntime';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+import { Button, SimpleTooltip } from '@/components/ui';
 import { ContentBlocksRenderer } from './ContentBlocksRenderer';
 
 export function AssistantMessageRow({
@@ -68,7 +68,7 @@ export function AssistantMessageRow({
           <div className="h-7 flex items-center">
             <div className="flex items-center gap-0.5 -ml-1.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
               {finalAnswerText && (
-                <Tooltip
+                <SimpleTooltip
                   tooltipContent={
                     copied
                       ? intl.formatMessage({ id: 'copied', defaultMessage: 'Copied' })
@@ -78,26 +78,28 @@ export function AssistantMessageRow({
                   open={copied || undefined}
                   delayDuration={copied ? 0 : 200}
                 >
-                  <button
+                  <Button
                     onClick={handleCopy}
-                    className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-6 text-muted-foreground hover:text-foreground"
                     aria-label={intl.formatMessage({
                       id: 'copy_message',
                       defaultMessage: 'Copy message'
                     })}
                   >
                     {copied ? <Check size={12} /> : <Copy size={12} />}
-                  </button>
-                </Tooltip>
+                  </Button>
+                </SimpleTooltip>
               )}
-              <Tooltip
+              <SimpleTooltip
                 tooltipContent={intl.formatMessage({
                   id: 'give_positive_feedback',
                   defaultMessage: 'Give positive feedback'
                 })}
                 side="bottom"
               >
-                <button
+                <Button
                   onClick={() => {
                     const next = feedback === 'positive' ? null : 'positive';
                     setFeedback(next);
@@ -106,23 +108,25 @@ export function AssistantMessageRow({
                         sentiment: 'positive'
                       });
                   }}
-                  className={`p-1.5 rounded-md transition-colors ${feedback === 'positive' ? 'text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'}`}
+                  variant="ghost"
+                  size="icon-xs"
+                  className={`size-6 ${feedback === 'positive' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   aria-label={intl.formatMessage({
                     id: 'good_response',
                     defaultMessage: 'Good response'
                   })}
                 >
                   <ThumbsUp size={12} />
-                </button>
-              </Tooltip>
-              <Tooltip
+                </Button>
+              </SimpleTooltip>
+              <SimpleTooltip
                 tooltipContent={intl.formatMessage({
                   id: 'give_negative_feedback',
                   defaultMessage: 'Give negative feedback'
                 })}
                 side="bottom"
               >
-                <button
+                <Button
                   onClick={() => {
                     const next = feedback === 'negative' ? null : 'negative';
                     setFeedback(next);
@@ -131,15 +135,17 @@ export function AssistantMessageRow({
                         sentiment: 'negative'
                       });
                   }}
-                  className={`p-1.5 rounded-md transition-colors ${feedback === 'negative' ? 'text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'}`}
+                  variant="ghost"
+                  size="icon-xs"
+                  className={`size-6 ${feedback === 'negative' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   aria-label={intl.formatMessage({
                     id: 'bad_response',
                     defaultMessage: 'Bad response'
                   })}
                 >
                   <ThumbsDown size={12} />
-                </button>
-              </Tooltip>
+                </Button>
+              </SimpleTooltip>
             </div>
           </div>
         )}

@@ -1,6 +1,6 @@
 .rich-text-input {
   min-height: 24px;
-  max-height: 50vh;
+  max-height: 160px;
   overflow-y: auto;
   outline: none;
   white-space: pre-wrap;
@@ -16,7 +16,6 @@
 
 .rich-text-input:focus {
   outline: none;
-  ring: 0;
   border-color: transparent;
 }
 
@@ -27,13 +26,13 @@
 .rich-text-input .is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #999;
+  color: var(--muted-foreground);
   pointer-events: none;
   height: 0;
 }
 
 .shortcut-chip {
-  --shortcut-chip-color: hsl(var(--accent-secondary-100));
+  --shortcut-chip-color: var(--primary);
   --shortcut-chip-highlight: color-mix(in srgb, var(--shortcut-chip-color) 45%, white);
   display: inline-block;
   padding: 0;
@@ -72,12 +71,14 @@
 /* TipTap ProseMirror 样式 */
 .ProseMirror {
   outline: none;
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #999;
+  color: var(--muted-foreground);
   pointer-events: none;
   height: 0;
 }

@@ -1,8 +1,8 @@
 import ReactDOM from 'react-dom/client';
 import { IntlMessageLoaderProvider } from '../index-react-dom-intl';
 import SidepanelApp from './SidepanelApp';
+import { initSidepanelThemeMode } from './themeMode';
 import 'katex/dist/katex.min.css';
-import '../styles/scheduling.css';
 
 // Telemetry disabled — Sentry and Honeycomb are upstream production
 // telemetry. They install MutationObservers, PerformanceObservers, and XHR
@@ -10,6 +10,8 @@ import '../styles/scheduling.css';
 // debugging.
 // safeInit('sentry', initSentry);
 // safeInit('honeycomb', initHoneycomb);
+
+initSidepanelThemeMode();
 
 const root = document.getElementById('root');
 if (!root) {

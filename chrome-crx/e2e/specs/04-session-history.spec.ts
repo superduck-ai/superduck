@@ -801,8 +801,10 @@ test.describe('Session history: user-only interrupted turns', () => {
     await sp.waitForTimeout(2500);
     await sp.locator('button[aria-label="History"]').click();
 
-    await expect(sp.getByRole('heading', { name: '历史对话' })).toBeVisible({ timeout: 5000 });
-    await expect(sp.getByRole('button', { name: `当前会话 ${prompt}` })).toBeVisible({
+    await expect(sp.getByRole('heading', { name: /历史对话|Chat history/ })).toBeVisible({ timeout: 5000 });
+    await expect(
+      sp.getByRole('button', { name: new RegExp(`(当前会话|Current chat) ${prompt}`) })
+    ).toBeVisible({
       timeout: 5000
     });
 

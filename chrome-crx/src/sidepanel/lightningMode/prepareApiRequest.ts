@@ -2,7 +2,7 @@ import type { MutableRefObject } from 'react';
 import type { Span } from '@opentelemetry/api';
 import { dispatchMessagesClient } from '../../utils/providerClient';
 import { MessagesClient } from '../../mcpServersStore';
-import { getModelsConfig } from '../../components/providers/AppProviders';
+import type { ModelsConfigFeatureValue } from '../../extensionServices';
 import {
   filterSyntheticMessages,
   manageScreenshotHistory,
@@ -18,7 +18,7 @@ export interface PrepareApiRequestParams {
   config: LightningConfigController;
   systemPrompt: LightningSystemPromptBlock[];
   client: MessagesClient;
-  modelsConfigRef: MutableRefObject<ReturnType<typeof getModelsConfig>>;
+  modelsConfigRef: MutableRefObject<ModelsConfigFeatureValue>;
   abortControllerRef: MutableRefObject<AbortController | null>;
   span: Span;
   getEffectiveModel: () => string;

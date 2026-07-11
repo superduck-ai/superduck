@@ -5,8 +5,6 @@ import { shouldShowPlanMode } from '../../mcpRuntime/pageToolsSupport/helpers';
 import { DEFAULT_BROWSER_SESSION_ID } from '../../mcpRuntime/sessionScope';
 import { parseCompactCommands, type LightningMessage, type ParsedCommand } from './commands';
 import { getPageType } from '../conversation/planMode';
-import { pushTiming } from './runtime';
-import type { Phases } from './streamResponse';
 
 const DEFAULT_BROWSER_SESSION_CONTEXT = {
   browserSessionScope: { sessionId: DEFAULT_BROWSER_SESSION_ID },
@@ -31,8 +29,6 @@ export interface ParseCommandsParams {
   planApprovedRef: MutableRefObject<boolean>;
   activeTabId: number;
   span: Span;
-  iterationStart: number;
-  phases: Phases;
 }
 
 export interface ParseCommandsResult {
@@ -54,11 +50,6 @@ export async function parseCommands(params: ParseCommandsParams): Promise<ParseC
 
   if (commands.length === 0) {
     params.setLnCurrentStatus('');
-    pushTiming({
-      mode: 'lightning',
-      durationMs: Math.round(performance.now() - params.iterationStart),
-      phases: params.phases
-    });
     return {
       shouldReturn: true,
       continueLoop: false,

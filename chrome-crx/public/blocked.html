@@ -1,85 +1,84 @@
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Page Blocked</title>
     <style>
+      :root {
+        /* Light mode colors */
+        --background: hsl(48 33.3% 97.1%);
+        --foreground: #3d3d3a;
+      }
+
+      @media (prefers-color-scheme: dark) {
         :root {
-            /* Light mode colors */
-            --bg-100: hsl(48 33.3% 97.1%);
-            --text-300: #3d3d3a;
+          /* Dark mode colors */
+          --background: hsl(60 2.7% 14.5%);
+          --foreground: hsl(60 2.5% 66.5%);
         }
+      }
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                /* Dark mode colors */
-                --bg-100: hsl(60 2.7% 14.5%);
-                --text-300: hsl(60 2.5% 66.5%);
-            }
-        }
+      body {
+        background: var(--background);
+        margin: 0;
+        padding: 20px;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
 
-        body {
-            background: var(--bg-100);
-            margin: 0;
-            padding: 20px;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        p {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-            "Helvetica Neue", Arial, sans-serif;
-            font-size: 16px;
-            font-style: normal;
-            font-weight: 400;
-            line-height: 140%;
-            letter-spacing: -0.48px;
-            color: var(--text-300);
-            text-align: center;
-            margin: 0;
-            font-feature-settings: "salt" on;
-            max-width: 600px;
-        }
+      p {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        font-size: 16px;
+        font-style: normal;
+        font-weight: 400;
+        line-height: 140%;
+        letter-spacing: -0.48px;
+        color: var(--foreground);
+        text-align: center;
+        margin: 0;
+        font-feature-settings: 'salt' on;
+        max-width: 600px;
+      }
     </style>
-</head>
-<body>
-<p id="blocked-message">
-    The content on this page isn't available<br/>when SuperDuck is active for
-    safety reasons.
-</p>
-<script>
-    (function () {
+  </head>
+  <body>
+    <p id="blocked-message">
+      The content on this page isn't available<br />when SuperDuck is active for safety reasons.
+    </p>
+    <script>
+      (function () {
         var i18n = {
-            'zh-CN': {
-                title: '页面已屏蔽',
-                message: '出于安全原因，SuperDuck 处于活动状态时此页面的内容不可用。'
-            }
+          'zh-CN': {
+            title: '页面已屏蔽',
+            message: '出于安全原因，SuperDuck 处于活动状态时此页面的内容不可用。'
+          }
         };
 
         function applyLocale(locale) {
-            var lang = locale && locale.startsWith('zh') ? 'zh-CN' : null;
-            if (lang && i18n[lang]) {
-                document.title = i18n[lang].title;
-                document.getElementById('blocked-message').textContent = i18n[lang].message;
-                document.documentElement.lang = 'zh';
-            }
+          var lang = locale && locale.startsWith('zh') ? 'zh-CN' : null;
+          if (lang && i18n[lang]) {
+            document.title = i18n[lang].title;
+            document.getElementById('blocked-message').textContent = i18n[lang].message;
+            document.documentElement.lang = 'zh';
+          }
         }
 
         try {
-            chrome.storage.local.get('preferred_locale', function (result) {
-                if (result && result.preferred_locale) {
-                    applyLocale(result.preferred_locale);
-                } else {
-                    applyLocale(navigator.language);
-                }
-            });
+          chrome.storage.local.get('preferred_locale', function (result) {
+            if (result && result.preferred_locale) {
+              applyLocale(result.preferred_locale);
+            } else {
+              applyLocale(navigator.language);
+            }
+          });
         } catch (e) {
-            applyLocale(navigator.language);
+          applyLocale(navigator.language);
         }
-    })();
-</script>
-</body>
+      })();
+    </script>
+  </body>
 </html>

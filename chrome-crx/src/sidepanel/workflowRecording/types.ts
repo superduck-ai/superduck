@@ -67,6 +67,5 @@ export interface KeystrokeUpdate {
 
 export interface UseWorkflowRecordingProps {
   tabId: number;
-  onComplete?: (steps: WorkflowStep[]) => void;
   createMessage?: ModelInvoker;
 }

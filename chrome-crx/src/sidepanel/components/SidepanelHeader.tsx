@@ -1,8 +1,5 @@
-import { useRef } from 'react';
 import {
   ChevronDown,
-  ChevronRight,
-  Check,
   Clock,
   MessageSquarePlus,
   MoreHorizontal,
@@ -12,7 +9,6 @@ import {
   Workflow,
   Zap
 } from 'lucide-react';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
 import { MemoizedFormattedMessage, useIntlSafe } from '../../index-react-dom-intl';
 import type { SupportedLocale } from '../../index-react-dom-intl';
 import { NativeHostStatusButton } from './NativeHostStatusButton';
@@ -23,14 +19,28 @@ import {
   usePreferredLocale
 } from '../../index-react-dom-intl';
 import { trackEvent } from '../../mcpRuntime';
-import { useMenuClickOutside } from '../hooks/useMenuClickOutside';
 import { useSidepanelViewState } from '../contexts/SidepanelViewStateContext';
+import { SessionHistoryPanel } from '../session/SessionHistoryPanel';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  SimpleTooltip
+} from '@/components/ui';
 
 export function SidepanelHeader() {
   const state = useSidepanelViewState();
   const intl = useIntlSafe();
-  const modelMenuRef = useRef<HTMLDivElement | null>(null);
-  const headerMenuRef = useRef<HTMLDivElement | null>(null);
 
   // ─── Read state from Zustand stores (no prop drilling) ───────────────────
   const isModelMenuOpen = useUIStore((s) => s.isModelMenuOpen);
@@ -42,60 +52,61 @@ export function SidepanelHeader() {
   const setPurlModeToggle = useUIStore((s) => s.setPurlModeToggle);
   const { locale } = usePreferredLocale();
 
-  useMenuClickOutside(isHeaderMenuOpen, headerMenuRef, () => {
-    setIsHeaderMenuOpen(false);
-    setIsLanguageSubmenuOpen(false);
-  });
-  useMenuClickOutside(isModelMenuOpen, modelMenuRef, () => setIsModelMenuOpen(false));
-
   return (
-    <header className="shrink-0 flex justify-between items-center px-4 pt-3 pb-3">
+    <header className="sticky top-0 z-50 flex shrink-0 items-center justify-between bg-background/60 px-4 py-2 backdrop-blur-md transition-all duration-200">
       <div className="flex items-center gap-3">
-        <div ref={modelMenuRef} className="relative">
-          <button
-            type="button"
-            className="hide-focus-ring py-1 px-2 rounded-md transition-colors text-text-200 hover:bg-bg-300 hover:text-text-100"
-            onClick={() => {
-              setIsHeaderMenuOpen(false);
-              setIsLanguageSubmenuOpen(false);
-              setIsModelMenuOpen(!isModelMenuOpen);
-            }}
-            aria-haspopup="menu"
-            aria-expanded={isModelMenuOpen}
-            aria-label={intl.formatMessage({
-              defaultMessage: 'Select model',
-              id: 'select_model'
-            })}
+        <DropdownMenu open={isModelMenuOpen} onOpenChange={setIsModelMenuOpen}>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="group flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-foreground/85 transition-all duration-150 hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/45"
+                onClick={() => {
+                  setIsHeaderMenuOpen(false);
+                  setIsLanguageSubmenuOpen(false);
+                }}
+                aria-label={intl.formatMessage({
+                  defaultMessage: 'Select model',
+                  id: 'select_model'
+                })}
+              />
+            }
           >
-            <span className="flex items-center gap-1.5">
-              <span className="text-[12px] font-ui font-normal leading-[140%] tracking-[-0.2px]">
+            <span className="flex items-center gap-1.5 font-sans">
+              <span className="text-[13px] font-medium leading-5 tracking-[-0.1px]">
                 {state.selectedModelLabel}
               </span>
-              <ChevronDown size={12} className="text-text-300" />
+              <ChevronDown
+                size={12}
+                className="text-muted-foreground/75 transition-transform duration-200 group-aria-expanded:rotate-180"
+              />
             </span>
-          </button>
-          {isModelMenuOpen ? (
-            <div className="absolute left-0 top-full mt-2 z-50 min-w-[240px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5 max-h-60 overflow-y-auto">
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="max-h-60 min-w-[240px] overflow-y-auto"
+            align="start"
+            sideOffset={8}
+          >
+            <DropdownMenuRadioGroup
+              value={state.effectiveSelectedModel}
+              onValueChange={(val) => state.handleModelChange(val)}
+            >
               {state.normalizedModelOptions.map((option) => (
-                <button
+                <DropdownMenuRadioItem
                   key={option.value}
-                  type="button"
-                  onClick={() => state.handleModelChange(option.value)}
-                  className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
+                  value={option.value}
+                  className="flex min-h-8 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <span className="flex-1">{option.label}</span>
-                  {option.value === state.effectiveSelectedModel ? (
-                    <Check size={14} className="text-accent-secondary-200" />
-                  ) : null}
-                </button>
+                </DropdownMenuRadioItem>
               ))}
-            </div>
-          ) : null}
-        </div>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-1">
         {state.purlModeFeatureEnabled && (
-          <Tooltip tooltipContent="Quick mode" side="bottom">
+          <SimpleTooltip tooltipContent="Quick mode" side="bottom">
             <button
               type="button"
               onClick={() => {
@@ -110,17 +121,21 @@ export function SidepanelHeader() {
                 }
               }}
               disabled={state.effectiveIsAgentRunning}
-              className={`p-1.5 rounded-md transition-colors ${
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 ${
                 state.isPurlMode
-                  ? 'text-accent-main-100 bg-bg-300'
-                  : 'text-text-300 hover:bg-bg-300 hover:text-text-100'
+                  ? 'bg-warning/10 text-warning hover:bg-warning/20'
+                  : 'text-muted-foreground/80 hover:bg-muted/40 hover:text-foreground'
               } ${state.effectiveIsAgentRunning ? 'opacity-40 cursor-not-allowed' : ''}`}
               aria-label="Toggle quick mode"
               data-test-id={state.isPurlMode ? 'lightning-mode-active' : 'lightning-mode-inactive'}
             >
-              <Zap size={12} fill={state.isPurlMode ? 'currentColor' : 'none'} />
+              <Zap
+                size={16}
+                fill={state.isPurlMode ? 'currentColor' : 'none'}
+                className="transition-transform duration-300 hover:scale-105"
+              />
             </button>
-          </Tooltip>
+          </SimpleTooltip>
         )}
         <NativeHostStatusButton
           intl={intl}
@@ -131,122 +146,134 @@ export function SidepanelHeader() {
             setIsLanguageSubmenuOpen(false);
           }}
         />
+        <Popover open={state.showHistoryPanel} onOpenChange={state.setShowHistoryPanel}>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground/85 transition-all duration-150 hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/45 data-[popup-open]:bg-muted/55 data-[popup-open]:text-foreground"
+                aria-label={intl.formatMessage({ defaultMessage: 'History', id: 'history' })}
+                title={intl.formatMessage({ defaultMessage: 'History', id: 'history' })}
+              />
+            }
+          >
+            <Clock size={16} className="transition-transform duration-200 hover:rotate-12" />
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[min(290px,calc(100vw-1.5rem))] p-0 backdrop-blur-md"
+            align="end"
+            sideOffset={8}
+          >
+            <SessionHistoryPanel
+              isOpen={state.showHistoryPanel}
+              onClose={() => state.setShowHistoryPanel(false)}
+              onLoadSession={state.handleLoadHistorySession}
+              activeSessionId={state.activeSessionId}
+            />
+          </PopoverContent>
+        </Popover>
         <button
           type="button"
-          className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
-          onClick={() => state.setShowHistoryPanel(true)}
-          aria-label={intl.formatMessage({ defaultMessage: 'History', id: 'history' })}
-          title={intl.formatMessage({ defaultMessage: 'History', id: 'history' })}
-        >
-          <Clock size={14} />
-        </button>
-        <button
-          type="button"
-          className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground/85 transition-all duration-150 hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/45"
           onClick={state.clearConversation}
           aria-label={intl.formatMessage({ defaultMessage: 'Clear chat', id: 'clear_chat' })}
           title={intl.formatMessage({ defaultMessage: 'Clear chat', id: 'clear_chat' })}
         >
-          <MessageSquarePlus size={14} />
+          <MessageSquarePlus
+            size={16}
+            className="transition-transform duration-200 hover:scale-105"
+          />
         </button>
-        <div ref={headerMenuRef} className="relative">
-          <button
-            type="button"
-            className="hide-focus-ring p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
-            onClick={() => {
-              setIsModelMenuOpen(false);
-              if (isHeaderMenuOpen) {
-                setIsLanguageSubmenuOpen(false);
-              }
-              setIsHeaderMenuOpen(!isHeaderMenuOpen);
-            }}
-            aria-label={intl.formatMessage({ defaultMessage: 'Menu', id: 'menu' })}
-            title={intl.formatMessage({ defaultMessage: 'Menu', id: 'menu' })}
-            data-test-id="header-menu-toggle"
+        <DropdownMenu open={isHeaderMenuOpen} onOpenChange={setIsHeaderMenuOpen}>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground/85 transition-all duration-150 hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/45 data-[popup-open]:bg-muted/55 data-[popup-open]:text-foreground"
+                onClick={() => {
+                  setIsModelMenuOpen(false);
+                }}
+                aria-label={intl.formatMessage({ defaultMessage: 'Menu', id: 'menu' })}
+                title={intl.formatMessage({ defaultMessage: 'Menu', id: 'menu' })}
+                data-test-id="header-menu-toggle"
+              />
+            }
           >
-            <MoreHorizontal size={12} />
-          </button>
-          {isHeaderMenuOpen ? (
-            <div className="absolute right-0 top-full mt-2 z-50 w-[240px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
-              <button
-                type="button"
-                onClick={state.handleConvertToScheduledTask}
-                disabled={
-                  state.isConvertingToTask ||
-                  state.effectiveIsAgentRunning ||
-                  (!state.hasChatMessages && !state.input.trim())
-                }
-                className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors disabled:opacity-40"
-              >
-                {state.isConvertingToTask ? (
-                  <Loader2 size={16} className="animate-spin shrink-0" />
-                ) : (
-                  <Workflow size={16} className="shrink-0" />
-                )}
+            <MoreHorizontal
+              size={16}
+              className="transition-transform duration-200 hover:scale-105"
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-[240px]" align="end" sideOffset={8}>
+            <DropdownMenuItem
+              onClick={state.handleConvertToScheduledTask}
+              disabled={
+                state.isConvertingToTask ||
+                state.effectiveIsAgentRunning ||
+                (!state.hasChatMessages && !state.input.trim())
+              }
+              className="flex min-h-8 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            >
+              {state.isConvertingToTask ? (
+                <Loader2 size={16} className="animate-spin shrink-0" />
+              ) : (
+                <Workflow size={16} className="shrink-0" />
+              )}
+              <span className="flex-1">
+                <MemoizedFormattedMessage defaultMessage="Convert to task" id="convert_to_task" />
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={state.openOptionsPage}
+              data-test-id="menu-item-settings"
+              className="flex min-h-8 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Settings2 size={16} className="shrink-0" />
+              <span className="flex-1">
+                <MemoizedFormattedMessage defaultMessage="Settings" id="settings" />
+              </span>
+            </DropdownMenuItem>
+
+            <DropdownMenuSub open={isLanguageSubmenuOpen} onOpenChange={setIsLanguageSubmenuOpen}>
+              <DropdownMenuSubTrigger className="flex min-h-8 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted hover:text-foreground">
+                <Languages size={16} className="shrink-0" />
                 <span className="flex-1">
-                  <MemoizedFormattedMessage defaultMessage="Convert to task" id="convert_to_task" />
+                  <MemoizedFormattedMessage defaultMessage="Language" id="language" />
                 </span>
-              </button>
-              <button
-                type="button"
-                onClick={state.openOptionsPage}
-                data-test-id="menu-item-settings"
-                className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
-              >
-                <Settings2 size={16} className="shrink-0" />
-                <span className="flex-1">
-                  <MemoizedFormattedMessage defaultMessage="Settings" id="settings" />
-                </span>
-              </button>
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setIsLanguageSubmenuOpen(!isLanguageSubmenuOpen)}
-                  aria-expanded={isLanguageSubmenuOpen}
-                  aria-controls="language-submenu"
-                  className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-[120px]">
+                <DropdownMenuRadioGroup
+                  value={locale}
+                  onValueChange={(val) => state.handleLanguageSelection(val as SupportedLocale)}
                 >
-                  <Languages size={16} className="shrink-0" />
-                  <span className="flex-1">
-                    <MemoizedFormattedMessage defaultMessage="Language" id="language" />
-                  </span>
-                  {isLanguageSubmenuOpen ? (
-                    <ChevronDown size={16} className="text-text-300 shrink-0" />
-                  ) : (
-                    <ChevronRight size={16} className="text-text-300 shrink-0" />
-                  )}
-                </button>
-                {isLanguageSubmenuOpen ? (
-                  <div id="language-submenu" className="pl-4">
-                    {SUPPORTED_LOCALES.map((entry) => (
-                      <button
-                        key={entry}
-                        type="button"
-                        onClick={() => state.handleLanguageSelection(entry as SupportedLocale)}
-                        className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors"
-                      >
-                        <span className="flex-1 whitespace-nowrap">
-                          {LOCALE_DISPLAY_NAMES[entry]}
-                        </span>
-                        {locale === entry ? (
-                          <Check size={14} className="text-accent-secondary-200" />
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              {!state.hasChatMessages ? (
-                <p className="px-2 pt-2 text-[11px] text-text-300">
+                  {SUPPORTED_LOCALES.map((entry) => (
+                    <DropdownMenuRadioItem
+                      key={entry}
+                      value={entry}
+                      className="flex min-h-8 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <span className="flex-1 whitespace-nowrap">
+                        {LOCALE_DISPLAY_NAMES[entry]}
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {!state.hasChatMessages ? (
+              <>
+                <DropdownMenuSeparator />
+                <p className="px-2 py-1.5 text-[11px] text-muted-foreground select-none">
                   <MemoizedFormattedMessage
                     defaultMessage="Start a chat to convert it into a task."
                     id="start_a_chat_to_convert_it_into_a"
                   />
                 </p>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

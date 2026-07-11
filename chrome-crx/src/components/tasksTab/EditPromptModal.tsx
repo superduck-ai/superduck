@@ -1,9 +1,22 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useIntl, FormattedMessage } from 'react-intl';
-import { Button, Modal, ModalFooter, TextInput, ErrorMessage, TextArea } from '../ui';
+import { Slash } from 'lucide-react';
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Textarea
+} from '../ui';
 import { SchedulingFields } from '../scheduling/SchedulingFields';
 import { PromptService, type NewSavedPrompt, type SavedPrompt } from '../../extensionServices';
-import { getRunShortcutSvgMarkup } from './icons';
 import { useScheduleConfig } from '../../sidepanel/shortcutsMenu/useScheduleConfig';
 
 export function EditPromptModal({
@@ -175,123 +188,131 @@ export function EditPromptModal({
   };
 
   return (
-    <Modal
-      isOpen
-      onClose={onClose}
-      title={
-        editingPrompt && !isNew
-          ? intl.formatMessage({ defaultMessage: 'Edit shortcut', id: 'edit_shortcut' })
-          : intl.formatMessage({ defaultMessage: 'Create shortcut', id: 'create_shortcut' })
-      }
-      modalSize="lg"
-      hasCloseButton
-      placement="center-locked"
-      overlayClassName="[background-color:hsl(var(--always-black)/0.5)!important]"
-    >
-      <div className="space-y-4 mt-4">
-        <div>
-          <span className="font-base text-text-200 block mb-1">
-            <FormattedMessage defaultMessage="Name" id="name" />
-          </span>
-          <TextInput
-            ref={nameInputRef}
-            type="text"
-            value={command}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-              const val = e.target.value.replace(/\s/g, '-').replace(/[^a-zA-Z0-9-_]/g, '');
-              setCommand(val);
-              if (error) setError('');
-            }}
-            prepend={
-              <span
-                aria-hidden="true"
-                className="inline-flex h-4 w-4 items-center justify-center shrink-0 text-text-300"
-                dangerouslySetInnerHTML={{ __html: getRunShortcutSvgMarkup(13) }}
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="overflow-visible rounded-xl sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>
+            {editingPrompt && !isNew ? (
+              <FormattedMessage defaultMessage="Edit shortcut" id="edit_shortcut" />
+            ) : (
+              <FormattedMessage defaultMessage="Create shortcut" id="create_shortcut" />
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            <FormattedMessage
+              defaultMessage="Create a reusable slash command and optionally run it on a schedule."
+              id="shortcut_editor_description"
+            />
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="mb-1.5">
+              <FormattedMessage defaultMessage="Name" id="name" />
+            </Label>
+            <div className="relative">
+              <Slash
+                aria-hidden
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               />
-            }
-            placeholder={intl.formatMessage({ defaultMessage: 'task-name', id: 'zfW5u5DbnY' })}
-            className="w-full text-sm"
-            error={(submitted && !command.trim()) || error?.includes('already in use')}
+              <Input
+                ref={nameInputRef}
+                type="text"
+                value={command}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  const val = event.target.value.replace(/\s/g, '-').replace(/[^a-zA-Z0-9-_]/g, '');
+                  setCommand(val);
+                  if (error) setError('');
+                }}
+                placeholder={intl.formatMessage({ defaultMessage: 'task-name', id: 'zfW5u5DbnY' })}
+                className="rounded-md pl-8"
+                aria-invalid={(submitted && !command.trim()) || error?.includes('already in use')}
+              />
+            </div>
+            {((submitted && !command.trim()) || error?.includes('already in use')) && (
+              <p className="mt-1 text-sm text-destructive">
+                {submitted && !command.trim() ? (
+                  <FormattedMessage defaultMessage="Name is required" id="name_is_required" />
+                ) : (
+                  error
+                )}
+              </p>
+            )}
+          </div>
+          <div>
+            <Label className="mb-1.5">
+              <FormattedMessage defaultMessage="Prompt" id="prompt" />
+            </Label>
+            <Textarea
+              required
+              value={promptText}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                setPromptText(event.target.value)
+              }
+              className="max-h-64 min-h-32 overflow-y-auto rounded-md"
+              placeholder={intl.formatMessage({
+                defaultMessage: 'Enter your prompt text...',
+                id: 'enter_your_prompt_text'
+              })}
+              aria-invalid={submitted && !promptText.trim()}
+            />
+            {submitted && !promptText.trim() && (
+              <p className="mt-1 text-sm text-destructive">
+                <FormattedMessage defaultMessage="Prompt is required" id="prompt_is_required" />
+              </p>
+            )}
+          </div>
+          <SchedulingFields
+            scheduleEnabled={scheduleEnabled}
+            setScheduleEnabled={setScheduleEnabled}
+            repeatType={repeatType}
+            setRepeatType={setRepeatType}
+            specificDate={specificDate}
+            setSpecificDate={setSpecificDate}
+            dayOfWeek={dayOfWeek}
+            setDayOfWeek={setDayOfWeek}
+            dayOfMonth={dayOfMonth}
+            setDayOfMonth={setDayOfMonth}
+            month={month}
+            setMonth={setMonth}
+            day={day}
+            setDay={setDay}
+            specificTime={specificTime}
+            setSpecificTime={setSpecificTime}
+            monthLabels={monthLabels}
+            daysOfWeekLabels={daysOfWeekLabels}
+            url={url}
+            setUrl={(val: string) => {
+              setUrl(val);
+              if (urlError) setUrlError('');
+            }}
+            urlError={submitted ? urlError : undefined}
+            compact={false}
+            model={model}
+            setModel={setModel}
+            availableModels={schedulingModelOptions}
           />
-          {((submitted && !command.trim()) || error?.includes('already in use')) && (
-            <ErrorMessage className="mt-1">
-              {submitted && !command.trim() ? (
-                <FormattedMessage defaultMessage="Name is required" id="name_is_required" />
-              ) : (
-                error
-              )}
-            </ErrorMessage>
+          {error && !error.includes('already in use') && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
         </div>
-        <div>
-          <span className="font-base text-text-200 block mb-1">
-            <FormattedMessage defaultMessage="Prompt" id="prompt" />
-          </span>
-          <TextArea
-            required
-            value={promptText}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPromptText(e.target.value)}
-            className="min-h-32 max-h-64 overflow-y-auto font-large text-sm"
-            placeholder={intl.formatMessage({
-              defaultMessage: 'Enter your prompt text...',
-              id: 'enter_your_prompt_text'
-            })}
-            error={
-              submitted && !promptText.trim()
-                ? intl.formatMessage({
-                    defaultMessage: 'Prompt is required',
-                    id: 'prompt_is_required'
-                  })
-                : undefined
-            }
-          />
-        </div>
-        <SchedulingFields
-          scheduleEnabled={scheduleEnabled}
-          setScheduleEnabled={setScheduleEnabled}
-          repeatType={repeatType}
-          setRepeatType={setRepeatType}
-          specificDate={specificDate}
-          setSpecificDate={setSpecificDate}
-          dayOfWeek={dayOfWeek}
-          setDayOfWeek={setDayOfWeek}
-          dayOfMonth={dayOfMonth}
-          setDayOfMonth={setDayOfMonth}
-          month={month}
-          setMonth={setMonth}
-          day={day}
-          setDay={setDay}
-          specificTime={specificTime}
-          setSpecificTime={setSpecificTime}
-          monthLabels={monthLabels}
-          daysOfWeekLabels={daysOfWeekLabels}
-          url={url}
-          setUrl={(val: string) => {
-            setUrl(val);
-            if (urlError) setUrlError('');
-          }}
-          urlError={submitted ? urlError : undefined}
-          compact={false}
-          model={model}
-          setModel={setModel}
-          availableModels={schedulingModelOptions}
-        />
-        {error && !error.includes('already in use') && (
-          <div className="text-danger-000 text-sm">{error}</div>
-        )}
-      </div>
-      <ModalFooter>
-        <Button onClick={onClose} variant="secondary">
-          <FormattedMessage defaultMessage="Cancel" id="cancel" />
-        </Button>
-        <Button onClick={handleSave}>
-          {editingPrompt && !isNew ? (
-            <FormattedMessage defaultMessage="Save changes" id="save_changes" />
-          ) : (
-            <FormattedMessage defaultMessage="Create shortcut" id="create_shortcut" />
-          )}
-        </Button>
-      </ModalFooter>
-    </Modal>
+
+        <DialogFooter>
+          <Button onClick={onClose} variant="outline">
+            <FormattedMessage defaultMessage="Cancel" id="cancel" />
+          </Button>
+          <Button onClick={handleSave}>
+            {editingPrompt && !isNew ? (
+              <FormattedMessage defaultMessage="Save changes" id="save_changes" />
+            ) : (
+              <FormattedMessage defaultMessage="Create shortcut" id="create_shortcut" />
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -10,7 +10,8 @@ import {
   RefreshCw,
   Terminal
 } from 'lucide-react';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+
+import { Popover, PopoverContent, PopoverTrigger, SimpleTooltip } from '@/components/ui';
 import {
   type NativeHostIntl,
   type NativeHostStatusKind,
@@ -27,10 +28,6 @@ export interface NativeHostStatusButtonProps {
 
 const CLI_SETUP_COMMANDS = ['npm install -g superduck-cli', 'superduck setup'] as const;
 const CLI_SETUP_COMMAND_TEXT = CLI_SETUP_COMMANDS.join('\n');
-const POPUP_DESIRED_WIDTH = 328;
-// Minimum gap between the popup and the sidepanel viewport edges so it never gets
-// clipped by the sidepanel boundary or the high-risk permission dashed frame.
-const POPUP_VIEWPORT_MARGIN = 12;
 
 function NativeHostGlyph({
   statusKind,
@@ -88,60 +85,6 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
   );
 
   React.useEffect(() => {
-    if (!isOpen) return undefined;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-        triggerButtonRef.current?.focus();
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  // The popup is anchored to a 28px trigger in the middle of the header (with buttons to
-  // its right), so a fixed right-0 anchor overflows a narrow sidepanel. Keep the original
-  // position (right edge at the trigger) while it fits; as the sidepanel narrows, slide the
-  // popup right just enough to stay visible instead of snapping to the far right.
-  const [popupBox, setPopupBox] = React.useState<{ width: number; right: number } | null>(null);
-
-  React.useLayoutEffect(() => {
-    if (!isOpen) return undefined;
-
-    const measure = () => {
-      const root = rootRef.current;
-      if (!root) return;
-      const viewportWidth = window.innerWidth;
-      if (viewportWidth <= 2 * POPUP_VIEWPORT_MARGIN) return;
-
-      const rootRect = root.getBoundingClientRect();
-      const width = Math.min(POPUP_DESIRED_WIDTH, viewportWidth - 2 * POPUP_VIEWPORT_MARGIN);
-      // Smallest right edge that keeps the left edge at the margin; otherwise stay on the
-      // trigger. `right` is the offset from the root container's right edge.
-      const right = rootRect.right - Math.max(rootRect.right, POPUP_VIEWPORT_MARGIN + width);
-      setPopupBox((prev) =>
-        prev && prev.width === width && prev.right === right ? prev : { width, right }
-      );
-    };
-
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [isOpen]);
-
-  React.useEffect(() => {
     return () => {
       if (copyResetTimerRef.current != null) {
         window.clearTimeout(copyResetTimerRef.current);
@@ -176,54 +119,58 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
   }
 
   return (
-    <div ref={rootRef} className="relative inline-flex h-7 w-7 items-center justify-center">
-      <Tooltip tooltipContent={tooltipLabel} side="bottom" showTooltip={!isOpen}>
-        <button
-          ref={triggerButtonRef}
-          type="button"
-          className={`relative inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-            isOpen ? 'bg-bg-300 text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'
-          }`}
-          onClick={() => {
-            setIsOpen((value) => {
-              const nextValue = !value;
-              if (nextValue) {
-                onOpen?.();
-                clearResetFeedback();
-                void trackEvent('superduck.sidebar.native_host_status_opened', {
-                  nativeHostInstalled: Boolean(status?.nativeHostInstalled),
-                  mcpConnected: Boolean(status?.mcpConnected)
-                });
-                void refreshStatus();
-              }
-              return nextValue;
+    <div ref={rootRef} className="relative inline-flex h-8 w-8 items-center justify-center">
+      <Popover
+        open={isOpen}
+        onOpenChange={(open) => {
+          setIsOpen(open);
+          if (open) {
+            onOpen?.();
+            clearResetFeedback();
+            void trackEvent('superduck.sidebar.native_host_status_opened', {
+              nativeHostInstalled: Boolean(status?.nativeHostInstalled),
+              mcpConnected: Boolean(status?.mcpConnected)
             });
-          }}
-          aria-haspopup="dialog"
-          aria-expanded={isOpen}
-          aria-label={intl.formatMessage(
-            {
-              id: 'native_host_status_button_aria',
-              defaultMessage: 'Browser control status: {status}'
-            },
-            { status: statusView.label }
-          )}
-          title={tooltipLabel}
+            void refreshStatus();
+          }
+        }}
+      >
+        <PopoverTrigger
+          render={
+            <button
+              ref={triggerButtonRef}
+              type="button"
+              className={`relative inline-flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150 ${
+                isOpen
+                  ? 'bg-muted/50 text-foreground'
+                  : 'text-muted-foreground/80 hover:bg-muted/40 hover:text-foreground'
+              }`}
+              aria-label={intl.formatMessage(
+                {
+                  id: 'native_host_status_button_aria',
+                  defaultMessage: 'Browser control status: {status}'
+                },
+                { status: statusView.label }
+              )}
+              title={tooltipLabel}
+            />
+          }
         >
-          <NativeHostGlyph statusKind={statusKind} size={14} className="shrink-0" />
+          <SimpleTooltip tooltipContent={tooltipLabel} side="bottom" showTooltip={!isOpen}>
+            <div className="flex h-8 w-8 items-center justify-center">
+              <NativeHostGlyph statusKind={statusKind} size={16} className="shrink-0" />
+            </div>
+          </SimpleTooltip>
           <span
-            className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-2 ring-bg-000 ${statusView.dotClassName}`}
+            className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-2 ring-background ${statusView.dotClassName}`}
           />
-        </button>
-      </Tooltip>
+        </PopoverTrigger>
 
-      {isOpen ? (
-        <div
-          className="absolute top-full mt-2 z-50 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl border-0.5 border-border-200 bg-bg-000 p-3 text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] backdrop-blur-xl"
-          style={{
-            width: popupBox?.width ?? POPUP_DESIRED_WIDTH,
-            right: popupBox?.right ?? 0
-          }}
+        <PopoverContent
+          className="w-[min(290px,calc(100vw-1.5rem))] p-3 max-h-[calc(100vh-6rem)] overflow-y-auto backdrop-blur-md"
+          align="end"
+          side="bottom"
+          sideOffset={8}
           role="dialog"
           aria-labelledby={dialogTitleId}
           aria-describedby={dialogDescriptionId}
@@ -236,7 +183,7 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
-                <h2 id={dialogTitleId} className="truncate text-sm font-medium text-text-100">
+                <h2 id={dialogTitleId} className="truncate text-sm font-medium text-foreground">
                   {intl.formatMessage({
                     id: 'native_host_status_title',
                     defaultMessage: 'SuperDuck CLI'
@@ -248,7 +195,7 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
                   {statusView.pill}
                 </span>
               </div>
-              <p id={dialogDescriptionId} className="mt-1 text-xs leading-5 text-text-300">
+              <p id={dialogDescriptionId} className="mt-1 text-xs leading-5 text-muted-foreground">
                 {intl.formatMessage({
                   id: 'native_host_product_description',
                   defaultMessage: 'Use SuperDuck to let agents control Chrome.'
@@ -257,11 +204,11 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
             </div>
           </div>
 
-          <div className="mt-3 rounded-lg border-0.5 border-border-200 bg-bg-100 p-2.5">
+          <div className="mt-3 rounded-lg border-0.5 border-border bg-muted/50 p-2.5">
             <div className="flex items-center gap-2">
-              <Terminal size={14} className="shrink-0 text-text-300" />
+              <Terminal size={14} className="shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-text-100">
+                <p className="text-xs font-medium text-foreground">
                   {intl.formatMessage({
                     id: 'native_host_cli_setup_title',
                     defaultMessage: 'Install CLI'
@@ -271,7 +218,7 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
               <button
                 type="button"
                 onClick={() => void copyCommands()}
-                className="inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-text-300 transition-colors hover:bg-bg-200 hover:text-text-100"
+                className="inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 aria-label={intl.formatMessage({
                   id: 'native_host_copy_commands',
                   defaultMessage: 'Copy setup commands'
@@ -302,11 +249,11 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
                 </span>
               </button>
             </div>
-            <div className="mt-2 rounded-md bg-bg-000 px-2 py-1.5">
+            <div className="mt-2 rounded-md bg-background px-2 py-1.5">
               {CLI_SETUP_COMMANDS.map((command) => (
                 <code
                   key={command}
-                  className="block min-w-0 truncate font-mono text-[11px] leading-5 text-text-100"
+                  className="block min-w-0 truncate font-mono text-[11px] leading-5 text-foreground"
                 >
                   {command}
                 </code>
@@ -315,20 +262,16 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
           </div>
 
           {resetFeedback ? (
-            <div
-              className="mt-3 border-t border-border-200/70 pt-3"
-              role="status"
-              aria-live="polite"
-            >
+            <div className="mt-3 border-t border-border/70 pt-3" role="status" aria-live="polite">
               <p
                 className={`inline-flex items-center gap-1.5 text-xs leading-5 ${
                   resetFeedback.type === 'success'
-                    ? 'text-success-100'
+                    ? 'text-success'
                     : resetFeedback.type === 'pending'
-                      ? 'text-text-300'
+                      ? 'text-muted-foreground'
                       : resetFeedback.type === 'warning'
-                        ? 'text-warning-100'
-                        : 'text-danger-100'
+                        ? 'text-warning'
+                        : 'text-destructive'
                 }`}
               >
                 {resetFeedback.type === 'success' ? (
@@ -347,7 +290,7 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
             <button
               type="button"
               onClick={() => void resetNativeHost()}
-              className="inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md bg-bg-200 px-2 text-xs font-medium text-text-100 transition-colors hover:bg-bg-300 disabled:opacity-60"
+              className="inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md bg-muted px-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
               disabled={isResetting || isAwaitingReconnect}
               aria-busy={isResetting || isAwaitingReconnect}
               aria-label={intl.formatMessage({
@@ -367,8 +310,8 @@ export function NativeHostStatusButton({ intl, onOpen, trackEvent }: NativeHostS
               </span>
             </button>
           </div>
-        </div>
-      ) : null}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

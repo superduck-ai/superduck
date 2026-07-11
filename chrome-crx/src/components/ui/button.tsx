@@ -1,207 +1,58 @@
-import React, { forwardRef } from 'react';
+import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { Slottable } from '@radix-ui/react-slot';
-import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+
 import { cn } from '@/lib/utils';
 
-const TooltipRoot = TooltipPrimitive.Root;
-const TooltipTrigger = TooltipPrimitive.Trigger;
-
-const DefaultTooltipContent = forwardRef<
-  React.ElementRef<typeof TooltipPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <TooltipPrimitive.Content
-    ref={ref}
-    className={cn(
-      'px-2 py-1 text-xs font-normal font-ui leading-tight rounded-md shadow-md text-always-white bg-always-black/80 backdrop-blur break-words z-tooltip max-w-[13rem] text-pretty [*:disabled_&]:hidden',
-      className
-    )}
-    {...props}
-  />
-));
-DefaultTooltipContent.displayName = 'DefaultTooltipContent';
-
-const primaryStyle =
-  'bg-accent-main-100 text-oncolor-100 shadow-[inset_0_0.5px_0_hsla(var(--bg-000)/15%),0_0.5px_0.5px_hsla(var(--always-black)/18%)]';
-const secondaryStyle =
-  'bg-bg-000 text-text-200 border-border-300 hover:border-border-200 shadow-[0_0.5px_0.5px_hsla(var(--always-black)/6%)]';
-const ghostStyle = 'bg-transparent text-text-200 hover:bg-bg-200';
-const dangerStyle =
-  'bg-danger-000 text-oncolor-100 shadow-[inset_0_0.5px_0_hsla(var(--bg-000)/15%),0_0.5px_0.5px_hsla(var(--always-black)/18%)]';
-const superduckStyle = 'bg-accent-main-100 text-oncolor-100';
-
-export const buttonVariants = cva(
-  'inline-flex items-center justify-center relative shrink-0 can-focus select-none disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none disabled:drop-shadow-none',
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        primary:
-          'font-base-bold relative overflow-hidden transition-transform will-change-transform ease-[cubic-bezier(0.165,0.85,0.45,1)] duration-150 hover:scale-y-[1.015] hover:scale-x-[1.005] backface-hidden',
-        superduck: 'font-base-bold transition-colors',
+        default: 'bg-primary text-primary-foreground hover:bg-primary/80',
+        outline:
+          'border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-background dark:hover:bg-muted',
         secondary:
-          'font-base-bold border-0.5 relative overflow-hidden transition duration-100 backface-hidden',
+          'bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
         ghost:
-          'border-transparent transition font-base duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)]',
-        danger:
-          'font-base-bold transition hover:scale-y-[1.015] hover:scale-x-[1.005] hover:opacity-95'
+          'border-0 hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50',
+        destructive:
+          'bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40',
+        link: 'border-0 text-primary underline-offset-4 hover:underline'
       },
       size: {
-        default: 'h-9 px-4 py-2 rounded-lg min-w-[5rem] active:scale-[0.985] whitespace-nowrap',
-        sm: 'h-8 rounded-md px-3 min-w-[4rem] active:scale-[0.985] whitespace-nowrap !text-xs',
-        lg: 'h-11 rounded-[0.6rem] px-5 min-w-[6rem] active:scale-[0.985] whitespace-nowrap !text-base',
-        icon: 'h-9 w-9 rounded-md active:scale-95 shrink-0',
-        icon_xs: 'h-6 w-6 rounded-md active:scale-95',
-        icon_sm: 'h-8 w-8 rounded-md active:scale-95',
-        icon_lg: 'h-11 w-11 rounded-[0.6rem] active:scale-95'
-      },
-      option: { rounded: '!rounded-full', prepend: '', append: '' }
+        default:
+          'h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: 'h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        icon: 'size-8',
+        'icon-xs':
+          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        'icon-sm':
+          'size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg',
+        'icon-lg': 'size-9'
+      }
     },
-    compoundVariants: [
-      { size: 'default', option: 'prepend', class: 'pl-2 pr-3 gap-1' },
-      { size: 'lg', option: 'prepend', class: 'pl-2.5 pr-3.5 gap-1' },
-      { size: 'sm', option: 'prepend', class: 'pl-2 pr-2.5 gap-1' },
-      { size: 'default', option: 'append', class: 'pl-3 pr-2 gap-1' },
-      { size: 'lg', option: 'append', class: 'pl-3.5 pr-2.5 gap-1' },
-      { size: 'sm', option: 'append', class: 'pl-2.5 pr-2 gap-1' }
-    ],
-    defaultVariants: { variant: 'primary', size: 'default' }
+    defaultVariants: {
+      variant: 'default',
+      size: 'default'
+    }
   }
 );
 
-export type ButtonVariantProps = VariantProps<typeof buttonVariants>;
-
-export interface ButtonProps
-  extends
-    Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'color' | 'onClick'>,
-    ButtonVariantProps {
-  loading?: boolean;
-  href?: string;
-  target?: React.HTMLAttributeAnchorTarget;
-  rel?: string;
-  download?: string | boolean;
-  onClick?: React.MouseEventHandler<HTMLButtonElement>;
-  onLinkClick?: React.MouseEventHandler<HTMLAnchorElement>;
-  prepend?: React.ReactNode;
-  append?: React.ReactNode;
-  tooltip?: React.ReactNode;
-  tooltipSide?: React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>['side'];
-  tooltipDelay?: number;
-  tooltipDisabled?: boolean;
-  tooltipHoverable?: boolean;
-  shortcut?: React.ReactNode;
-  colorized?: boolean;
+function Button({
+  className,
+  variant = 'default',
+  size = 'default',
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
 }
 
-export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>(
-  (
-    {
-      className,
-      variant = 'primary',
-      size,
-      option,
-      loading,
-      href,
-      onLinkClick,
-      onClick,
-      target,
-      prepend,
-      append,
-      disabled,
-      children,
-      type = 'button',
-      tooltip,
-      tooltipSide = 'bottom',
-      tooltipDelay,
-      tooltipDisabled,
-      tooltipHoverable: _tooltipHoverable = false,
-      shortcut,
-      colorized: _colorized,
-      ...rest
-    },
-    ref
-  ) => {
-    if (prepend) option = 'prepend';
-    if (append || shortcut) option = 'append';
-
-    const isIconOnly = !children || (size && size.startsWith('icon'));
-    const variantStyle = (() => {
-      switch (variant) {
-        case 'secondary':
-          return secondaryStyle;
-        case 'ghost':
-          return ghostStyle;
-        case 'danger':
-          return dangerStyle;
-        case 'superduck':
-          return superduckStyle;
-        default:
-          return primaryStyle;
-      }
-    })();
-
-    const buttonClass = cn(
-      buttonVariants({ variant, size, option, className }),
-      variantStyle,
-      loading && '!text-transparent ![text-shadow:_none]'
-    );
-    const anchorRest = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
-
-    const content = (
-      <>
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
-          </div>
-        )}
-        {prepend}
-        {children && <Slottable>{children}</Slottable>}
-        {shortcut && <kbd className="ml-1 text-xs opacity-60">{shortcut}</kbd>}
-        {append}
-      </>
-    );
-
-    const button = href ? (
-      <a
-        ref={ref as React.Ref<HTMLAnchorElement>}
-        href={href}
-        target={target}
-        className={buttonClass}
-        onClick={onLinkClick}
-        {...anchorRest}
-      >
-        {content}
-      </a>
-    ) : (
-      <button
-        ref={ref as React.Ref<HTMLButtonElement>}
-        type={type}
-        className={buttonClass}
-        disabled={disabled || loading}
-        onClick={onClick}
-        aria-label={
-          !rest['aria-label'] && tooltip && isIconOnly && typeof tooltip === 'string'
-            ? tooltip
-            : undefined
-        }
-        {...rest}
-      >
-        {content}
-      </button>
-    );
-
-    if (tooltip && !tooltipDisabled) {
-      return (
-        <TooltipRoot delayDuration={tooltipDelay}>
-          <TooltipTrigger asChild>{button}</TooltipTrigger>
-          <TooltipPrimitive.Portal>
-            <DefaultTooltipContent side={tooltipSide}>{tooltip}</DefaultTooltipContent>
-          </TooltipPrimitive.Portal>
-        </TooltipRoot>
-      );
-    }
-
-    return button;
-  }
-);
-Button.displayName = 'Button';
+export { Button, buttonVariants };

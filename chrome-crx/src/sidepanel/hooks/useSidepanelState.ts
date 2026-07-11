@@ -11,7 +11,7 @@ import { findProvider } from '../../utils/providerStore';
 import { useProviderClient } from '../provider';
 import { useTabEvent } from './useTabState';
 import { isPermissionPromptData } from '@/sidepanel/components/PermissionPrompt';
-import { type ScrollContainerHandle } from '@/sidepanel/components/ScrollContainer';
+import { type ScrollContainerHandle } from '@/sidepanel/components/MessageScroller';
 import { useWorkflowRecording } from '../workflowRecording/useWorkflowRecording';
 import { useLightningMode } from '../lightningMode/useLightningMode';
 import { useAuth } from './useAuth';
@@ -76,7 +76,7 @@ import { useTabStore } from '../stores/tabStore';
 import { useChatActionsStore } from '../stores/chatActionsStore';
 import { useChatInputStore } from '../stores/chatInputStore';
 
-import { createStreamingTextStore, usePrefersReducedMotion } from '../sidepanelGuards';
+import { createStreamingTextStore } from '../sidepanelGuards';
 import type { ApiResponseMessage, CreateApiMessageParams } from '../../messageTypes';
 import type {
   ChatRole,
@@ -189,7 +189,6 @@ export function useSidepanelState() {
   const pendingAttachments = useAttachmentStore((s) => s.pendingAttachments);
   const setPendingAttachments = useAttachmentStore((s) => s.setPendingAttachments);
   const setPreviewAttachmentImage = useAttachmentStore((s) => s.setPreviewAttachmentImage);
-  const prefersReducedMotion = usePrefersReducedMotion();
   const pendingPrompt = useAgentStore((s) => s.pendingPrompt);
   const setPendingPrompt = useAgentStore((s) => s.setPendingPrompt);
   const populatedInputTargetTabId = useTabStore((s) => s.populatedInputTargetTabId);
@@ -213,8 +212,6 @@ export function useSidepanelState() {
 
   const messageLimitDismissed = useUIStore((s) => s.isMessageLimitDismissed);
   const setMessageLimitDismissed = useUIStore((s) => s.setIsMessageLimitDismissed);
-  const skipWarningDismissed = useUIStore((s) => s.skipPermissionsWarningDismissed);
-  const setSkipWarningDismissed = useUIStore((s) => s.setSkipPermissionsWarningDismissed);
   const announcementDismissed = useUIStore((s) => s.announcementDismissed);
   const setAnnouncementDismissed = useUIStore((s) => s.setAnnouncementDismissed);
   const [_refusalFeedbackSent, setRefusalFeedbackSent] = useState(false);
@@ -295,9 +292,6 @@ export function useSidepanelState() {
 
   const messageListScrollRefs = useMessageListScrollRefs({ scrollRefs });
 
-  const _showTopGradient = useUIStore((s) => s.showTopGradient);
-  const setShowTopGradient = useUIStore((s) => s.setShowTopGradient);
-
   const setIsModelMenuOpen = useUIStore((s) => s.setIsModelMenuOpen);
   const setIsHeaderMenuOpen = useUIStore((s) => s.setIsHeaderMenuOpen);
   const setIsLanguageSubmenuOpen = useUIStore((s) => s.setIsLanguageSubmenuOpen);
@@ -338,9 +332,6 @@ export function useSidepanelState() {
     updateStep
   } = useWorkflowRecording({
     tabId: query.tabId || 0,
-    onComplete: (_steps) => {
-      // TODO: Implement workflow save logic
-    },
     createMessage: stableCreateMessage
   });
 
@@ -417,7 +408,6 @@ export function useSidepanelState() {
         }
       : undefined,
     permissionManager: getPermissionManager(),
-    serverContextLengthRef,
     locale: intl.locale,
     enabled: isPurlMode
   });
@@ -512,10 +502,8 @@ export function useSidepanelState() {
     isPurlMode && lightningResult ? lightningResult.error : runtimeError;
   const effectiveIsCompacting =
     isPurlMode && lightningResult ? lightningResult.isCompacting : isCompacting;
-  const isChatInputRunning = effectiveIsAgentRunning || effectiveIsCompacting;
-  const isChatInputBeamActive = !prefersReducedMotion && isChatInputRunning;
   const chatInputSurfaceClass =
-    'bg-bg-000 rounded-2xl relative transition-all focus-within:outline-none cursor-text shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/3.5%),0_0_0_0.5px_hsla(var(--border-300)/0.15)] hover:shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/3.5%),0_0_0_0.5px_hsla(var(--border-200)/0.3)] focus-within:shadow-[0_0.25rem_1.25rem_hsl(var(--always-black)/7.5%),0_0_0_0.5px_hsla(var(--border-200)/0.3)]';
+    'superduck-composer-surface relative isolate cursor-text rounded-[1.5rem] border border-border/65 bg-card text-card-foreground transition-[background-color,border-color,box-shadow] hover:border-border/85 dark:border-border dark:bg-card/95 dark:hover:border-border focus-within:outline-none';
 
   useErrorTracking({
     effectiveRuntimeError,
@@ -711,12 +699,7 @@ export function useSidepanelState() {
     setMessageLimitDismissed,
     lastStopReason: lastStopReason?.reason,
     setRefusalFeedbackSent,
-    activeSessionId,
-    setSkipWarningDismissed,
-    notificationBannerTimerRef,
-    autoScrollRef,
-    apiMessagesLength: apiMessages.length,
-    setShowTopGradient
+    notificationBannerTimerRef
   });
 
   const rotatingTips = useRotatingTips({ intl });
@@ -813,8 +796,6 @@ export function useSidepanelState() {
     lastStopReason,
     fallbackConfig,
     messageLimitDismissed,
-    permissionMode: permissionMode as PermissionMode,
-    skipWarningDismissed,
     showNotificationBanner,
     notificationsEnabled,
     announcementConfig,
@@ -835,7 +816,6 @@ export function useSidepanelState() {
   });
 
   const hasChatMessages = effectiveMessages.length > 0;
-  const showHighRiskFrame = permissionMode === 'skip_all_permission_checks';
 
   // Sync action/input refs to external stores for ChatInputArea consumption.
   useEffect(() => {
@@ -870,7 +850,6 @@ export function useSidepanelState() {
       autoScrollRef,
       inputRef,
       sentinelElement,
-      isChatInputBeamActive,
       chatInputSurfaceClass,
       recordingState,
       debugMode,
@@ -884,7 +863,6 @@ export function useSidepanelState() {
     autoScrollRef,
     inputRef,
     sentinelElement,
-    isChatInputBeamActive,
     chatInputSurfaceClass,
     recordingState,
     debugMode,
@@ -914,7 +892,6 @@ export function useSidepanelState() {
     // Mode
     isPurlMode,
     purlModeFeatureEnabled,
-    lightningResult,
 
     // UI refs
     autoScrollRef,
@@ -946,7 +923,6 @@ export function useSidepanelState() {
     effectiveIsCompacting,
     effectiveCurrentStatus,
     isConvertingToTask,
-    isChatInputBeamActive,
     chatInputSurfaceClass,
     effectiveCancel,
     sendPrompt,
@@ -1011,7 +987,6 @@ export function useSidepanelState() {
     currentPageUrl,
     currentPageTitle,
     intl,
-    showHighRiskFrame,
     setPopulatedInputTargetTabId
   };
 }

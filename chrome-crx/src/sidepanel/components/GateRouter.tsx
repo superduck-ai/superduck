@@ -99,7 +99,7 @@ export function GateRouter({
 
   if (hasBrowserControlPermissionAccepted === null) {
     return (
-      <div className="h-screen bg-bg-100 text-text-300 flex items-center justify-center text-sm">
+      <div className="h-screen bg-background text-muted-foreground flex items-center justify-center text-sm">
         Loading sidepanel...
       </div>
     );
@@ -107,7 +107,7 @@ export function GateRouter({
 
   if (authLoading) {
     return (
-      <div className="h-screen bg-bg-100 text-text-300 flex items-center justify-center text-sm">
+      <div className="h-screen bg-background text-muted-foreground flex items-center justify-center text-sm">
         Loading authentication...
       </div>
     );

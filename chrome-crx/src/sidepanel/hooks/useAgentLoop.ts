@@ -8,7 +8,6 @@ import {
 } from '../session';
 import { ConversationCompactor } from '../conversation/conversationCompaction';
 import { MessagesClient } from '../../mcpServersStore';
-import { MAX_TOKENS } from '../conversation/messageLimits';
 import { getErrorMessage } from '../conversation/messageProcessing';
 import {
   createId,
@@ -151,12 +150,10 @@ export function useAgentLoop({
   const setApiMessages = useChatStore((s) => s.setApiMessages);
   const setMessages = useChatStore((s) => s.setMessages);
   const setIsAgentRunning = useAgentStore((s) => s.setIsAgentRunning);
-  const setHasInteractiveTools = useAgentStore((s) => s.setHasInteractiveTools);
   const setCurrentStatus = useAgentStore((s) => s.setCurrentStatus);
   const setRuntimeError = useAgentStore((s) => s.setRuntimeError);
   const setLastStopReason = useAgentStore((s) => s.setLastStopReason);
   const setIsCompacting = useAgentStore((s) => s.setIsCompacting);
-  const setTokensSaved = useAgentStore((s) => s.setTokensSaved);
   const isCompacting = useAgentStore((s) => s.isCompacting);
   const setAttachmentCount = useAttachmentStore((s) => s.setAttachmentCount);
   const setPendingAttachments = useAttachmentStore((s) => s.setPendingAttachments);
@@ -210,10 +207,9 @@ export function useAgentLoop({
       try {
         const compactor = new ConversationCompactor(
           async (params: CreateApiMessageParams) => createApiMessage(params),
-          intl.locale,
-          serverContextLengthRef.current
+          intl.locale
         );
-        const result = await compactor.compactConversation(messagesToCompact, MAX_TOKENS, !manual);
+        const result = await compactor.compactConversation(messagesToCompact, !manual);
         void trackEvent('superduck.sidebar.conversation_compacted', {
           manual,
           messages_before: messagesToCompact.length
@@ -230,7 +226,6 @@ export function useAgentLoop({
             ? [visibleCommandMessage, ...result.messagesAfterCompacting]
             : result.messagesAfterCompacting
         );
-        setTokensSaved(result.tokensSaved ?? null);
         pushMessage('system', 'Conversation compacted to save context.');
         return visibleCommandMessage
           ? [visibleCommandMessage, ...result.messagesAfterCompacting]
@@ -554,7 +549,6 @@ export function useAgentLoop({
                 executeToolUse,
                 getPermissionManager,
                 pushMessage,
-                setHasInteractiveTools,
                 setCurrentStatus,
                 generateStatusSummary,
                 setApiMessages
@@ -608,7 +602,6 @@ export function useAgentLoop({
         }
         abortControllerRef.current = null;
         setIsAgentRunning(false);
-        setHasInteractiveTools(false);
         setCurrentStatus('');
         setAttachmentCount(0);
         setPendingAttachments([]);

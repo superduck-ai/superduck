@@ -207,6 +207,35 @@ async function registerSearchInputRef(serviceWorker: Worker, tabId: number): Pro
   }, tabId);
 }
 
+async function getChromeTabIdFor(sw: any, page: Page): Promise<number> {
+  const url = page.url();
+  const id = await sw.evaluate(
+    async ({ url }: { url: string }) => {
+      const tabs = await (globalThis as any).chrome.tabs.query({});
+      const match = tabs.find((t: any) => {
+        if (!t.url) return false;
+        if (t.url === url) return true;
+        if (url.startsWith('chrome://new-tab-page') && t.url.startsWith('chrome://newtab'))
+          return true;
+        if (url.startsWith('chrome://newtab') && t.url.startsWith('chrome://new-tab-page'))
+          return true;
+        return false;
+      });
+      if (match?.id) return match.id;
+      const [activeTab] = await (globalThis as any).chrome.tabs.query({
+        active: true,
+        lastFocusedWindow: true
+      });
+      return activeTab?.id ?? null;
+    },
+    { url }
+  );
+  if (id == null) {
+    throw new Error(`Could not find a chrome.tabs entry for Playwright page ${url}`);
+  }
+  return id;
+}
+
 async function prepareSidepanel(
   targetPage: Page,
   serviceWorker: Worker,
@@ -218,7 +247,7 @@ async function prepareSidepanel(
     preferred_locale: sidepanelLocale
   });
   await targetPage.bringToFront();
-  const tabId = await getActiveTabId(serviceWorker);
+  const tabId = await getChromeTabIdFor(serviceWorker, targetPage);
   const sidepanel = await openSidepanel(targetPage.context(), extensionId, tabId);
   await expect(sidepanel.locator('#root')).toBeVisible();
   return { sidepanel, tabId };
@@ -271,7 +300,18 @@ test.describe('browser_batch sidepanel execution', () => {
 
     expect(await getTabUrl(serviceWorker, tabId)).not.toContain(fixtureBaseUrl);
     await expect(sidepanel.getByText('完成')).toBeVisible();
-    await expect(sidepanel.getByText('浏览器操作序列失败')).toBeVisible();
+    const collapseTrigger = sidepanel.getByRole('button', {
+      name: /步骤|step|stopped|停止|failed|失败/i
+    });
+    if ((await collapseTrigger.count()) > 0) {
+      await collapseTrigger.first().click();
+      await sidepanel.waitForTimeout(200);
+    }
+    await expect(
+      sidepanel
+        .getByText(/浏览器操作序列.*(失败|停止)|Browser action sequence.*(failed|stopped)/i)
+        .first()
+    ).toBeVisible();
     await expect(sidepanel.locator('body')).not.toContainText('Browser batch failed');
 
     await sidepanel.close();
@@ -303,7 +343,18 @@ test.describe('browser_batch sidepanel execution', () => {
     await waitForReplyDone(sidepanel, 60_000);
 
     expect(await getTabUrl(serviceWorker, tabId)).toMatch(/^chrome:\/\//);
-    await expect(sidepanel.getByText('浏览器操作序列失败')).toBeVisible();
+    const collapseTrigger = sidepanel.getByRole('button', {
+      name: /步骤|step|stopped|停止|failed|失败/i
+    });
+    if ((await collapseTrigger.count()) > 0) {
+      await collapseTrigger.first().click();
+      await sidepanel.waitForTimeout(200);
+    }
+    await expect(
+      sidepanel
+        .getByText(/浏览器操作序列.*(失败|停止)|Browser action sequence.*(failed|stopped)/i)
+        .first()
+    ).toBeVisible();
     await expect(sidepanel.locator('body')).not.toContainText('Browser batch failed');
 
     await sidepanel.close();
@@ -335,7 +386,16 @@ test.describe('browser_batch sidepanel execution', () => {
     await waitForReplyDone(sidepanel, 60_000);
 
     await expect(targetPage.locator('#name')).toHaveValue('');
-    await expect(sidepanel.getByText('操作序列在第 1/2 步停止')).toBeVisible();
+    const collapseTrigger = sidepanel.getByRole('button', {
+      name: /步骤|step|stopped|停止|failed|失败/i
+    });
+    if ((await collapseTrigger.count()) > 0) {
+      await collapseTrigger.first().click();
+      await sidepanel.waitForTimeout(200);
+    }
+    await expect(
+      sidepanel.getByText(/操作序列在第 1\/2 步停止|Action sequence stopped at step 1 of 2/)
+    ).toBeVisible();
     await expect(sidepanel.locator('body')).not.toContainText('Browser batch failed');
 
     await sidepanel.close();

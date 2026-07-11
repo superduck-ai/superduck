@@ -114,18 +114,18 @@ export function InlinePermissionPrompt({
   if (prompt.tool === PermissionActionType.DOMAIN_TRANSITION) {
     return (
       <div className="p-4">
-        <div className="text-sm text-text-300 mb-3">
+        <div className="text-sm text-muted-foreground mb-3">
           <MemoizedFormattedMessage
             id="superduck_wants_to_navigate_from_to"
             defaultMessage="SuperDuck wants to navigate from {fromDomain} to {toDomain}"
             values={{
               fromDomain: (
-                <span className="font-medium text-text-100">
+                <span className="font-medium text-foreground">
                   {prompt.actionData?.fromDomain || '?'}
                 </span>
               ),
               toDomain: (
-                <span className="font-medium text-text-100">
+                <span className="font-medium text-foreground">
                   {prompt.actionData?.toDomain || '?'}
                 </span>
               )
@@ -151,7 +151,7 @@ export function InlinePermissionPrompt({
           </PermissionActionButton>
           {!disableAlwaysAllow && (
             <>
-              <div className="border-t border-border-200 my-1" />
+              <div className="border-t border-border my-1" />
               <PermissionActionButton
                 onClick={() => handleAllow(PermissionDuration.ALWAYS)}
                 isActive={activeButton === 'always'}
@@ -196,14 +196,14 @@ export function InlinePermissionPrompt({
     const mcp = prompt.actionData?.remoteMcp;
     return (
       <div className="p-4">
-        <div className="text-sm text-text-300 mb-3">
+        <div className="text-sm text-muted-foreground mb-3">
           {mcp ? (
             <MemoizedFormattedMessage
               id="server_wants_to_use_tool"
               defaultMessage="{serverName} wants to use {toolName}"
               values={{
-                serverName: <span className="font-medium text-text-100">{mcp.serverName}</span>,
-                toolName: <span className="font-medium text-text-100">{mcp.toolDisplayName}</span>
+                serverName: <span className="font-medium text-foreground">{mcp.serverName}</span>,
+                toolName: <span className="font-medium text-foreground">{mcp.toolDisplayName}</span>
               }}
             />
           ) : (
@@ -232,7 +232,7 @@ export function InlinePermissionPrompt({
           </PermissionActionButton>
           {!disableAlwaysAllow && (
             <>
-              <div className="border-t border-border-200 my-1" />
+              <div className="border-t border-border my-1" />
               <PermissionActionButton
                 onClick={() => handleAllow(PermissionDuration.ALWAYS)}
                 isActive={activeButton === 'always'}
@@ -261,18 +261,18 @@ export function InlinePermissionPrompt({
   // Standard browser action prompt (click, type, navigate, etc.)
   return (
     <div className="p-4">
-      <div className="text-sm text-text-300 mb-1">
+      <div className="text-sm text-muted-foreground mb-1">
         <MemoizedFormattedMessage
           id="superduck_wants_to"
           defaultMessage="SuperDuck wants to {toolAction}:"
           values={{
-            toolAction: <span className="font-medium text-text-100">{actionText}</span>
+            toolAction: <span className="font-medium text-foreground">{actionText}</span>
           }}
         />
       </div>
-      <div className="text-sm text-text-100 font-medium mb-3 truncate">{hostname}</div>
+      <div className="text-sm text-foreground font-medium mb-3 truncate">{hostname}</div>
       {prompt.actionData?.screenshot && (
-        <div className="mb-3 rounded-lg overflow-hidden border border-border-200 relative">
+        <div className="mb-3 rounded-lg overflow-hidden border border-border relative">
           <img
             src={prompt.actionData.screenshot}
             alt="Screenshot"
@@ -280,7 +280,7 @@ export function InlinePermissionPrompt({
           />
           {prompt.actionData?.coordinate && (
             <div
-              className="absolute w-4 h-4 rounded-full border-2 border-red-500 bg-red-500/30 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-destructive bg-destructive/30"
               style={{
                 left: `${(prompt.actionData.coordinate[0] / 1280) * 100}%`,
                 top: `${(prompt.actionData.coordinate[1] / 800) * 100}%`
@@ -290,7 +290,7 @@ export function InlinePermissionPrompt({
         </div>
       )}
       {prompt.actionData?.text && (
-        <div className="mb-3 text-xs bg-bg-200 rounded-md px-2 py-1.5 font-mono text-text-200 truncate">
+        <div className="mb-3 text-xs bg-muted rounded-md px-2 py-1.5 font-mono text-foreground/85 truncate">
           {prompt.actionData.text}
         </div>
       )}
@@ -313,7 +313,7 @@ export function InlinePermissionPrompt({
         </PermissionActionButton>
         {!disableAlwaysAllow && (
           <>
-            <div className="border-t border-border-200 my-1" />
+            <div className="border-t border-border my-1" />
             <PermissionActionButton
               onClick={() => handleAllow(PermissionDuration.ALWAYS)}
               isActive={activeButton === 'always'}
@@ -331,7 +331,7 @@ export function InlinePermissionPrompt({
           </>
         )}
       </div>
-      <div className="mt-3 text-[11px] text-text-400 leading-relaxed">
+      <div className="mt-3 text-[11px] text-muted-foreground leading-relaxed">
         <MemoizedFormattedMessage
           id="superduck_will_not_purchase_items_create_accounts"
           defaultMessage="SuperDuck will not purchase items, create accounts, or attempt to bypass CAPTCHAs."

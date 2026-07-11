@@ -48,8 +48,8 @@ export class ShadowDomManager {
         50% { opacity: 1; }
       }
       @keyframes superduck-cursor-click-ripple {
-        0% { transform: translate(-50%, -50%) scale(0); opacity: 0.7; }
-        100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+        0% { transform: translate(-50%, -50%) scale(0.1); opacity: 1; }
+        100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
       }
       @media print {
         .superduck-agent-overlay { display: none; }

@@ -21,7 +21,6 @@ interface SessionState {
   setActiveConversationUuid: (uuid: string | null) => void;
   setActiveRemoteSessionId: (id: string | null) => void;
   setShowHistoryPanel: (show: boolean) => void;
-  clearSession: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -33,13 +32,5 @@ export const useSessionStore = create<SessionState>((set) => ({
   setActiveSessionId: (activeSessionId) => set({ activeSessionId }),
   setActiveConversationUuid: (activeConversationUuid) => set({ activeConversationUuid }),
   setActiveRemoteSessionId: (activeRemoteSessionId) => set({ activeRemoteSessionId }),
-  setShowHistoryPanel: (showHistoryPanel) => set({ showHistoryPanel }),
-
-  clearSession: () =>
-    set({
-      activeSessionId: '',
-      activeConversationUuid: null,
-      activeRemoteSessionId: null,
-      showHistoryPanel: false
-    })
+  setShowHistoryPanel: (showHistoryPanel) => set({ showHistoryPanel })
 }));

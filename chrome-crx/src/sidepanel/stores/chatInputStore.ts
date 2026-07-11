@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { RefObject } from 'react';
-import type { ScrollContainerHandle } from '@/sidepanel/components/ScrollContainer';
+import type { ScrollContainerHandle } from '@/sidepanel/components/MessageScroller';
 import type { PermissionModeOption } from '@/sidepanel/components/PermissionModeMenu';
 import type { RichTextInputHandle } from '@/sidepanel/components/RichTextInput';
 import type { WorkflowStep } from '../workflowRecording/types';
@@ -26,7 +26,6 @@ export interface ChatInputState {
   sentinelElement: HTMLDivElement | null;
 
   // State
-  isChatInputBeamActive: boolean;
   chatInputSurfaceClass: string;
   recordingState: {
     isRecording: boolean;
@@ -68,7 +67,6 @@ export const useChatInputStore = create<ChatInputStore>((set) => ({
   autoScrollRef: { current: null },
   inputRef: { current: null },
   sentinelElement: null,
-  isChatInputBeamActive: false,
   chatInputSurfaceClass: '',
   recordingState: {
     isRecording: false,

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { getStorageValue, setStorageValue } from '../../extensionServices';
-import { type ApiConversationMessage } from '../../messageTypes';
 import { ensureToolResultPairs } from '../../utils/conversationProtocol';
 import {
   getConversationStorageKey,
@@ -66,11 +65,6 @@ export function useSessionPersistence({
   const setPermissionMode = usePermissionStore((s) => s.setPermissionMode);
   const setRuntimeError = useAgentStore((s) => s.setRuntimeError);
   const setLastStopReason = useAgentStore((s) => s.setLastStopReason);
-  const setTokensSaved = useAgentStore((s) => s.setTokensSaved);
-  // setMessageHistory is kept local to SidepanelApp (unused field)
-  const setMessageHistory = (_messages: ApiConversationMessage[]) => {
-    // no-op for now; _messageHistory is unused
-  };
   const historyStorageKey = getHistoryStorageKey(activeSessionId);
 
   // Holds the latest persistSnapshot function so flushSession() can
@@ -146,10 +140,8 @@ export function useSessionPersistence({
     (async () => {
       setMessages([]);
       setApiMessages([]);
-      setMessageHistory([]);
       setRuntimeError(null);
       setLastStopReason(null);
-      setTokensSaved(null);
       const currentConversationUuid = activeConversationUuidRef.current;
       let resolvedRemoteSessionId = activeRemoteSessionIdRef.current;
 

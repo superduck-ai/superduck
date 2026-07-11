@@ -5,7 +5,7 @@ export function SlashIcon() {
   return (
     <span
       aria-hidden="true"
-      className="select-none -translate-y-px text-[15px] font-normal leading-none text-text-300"
+      className="select-none -translate-y-px text-[15px] font-normal leading-none text-muted-foreground"
     >
       /
     </span>
@@ -14,7 +14,7 @@ export function SlashIcon() {
 
 export function InlineSvgIcon({
   svg,
-  className = 'inline-flex h-[15px] w-[15px] text-text-300'
+  className = 'inline-flex h-[15px] w-[15px] text-muted-foreground'
 }: {
   svg: string;
   className?: string;
@@ -39,7 +39,7 @@ export function SpecialCommandIcon({ command }: { command: string }) {
     return (
       <InlineSvgIcon
         svg={compactBroomSvg}
-        className="inline-flex h-[13px] w-[13px] text-text-300"
+        className="inline-flex h-[13px] w-[13px] text-muted-foreground"
       />
     );
   }
@@ -49,7 +49,7 @@ export function SpecialCommandIcon({ command }: { command: string }) {
 
 export function MenuIconBox({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-text-300">
+    <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-muted-foreground">
       {children}
     </div>
   );

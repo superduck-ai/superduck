@@ -5,8 +5,8 @@ import { type Attachment, isImageFile } from './fileUtils';
 function Skeleton() {
   return (
     <div className="animate-pulse space-y-2">
-      <div className="h-3 bg-bg-200 rounded w-3/4"></div>
-      <div className="h-3 bg-bg-200 rounded w-1/2"></div>
+      <div className="h-3 bg-muted rounded w-3/4"></div>
+      <div className="h-3 bg-muted rounded w-1/2"></div>
     </div>
   );
 }
@@ -27,9 +27,9 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
-        className="relative w-[120px] h-[120px] rounded-lg border-2 border-red-500 bg-bg-100 p-2 flex flex-col items-center justify-center"
+        className="relative flex h-[120px] w-[120px] flex-col items-center justify-center rounded-lg border-2 border-destructive bg-card p-2"
       >
-        <div className="text-red-500 mb-2">
+        <div className="mb-2 text-destructive">
           <svg
             width="24"
             height="24"
@@ -43,10 +43,10 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         </div>
-        <p className="text-xs text-red-500 text-center line-clamp-2">{attachment.error}</p>
+        <p className="line-clamp-2 text-center text-xs text-destructive">{attachment.error}</p>
         <button
           onClick={() => onRemove(attachment.id)}
-          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+          className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20"
         >
           <svg
             width="12"
@@ -66,7 +66,7 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
 
   if (isLoading) {
     return (
-      <div className="w-[120px] h-[120px] rounded-lg border border-border-300 bg-bg-100 p-3">
+      <div className="w-[120px] h-[120px] rounded-lg border border-border bg-card p-3">
         <Skeleton />
       </div>
     );
@@ -79,7 +79,7 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
-          className="relative w-[120px] h-[120px] rounded-lg overflow-hidden border border-border-300 cursor-pointer"
+          className="relative w-[120px] h-[120px] rounded-lg overflow-hidden border border-border cursor-pointer"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           onClick={() => setShowPreview(true)}
@@ -137,7 +137,7 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
-        className="relative w-[120px] h-[120px] rounded-lg border border-border-300 bg-bg-100 p-3 flex flex-col items-center justify-center"
+        className="relative w-[120px] h-[120px] rounded-lg border border-border bg-card p-3 flex flex-col items-center justify-center"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
@@ -155,10 +155,10 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
           <line x1="8" y1="17" x2="16" y2="17" />
           <polyline points="10 9 9 9 8 9" />
         </svg>
-        <p className="text-xs text-text-200 mt-2 text-center line-clamp-2">
+        <p className="text-xs text-foreground/85 mt-2 text-center line-clamp-2">
           {attachment.file.name}
         </p>
-        <p className="text-xs text-text-300 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           {attachment.file.size > 1024 * 1024
             ? `${(attachment.file.size / (1024 * 1024)).toFixed(1)} MB`
             : `${(attachment.file.size / 1024).toFixed(1)} KB`}
@@ -192,7 +192,7 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
-      className="relative w-[120px] h-[120px] rounded-lg border border-border-300 bg-bg-100 p-3 flex flex-col items-center justify-center"
+      className="relative w-[120px] h-[120px] rounded-lg border border-border bg-card p-3 flex flex-col items-center justify-center"
     >
       <svg
         width="32"
@@ -205,15 +205,17 @@ function AttachmentThumbnail({ attachment, onRemove, isLoading }: AttachmentThum
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
         <polyline points="14 2 14 8 20 8" />
       </svg>
-      <p className="text-xs text-text-200 mt-2 text-center line-clamp-2">{attachment.file.name}</p>
-      <p className="text-xs text-text-300 mt-1">
+      <p className="text-xs text-foreground/85 mt-2 text-center line-clamp-2">
+        {attachment.file.name}
+      </p>
+      <p className="text-xs text-muted-foreground mt-1">
         {attachment.file.size > 1024 * 1024
           ? `${(attachment.file.size / (1024 * 1024)).toFixed(1)} MB`
           : `${(attachment.file.size / 1024).toFixed(1)} KB`}
       </p>
       <button
         onClick={() => onRemove(attachment.id)}
-        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-bg-300 text-text-200 flex items-center justify-center hover:bg-bg-400 transition-colors"
+        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-accent text-foreground flex items-center justify-center hover:bg-accent/80 transition-colors"
       >
         <svg
           width="12"
@@ -254,7 +256,7 @@ export function AttachmentThumbnails({
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
           transition={{ duration: 0.2, ease: 'easeInOut' }}
-          className="border-t border-border-300/25 rounded-b-2xl bg-bg-100 overflow-hidden"
+          className="border-t border-border/25 rounded-b-2xl bg-card overflow-hidden"
         >
           <div className="flex flex-row overflow-x-auto overflow-y-hidden gap-3 px-3.5 py-2.5">
             <AnimatePresence mode="popLayout">
@@ -278,7 +280,7 @@ export function AttachmentThumbnails({
                     exit={{ opacity: 0, scale: 0.8 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <div className="w-[120px] h-[120px] rounded-lg border border-border-300 bg-bg-100 p-3">
+                    <div className="w-[120px] h-[120px] rounded-lg border border-border bg-card p-3">
                       <Skeleton />
                     </div>
                   </motion.div>

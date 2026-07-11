@@ -2,19 +2,14 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import type { SupportedLocale } from '../../index-react-dom-intl';
 
-export function ShimmerText({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      className="text-center text-always-white/0 bg-gradient-to-r bg-[length:400%_100%] from-30% via-always-white/70 to-80% bg-clip-text bg-no-repeat bg-text-400 from-text-400 to-text-400"
-      style={{
-        animationName: 'shimmertext',
-        animationDuration: '2.25s',
-        animationIterationCount: 'infinite'
-      }}
-    >
-      {children}
-    </span>
-  );
+export function ShimmerText({
+  children,
+  className
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <span className={`shimmer text-center ${className || ''}`}>{children}</span>;
 }
 
 export function stripTrailingEllipsis(text: string): string {
