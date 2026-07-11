@@ -489,6 +489,25 @@ describe('fetchProviderModelCatalog', () => {
       })
     });
   });
+
+  it('aborts an in-flight catalog request when the caller signal is aborted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+      })
+    );
+
+    const controller = new AbortController();
+    const request = fetchProviderModelCatalog(baseProvider, 10_000, controller.signal);
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+  });
 });
 
 describe('testProviderConnection', () => {

@@ -15,9 +15,6 @@ import {
   DialogTitle,
   Input,
   Label,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -153,7 +150,6 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
   const handleModelIdChange = (nextModelId: string) => {
     setModelId(nextModelId);
-    resetContextLengthLookup(nextModelId);
   };
 
   const handleBaseURLChange = (nextBaseURL: string) => {
@@ -308,59 +304,63 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
             <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
               <FormattedMessage id="model_id_label" defaultMessage="模型 ID" />
             </Label>
-            <Popover
-              open={modelDropdownOpen && (isLoadingModels || filteredModelOptions.length > 0)}
-              onOpenChange={setModelDropdownOpen}
-            >
-              <PopoverTrigger render={<div ref={modelInputContainerRef} />}>
-                <Input
-                  value={modelId}
-                  onFocus={() => setModelDropdownOpen(true)}
-                  onChange={(event) => {
-                    handleModelIdChange(event.target.value);
-                    setModelDropdownOpen(true);
-                  }}
-                  placeholder={intl.formatMessage({
-                    id: 'model_id_placeholder',
-                    defaultMessage: '例如 claude-opus-4-6 / gpt-4o / qwen2.5:7b'
-                  })}
-                  className="h-10 rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
-                />
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                className="w-(--anchor-width) rounded-xl p-0 shadow-lg ring-1 ring-foreground/10"
-              >
-                <Command shouldFilter={false}>
-                  <CommandList>
-                    {isLoadingModels ? (
-                      <CommandEmpty>
-                        <FormattedMessage id="loading_models" defaultMessage="模型列表加载中..." />
-                      </CommandEmpty>
-                    ) : filteredModelOptions.length === 0 ? (
-                      <CommandEmpty>
-                        <FormattedMessage id="no_models_found" defaultMessage="No models found." />
-                      </CommandEmpty>
-                    ) : (
-                      <CommandGroup>
-                        {filteredModelOptions.map((model) => (
-                          <CommandItem
-                            key={model}
-                            value={model}
-                            onSelect={() => {
-                              handleModelIdChange(model);
-                              setModelDropdownOpen(false);
-                            }}
-                          >
-                            {model}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    )}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            <div ref={modelInputContainerRef} className="relative">
+              <Input
+                value={modelId}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={modelDropdownOpen}
+                onFocus={() => setModelDropdownOpen(true)}
+                onChange={(event) => {
+                  handleModelIdChange(event.target.value);
+                  setModelDropdownOpen(true);
+                }}
+                placeholder={intl.formatMessage({
+                  id: 'model_id_placeholder',
+                  defaultMessage: '例如 claude-opus-4-6 / gpt-4o / qwen2.5:7b'
+                })}
+                className="h-10 rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
+              />
+              {modelDropdownOpen && (isLoadingModels || filteredModelOptions.length > 0) && (
+                <div className="absolute inset-x-0 top-full z-50 mt-1 rounded-xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10">
+                  <Command shouldFilter={false}>
+                    <CommandList>
+                      {isLoadingModels ? (
+                        <CommandEmpty>
+                          <FormattedMessage
+                            id="loading_models"
+                            defaultMessage="模型列表加载中..."
+                          />
+                        </CommandEmpty>
+                      ) : filteredModelOptions.length === 0 ? (
+                        <CommandEmpty>
+                          <FormattedMessage
+                            id="no_models_found"
+                            defaultMessage="No models found."
+                          />
+                        </CommandEmpty>
+                      ) : (
+                        <CommandGroup>
+                          {filteredModelOptions.map((model) => (
+                            <CommandItem
+                              key={model}
+                              value={model}
+                              onSelect={() => {
+                                handleModelIdChange(model);
+                                resetContextLengthLookup(model);
+                                setModelDropdownOpen(false);
+                              }}
+                            >
+                              {model}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </div>
+              )}
+            </div>
           </div>
 
           <Separator className="my-5 opacity-40" />

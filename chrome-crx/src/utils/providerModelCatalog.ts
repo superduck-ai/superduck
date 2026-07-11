@@ -335,7 +335,8 @@ async function readProviderError(response: Response): Promise<string> {
 
 async function fetchRawModelList(
   provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
-  timeoutMs = 10_000
+  timeoutMs = 10_000,
+  signal?: AbortSignal
 ): Promise<unknown> {
   const baseURL = normalizeProviderBaseURL(
     provider.kind,
@@ -346,7 +347,14 @@ async function fetchRawModelList(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) controller.abort();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     let lastError: Error | null = null;
     for (const url of getModelListUrls(provider.kind, baseURL, provider.apiKey)) {
@@ -366,12 +374,13 @@ async function fetchRawModelList(
     }
     throw lastError ?? new Error('models endpoint unavailable');
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (timedOut) {
       throw new Error(`timeout after ${timeoutMs}ms`, { cause: error });
     }
     throw error;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -394,9 +403,10 @@ export interface ProviderModelCatalog {
  */
 export async function fetchProviderModelCatalog(
   provider: Pick<AiProvider, 'kind' | 'baseURL' | 'apiKey'>,
-  timeoutMs = 10_000
+  timeoutMs = 10_000,
+  signal?: AbortSignal
 ): Promise<ProviderModelCatalog> {
-  const payload = await fetchRawModelList(provider, timeoutMs);
+  const payload = await fetchRawModelList(provider, timeoutMs, signal);
   const metadata = extractModelMetadata(payload);
   await writeModelMetadataCache(provider, metadata);
   return {
