@@ -137,7 +137,7 @@ function OptionsPage() {
 
   return (
     <>
-      <div className="relative flex min-h-screen w-full justify-center overflow-hidden bg-muted/30 py-8 text-foreground md:py-16">
+      <div className="relative flex h-full w-full justify-center overflow-x-hidden overflow-y-auto bg-muted/30 py-8 text-foreground md:py-16">
         {/* Decorative background gradient */}
         <div className="pointer-events-none absolute right-0 top-0 -z-10 h-[650px] w-[650px] rounded-full bg-primary/[0.06] blur-3xl dark:bg-primary/10" />
 
