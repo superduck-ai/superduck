@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useIntlSafe } from '../../index-react-dom-intl';
 import { isTextContentBlock, isToolUseContentBlock } from '../../messageTypes';
@@ -17,8 +17,28 @@ export function AssistantMessageRow({
   allMessages: ApiConversationMessage[];
 }) {
   const [copied, setCopied] = useState(false);
+  const [copyTooltipOpen, setCopyTooltipOpen] = useState(false);
   const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
+  const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const intl = useIntlSafe();
+
+  const closeCopyFeedback = () => {
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+      copyFeedbackTimeoutRef.current = null;
+    }
+    setCopied(false);
+    setCopyTooltipOpen(false);
+  };
+
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const processedBlocks = useMemo<ApiMessageBlock[]>(() => {
     return blocks.map((block) => {
@@ -49,8 +69,16 @@ export function AssistantMessageRow({
   const handleCopy = async () => {
     if (!finalAnswerText) return;
     await navigator.clipboard.writeText(finalAnswerText);
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+    }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyTooltipOpen(true);
+    copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setCopied(false);
+      setCopyTooltipOpen(false);
+      copyFeedbackTimeoutRef.current = null;
+    }, 2000);
   };
 
   const turnIsOver = !isStreaming;
@@ -75,11 +103,16 @@ export function AssistantMessageRow({
                       : intl.formatMessage({ id: 'copy', defaultMessage: 'Copy' })
                   }
                   side="bottom"
-                  open={copied || undefined}
+                  open={copyTooltipOpen}
+                  onOpenChange={setCopyTooltipOpen}
                   delayDuration={copied ? 0 : 200}
                 >
                   <Button
                     onClick={handleCopy}
+                    onPointerLeave={(event) => {
+                      closeCopyFeedback();
+                      event.currentTarget.blur();
+                    }}
                     variant="ghost"
                     size="icon-xs"
                     className="size-6 text-muted-foreground hover:text-foreground"

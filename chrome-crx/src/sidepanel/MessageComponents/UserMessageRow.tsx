@@ -26,7 +26,27 @@ export function UserMessageRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyTooltipOpen, setCopyTooltipOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const copyFeedbackTimeoutRef = React.useRef<number | null>(null);
+
+  const closeCopyFeedback = () => {
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+      copyFeedbackTimeoutRef.current = null;
+    }
+    setCopied(false);
+    setCopyTooltipOpen(false);
+  };
+
+  React.useEffect(
+    () => () => {
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   // Memoize remarkPlugins array to avoid recreating on every render
   const remarkPlugins = useMemo(() => [remarkGfm], []);
@@ -58,8 +78,16 @@ export function UserMessageRow({
     if (!displayText) return;
     const textToCopy = await resolveShortcutMarkersForCopy(displayText);
     await navigator.clipboard.writeText(textToCopy);
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+    }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyTooltipOpen(true);
+    copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setCopied(false);
+      setCopyTooltipOpen(false);
+      copyFeedbackTimeoutRef.current = null;
+    }, 2000);
   };
 
   return (
@@ -159,11 +187,16 @@ export function UserMessageRow({
               <SimpleTooltip
                 tooltipContent={copied ? 'Copied' : 'Copy'}
                 side="bottom"
-                open={copied || undefined}
+                open={copyTooltipOpen}
+                onOpenChange={setCopyTooltipOpen}
                 delayDuration={copied ? 0 : 200}
               >
                 <Button
                   onClick={handleCopy}
+                  onPointerLeave={(event) => {
+                    closeCopyFeedback();
+                    event.currentTarget.blur();
+                  }}
                   variant="ghost"
                   size="icon-xs"
                   className="size-6 text-muted-foreground hover:text-foreground"

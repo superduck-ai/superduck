@@ -56,6 +56,7 @@ interface SimpleTooltipProps {
   side?: TooltipPrimitive.Positioner.Props['side'];
   delayDuration?: number;
   open?: boolean;
+  onOpenChange?: TooltipPrimitive.Root.Props['onOpenChange'];
   showTooltip?: boolean;
 }
 
@@ -65,12 +66,13 @@ function SimpleTooltip({
   side = 'top',
   delayDuration = 200,
   open,
+  onOpenChange,
   showTooltip = true
 }: SimpleTooltipProps) {
   if (!showTooltip) return <>{children}</>;
 
   return (
-    <Tooltip open={open}>
+    <Tooltip open={open} onOpenChange={onOpenChange}>
       <TooltipTrigger delay={delayDuration} render={<span className="relative inline-flex" />}>
         {children}
       </TooltipTrigger>
