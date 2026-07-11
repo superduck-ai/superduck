@@ -31,7 +31,14 @@ export async function checkUrlSecurity(
   actionName: string
 ): Promise<SecurityCheckResult | null> {
   try {
-    const blockedProtocols = ['chrome:', 'chrome-extension:', 'about:', 'data:', 'javascript:'];
+    const blockedProtocols = [
+      'chrome:',
+      'chrome-extension:',
+      'about:',
+      'data:',
+      'javascript:',
+      'file:'
+    ];
     for (const protocol of blockedProtocols) {
       if (url.startsWith(protocol)) {
         return { error: `Cannot perform ${actionName} on ${protocol} URLs` };

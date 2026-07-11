@@ -29,6 +29,7 @@ export function getDefaultProviderConfig() {
     selectedModel: "prov_mock",
     anthropicApiKey: "test-fake-key-not-real",
     browserControlPermissionAccepted: true,
+    lastPermissionModePreference: "skip_all_permission_checks",
   };
 }
 

@@ -331,7 +331,7 @@ export function getToolDisplayInfo(
     case 'upload_image':
       return { text: t('upload_image', 'Upload image'), icon: 'upload' };
     case 'upload_file':
-      return { text: t('upload_files', 'Upload file'), icon: 'upload' };
+      return { text: t('upload_files', 'Upload files'), icon: 'upload' };
     case 'javascript_tool':
     case 'execute_js':
     case 'execute_javascript':

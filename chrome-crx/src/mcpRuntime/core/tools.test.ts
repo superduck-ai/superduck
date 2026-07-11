@@ -31,6 +31,7 @@ vi.mock('../browserAutomation', () => ({
   turnAnswerStartTool: fixtures.tool('turn_answer_start', 'read'),
   updatePlanTool: fixtures.tool('update_plan', 'read'),
   uploadImageTool: fixtures.tool('upload_image'),
+  uploadFileTool: fixtures.tool('upload_file'),
   batchTool: fixtures.tool('browser_batch')
 }));
 

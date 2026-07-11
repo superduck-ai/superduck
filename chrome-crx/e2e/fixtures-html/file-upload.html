@@ -53,8 +53,11 @@
   </div>
 
   <div class="section">
-    <h2>Hidden input triggered by button (picker)</h2>
-    <button id="picker-trigger" style="padding:8px 16px;">Choose file to upload</button>
+    <h2>Hidden input triggered by label (picker)</h2>
+    <label id="picker-trigger" style="display:inline-block;padding:8px 16px;border:1px solid #ccc;cursor:pointer;">
+      Choose file to upload
+      <input id="picker-hidden-input" type="file" style="position:absolute;width:0;height:0;opacity:0;" />
+    </label>
     <div id="picker-status">No file selected yet</div>
   </div>
 
@@ -83,28 +86,35 @@
     bindInput(nestedInput, document.getElementById('nested-status'));
     document.getElementById('nested-upload-btn').addEventListener('click', () => { nestedInput.click(); });
 
-    const hidden = document.createElement('input');
-    hidden.type = 'file';
-    hidden.style.display = 'none';
-    document.body.appendChild(hidden);
-    const pickerStatus = document.getElementById('picker-status');
-    document.getElementById('picker-trigger').addEventListener('click', () => { hidden.click(); });
-    bindInput(hidden, pickerStatus);
+    const pickerInput = document.getElementById('picker-hidden-input');
+    bindInput(pickerInput, document.getElementById('picker-status'));
 
     window.__getFileNames = function () {
+      function fileNames(input) {
+        if (!input.files) return [];
+        const out = [];
+        for (const f of input.files) out.push(f.name);
+        return out;
+      }
       return {
         explicit: explicit.files && explicit.files[0] ? explicit.files[0].name : null,
+        explicitNames: fileNames(explicit),
         single: single.files && single.files[0] ? single.files[0].name : null,
+        singleNames: fileNames(single),
         label: labelInput.files && labelInput.files[0] ? labelInput.files[0].name : null,
+        labelNames: fileNames(labelInput),
         wrap: wrapInput.files && wrapInput.files[0] ? wrapInput.files[0].name : null,
+        wrapNames: fileNames(wrapInput),
         nested: nestedInput.files && nestedInput.files[0] ? nestedInput.files[0].name : null,
-        hidden: hidden.files && hidden.files[0] ? hidden.files[0].name : null,
+        nestedNames: fileNames(nestedInput),
+        hidden: pickerInput.files && pickerInput.files[0] ? pickerInput.files[0].name : null,
+        hiddenNames: fileNames(pickerInput),
         explicitCount: explicit.files ? explicit.files.length : 0,
         singleCount: single.files ? single.files.length : 0,
         labelCount: labelInput.files ? labelInput.files.length : 0,
         wrapCount: wrapInput.files ? wrapInput.files.length : 0,
         nestedCount: nestedInput.files ? nestedInput.files.length : 0,
-        hiddenCount: hidden.files ? hidden.files.length : 0
+        hiddenCount: pickerInput.files ? pickerInput.files.length : 0
       };
     };
   </script>

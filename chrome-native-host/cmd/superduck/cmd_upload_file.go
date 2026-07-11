@@ -37,10 +37,11 @@ func parsePathsCSV(csvStr string) ([]string, error) {
 
 func validateUploadFilePaths(paths []string) error {
 	for _, p := range paths {
+		p = filepath.Clean(p)
 		if !filepath.IsAbs(p) {
 			return fmt.Errorf("path must be absolute: %s", p)
 		}
-		info, err := os.Stat(p)
+		info, err := os.Lstat(p)
 		if err != nil {
 			return fmt.Errorf("path does not exist: %s: %w", p, err)
 		}
@@ -69,8 +70,8 @@ func validateUploadFilePaths(paths []string) error {
 func cmdUploadFile(argv []string) error {
 	fs := flag.NewFlagSet("upload_file", flag.ContinueOnError)
 	var paths pathListValue
-	fs.Var(&paths, "path", "Absolute local file path to upload (repeatable; prefer over --paths when paths contain commas)")
-	pathsCSV := fs.String("paths", "", "Comma-separated absolute file paths (CSV quoting supported; use repeated --path for paths containing commas)")
+	fs.Var(&paths, "path", "Absolute local file path to upload (repeatable; mutually exclusive with --paths)")
+	pathsCSV := fs.String("paths", "", "Comma-separated absolute file paths (CSV quoting supported; mutually exclusive with --path)")
 	ref := fs.String("ref", "", "Element reference from read_page/find (mode 1): <input type=file>, or a <label>/<button> that controls or contains one. Mutually exclusive with --coord")
 	coord := fs.String("coord", "", "Viewport x,y of a button/label that opens the native file picker (mode 2). Mutually exclusive with --ref")
 	if err := fs.Parse(reorderFlagsFirst(argv)); err != nil {
@@ -79,6 +80,9 @@ func cmdUploadFile(argv []string) error {
 
 	allPaths := []string(paths)
 	if *pathsCSV != "" {
+		if len(paths) > 0 {
+			return fmt.Errorf("use either --path (repeatable) or --paths (CSV), not both")
+		}
 		csvPaths, err := parsePathsCSV(*pathsCSV)
 		if err != nil {
 			return err

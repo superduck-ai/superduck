@@ -38,6 +38,22 @@ func TestValidateUploadFilePaths(t *testing.T) {
 	}
 }
 
+func TestCmdUploadFileRejectsMixedPathFlags(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(existing, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := cmdUploadFile([]string{"--path", existing, "--paths", existing, "--ref", "ref_1"})
+	if err == nil {
+		t.Fatal("expected error when both --path and --paths are provided")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestParsePathsCSV(t *testing.T) {
 	dir := t.TempDir()
 	withComma := filepath.Join(dir, "a,b.txt")

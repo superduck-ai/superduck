@@ -244,7 +244,7 @@ var toolDefinitions = []toolDefinition{
 		name:        "upload_file",
 		description: "Upload local files to a file input on the page. Use exactly one of two modes: (1) pass `ref` to target an <input type=file> located via read_page/find; (2) pass `coordinate` to click a visible button/label that opens the native file picker, which is intercepted automatically. Paths must be absolute local filesystem paths.",
 		inputSchema: objectSchema(map[string]any{
-			"paths":      arraySchema("Absolute local filesystem paths to the files to upload.", map[string]any{"type": "string"}),
+			"paths":      arraySchema("Absolute local filesystem paths to the files to upload.", map[string]any{"type": "string"}, withMinItems(1)),
 			"ref":        stringSchema("Element reference ID from read_page/find (mode 1): an <input type=file>, or a <label>/<button> that controls or contains one. Mutually exclusive with `coordinate`."),
 			"coordinate": arraySchema("Viewport [x, y] of a button/label that opens the native file picker (mode 2). Mutually exclusive with `ref`.", map[string]any{"type": "number"}),
 			"tabId":      numberSchema("Tab ID where the target element is located."),

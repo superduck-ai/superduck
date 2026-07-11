@@ -7,7 +7,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../fixtures/extension';
 import { getDefaultProviderConfig, seedStorage } from '../fixtures/storage';
-import { openSidepanel, sendMessage, waitForReplyDone } from '../helpers/sidepanel';
+import {
+  activateChromeTab,
+  getChromeTabIdFor,
+  openSidepanel,
+  sendMessage,
+  waitForReplyDone
+} from '../helpers/sidepanel';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, '../fixtures-html');
@@ -122,15 +128,6 @@ async function getCapturedToolResults(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as any).__capturedToolResults || []);
 }
 
-async function getActiveTabId(serviceWorker: Worker): Promise<number> {
-  return serviceWorker.evaluate(async () => {
-    const tabs = await (globalThis as any).chrome.tabs.query({ active: true, currentWindow: true });
-    const tabId = tabs[0]?.id;
-    if (typeof tabId !== 'number') throw new Error('No active tab id');
-    return tabId;
-  });
-}
-
 async function registerRef(
   serviceWorker: Worker,
   tabId: number,
@@ -188,8 +185,12 @@ async function prepareSidepanel(
 ): Promise<{ sidepanel: Page; tabId: number }> {
   await seedStorage(serviceWorker, { ...getDefaultProviderConfig() });
   await targetPage.bringToFront();
-  const tabId = await getActiveTabId(serviceWorker);
-  const sidepanel = await openSidepanel(targetPage.context(), extensionId, tabId);
+  const tabId = await getChromeTabIdFor(serviceWorker, targetPage);
+  await activateChromeTab(serviceWorker, tabId);
+  const sidepanel = await openSidepanel(targetPage.context(), extensionId, {
+    initialTabId: tabId,
+    skipPermissions: true
+  });
   await expect(sidepanel.locator('#root')).toBeVisible();
   await sidepanel.locator('.ProseMirror').waitFor({ state: 'visible', timeout: 10_000 });
   return { sidepanel, tabId };
@@ -283,12 +284,7 @@ test.describe('upload_file tool', () => {
       await sendMessage(sidepanel, 'Upload both local files');
       await waitForReplyDone(sidepanel, 60_000);
 
-      const names = await targetPage.evaluate(() => {
-        const input = document.getElementById('explicit-input') as HTMLInputElement;
-        const out: string[] = [];
-        if (input.files) for (const f of input.files) out.push(f.name);
-        return out;
-      });
+      const names = await targetPage.evaluate(() => (window as any).__getFileNames().explicitNames);
       expect(names).toEqual(expect.arrayContaining(['report.txt', 'notes.txt']));
       expect(names.length).toBe(2);
     });
@@ -482,7 +478,7 @@ test.describe('upload_file tool', () => {
         input: { paths: [TEST_FILE_PATH], coordinate: [cx, cy] }
       });
 
-      await sendMessage(sidepanel, 'Click the upload button and pick the local file');
+      await sendMessage(sidepanel, 'Click the upload label and pick the local file');
       await waitForReplyDone(sidepanel, 60_000);
 
       const state = await getFileState(targetPage);
