@@ -153,7 +153,7 @@ function OptionsPage() {
             </div>
 
             {/* Navigation Card */}
-            <nav className="space-y-1 rounded-2xl border border-border/60 bg-card p-2.5 shadow-sm dark:border-border/30">
+            <nav className="space-y-1.5 rounded-2xl bg-card/70 p-2.5 shadow-sm dark:bg-white/[0.025] dark:shadow-[0_16px_40px_rgb(0_0_0/0.18)]">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
                 const active = activeTab === item.tab;
@@ -161,23 +161,24 @@ function OptionsPage() {
                   <button
                     key={item.tab}
                     onClick={() => navigateTab(item.tab)}
+                    aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'w-full flex items-center gap-3.5 px-4 py-[11px] text-[14px] font-medium rounded-xl transition-all duration-200 text-left',
+                      'group relative flex w-full items-center gap-3.5 overflow-hidden rounded-xl px-4 py-[11px] text-left text-[14px] font-medium transition-[color,background-color,box-shadow,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-card active:scale-[0.99]',
                       active
-                        ? 'bg-primary/[0.08] text-primary dark:bg-primary/[0.18] dark:text-primary-foreground font-semibold'
-                        : 'bg-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                        ? 'bg-primary/[0.08] font-semibold text-primary shadow-[0_6px_18px_rgb(0_0_0/0.04)] dark:bg-white/[0.09] dark:text-foreground dark:shadow-[0_8px_24px_rgb(0_0_0/0.16),inset_0_1px_0_rgb(255_255_255/0.04)]'
+                        : 'bg-transparent text-muted-foreground hover:bg-muted/45 hover:text-foreground dark:text-foreground/60 dark:hover:bg-white/[0.05] dark:hover:text-foreground/90'
                     )}
                   >
                     <Icon
-                      size={16}
+                      size={17}
                       className={cn(
-                        'shrink-0 transition-transform duration-200',
+                        'shrink-0 transition-[color,transform] duration-200 group-hover:scale-105',
                         active
-                          ? 'text-primary dark:text-primary-foreground'
-                          : 'text-muted-foreground/75'
+                          ? 'text-primary dark:text-primary'
+                          : 'text-muted-foreground/75 dark:text-foreground/55 dark:group-hover:text-foreground/85'
                       )}
                     />
-                    <span>{item.label}</span>
+                    <span className="min-w-0 truncate">{item.label}</span>
                   </button>
                 );
               })}
