@@ -70,7 +70,7 @@ export function SidepanelView() {
         />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-          {effectiveApiMessages.length === 0 ? (
+          {effectiveApiMessages.length === 0 && !recordingState.isRecording ? (
             <div className="superduck-empty-state-layer absolute inset-x-0 top-0 z-10">
               <EmptyState
                 tabId={queryTabId}
