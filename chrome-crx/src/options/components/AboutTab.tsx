@@ -37,7 +37,7 @@ function AboutTab() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <button
-              onClick={() => openUrl('https://superduck-ai.github.io/superduck/')}
+              onClick={() => openUrl('https://github.com/superduck-ai/superduck')}
               className="flex items-center justify-between p-4 rounded-xl border border-border/60 hover:border-primary/50 hover:bg-primary/5 transition-all text-left group cursor-pointer"
             >
               <div className="flex items-center gap-3">
