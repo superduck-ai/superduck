@@ -75,19 +75,19 @@
     },
     "npm/packages/superduck-darwin-arm64": {
       "name": "superduck-darwin-arm64",
-      "version": "0.2.6",
+      "version": "0.2.7",
     },
     "npm/packages/superduck-darwin-x64": {
       "name": "superduck-darwin-x64",
-      "version": "0.2.6",
+      "version": "0.2.7",
     },
     "npm/packages/superduck-linux-arm64": {
       "name": "superduck-linux-arm64",
-      "version": "0.2.6",
+      "version": "0.2.7",
     },
     "npm/packages/superduck-linux-x64": {
       "name": "superduck-linux-x64",
-      "version": "0.2.6",
+      "version": "0.2.7",
     },
   },
   "packages": {

@@ -1,6 +1,6 @@
 # Advanced SuperDuck Commands
 
-Reference for less common `superduck 0.2.6` commands. Prefer checking
+Reference for less common `superduck 0.2.7` commands. Prefer checking
 `superduck --help` and `superduck <command> --help` if the installed version
 differs.
 
