@@ -66,7 +66,9 @@ function isValidCoordinate(coord: unknown): coord is [number, number] {
     typeof coord[0] === 'number' &&
     typeof coord[1] === 'number' &&
     Number.isFinite(coord[0]) &&
-    Number.isFinite(coord[1])
+    Number.isFinite(coord[1]) &&
+    coord[0] >= 0 &&
+    coord[1] >= 0
   );
 }
 

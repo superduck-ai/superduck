@@ -95,7 +95,9 @@ func cmdUploadFile(argv []string) error {
 	if err := validateUploadFilePaths(allPaths); err != nil {
 		return err
 	}
-	if (*ref == "") == (*coord == "") {
+	refSet := *ref != ""
+	coordSet := *coord != ""
+	if refSet == coordSet {
 		return fmt.Errorf("provide exactly one of --ref or --coord")
 	}
 
