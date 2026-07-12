@@ -172,12 +172,14 @@ export function DropZone({ onDrop, children, disabled }: DropZoneProps) {
             <div
               className={`rounded-2xl p-8 flex flex-col items-center gap-4 ${
                 isInvalid
-                  ? 'bg-red-500/20 border-2 border-red-500'
-                  : 'bg-blue-500/20 border-2 border-blue-500'
+                  ? 'border-2 border-destructive bg-destructive/20'
+                  : 'border-2 border-primary bg-primary/20'
               }`}
             >
-              <FileUploadIcon className={isInvalid ? 'text-red-500' : 'text-blue-500'} />
-              <p className={`text-lg font-medium ${isInvalid ? 'text-red-500' : 'text-blue-500'}`}>
+              <FileUploadIcon className={isInvalid ? 'text-destructive' : 'text-primary'} />
+              <p
+                className={`text-lg font-medium ${isInvalid ? 'text-destructive' : 'text-primary'}`}
+              >
                 {isInvalid ? 'File type is not supported' : 'Drop image files here'}
               </p>
             </div>

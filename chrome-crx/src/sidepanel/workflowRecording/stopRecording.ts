@@ -1,8 +1,7 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { RecordingState, WorkflowStep } from './types';
+import type { RecordingState } from './types';
 
 export interface StopRecordingParams {
-  recordingState: RecordingState;
   activeTabs: Set<number>;
   isSpeechRecording: boolean;
   isRecordingRef: MutableRefObject<boolean>;
@@ -17,12 +16,10 @@ export interface StopRecordingParams {
   setCurrentTabId: Dispatch<SetStateAction<number | undefined>>;
   setActiveTabs: Dispatch<SetStateAction<Set<number>>>;
   stopSpeechRecording: () => void;
-  onComplete?: (steps: WorkflowStep[]) => void;
 }
 
 export function workflowStopRecording(params: StopRecordingParams): void {
   const {
-    recordingState,
     activeTabs,
     isSpeechRecording,
     isRecordingRef,
@@ -34,18 +31,8 @@ export function workflowStopRecording(params: StopRecordingParams): void {
     setRecordingState,
     setCurrentTabId,
     setActiveTabs,
-    stopSpeechRecording,
-    onComplete
+    stopSpeechRecording
   } = params;
-
-  setRecordingState((prev) => ({
-    ...prev,
-    steps: prev.steps.map((step) =>
-      step.action === 'type' && step.isPending ? { ...step, isPending: false } : step
-    )
-  }));
-
-  const { steps } = recordingState;
 
   isRecordingRef.current = false;
 
@@ -77,8 +64,4 @@ export function workflowStopRecording(params: StopRecordingParams): void {
     steps: [],
     startTime: null
   });
-
-  if (steps.length > 0 && onComplete) {
-    onComplete(steps);
-  }
 }

@@ -5,13 +5,11 @@ import { PermissionOverlay } from './PermissionOverlay';
 import { RecordingOverlay } from './RecordingOverlay';
 import { SidepanelHeader } from './SidepanelHeader';
 import { ChatInputArea } from './ChatInputArea';
-import { SessionHistoryPanel, SESSION_HISTORY_PANEL_STYLES } from '../session/SessionHistoryPanel';
 import { EmptyState } from '@/sidepanel/components/EmptyState';
 import { MessageList } from '../MessageComponents';
-import { ScrollContainer } from '@/sidepanel/components/ScrollContainer';
+import { MessageScroller } from '@/sidepanel/components/MessageScroller';
 import { trackEvent } from '../../mcpRuntime';
 import { stripTrailingEllipsis, ThinkingDots } from '@/sidepanel/components/StatusDisplay';
-import { AutoScrollSpacer, LastMessageSentinel } from '@/sidepanel/components/AutoScrollSpacer';
 import { useSidepanelViewState } from '../contexts/SidepanelViewStateContext';
 
 // All state is read from context (avoid prop drilling and store-sync loops).
@@ -54,28 +52,10 @@ export function SidepanelView() {
   const handlePermissionAllow = state.handlePermissionAllow;
   const handlePermissionDeny = state.handlePermissionDeny;
   const permissionMode = state.permissionMode;
-  const showHistoryPanel = state.showHistoryPanel;
-  const setShowHistoryPanel = state.setShowHistoryPanel;
-  const handleLoadHistorySession = state.handleLoadHistorySession;
-  const activeSessionId = state.activeSessionId;
-  const showHighRiskFrame = state.showHighRiskFrame;
   const recordingState = state.recordingState;
 
   return (
-    <div
-      className="relative h-screen bg-bg-100 text-text-100"
-      data-theme="superduck"
-      style={
-        showHighRiskFrame
-          ? {
-              border: '1.7px dashed #F7CE46',
-              borderRadius: '16px',
-              boxSizing: 'border-box',
-              overflow: 'hidden'
-            }
-          : undefined
-      }
-    >
+    <div className="relative h-screen bg-background text-foreground superduck-premium-sidebar">
       <div className="relative flex h-full min-h-0 flex-col">
         <SidepanelHeader />
 
@@ -90,81 +70,91 @@ export function SidepanelView() {
         />
 
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-          <ScrollContainer
-            ref={autoScrollRef}
-            parentClassName={
-              'flex-1 min-h-0 ' + (apiMessagesLength === 0 ? '!overflow-hidden' : '')
-            }
-            innerClassName="h-full"
-            pinToBottomConfig={{ disabled: false, initialValue: true }}
-          >
-            <div className="mx-auto flex size-full max-w-3xl flex-col md:px-2">
-              <div className="flex-1 flex flex-col px-4 max-w-3xl mx-auto w-full pt-1">
-                {effectiveApiMessages.length === 0 ? (
-                  <EmptyState
-                    tabId={queryTabId}
-                    onPromptClick={(prompt) => {
-                      setPopulatedInputTargetTabId(undefined);
-                      setInput(prompt);
-                    }}
-                  />
-                ) : (
-                  <MessageList
-                    apiMessages={effectiveApiMessages}
-                    streamingTextStore={streamingTextStoreRef.current}
-                    isAgentRunning={effectiveIsAgentRunning}
-                    scrollRefs={messageListScrollRefs}
-                  />
-                )}
-                <LastMessageSentinel ref={sentinelCallbackRef} />
-                <div ref={scrollRefs.extras} className="min-h-8">
-                  {(effectiveIsAgentRunning || effectiveIsCompacting) && !permissionPrompt && (
-                    <div
-                      className={
-                        'flex items-center gap-3 ' +
-                        (!(effectiveIsAgentRunning || effectiveIsCompacting) ? 'invisible' : '')
-                      }
-                    >
-                      <SuperDuckAvatar
-                        state={effectiveIsCompacting ? 'shimmer' : 'thinking'}
-                        isInteractive={false}
-                        className=""
-                      />
-                      <div className="text-sm text-text-300 italic font-superduck-response relative inline-block">
-                        {(() => {
-                          const statusText = effectiveIsCompacting
-                            ? intl.formatMessage({
-                                id: 'compacting',
-                                defaultMessage: 'Compacting...'
-                              })
-                            : effectiveCurrentStatus ||
-                              intl.formatMessage({
-                                id: randomStartupKey,
-                                defaultMessage: 'Starting up...'
-                              });
-                          const displayStatusText = stripTrailingEllipsis(statusText);
-
-                          return (
-                            <>
-                              {displayStatusText}
-                              <ThinkingDots />
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <AutoScrollSpacer
-                  scrollRefs={scrollRefs}
-                  autoScrollRef={autoScrollRef}
-                  messageCount={apiMessagesLength}
-                  isStreaming={effectiveIsAgentRunning}
-                />
-              </div>
-              <ChatInputArea />
+          {effectiveApiMessages.length === 0 && !recordingState.isRecording ? (
+            <div className="superduck-empty-state-layer absolute inset-x-0 top-0 z-10">
+              <EmptyState
+                tabId={queryTabId}
+                onPromptClick={(prompt) => {
+                  setPopulatedInputTargetTabId(undefined);
+                  setInput(prompt);
+                }}
+              />
             </div>
-          </ScrollContainer>
+          ) : null}
+
+          <div className="relative min-h-0 flex-1">
+            <MessageScroller
+              ref={autoScrollRef}
+              parentClassName={apiMessagesLength === 0 ? '!overflow-hidden' : ''}
+              innerClassName="min-h-full"
+              isStreaming={effectiveIsAgentRunning}
+              hideScrollButton={!!permissionPrompt || recordingState.isRecording}
+              pinToBottomConfig={{ disabled: false, initialValue: true }}
+            >
+              <div className="mx-auto flex min-h-full w-full max-w-3xl flex-1 flex-col px-4 pt-1 pb-4 md:px-2">
+                <div className="flex flex-1 flex-col">
+                  {effectiveApiMessages.length > 0 ? (
+                    <MessageList
+                      apiMessages={effectiveApiMessages}
+                      streamingTextStore={streamingTextStoreRef.current}
+                      isAgentRunning={effectiveIsAgentRunning}
+                      scrollRefs={messageListScrollRefs}
+                    />
+                  ) : null}
+                  <div ref={scrollRefs.extras} className="mt-1 min-h-8 pb-1">
+                    {(effectiveIsAgentRunning || effectiveIsCompacting) && !permissionPrompt && (
+                      <div
+                        className={
+                          'flex items-center gap-3 ' +
+                          (!(effectiveIsAgentRunning || effectiveIsCompacting) ? 'invisible' : '')
+                        }
+                      >
+                        <SuperDuckAvatar
+                          state={effectiveIsCompacting ? 'shimmer' : 'thinking'}
+                          isInteractive={false}
+                          className=""
+                        />
+                        <div className="relative inline-block font-superduck-response text-sm italic text-muted-foreground dark:text-foreground/72">
+                          {(() => {
+                            const statusText = effectiveIsCompacting
+                              ? intl.formatMessage({
+                                  id: 'compacting',
+                                  defaultMessage: 'Compacting...'
+                                })
+                              : effectiveCurrentStatus ||
+                                intl.formatMessage({
+                                  id: randomStartupKey,
+                                  defaultMessage: 'Starting up...'
+                                });
+                            const displayStatusText = stripTrailingEllipsis(statusText);
+
+                            return (
+                              <>
+                                {displayStatusText}
+                                <ThinkingDots />
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    ref={sentinelCallbackRef}
+                    aria-hidden="true"
+                    className="h-px w-full pointer-events-none"
+                  />
+                </div>
+              </div>
+            </MessageScroller>
+          </div>
+
+          <div
+            data-testid="chat-composer-dock"
+            className="superduck-composer-dock relative z-40 mx-auto w-full max-w-3xl shrink-0 px-4 pt-1.5 pb-3"
+          >
+            <ChatInputArea />
+          </div>
 
           {/* Workflow Recording Interface — shown when recording, replaces chat interface */}
           <RecordingOverlay
@@ -198,18 +188,7 @@ export function SidepanelView() {
             permissionMode={permissionMode}
           />
         </div>
-
-        {/* Session history slide-in panel */}
-        <SessionHistoryPanel
-          isOpen={showHistoryPanel}
-          onClose={() => setShowHistoryPanel(false)}
-          onLoadSession={handleLoadHistorySession}
-          activeSessionId={activeSessionId}
-        />
       </div>
-
-      {/* CSS for session history panel animation */}
-      <style>{SESSION_HISTORY_PANEL_STYLES}</style>
     </div>
   );
 }

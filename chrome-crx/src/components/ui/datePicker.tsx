@@ -55,7 +55,7 @@ export function DatePicker({
 
   return (
     <div className={className}>
-      {label && <label className="block font-base text-text-200 mb-1">{label}</label>}
+      {label && <label className="mb-1 block text-sm font-medium text-foreground">{label}</label>}
       <div ref={containerRef} className="relative">
         <button
           ref={buttonRef}
@@ -71,26 +71,26 @@ export function DatePicker({
             setIsOpen((open) => !open);
           }}
           className={cn(
-            'w-full h-9 px-3 py-2 text-left border border-border-300 rounded-lg bg-bg-000 text-text-100 text-sm flex items-center justify-between gap-2 transition-all duration-200 can-focus hover:border-border-200 hover:shadow-sm cursor-pointer',
-            isOpen && 'border-border-200 shadow-sm'
+            'flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-left text-sm text-foreground shadow-xs transition-colors can-focus hover:border-ring/50',
+            isOpen && 'border-ring ring-2 ring-ring/30'
           )}
         >
           <span
             className={cn(
               'min-w-0 flex-1 whitespace-nowrap overflow-hidden text-ellipsis',
-              value ? '' : 'text-text-400'
+              value ? '' : 'text-muted-foreground'
             )}
           >
             {value
               ? formatDisplayDate(value)
               : intl.formatMessage({ defaultMessage: 'Select date', id: 'select_date' })}
           </span>
-          <CalendarIcon size={16} className="text-text-400 shrink-0" />
+          <CalendarIcon size={16} className="shrink-0 text-muted-foreground" />
         </button>
         {isOpen && (
           <div
             className={cn(
-              'absolute z-dropdown min-w-[280px] bg-bg-000 border-0.5 border-border-200 rounded-xl backdrop-blur-xl shadow-[0px_4px_16px_0px_hsl(var(--always-black)/12%)] dark:shadow-[0px_4px_16px_0px_hsl(var(--always-black)/32%)] p-3',
+              'absolute z-dropdown min-w-[280px] rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md',
               position === 'bottom' ? 'mt-1 top-full' : 'mb-1 bottom-full'
             )}
           >

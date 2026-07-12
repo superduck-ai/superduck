@@ -99,9 +99,9 @@ export function getStatusView(
           id: 'native_host_status_resetting_pill',
           defaultMessage: 'Resetting'
         }),
-        dotClassName: 'bg-text-400',
-        iconClassName: 'bg-bg-200 text-text-300',
-        pillClassName: 'bg-bg-200 text-text-300'
+        dotClassName: 'bg-muted-foreground',
+        iconClassName: 'bg-muted text-muted-foreground',
+        pillClassName: 'bg-muted text-muted-foreground'
       };
 
     case 'waiting':
@@ -114,9 +114,9 @@ export function getStatusView(
           id: 'native_host_status_waiting_pill',
           defaultMessage: 'Waiting'
         }),
-        dotClassName: 'bg-warning-100',
-        iconClassName: 'bg-warning-900/40 text-warning-100',
-        pillClassName: 'bg-warning-900/40 text-warning-100'
+        dotClassName: 'bg-warning',
+        iconClassName: 'bg-warning/10 text-warning',
+        pillClassName: 'bg-warning/10 text-warning'
       };
 
     case 'checking':
@@ -129,9 +129,9 @@ export function getStatusView(
           id: 'native_host_status_checking_pill',
           defaultMessage: 'Checking'
         }),
-        dotClassName: 'bg-text-400',
-        iconClassName: 'bg-bg-200 text-text-300',
-        pillClassName: 'bg-bg-200 text-text-300'
+        dotClassName: 'bg-muted-foreground',
+        iconClassName: 'bg-muted text-muted-foreground',
+        pillClassName: 'bg-muted text-muted-foreground'
       };
 
     case 'error':
@@ -144,9 +144,9 @@ export function getStatusView(
           id: 'native_host_status_error_pill',
           defaultMessage: 'Needs attention'
         }),
-        dotClassName: 'bg-danger-100',
-        iconClassName: 'bg-danger-900/30 text-danger-100',
-        pillClassName: 'bg-danger-900/30 text-danger-100'
+        dotClassName: 'bg-destructive',
+        iconClassName: 'bg-destructive/10 text-destructive',
+        pillClassName: 'bg-destructive/10 text-destructive'
       };
 
     case 'connected':
@@ -159,9 +159,9 @@ export function getStatusView(
           id: 'native_host_status_connected_pill',
           defaultMessage: 'Connected'
         }),
-        dotClassName: 'bg-success-100',
-        iconClassName: 'bg-success-900/40 text-success-100',
-        pillClassName: 'bg-success-900/40 text-success-100'
+        dotClassName: 'bg-success',
+        iconClassName: 'bg-success/10 text-success',
+        pillClassName: 'bg-success/10 text-success'
       };
 
     case 'bridge':
@@ -174,9 +174,9 @@ export function getStatusView(
           id: 'native_host_status_bridge_pill',
           defaultMessage: 'Partial'
         }),
-        dotClassName: 'bg-warning-100',
-        iconClassName: 'bg-warning-900/40 text-warning-100',
-        pillClassName: 'bg-warning-900/40 text-warning-100'
+        dotClassName: 'bg-warning',
+        iconClassName: 'bg-warning/10 text-warning',
+        pillClassName: 'bg-warning/10 text-warning'
       };
 
     case 'disconnected':
@@ -190,9 +190,9 @@ export function getStatusView(
           id: 'native_host_status_disconnected_pill',
           defaultMessage: 'Disconnected'
         }),
-        dotClassName: 'bg-text-400',
-        iconClassName: 'bg-bg-200 text-text-300',
-        pillClassName: 'bg-bg-200 text-text-300'
+        dotClassName: 'bg-muted-foreground',
+        iconClassName: 'bg-muted text-muted-foreground',
+        pillClassName: 'bg-muted text-muted-foreground'
       };
   }
 }

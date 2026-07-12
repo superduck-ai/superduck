@@ -65,7 +65,7 @@ export function SubmenuPanel({
 
               return (
                 <Fragment key={`submenu-${submenuItem.item.key}`}>
-                  {showDivider ? <div className="mx-1 my-1 border-t border-border-300/70" /> : null}
+                  {showDivider ? <div className="mx-1 my-1 border-t border-border/70" /> : null}
                   {submenuItem.type === 'managed' ? (
                     (() => {
                       const item = submenuItem.item;

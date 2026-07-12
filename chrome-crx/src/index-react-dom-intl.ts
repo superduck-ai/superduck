@@ -36,16 +36,24 @@ function isSupportedLocale(value: unknown): value is SupportedLocale {
   return typeof value === 'string' && SUPPORTED_LOCALES.includes(value as SupportedLocale);
 }
 
-function resolveBrowserLocale(): SupportedLocale {
-  const browserLocale = navigator.language;
-  if (isSupportedLocale(browserLocale)) {
-    return browserLocale;
+export function resolveBrowserLocale(
+  browserLocales: readonly string[] = navigator.languages?.length
+    ? navigator.languages
+    : [navigator.language]
+): SupportedLocale {
+  for (const browserLocale of browserLocales) {
+    if (isSupportedLocale(browserLocale)) {
+      return browserLocale;
+    }
+
+    const language = browserLocale.split('-')[0];
+    const matchedLocale = SUPPORTED_LOCALES.find((locale) => locale.startsWith(`${language}-`));
+    if (matchedLocale) {
+      return matchedLocale;
+    }
   }
 
-  const language = browserLocale.split('-')[0];
-  const matchedLocale = SUPPORTED_LOCALES.find((locale) => locale.startsWith(`${language}-`));
-
-  return matchedLocale ?? DEFAULT_LOCALE;
+  return DEFAULT_LOCALE;
 }
 
 function shallowEqual(
@@ -107,14 +115,17 @@ export function usePreferredLocale(): {
 
   useEffect(() => {
     let isDisposed = false;
+    let hasStoredLocale = false;
 
     const loadLocale = async (): Promise<void> => {
       try {
         const stored = await chrome.storage.local.get(PREFERRED_LOCALE_STORAGE_KEY);
         const storedLocale = stored[PREFERRED_LOCALE_STORAGE_KEY];
+        const resolvedStoredLocale = isSupportedLocale(storedLocale) ? storedLocale : null;
 
         if (!isDisposed) {
-          setLocaleState(isSupportedLocale(storedLocale) ? storedLocale : resolveBrowserLocale());
+          hasStoredLocale = resolvedStoredLocale !== null;
+          setLocaleState(resolvedStoredLocale ?? resolveBrowserLocale());
         }
       } catch {
         if (!isDisposed) {
@@ -143,14 +154,26 @@ export function usePreferredLocale(): {
       }
 
       if (isSupportedLocale(localeChange.newValue)) {
+        hasStoredLocale = true;
         setLocaleState(localeChange.newValue);
+      } else {
+        hasStoredLocale = false;
+        setLocaleState(resolveBrowserLocale());
+      }
+    };
+
+    const handleSystemLanguageChanged = (): void => {
+      if (!hasStoredLocale) {
+        setLocaleState(resolveBrowserLocale());
       }
     };
 
     chrome.storage.onChanged.addListener(handleStorageChanged);
+    window.addEventListener('languagechange', handleSystemLanguageChanged);
     return () => {
       isDisposed = true;
       chrome.storage.onChanged.removeListener(handleStorageChanged);
+      window.removeEventListener('languagechange', handleSystemLanguageChanged);
     };
   }, []);
 

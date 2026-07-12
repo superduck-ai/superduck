@@ -1,32 +1,24 @@
 import { getCompactionPrompts, detectConversationLanguage } from './compactionPrompts';
-import { calculateContextUsageMetrics, CONTEXT_WINDOW, MAX_TOKENS } from './messageLimits';
+import { MAX_TOKENS } from './messageLimits';
 import type {
   ApiConversationMessage,
   ApiResponseMessage,
-  ApiUsage,
   CreateApiMessageParams
 } from '../../messageTypes';
 
 export class ConversationCompactor {
   private createMessage: (params: CreateApiMessageParams) => Promise<ApiResponseMessage>;
   private locale?: string;
-  private contextWindow: number;
 
   constructor(
     createMessage: (params: CreateApiMessageParams) => Promise<ApiResponseMessage>,
-    locale?: string,
-    contextWindow: number = CONTEXT_WINDOW
+    locale?: string
   ) {
     this.createMessage = createMessage;
     this.locale = locale;
-    this.contextWindow = contextWindow;
   }
 
-  async compactConversation(
-    messages: ApiConversationMessage[],
-    _maxTokens: number,
-    continueWithoutPrompt: boolean
-  ) {
+  async compactConversation(messages: ApiConversationMessage[], continueWithoutPrompt: boolean) {
     if (messages.length === 0) {
       throw new Error('No messages to compact');
     }
@@ -34,8 +26,6 @@ export class ConversationCompactor {
     const effectiveLocale = this.locale || detectConversationLanguage(messages);
     const prompts = getCompactionPrompts(effectiveLocale);
 
-    const metrics = this.calculateMetricsFromMessages(messages);
-    const preCompactTokenCount = metrics?.totalTokens || 0;
     const prepared = this.prepareMessages(messages);
     prepared.push({
       role: 'user',
@@ -66,31 +56,8 @@ export class ConversationCompactor {
       ...preservedRecentImages
     ];
 
-    const imageTokenEstimate = 1600;
-    const postCompactTokenCount = Math.round(
-      summaryText.length / 4 +
-        preservedRecentImages.reduce((total, message) => {
-          if (typeof message.content === 'string') {
-            return total + message.content.length / 4;
-          }
-          if (!Array.isArray(message.content)) {
-            return total + JSON.stringify(message.content || '').length / 4;
-          }
-
-          const imageCount = message.content.filter((item) => item?.type === 'image').length;
-          const nonImageText = JSON.stringify(
-            message.content.filter((item) => item?.type !== 'image')
-          ).length;
-          return total + imageCount * imageTokenEstimate + nonImageText / 4;
-        }, 0)
-    );
-
     return {
-      summaryMessage,
-      messagesAfterCompacting,
-      preCompactTokenCount,
-      postCompactTokenCount,
-      tokensSaved: Math.max(0, preCompactTokenCount - postCompactTokenCount)
+      messagesAfterCompacting
     };
   }
 
@@ -164,25 +131,5 @@ export class ConversationCompactor {
     }
 
     return preserved;
-  }
-
-  private calculateMetricsFromMessages(messages: ApiConversationMessage[]) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message?.role === 'assistant' && message?.usage) {
-        return this.calculateMetricsFromUsage(message.usage);
-      }
-    }
-
-    return null;
-  }
-
-  private calculateMetricsFromUsage(usage: ApiUsage) {
-    const metrics = calculateContextUsageMetrics(usage, this.contextWindow);
-    return {
-      totalTokens: metrics.totalUsed,
-      contextWindow: metrics.tokenBudget,
-      percentUsed: metrics.percentUsed
-    };
   }
 }

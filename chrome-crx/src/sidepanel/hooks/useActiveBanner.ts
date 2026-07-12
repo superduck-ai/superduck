@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { MessageLimitBannerState } from './useMessageLimitBanner';
-import type { PermissionMode } from '../sidepanelUtils';
 import type { NotificationPreference } from '../types';
 
 export type ActiveBanner =
@@ -8,7 +7,6 @@ export type ActiveBanner =
   | 'refusal'
   | 'version_update'
   | 'messageLimit'
-  | 'highRisk'
   | 'notification'
   | 'announcement'
   | MessageLimitBannerState
@@ -21,8 +19,6 @@ export interface UseActiveBannerProps {
   lastStopReason: { reason: string } | null | undefined;
   fallbackConfig: { fallbackModelName?: string } | undefined;
   messageLimitDismissed: boolean;
-  permissionMode: PermissionMode;
-  skipWarningDismissed: boolean;
   showNotificationBanner: boolean;
   notificationsEnabled: NotificationPreference;
   announcementConfig: { enabled?: boolean };
@@ -41,8 +37,6 @@ export function useActiveBanner({
   lastStopReason,
   fallbackConfig,
   messageLimitDismissed,
-  permissionMode,
-  skipWarningDismissed,
   showNotificationBanner,
   notificationsEnabled,
   announcementConfig,
@@ -60,9 +54,6 @@ export function useActiveBanner({
     if (messageLimitBanner && !messageLimitDismissed) {
       return 'messageLimit' as const;
     }
-    if (permissionMode === 'skip_all_permission_checks' && !skipWarningDismissed) {
-      return 'highRisk' as const;
-    }
     if (showNotificationBanner && notificationsEnabled === undefined) {
       return 'notification' as const;
     }
@@ -77,8 +68,6 @@ export function useActiveBanner({
     lastStopReason,
     fallbackConfig,
     messageLimitDismissed,
-    permissionMode,
-    skipWarningDismissed,
     showNotificationBanner,
     notificationsEnabled,
     announcementConfig.enabled,

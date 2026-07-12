@@ -2,21 +2,21 @@ import './styles/index.css';
 import './styles/scheduling.css';
 import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { AnalyticsContext } from './components/providers/AppProviders';
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { IntlMessageLoaderProvider } from './index-react-dom-intl';
 import { OptionsPage } from './options/OptionsPage';
+import { initExtensionThemeMode } from './themeMode';
 
 const DevAppWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', 'superduck');
-  }, []);
+  useEffect(() => initExtensionThemeMode('console'), []);
 
   return (
     <IntlMessageLoaderProvider>
-      <AnalyticsContext.Provider value={{ resetAnalytics: async () => {} }}>
-        <TooltipPrimitive.Provider>{children}</TooltipPrimitive.Provider>
-      </AnalyticsContext.Provider>
+      <TooltipProvider>
+        {children}
+        <Toaster />
+      </TooltipProvider>
     </IntlMessageLoaderProvider>
   );
 };

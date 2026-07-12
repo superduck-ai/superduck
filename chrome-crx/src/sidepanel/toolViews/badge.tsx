@@ -16,12 +16,12 @@ export function Badge({
   truncate?: boolean;
 }) {
   const colorClasses = {
-    default: 'bg-gradient-to-bl from-bg-500/30 to-bg-500/70 text-text-300',
-    flat: 'bg-bg-500/40 text-text-200',
-    secondary: 'bg-accent-secondary-900/40 text-accent-secondary-200',
-    pro: 'bg-gradient-to-bl from-accent-pro-200 to-accent-pro-100 text-oncolor-100',
-    main: 'bg-gradient-to-bl from-accent-main-200/70 to-accent-main-100 text-oncolor-100',
-    danger: 'bg-danger-900 text-danger-200'
+    default: 'border border-border bg-card text-muted-foreground',
+    flat: 'border border-transparent bg-muted text-muted-foreground',
+    secondary: 'border border-border bg-secondary text-secondary-foreground',
+    pro: 'border border-border/70 bg-muted/55 text-foreground dark:border-border/35 dark:bg-muted/20',
+    main: 'border border-border/70 bg-muted/55 text-foreground dark:border-border/35 dark:bg-muted/20',
+    danger: 'border border-destructive/20 bg-destructive/10 text-destructive'
   };
   const sizeClasses = {
     default: 'h-5 px-1.5 rounded-md text-[0.625rem]',

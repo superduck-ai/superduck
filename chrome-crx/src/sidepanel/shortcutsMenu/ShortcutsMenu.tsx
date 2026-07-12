@@ -287,7 +287,7 @@ export function ShortcutsMenu({
 
         {showManageSection ? (
           <>
-            <div className="mx-1 h-px rounded-full bg-border-300/40" />
+            <div className="mx-1 h-px rounded-full bg-border/40" />
 
             <div
               ref={submenuAnchorRef}
@@ -304,7 +304,7 @@ export function ShortcutsMenu({
                   icon={
                     <InlineSvgIcon
                       svg={settingsSliderSvg}
-                      className="inline-flex h-[15px] w-[15px] text-text-300"
+                      className="inline-flex h-[15px] w-[15px] text-muted-foreground"
                     />
                   }
                   label={labels.manageLabel}

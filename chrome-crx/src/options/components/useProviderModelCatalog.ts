@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject
+} from 'react';
 import { fetchProviderModelCatalog } from '@/utils/providerModelCatalog';
 import {
   isValidProviderBaseURL,
@@ -26,6 +34,8 @@ export interface UseProviderModelCatalogReturn {
   resetCatalog: () => void;
 }
 
+const MODEL_DROPDOWN_RESULT_LIMIT = 50;
+
 export function useProviderModelCatalog({
   isOpen,
   kind,
@@ -38,6 +48,7 @@ export function useProviderModelCatalog({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const modelInputContainerRef = useRef<HTMLDivElement>(null);
+  const deferredModelId = useDeferredValue(modelId);
 
   const resetCatalog = useCallback(() => {
     setModelOptions([]);
@@ -68,17 +79,19 @@ export function useProviderModelCatalog({
     }
 
     let cancelled = false;
-    setModelOptions([]);
-    setModelMetadata({});
-    setModelDropdownOpen(false);
-    setIsLoadingModels(true);
+    const controller = new AbortController();
 
     const timer = window.setTimeout(() => {
-      void fetchProviderModelCatalog({
-        kind,
-        apiKey: trimmedApiKey,
-        baseURL: normalizeProviderBaseURL(kind, baseURL)
-      })
+      setIsLoadingModels(true);
+      void fetchProviderModelCatalog(
+        {
+          kind,
+          apiKey: trimmedApiKey,
+          baseURL: normalizeProviderBaseURL(kind, baseURL)
+        },
+        10_000,
+        controller.signal
+      )
         .then((catalog) => {
           if (!cancelled) {
             setModelOptions(catalog.models);
@@ -93,32 +106,29 @@ export function useProviderModelCatalog({
 
     return () => {
       cancelled = true;
+      controller.abort();
       window.clearTimeout(timer);
     };
   }, [apiKey, baseURL, isOpen, kind]);
 
   useEffect(() => {
     if (!modelDropdownOpen) return;
-    const handler = (event: MouseEvent) => {
-      if (
-        modelInputContainerRef.current &&
-        !modelInputContainerRef.current.contains(event.target as Node)
-      ) {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!modelInputContainerRef.current?.contains(event.target as Node)) {
         setModelDropdownOpen(false);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [modelDropdownOpen]);
 
   const filteredModelOptions = useMemo(() => {
-    const normalizedModelId = modelId.trim().toLowerCase();
-    if (!normalizedModelId) return modelOptions;
-    const filtered = modelOptions.filter((model) =>
-      model.toLowerCase().includes(normalizedModelId)
-    );
-    return filtered.length > 0 ? filtered : modelOptions;
-  }, [modelId, modelOptions]);
+    const normalizedModelId = deferredModelId.trim().toLowerCase();
+    const matches = normalizedModelId
+      ? modelOptions.filter((model) => model.toLowerCase().includes(normalizedModelId))
+      : modelOptions;
+    return matches.slice(0, MODEL_DROPDOWN_RESULT_LIMIT);
+  }, [deferredModelId, modelOptions]);
 
   return {
     modelOptions,

@@ -3,9 +3,8 @@ import { PermissionManager } from '@/permissions/PermissionManager';
 import { withTracing } from '../../observability';
 import type { Span } from '@opentelemetry/api';
 import { MessagesClient } from '../../mcpServersStore';
-import { getModelsConfig } from '../../components/providers/AppProviders';
+import type { ModelsConfigFeatureValue } from '../../extensionServices';
 import type { LightningMessage } from './commands';
-import { clearTimings, EMPTY_MESSAGE_HISTORY, NOOP_RETRY, WITHIN_LIMIT_RESULT } from './runtime';
 import { LightningConfigController } from './config';
 import { buildUserMessage } from './buildUserMessage';
 import { prepareApiRequest } from './prepareApiRequest';
@@ -36,7 +35,6 @@ export interface UseLightningModeProps {
   permissionMode: string;
   onPermissionRequired?: (result: Record<string, unknown>) => Promise<boolean>;
   permissionManager: PermissionManager;
-  serverContextLengthRef: React.MutableRefObject<number>;
   locale?: string;
   enabled?: boolean;
 }
@@ -59,10 +57,6 @@ export function useLightningMode({
   const [lnIsLoading, setLnIsLoading] = useState(false);
   const [lnIsCompacting, setLnIsCompacting] = useState(false);
   const [lnError, setLnError] = useState<string | null>(null);
-  const [lnLastStopReason, setLnLastStopReason] = useState<{
-    reason: string;
-    messageId?: string;
-  } | null>(null);
   const [lnCurrentStatus, setLnCurrentStatus] = useState('');
 
   const currentDomainRef = useRef(currentDomain);
@@ -83,9 +77,7 @@ export function useLightningMode({
 
   const purlPromptFeature = '';
   const purlConfigFeature = null;
-  const modelsConfigRaw = getModelsConfig();
-  const modelsConfigRef = useRef(modelsConfigRaw);
-  modelsConfigRef.current = modelsConfigRaw;
+  const modelsConfigRef = useRef<ModelsConfigFeatureValue>({});
 
   const [config] = useState(() => new LightningConfigController());
 
@@ -247,8 +239,6 @@ export function useLightningMode({
         while (continueLoop && !cancelledRef.current) {
           continueLoop = false;
           iterationCount++;
-          const iterationStart = performance.now();
-
           abortControllerRef.current = new AbortController();
 
           await withTracing(`lightning_iteration_${iterationCount}`, async (span: Span) => {
@@ -281,7 +271,6 @@ export function useLightningMode({
               stream,
               allMessages,
               setLnMessages,
-              setLnLastStopReason,
               cancelledRef,
               span,
               phases
@@ -297,9 +286,7 @@ export function useLightningMode({
               permissionMode,
               planApprovedRef,
               activeTabId,
-              span,
-              iterationStart,
-              phases
+              span
             });
             if (parseResult.shouldReturn) {
               continueLoop = parseResult.continueLoop;
@@ -346,8 +333,6 @@ export function useLightningMode({
               config,
               activeTabId,
               tabContextHashRef,
-              iterationStart,
-              phases,
               commandCount,
               didSwitchTab,
               maybeCompactLightningMessages,
@@ -417,19 +402,6 @@ export function useLightningMode({
     setLnCurrentStatus('');
   }, []);
 
-  /** Clear messages and reset state — bundle's le */
-  const clearMessages = useCallback(async () => {
-    setLnMessages([]);
-    setLnError(null);
-    setLnLastStopReason(null);
-    setLnCurrentStatus('');
-    planApprovedRef.current = false;
-    clearTimings();
-    await permissionManager.clearOncePermissions();
-    permissionManager.clearTurnApprovedDomains();
-    await buildSystemPrompt();
-  }, [buildSystemPrompt, permissionManager]);
-
   /** Clear error — bundle's he */
   const clearError = useCallback(() => {
     setLnError(null);
@@ -439,23 +411,12 @@ export function useLightningMode({
 
   return {
     messages: lnMessages,
-    messageHistory: EMPTY_MESSAGE_HISTORY,
     sendMessage,
-    retryLastMessage: NOOP_RETRY,
     cancel,
-    clearMessages,
     clearError,
     isLoading: lnIsLoading,
-    isInitializing: false,
-    hasInteractiveTools: false,
     isCompacting: lnIsCompacting,
     error: lnError,
-    messageLimit: WITHIN_LIMIT_RESULT,
-    setMessages: setLnMessages,
-    tokensSaved: null,
-    createApiMessage,
-    lastStopReason: lnLastStopReason,
-    currentStatus: lnCurrentStatus,
-    conversationUuid: null
+    currentStatus: lnCurrentStatus
   };
 }

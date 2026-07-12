@@ -16,12 +16,12 @@ export function PermissionActionButton({
       type="button"
       onClick={onClick}
       className={
-        'w-full font-base flex min-w-[75px] px-[14px] py-[3px] justify-between items-center gap-2 rounded-lg border-[0.5px] transition-colors font-medium h-9 ' +
+        'flex h-9 w-full min-w-[75px] items-center justify-between gap-2 rounded-lg border-[0.5px] px-[14px] py-[3px] text-sm font-medium leading-[1.4] transition-colors ' +
         (isActive
-          ? 'text-text-100 bg-bg-300 border-border-400'
+          ? 'text-foreground bg-accent border-border'
           : isPrimary
-            ? 'bg-text-000 text-bg-000 border-text-000 hover:bg-text-100'
-            : 'text-text-100 border-border-200 hover:bg-bg-100')
+            ? 'bg-primary text-primary-foreground border-primary hover:bg-primary/90'
+            : 'text-foreground border-border hover:bg-muted')
       }
     >
       {children}

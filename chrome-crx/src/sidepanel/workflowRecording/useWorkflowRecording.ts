@@ -15,11 +15,7 @@ import type {
   UseWorkflowRecordingProps
 } from './types';
 
-export const useWorkflowRecording = ({
-  tabId,
-  onComplete,
-  createMessage
-}: UseWorkflowRecordingProps) => {
+export const useWorkflowRecording = ({ tabId, createMessage }: UseWorkflowRecordingProps) => {
   const intl = useIntlSafe();
 
   // Recording state
@@ -167,7 +163,6 @@ export const useWorkflowRecording = ({
   const stopRecording = useCallback(
     () =>
       workflowStopRecording({
-        recordingState,
         activeTabs,
         isSpeechRecording,
         isRecordingRef,
@@ -179,10 +174,9 @@ export const useWorkflowRecording = ({
         setRecordingState,
         setCurrentTabId,
         setActiveTabs,
-        stopSpeechRecording,
-        onComplete
+        stopSpeechRecording
       }),
-    [recordingState, onComplete, activeTabs, isSpeechRecording, stopSpeechRecording]
+    [activeTabs, isSpeechRecording, stopSpeechRecording]
   );
 
   // Toggle pause

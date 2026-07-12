@@ -13,22 +13,22 @@ export function createStandardMarkdownComponents(): Components {
   if (cachedStandardMarkdownComponents) return cachedStandardMarkdownComponents;
   cachedStandardMarkdownComponents = {
     h1: ({ node: _node, children, ...props }: MarkdownElementProps<'h1'>) => (
-      <h1 className="text-text-100 mt-3 -mb-1 text-[1.375rem] font-bold" {...props}>
+      <h1 className="mt-3 -mb-1 text-[1.375rem] font-bold text-foreground" {...props}>
         {processChildrenForSwatches(children)}
       </h1>
     ),
     h2: ({ node: _node, children, ...props }: MarkdownElementProps<'h2'>) => (
-      <h2 className="text-text-100 mt-3 -mb-1 text-[1.125rem] font-bold" {...props}>
+      <h2 className="mt-3 -mb-1 text-[1.125rem] font-bold text-foreground" {...props}>
         {processChildrenForSwatches(children)}
       </h2>
     ),
     h3: ({ node: _node, children, ...props }: MarkdownElementProps<'h3'>) => (
-      <h3 className="text-text-100 mt-2 -mb-1 text-base font-bold" {...props}>
+      <h3 className="mt-2 -mb-1 text-base font-bold text-foreground" {...props}>
         {processChildrenForSwatches(children)}
       </h3>
     ),
     h4: ({ node: _node, children, ...props }: MarkdownElementProps<'h4'>) => (
-      <h4 className="text-text-100 mt-2 -mb-1 text-base font-bold" {...props}>
+      <h4 className="mt-2 -mb-1 text-base font-bold text-foreground" {...props}>
         {processChildrenForSwatches(children)}
       </h4>
     ),
@@ -48,7 +48,10 @@ export function createStandardMarkdownComponents(): Components {
       );
     },
     blockquote: ({ node: _node, children, ...props }: MarkdownElementProps<'blockquote'>) => (
-      <blockquote className="ml-2 border-l-4 border-border-300/10 pl-4 text-text-300" {...props}>
+      <blockquote
+        className="ml-2 border-l-4 border-border/60 pl-4 text-muted-foreground"
+        {...props}
+      >
         {processChildrenForSwatches(children)}
       </blockquote>
     ),
@@ -112,7 +115,7 @@ export function createStandardMarkdownComponents(): Components {
     tr: ({ node: _node, ...props }: MarkdownElementProps<'tr'>) => <tr {...props} />,
     td({ node: _node, children, ...props }: MarkdownElementProps<'td'>) {
       return (
-        <td className="border-b-0.5 border-border-300/30 py-2 pr-4 align-top" {...props}>
+        <td className="border-b border-border/50 py-2 pr-4 align-top" {...props}>
           {processChildrenForSwatches(flattenChildren(children))}
         </td>
       );
@@ -120,7 +123,7 @@ export function createStandardMarkdownComponents(): Components {
     th({ node: _node, children, ...props }: MarkdownElementProps<'th'>) {
       return (
         <th
-          className="text-text-100 border-b-0.5 border-border-300/60 py-2 pr-4 align-top font-bold"
+          className="border-b border-border py-2 pr-4 align-top font-bold text-foreground"
           {...props}
         >
           {processChildrenForSwatches(flattenChildren(children))}
@@ -128,7 +131,7 @@ export function createStandardMarkdownComponents(): Components {
       );
     },
     hr: ({ node: _node, ...props }: MarkdownElementProps<'hr'>) => (
-      <hr className="border-border-200 border-t-0.5 my-3 mx-1.5" {...props} />
+      <hr className="mx-1.5 my-3 border-t border-border" {...props} />
     )
   };
   return cachedStandardMarkdownComponents;

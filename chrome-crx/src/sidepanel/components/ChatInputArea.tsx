@@ -1,11 +1,21 @@
 import { useRef } from 'react';
-import { BorderBeam } from 'border-beam';
 import { ArrowUp, Camera, CircleStop, Paperclip, Plus, X } from 'lucide-react';
 import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
 import { useIntlSafe } from '../../index-react-dom-intl';
 import { PromptService, type SavedPrompt as StoredSavedPrompt } from '../../extensionServices';
-import { ScrollToBottomButton } from './SidepanelSupportViews';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+
+import {
+  Button,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  SimpleTooltip,
+  Tooltip as StandardTooltip,
+  TooltipContent as StandardTooltipContent,
+  TooltipTrigger as StandardTooltipTrigger
+} from '@/components/ui';
 import { useUIStore } from '../stores/uiStore';
 import { useChatStore } from '../stores/chatStore';
 import { usePermissionStore } from '../stores/permissionStore';
@@ -15,11 +25,11 @@ import { useChatInputStore } from '../stores/chatInputStore';
 import { useSidepanelViewState } from '../contexts/SidepanelViewStateContext';
 import { SidepanelBanners } from './SidepanelBanners';
 import { ShortcutsMenu } from '../shortcutsMenu/ShortcutsMenu';
+import { cursorAiSvg } from '../shortcutsMenu/assets';
+import { InlineSvgIcon } from '../shortcutsMenu/icons';
 import { RotatingTips } from '@/sidepanel/components/RotatingTips';
 import { RichTextInput } from '@/sidepanel/components/RichTextInput';
 import { PermissionModeMenu } from '@/sidepanel/components/PermissionModeMenu';
-import { CursorClickIcon } from '@/sidepanel/components/icons';
-import { useMenuClickOutside } from '../hooks/useMenuClickOutside';
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -28,15 +38,10 @@ export function ChatInputArea() {
   const intl = useIntlSafe();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
-  const permissionMenuRef = useRef<HTMLDivElement>(null);
-  const actionsMenuRef = useRef<HTMLDivElement>(null);
 
   // ─── Read state from chatInputStore (no prop drilling) ──────────────────
   const scrollRefs = useChatInputStore((s) => s.scrollRefs);
-  const autoScrollRef = useChatInputStore((s) => s.autoScrollRef);
   const inputRef = useChatInputStore((s) => s.inputRef);
-  const sentinelElement = useChatInputStore((s) => s.sentinelElement);
-  const isChatInputBeamActive = useChatInputStore((s) => s.isChatInputBeamActive);
   const chatInputSurfaceClass = useChatInputStore((s) => s.chatInputSurfaceClass);
   const recordingState = useChatInputStore((s) => s.recordingState);
   const debugMode = useChatInputStore((s) => s.debugMode);
@@ -55,13 +60,13 @@ export function ChatInputArea() {
   const setPreviewAttachmentImage = useAttachmentStore((s) => s.setPreviewAttachmentImage);
   const attachmentCount = useAttachmentStore((s) => s.attachmentCount);
   const setShowWorkflowModeSelectionModal = useUIStore((s) => s.setShowWorkflowModeSelectionModal);
+  const setPromptToSave = useUIStore((s) => s.setPromptToSave);
   const setPromptToEdit = useUIStore((s) => s.setPromptToEdit);
   const isPermissionMenuOpen = useUIStore((s) => s.isPermissionMenuOpen);
   const setIsPermissionMenuOpen = useUIStore((s) => s.setIsPermissionMenuOpen);
   const isActionsMenuOpen = useUIStore((s) => s.isActionsMenuOpen);
   const setIsActionsMenuOpen = useUIStore((s) => s.setIsActionsMenuOpen);
   const effectiveIsAgentRunning = useSidepanelViewState().effectiveIsAgentRunning;
-  const debugTooltipRef = useRef<HTMLSpanElement>(null);
   const commandMenuDismissedRef = useRef(false);
   const commandMenuDismissedInputRef = useRef('');
 
@@ -76,55 +81,33 @@ export function ChatInputArea() {
   const insertShortcutChip = useChatActionsStore((s) => s.insertShortcutChip);
   const navigateActiveTabToUrl = useChatActionsStore((s) => s.navigateActiveTabToUrl);
 
-  useMenuClickOutside(isPermissionMenuOpen, permissionMenuRef, () =>
-    setIsPermissionMenuOpen(false)
-  );
-  useMenuClickOutside(isActionsMenuOpen, actionsMenuRef, () => setIsActionsMenuOpen(false));
   const showCommandMenu = useUIStore((state) => state.showCommandMenu);
   const setShowCommandMenu = useUIStore((state) => state.setShowCommandMenu);
   const commandSearchTerm = useUIStore((state) => state.commandSearchTerm);
   const setCommandSearchTerm = useUIStore((state) => state.setCommandSearchTerm);
 
   return (
-    <div ref={scrollRefs.chatInput} className="sticky bottom-0 mx-auto w-full z-[5]">
-      <div className="mx-3 md:mx-0">
-        {/* Scroll-to-bottom button */}
-        <ScrollToBottomButton
-          autoscrollRef={autoScrollRef}
-          sentinelElement={sentinelElement}
-          isStreaming={effectiveIsAgentRunning}
-        />
-        <div className="bg-bg-100">
+    <div ref={scrollRefs.chatInput} className="relative mx-auto w-full">
+      <div className="mx-0">
+        <div className="bg-transparent">
           {/* Banner area — SidepanelBanners now reads from stores directly */}
           <SidepanelBanners />
           {/* Chat input — hidden when recording */}
           {!recordingState.isRecording && (
             <>
-              <BorderBeam
-                size="line"
-                colorVariant="ocean"
-                theme="auto"
-                duration={2.8}
-                strength={0.6}
-                brightness={1.1}
-                saturation={0.9}
-                hueRange={20}
-                active={isChatInputBeamActive}
-                borderRadius={16}
-                className="relative z-30 block w-full rounded-2xl !overflow-visible"
-              >
+              <div className="relative z-30 block w-full">
                 <div
                   data-chat-input-container="true"
-                  className={chatInputSurfaceClass}
+                  className={cn(chatInputSurfaceClass, 'w-full')}
                   onClick={() => inputRef.current?.focus()}
                   onPaste={handlePaste}
                 >
                   {pendingAttachments.length > 0 ? (
-                    <div className="px-4 pt-3 pb-1 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 px-4 pt-3 pb-1">
                       {pendingAttachments.map((attachment) => (
                         <div
                           key={attachment.id}
-                          className="relative group w-16 h-16 rounded-lg overflow-hidden border border-border-300 bg-bg-100 cursor-pointer"
+                          className="group relative h-16 w-16 cursor-pointer overflow-hidden rounded-md border border-border bg-muted"
                           onClick={(event) => {
                             event.stopPropagation();
                             setPreviewAttachmentImage(
@@ -135,29 +118,35 @@ export function ChatInputArea() {
                           <img
                             src={`data:${attachment.mediaType};base64,${attachment.base64}`}
                             alt={attachment.fileName}
-                            className="w-full h-full object-cover"
+                            className="h-full w-full object-cover"
                           />
-                          <button
+                          <Button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
                               removeAttachment(attachment.id);
                             }}
-                            className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                            variant="ghost"
+                            size="icon-xs"
+                            className="absolute top-0.5 right-0.5 size-5 rounded-full bg-black/50 text-white opacity-0 transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100"
                             aria-label="Remove attachment"
                           >
                             <X size={10} />
-                          </button>
+                          </Button>
                         </div>
                       ))}
                     </div>
                   ) : null}
 
-                  <div className={`px-4 ${showCommandMenu ? 'pt-3 pb-1' : 'pt-4 pb-2'}`}>
+                  <div
+                    className={`min-h-[3.25rem] px-3.5 ${
+                      showCommandMenu ? 'pt-3 pb-2' : 'pt-3.5 pb-2.5'
+                    }`}
+                  >
                     <div className="relative">
                       {/* Shortcuts menu */}
                       {showCommandMenu && (
-                        <div ref={commandMenuRef}>
+                        <div ref={commandMenuRef} className="absolute bottom-full left-0">
                           <ShortcutsMenu
                             searchTerm={commandSearchTerm}
                             onSelect={async (command, label) => {
@@ -218,10 +207,12 @@ export function ChatInputArea() {
                               setShowWorkflowModeSelectionModal(true);
                             }}
                             onScheduleTask={() => {
+                              const prompt = input.trim();
                               setShowCommandMenu(false);
                               setCommandSearchTerm('');
+                              inputRef.current?.clear();
                               setInput('');
-                              // TODO: Open schedule task modal
+                              setPromptToSave({ prompt, scheduleEnabled: true });
                             }}
                             onEditShortcut={(shortcut) => {
                               setShowCommandMenu(false);
@@ -244,13 +235,20 @@ export function ChatInputArea() {
                       )}
 
                       {/* Rotating tips - only when input is empty and no command menu */}
-                      {!input && !showCommandMenu && <RotatingTips tips={rotatingTips} />}
+                      {!input &&
+                        !showCommandMenu &&
+                        !isActionsMenuOpen &&
+                        !isPermissionMenuOpen && <RotatingTips tips={rotatingTips} />}
 
                       <RichTextInput
                         ref={inputRef}
                         value={input}
                         onChange={setInput}
                         onSubmit={submit}
+                        ariaLabel={intl.formatMessage({
+                          defaultMessage: 'Message SuperDuck',
+                          id: 'message_superduck'
+                        })}
                         placeholder=""
                         disabled={false}
                       />
@@ -270,13 +268,75 @@ export function ChatInputArea() {
                   />
 
                   <div
-                    className={`relative flex items-center justify-between px-3 ${
-                      showCommandMenu ? 'pb-2' : 'pb-3'
+                    className={`superduck-composer-footer relative grid grid-cols-[minmax(0,1fr)_auto] items-center ${
+                      showCommandMenu ? 'pb-2' : 'pb-2.5'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="superduck-composer-control-group flex min-w-0 items-center">
+                      <SimpleTooltip
+                        tooltipContent={intl.formatMessage({
+                          defaultMessage: 'Actions',
+                          id: 'actions'
+                        })}
+                        side="top"
+                      >
+                        <DropdownMenu open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setIsPermissionMenuOpen(false);
+                                }}
+                                variant="ghost"
+                                size="icon-sm"
+                                className="superduck-composer-icon-button"
+                                aria-label={intl.formatMessage({
+                                  defaultMessage: 'Actions',
+                                  id: 'actions'
+                                })}
+                              />
+                            }
+                          >
+                            <Plus className="superduck-composer-standard-icon" strokeWidth={1.8} />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            className="w-max min-w-[176px]"
+                            side="top"
+                            align="start"
+                            sideOffset={8}
+                          >
+                            <DropdownMenuItem
+                              onClick={() => {
+                                fileInputRef.current?.click();
+                              }}
+                              className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm whitespace-nowrap transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+                            >
+                              <Paperclip size={14} />
+                              <span>
+                                <MemoizedFormattedMessage
+                                  defaultMessage="Upload image"
+                                  id="upload_image"
+                                />
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => void captureCurrentTabScreenshot()}
+                              className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm whitespace-nowrap transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+                            >
+                              <Camera size={14} />
+                              <span>
+                                <MemoizedFormattedMessage
+                                  defaultMessage="Take a screenshot"
+                                  id="take_a_screenshot"
+                                />
+                              </span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </SimpleTooltip>
                       <PermissionModeMenu
-                        menuRef={permissionMenuRef}
                         permissionMode={permissionMode as any}
                         options={permissionModeMenuOptions}
                         isOpen={isPermissionMenuOpen}
@@ -288,79 +348,62 @@ export function ChatInputArea() {
                         showBlockedSkipHint={shouldDisableSkipPermissions}
                       />
                       {attachmentCount > 0 ? (
-                        <span className="text-[11px] text-text-300">
+                        <span className="text-[11px] text-muted-foreground">
                           {attachmentCount} image(s)
                         </span>
                       ) : null}
                       {/* Debug mode: context usage indicator */}
                       {debugMode && contextDebugInfo && (
-                        <span
-                          className="relative inline-flex items-center gap-1 h-7 rounded-lg border border-border-300 bg-bg-000 px-1.5 text-[11px] text-text-200 hover:bg-bg-200 transition-colors cursor-default"
-                          role="status"
-                          aria-label={`Context: ${contextDebugInfo.percentUsed}%`}
-                          onMouseEnter={() => {
-                            const el = debugTooltipRef.current;
-                            if (el) {
-                              el.style.opacity = '1';
-                              el.style.visibility = 'visible';
-                              el.style.transform = 'translateX(-50%) scale(1)';
+                        <StandardTooltip>
+                          <StandardTooltipTrigger
+                            render={
+                              <span
+                                className="relative inline-flex h-7 cursor-default items-center gap-1 rounded-md border border-border bg-card px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                role="status"
+                                aria-label={`Context: ${contextDebugInfo.percentUsed}%`}
+                              />
                             }
-                          }}
-                          onMouseLeave={() => {
-                            const el = debugTooltipRef.current;
-                            if (el) {
-                              el.style.opacity = '0';
-                              el.style.visibility = 'hidden';
-                              el.style.transform = 'translateX(-50%) scale(0.95)';
-                            }
-                          }}
-                        >
-                          <svg
-                            viewBox="0 0 16 16"
-                            width="14"
-                            height="14"
-                            className="-rotate-90 shrink-0"
                           >
-                            <circle
-                              cx="8"
-                              cy="8"
-                              r="6"
-                              fill="none"
-                              stroke="hsl(var(--border-300))"
-                              strokeWidth="2"
-                            />
-                            <circle
-                              cx="8"
-                              cy="8"
-                              r="6"
-                              fill="none"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeDasharray={`${(contextDebugInfo.percentUsed * 37.7) / 100} 37.7`}
-                              stroke={
-                                contextDebugInfo.percentUsed >= 90
-                                  ? 'hsl(var(--danger-100))'
-                                  : contextDebugInfo.percentUsed >= 70
-                                    ? 'hsl(var(--warning-100))'
-                                    : 'hsl(var(--accent-secondary-100))'
-                              }
-                              className="transition-all duration-300"
-                            />
-                          </svg>
-                          <span>{contextDebugInfo.percentUsed}%</span>
-                          {/* Hover popup — ref-controlled to avoid re-renders */}
-                          <span
-                            ref={debugTooltipRef}
-                            className="absolute bottom-full left-1/2 mb-2 rounded-xl pointer-events-none transition-all duration-150 z-[9999] bg-bg-000 border border-border-300 shadow-xl px-3.5 py-2.5 text-text-100"
-                            role="tooltip"
-                            style={{
-                              opacity: 0,
-                              visibility: 'hidden',
-                              transform: 'translateX(-50%) scale(0.95)'
-                            }}
+                            <svg
+                              viewBox="0 0 16 16"
+                              width="14"
+                              height="14"
+                              className="-rotate-90 shrink-0"
+                            >
+                              <circle
+                                cx="8"
+                                cy="8"
+                                r="6"
+                                fill="none"
+                                stroke="var(--border)"
+                                strokeWidth="2"
+                              />
+                              <circle
+                                cx="8"
+                                cy="8"
+                                r="6"
+                                fill="none"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeDasharray={`${(contextDebugInfo.percentUsed * 37.7) / 100} 37.7`}
+                                stroke={
+                                  contextDebugInfo.percentUsed >= 90
+                                    ? 'var(--destructive)'
+                                    : 'var(--primary)'
+                                }
+                                className="transition-all duration-300"
+                              />
+                            </svg>
+                            <span>{contextDebugInfo.percentUsed}%</span>
+                          </StandardTooltipTrigger>
+
+                          <StandardTooltipContent
+                            className="z-[9999] rounded-md border border-border bg-popover px-3.5 py-2.5 text-popover-foreground shadow-md"
+                            side="top"
+                            sideOffset={8}
                           >
                             <div className="whitespace-nowrap text-left leading-relaxed text-[11px]">
-                              <div className="flex items-center gap-2 pb-1.5 mb-1.5 border-b border-border-300/10">
+                              <div className="mb-1.5 flex items-center gap-2 border-b border-border pb-1.5">
                                 <svg
                                   viewBox="0 0 16 16"
                                   width="28"
@@ -372,7 +415,7 @@ export function ChatInputArea() {
                                     cy="8"
                                     r="6.5"
                                     fill="none"
-                                    stroke="hsl(var(--border-300) / 15%)"
+                                    stroke="var(--border)"
                                     strokeWidth="1.5"
                                   />
                                   <circle
@@ -385,19 +428,17 @@ export function ChatInputArea() {
                                     strokeDasharray={`${(contextDebugInfo.percentUsed * 40.84) / 100} 40.84`}
                                     stroke={
                                       contextDebugInfo.percentUsed >= 90
-                                        ? 'hsl(var(--danger-100))'
-                                        : contextDebugInfo.percentUsed >= 70
-                                          ? 'hsl(var(--warning-100))'
-                                          : 'hsl(var(--accent-secondary-100))'
+                                        ? 'var(--destructive)'
+                                        : 'var(--primary)'
                                     }
                                   />
                                 </svg>
                                 <div>
                                   <div className="text-xs font-semibold">
-                                    <span className="text-text-100">
+                                    <span className="text-foreground">
                                       {contextDebugInfo.percentUsed}%
                                     </span>
-                                    <span className="font-normal text-text-400 ml-1">
+                                    <span className="ml-1 font-normal text-muted-foreground">
                                       {intl.formatMessage(
                                         {
                                           id: 'debug_tokens_used',
@@ -410,7 +451,7 @@ export function ChatInputArea() {
                                     </span>
                                   </div>
                                   {contextDebugInfo.hasUsage && (
-                                    <div className="text-[10px] text-text-500 mt-px">
+                                    <div className="mt-px text-[10px] text-muted-foreground">
                                       {intl.formatMessage(
                                         {
                                           id: 'debug_tokens_remaining',
@@ -425,7 +466,7 @@ export function ChatInputArea() {
                                   )}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3 text-text-500 pl-9">
+                              <div className="flex items-center gap-3 pl-9 text-muted-foreground">
                                 <span>
                                   {intl.formatMessage(
                                     {
@@ -437,7 +478,7 @@ export function ChatInputArea() {
                                     }
                                   )}
                                 </span>
-                                <span className="text-border-300/20">|</span>
+                                <span className="text-border">|</span>
                                 <span>
                                   {intl.formatMessage(
                                     {
@@ -451,7 +492,7 @@ export function ChatInputArea() {
                                 </span>
                                 {contextDebugInfo.cacheTokens > 0 && (
                                   <>
-                                    <span className="text-border-300/20">|</span>
+                                    <span className="text-border">|</span>
                                     <span>
                                       {intl.formatMessage(
                                         {
@@ -467,101 +508,49 @@ export function ChatInputArea() {
                                 )}
                               </div>
                             </div>
-                          </span>
-                        </span>
+                          </StandardTooltipContent>
+                        </StandardTooltip>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {/* Teach SuperDuck button */}
-                      <Tooltip
+                    <div className="superduck-composer-primary-actions flex shrink-0 items-center">
+                      {/* Record workflow button */}
+                      <SimpleTooltip
                         tooltipContent={intl.formatMessage({
-                          defaultMessage: 'Teach SuperDuck',
-                          id: 'teach_superduck'
+                          defaultMessage: 'Record workflow',
+                          id: 'record_workflow'
                         })}
                         side="top"
                       >
-                        <button
+                        <Button
                           type="button"
                           data-test-id="teach-superduck-button"
                           onClick={() => {
                             setShowWorkflowModeSelectionModal(true);
                           }}
-                          className="inline-flex items-center justify-center relative shrink-0 select-none font-medium h-7 w-7 rounded-lg active:scale-95 transition-all duration-200 text-text-300 hover:text-text-200 hover:bg-bg-200"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="superduck-composer-icon-button"
                           aria-label={intl.formatMessage({
-                            defaultMessage: 'Teach SuperDuck',
-                            id: 'teach_superduck'
+                            defaultMessage: 'Record workflow',
+                            id: 'record_workflow'
                           })}
                         >
-                          <CursorClickIcon size={12} />
-                        </button>
-                      </Tooltip>
-
-                      <Tooltip
-                        tooltipContent={intl.formatMessage({
-                          defaultMessage: 'Actions',
-                          id: 'actions'
-                        })}
-                        side="top"
-                      >
-                        <div ref={actionsMenuRef} className="relative">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setIsPermissionMenuOpen(false);
-                              setIsActionsMenuOpen(!isActionsMenuOpen);
-                            }}
-                            className="inline-flex items-center justify-center relative shrink-0 select-none font-medium h-7 w-7 rounded-lg active:scale-95 transition-all duration-200 text-text-300 hover:text-text-200 hover:bg-bg-200"
-                            aria-label={intl.formatMessage({
-                              defaultMessage: 'Actions',
-                              id: 'actions'
-                            })}
-                          >
-                            <Plus size={12} />
-                          </button>
-                          {isActionsMenuOpen ? (
-                            <div className="absolute right-0 bottom-full mb-2 z-50 w-max min-w-[176px] bg-bg-000 border-0.5 border-border-200 backdrop-blur-xl rounded-xl text-text-300 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsActionsMenuOpen(false);
-                                  fileInputRef.current?.click();
-                                }}
-                                className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors whitespace-nowrap"
-                              >
-                                <Paperclip size={14} />
-                                <span>
-                                  <MemoizedFormattedMessage
-                                    defaultMessage="Upload image"
-                                    id="upload_image"
-                                  />
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void captureCurrentTabScreenshot()}
-                                className="w-full min-h-8 px-2 py-1.5 rounded-lg text-left text-sm flex items-center gap-2 hover:bg-bg-200 hover:text-text-100 transition-colors whitespace-nowrap"
-                              >
-                                <Camera size={14} />
-                                <span>
-                                  <MemoizedFormattedMessage
-                                    defaultMessage="Take a screenshot"
-                                    id="take_a_screenshot"
-                                  />
-                                </span>
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </Tooltip>
+                          <InlineSvgIcon
+                            svg={cursorAiSvg}
+                            className="superduck-composer-standard-icon"
+                          />
+                        </Button>
+                      </SimpleTooltip>
 
                       {effectiveIsAgentRunning ? (
-                        <button
+                        <Button
                           type="button"
                           data-test-id="stop-button"
                           onClick={() => effectiveCancel()}
-                          className="inline-flex items-center justify-center relative shrink-0 select-none font-medium h-7 w-7 rounded-lg active:scale-95 text-text-300 hover:text-text-200 hover:bg-bg-200 transition-colors"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="superduck-composer-icon-button"
                           aria-label={intl.formatMessage({
                             defaultMessage: 'Stop message',
                             id: 'stop_message'
@@ -571,10 +560,13 @@ export function ChatInputArea() {
                             id: 'stop_message'
                           })}
                         >
-                          <CircleStop size={14} />
-                        </button>
+                          <CircleStop
+                            className="superduck-composer-standard-icon"
+                            strokeWidth={1.8}
+                          />
+                        </Button>
                       ) : (
-                        <button
+                        <Button
                           type="button"
                           data-test-id="send-button"
                           onClick={submit}
@@ -582,12 +574,9 @@ export function ChatInputArea() {
                             (!input.trim() && pendingAttachments.length === 0) ||
                             effectiveIsAgentRunning
                           }
-                          className={
-                            'inline-flex items-center justify-center relative shrink-0 select-none disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none disabled:drop-shadow-none font-medium transition-colors h-7 w-7 rounded-lg active:scale-95 ' +
-                            (permissionMode === 'skip_all_permission_checks'
-                              ? 'bg-[#BF8534] hover:bg-[#A06F2C] text-white'
-                              : 'bg-accent-main-000 hover:bg-accent-main-200 text-oncolor-100')
-                          }
+                          variant="ghost"
+                          size="icon-sm"
+                          className="superduck-composer-primary-button bg-foreground/88 text-background shadow-none hover:bg-foreground hover:text-background disabled:bg-muted-foreground/45 disabled:text-background/85 disabled:opacity-100 dark:bg-foreground/75 dark:hover:bg-foreground/90 dark:disabled:bg-muted-foreground/45 dark:disabled:text-background/80"
                           aria-label={intl.formatMessage({
                             defaultMessage: 'Send message',
                             id: 'send_message'
@@ -597,19 +586,23 @@ export function ChatInputArea() {
                             id: 'send_message'
                           })}
                         >
-                          <ArrowUp size={14} />
-                        </button>
+                          <ArrowUp className="superduck-composer-standard-icon" strokeWidth={2} />
+                        </Button>
                       )}
                     </div>
                   </div>
                 </div>
-              </BorderBeam>
-              <div className="flex justify-center py-1.5 text-text-500 bg-bg-100">
+              </div>
+              <div
+                data-testid="ai-disclaimer"
+                className="flex justify-center bg-transparent pt-2.5 text-muted-foreground/80"
+              >
                 <a
+                  data-testid="ai-disclaimer-link"
                   href="https://superduck-ai.github.io/superduck/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] hover:text-text-300 transition-colors text-center"
+                  className="text-center text-xs leading-4 transition-colors hover:text-foreground"
                 >
                   <MemoizedFormattedMessage
                     defaultMessage="SuperDuck is AI and can make mistakes. Please double-check responses."
@@ -621,7 +614,6 @@ export function ChatInputArea() {
           )}
         </div>
       </div>
-      <div className="bg-bg-100 h-0.5" />
     </div>
   );
 }

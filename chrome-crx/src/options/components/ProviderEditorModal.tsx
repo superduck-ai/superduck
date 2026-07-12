@@ -1,6 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { Button, Modal, ModalFooter, SimpleSelect, TextInput } from '@/components/ui';
+import {
+  Button,
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Separator
+} from '@/components/ui';
 import { DEFAULT_CONTEXT_LENGTH } from '@/constants/models';
 import {
   DEFAULT_BASE_URL,
@@ -13,6 +34,7 @@ import {
 } from '@/utils/providerStore';
 import { useProviderModelCatalog } from './useProviderModelCatalog';
 import { useContextLengthResolution } from './useContextLengthResolution';
+import { SpinnerIcon } from './providerConfigSection/icons';
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -37,7 +59,7 @@ interface ProviderEditorModalProps {
   isOpen: boolean;
   provider?: AiProvider | null;
   onCancel: () => void;
-  onSave: (value: ProviderEditorValue) => void;
+  onSave: (value: ProviderEditorValue) => void | Promise<void>;
 }
 
 const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
@@ -54,6 +76,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   const [modelId, setModelId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const submitTokenRef = useRef(0);
   const isOpenRef = useRef(isOpen);
 
@@ -127,7 +150,6 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
 
   const handleModelIdChange = (nextModelId: string) => {
     setModelId(nextModelId);
-    resetContextLengthLookup(nextModelId);
   };
 
   const handleBaseURLChange = (nextBaseURL: string) => {
@@ -136,6 +158,7 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
   };
 
   const handleCancel = () => {
+    if (isSubmitting) return;
     submitTokenRef.current += 1;
     isOpenRef.current = false;
     setIsResolvingContextLength(false);
@@ -162,229 +185,296 @@ const ProviderEditorModal: React.FC<ProviderEditorModalProps> = ({
         ? parsedContextLength
         : await resolveContextLengthForSubmit(trimmedModelId, submitToken);
     if (submitTokenRef.current !== submitToken || !isOpenRef.current) return;
-    onSave({
-      ...value,
-      contextLength
-    });
+    setIsSubmitting(true);
+    try {
+      await onSave({
+        ...value,
+        contextLength
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleCancel}
-      modalSize="md"
-      hasCloseButton
-      title={intl.formatMessage(
-        isEditing
-          ? { id: 'edit_custom_model', defaultMessage: '编辑模型' }
-          : { id: 'add_custom_model', defaultMessage: '添加模型' }
-      )}
-    >
-      <div className="space-y-4 mt-2">
-        <div>
-          <label className="block text-text-200 font-base-sm mb-1.5">
-            <FormattedMessage id="provider_kind" defaultMessage="供应商类型" />
-          </label>
-          <SimpleSelect
-            value={kind}
-            onChange={(value) => {
-              const next = value as ProviderKind;
-              setKind(next);
-              resetContextLengthLookup();
-              setBaseURL((current) => {
-                const trimmed = current.trim();
-                if (!trimmed) return '';
-                if (!isValidProviderBaseURL(trimmed)) return trimmed;
-                return normalizeProviderBaseURL(next, trimmed);
-              });
-              resetCatalog();
-              if (!baseURL && !isEditing) {
-                setBaseURL(DEFAULT_BASE_URL[next] ?? '');
-              }
-            }}
-            options={KIND_OPTIONS}
-          />
-        </div>
-
-        <div>
-          <label className="block text-text-200 font-base-sm mb-1.5">
-            <FormattedMessage id="custom_model_display_name" defaultMessage="显示名称" />
-          </label>
-          <TextInput
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={placeholderName}
-          />
-        </div>
-
-        <div>
-          <label className="block text-text-200 font-base-sm mb-1.5">
-            <FormattedMessage id="api_url_label" defaultMessage="API URL" />
-          </label>
-          <TextInput
-            value={baseURL}
-            onChange={(event) => handleBaseURLChange(event.target.value)}
-            onBlur={handleBaseURLBlur}
-            placeholder={intl.formatMessage(
-              { id: 'api_url_hint', defaultMessage: 'Leave blank to use the default ({url}).' },
-              { url: placeholderBaseURL }
+    <Dialog open={isOpen} onOpenChange={(open) => !open && handleCancel()}>
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>
+            {intl.formatMessage(
+              isEditing
+                ? { id: 'edit_custom_model', defaultMessage: '编辑模型' }
+                : { id: 'add_custom_model', defaultMessage: '添加模型' }
             )}
-          />
-          {hasInvalidBaseURL && (
-            <p className="mt-1 text-xs text-danger-000">
-              <FormattedMessage
-                id="api_url_invalid"
-                defaultMessage="请输入有效域名或以 http:// / https:// 开头的 URL。"
-              />
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-text-200 font-base-sm mb-1.5">
-            <FormattedMessage id="api_key_label" defaultMessage="API 密钥" />
-          </label>
-          <TextInput
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder="sk-..."
-          />
-        </div>
-
-        <div>
-          <label className="block text-text-200 font-base-sm mb-1.5">
-            <FormattedMessage id="model_id_label" defaultMessage="模型 ID" />
-          </label>
-          <div ref={modelInputContainerRef} className="relative">
-            <TextInput
-              value={modelId}
-              onFocus={() => setModelDropdownOpen(true)}
-              onChange={(event) => {
-                handleModelIdChange(event.target.value);
-                setModelDropdownOpen(true);
-              }}
-              placeholder={intl.formatMessage({
-                id: 'model_id_placeholder',
-                defaultMessage: '例如 claude-opus-4-6 / gpt-4o / qwen2.5:7b'
-              })}
+          </DialogTitle>
+          <DialogDescription>
+            <FormattedMessage
+              id="provider_editor_description"
+              defaultMessage="Configure the provider, credentials, and model used by SuperDuck."
             />
-            {modelDropdownOpen && (isLoadingModels || filteredModelOptions.length > 0) && (
-              <div className="absolute z-dropdown mt-1 w-full max-h-60 overflow-auto rounded-xl border-0.5 border-border-200 bg-bg-000 p-1.5 shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] dark:shadow-[0px_2px_8px_0px_hsl(var(--always-black)/24%)]">
-                {isLoadingModels ? (
-                  <div className="px-2 py-2 text-text-400 font-base">
-                    <FormattedMessage id="loading_models" defaultMessage="模型列表加载中..." />
-                  </div>
-                ) : (
-                  filteredModelOptions.map((model) => (
-                    <button
-                      key={model}
-                      type="button"
-                      className="w-full rounded-md px-2 py-2 text-left text-text-100 transition-colors hover:bg-bg-200 font-base"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        handleModelIdChange(model);
-                        setModelDropdownOpen(false);
-                      }}
-                    >
-                      {model}
-                    </button>
-                  ))
-                )}
-              </div>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 py-2">
+          <div className="flex flex-col gap-2">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
+              <FormattedMessage id="provider_kind" defaultMessage="供应商类型" />
+            </Label>
+            <Select
+              value={kind}
+              onValueChange={(value) => {
+                const next = value as ProviderKind;
+                setKind(next);
+                resetContextLengthLookup();
+                setBaseURL((current) => {
+                  const trimmed = current.trim();
+                  if (!trimmed) return '';
+                  if (!isValidProviderBaseURL(trimmed)) return trimmed;
+                  return normalizeProviderBaseURL(next, trimmed);
+                });
+                resetCatalog();
+                if (!baseURL && !isEditing) {
+                  setBaseURL(DEFAULT_BASE_URL[next] ?? '');
+                }
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {KIND_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
+              <FormattedMessage id="custom_model_display_name" defaultMessage="显示名称" />
+            </Label>
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={placeholderName}
+              className="h-10 rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
+              <FormattedMessage id="api_url_label" defaultMessage="API URL" />
+            </Label>
+            <Input
+              value={baseURL}
+              onChange={(event) => handleBaseURLChange(event.target.value)}
+              onBlur={handleBaseURLBlur}
+              className="h-10 rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
+              placeholder={intl.formatMessage(
+                { id: 'api_url_hint', defaultMessage: 'Leave blank to use the default ({url}).' },
+                { url: placeholderBaseURL }
+              )}
+            />
+            {hasInvalidBaseURL && (
+              <p className="mt-1 text-xs text-destructive pl-0.5">
+                <FormattedMessage
+                  id="api_url_invalid"
+                  defaultMessage="请输入有效域名或以 http:// / https:// 开头的 URL。"
+                />
+              </p>
             )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
+              <FormattedMessage id="api_key_label" defaultMessage="API 密钥" />
+            </Label>
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="sk-..."
+              className="h-10 rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
+              <FormattedMessage id="model_id_label" defaultMessage="模型 ID" />
+            </Label>
+            <div ref={modelInputContainerRef} className="relative">
+              <Input
+                value={modelId}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={modelDropdownOpen}
+                onFocus={() => setModelDropdownOpen(true)}
+                onChange={(event) => {
+                  handleModelIdChange(event.target.value);
+                  setModelDropdownOpen(true);
+                }}
+                placeholder={intl.formatMessage({
+                  id: 'model_id_placeholder',
+                  defaultMessage: '例如 claude-opus-4-6 / gpt-4o / qwen2.5:7b'
+                })}
+                className="h-10 rounded-xl border-border/40 px-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
+              />
+              {modelDropdownOpen && (isLoadingModels || filteredModelOptions.length > 0) && (
+                <div className="absolute inset-x-0 top-full z-50 mt-1 rounded-xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10">
+                  <Command shouldFilter={false}>
+                    <CommandList>
+                      {isLoadingModels ? (
+                        <CommandEmpty>
+                          <FormattedMessage
+                            id="loading_models"
+                            defaultMessage="模型列表加载中..."
+                          />
+                        </CommandEmpty>
+                      ) : filteredModelOptions.length === 0 ? (
+                        <CommandEmpty>
+                          <FormattedMessage
+                            id="no_models_found"
+                            defaultMessage="No models found."
+                          />
+                        </CommandEmpty>
+                      ) : (
+                        <CommandGroup>
+                          {filteredModelOptions.map((model) => (
+                            <CommandItem
+                              key={model}
+                              value={model}
+                              onSelect={() => {
+                                handleModelIdChange(model);
+                                resetContextLengthLookup(model);
+                                setModelDropdownOpen(false);
+                              }}
+                            >
+                              {model}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <Separator className="my-5 opacity-40" />
+
+          <div className="flex flex-col gap-4">
+            <div>
+              <h3 className="text-sm font-semibold tracking-wide text-foreground/90">
+                <FormattedMessage id="advanced_settings" defaultMessage="高级设置" />
+              </h3>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label className="text-xs font-semibold tracking-wide text-muted-foreground pl-0.5">
+                <FormattedMessage id="context_length_label" defaultMessage="上下文长度" />
+              </Label>
+              <div className="relative flex items-center">
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={contextLengthInput}
+                  onChange={(event) => handleContextLengthChange(event.target.value)}
+                  placeholder={String(DEFAULT_CONTEXT_LENGTH)}
+                  className="h-10 rounded-xl border-border/40 pr-16 pl-3 transition-all hover:border-border/80 focus-visible:border-primary/60"
+                />
+                <span className="absolute right-3.5 text-xs font-semibold text-muted-foreground/60 tracking-wider select-none pointer-events-none">
+                  tokens
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground/60 leading-normal pl-0.5">
+                {isResolvingContextLength ? (
+                  <FormattedMessage
+                    id="context_length_detecting"
+                    defaultMessage="正在检测上下文长度..."
+                  />
+                ) : contextLengthSource === 'manual' ? (
+                  <FormattedMessage
+                    id="context_length_hint_manual"
+                    defaultMessage="手动填写的上下文长度会随该模型保存。"
+                  />
+                ) : contextLengthSource === 'saved' ? (
+                  <FormattedMessage
+                    id="context_length_hint_saved"
+                    defaultMessage="使用此模型已保存的上下文长度。"
+                  />
+                ) : contextLengthSource === 'provider' ? (
+                  <FormattedMessage
+                    id="context_length_hint_provider"
+                    defaultMessage="从当前供应商的模型列表检测到。"
+                  />
+                ) : contextLengthSource === 'cache' ? (
+                  <FormattedMessage
+                    id="context_length_hint_cache"
+                    defaultMessage="从本地模型元数据缓存读取。"
+                  />
+                ) : contextLengthSource === 'builtin' ? (
+                  <FormattedMessage
+                    id="context_length_hint_builtin"
+                    defaultMessage="使用 SuperDuck 内置的模型上下文长度。"
+                  />
+                ) : (
+                  <FormattedMessage
+                    id="context_length_hint_default"
+                    defaultMessage="没有找到模型元数据时使用默认值，可手动覆盖。"
+                  />
+                )}
+              </p>
+              {hasInvalidContextLength && (
+                <p className="mt-1 text-xs text-destructive pl-0.5">
+                  <FormattedMessage
+                    id="context_length_invalid"
+                    defaultMessage="请输入大于 0 的上下文 token 数。"
+                  />
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="border-t border-border-300 pt-4">
-          <h3 className="mb-3 text-text-100 font-base-bold">
-            <FormattedMessage id="advanced_settings" defaultMessage="高级设置" />
-          </h3>
-          <label className="block text-text-200 font-base-sm mb-1.5">
-            <FormattedMessage id="context_length_label" defaultMessage="上下文长度" />
-          </label>
-          <TextInput
-            type="number"
-            min={1}
-            step={1}
-            value={contextLengthInput}
-            onChange={(event) => handleContextLengthChange(event.target.value)}
-            placeholder={String(DEFAULT_CONTEXT_LENGTH)}
-            append={
-              <span className="whitespace-nowrap text-text-400 font-base-sm">
-                <FormattedMessage id="context_length_tokens" defaultMessage="tokens" />
-              </span>
+        <DialogFooter className="mt-2 border-t border-border/30">
+          <Button
+            variant="outline"
+            onClick={handleCancel}
+            disabled={isSubmitting}
+            className="h-10 px-5 rounded-xl border-border/60 hover:bg-muted/40 transition-colors"
+          >
+            <FormattedMessage id="cancel" defaultMessage="取消" />
+          </Button>
+          <Button
+            onClick={() => void handleSubmit()}
+            className="h-10 px-5 rounded-xl font-medium transition-all active:scale-[0.98]"
+            disabled={
+              submitDisabled ||
+              hasInvalidBaseURL ||
+              hasInvalidContextLength ||
+              isResolvingContextLength ||
+              isSubmitting
             }
-            secondaryLabel={
-              isResolvingContextLength ? (
-                <FormattedMessage
-                  id="context_length_detecting"
-                  defaultMessage="正在检测上下文长度..."
-                />
-              ) : contextLengthSource === 'manual' ? (
-                <FormattedMessage
-                  id="context_length_hint_manual"
-                  defaultMessage="手动填写的上下文长度会随该模型保存。"
-                />
-              ) : contextLengthSource === 'saved' ? (
-                <FormattedMessage
-                  id="context_length_hint_saved"
-                  defaultMessage="使用此模型已保存的上下文长度。"
-                />
-              ) : contextLengthSource === 'provider' ? (
-                <FormattedMessage
-                  id="context_length_hint_provider"
-                  defaultMessage="从当前供应商的模型列表检测到。"
-                />
-              ) : contextLengthSource === 'cache' ? (
-                <FormattedMessage
-                  id="context_length_hint_cache"
-                  defaultMessage="从本地模型元数据缓存读取。"
-                />
-              ) : contextLengthSource === 'builtin' ? (
-                <FormattedMessage
-                  id="context_length_hint_builtin"
-                  defaultMessage="使用 SuperDuck 内置的模型上下文长度。"
-                />
-              ) : (
-                <FormattedMessage
-                  id="context_length_hint_default"
-                  defaultMessage="没有找到模型元数据时使用默认值，可手动覆盖。"
-                />
-              )
-            }
-          />
-          {hasInvalidContextLength && (
-            <p className="mt-1 text-xs text-danger-000">
+          >
+            {isSubmitting ? (
+              <>
+                <SpinnerIcon data-icon="inline-start" size={14} className="animate-spin" />
+                <FormattedMessage id="saving" defaultMessage="保存中..." />
+              </>
+            ) : (
               <FormattedMessage
-                id="context_length_invalid"
-                defaultMessage="请输入大于 0 的上下文 token 数。"
+                id={isEditing ? 'update' : 'add'}
+                defaultMessage={isEditing ? '更新' : '添加'}
               />
-            </p>
-          )}
-        </div>
-      </div>
-
-      <ModalFooter>
-        <Button variant="secondary" onClick={handleCancel}>
-          <FormattedMessage id="cancel" defaultMessage="取消" />
-        </Button>
-        <Button
-          onClick={() => void handleSubmit()}
-          disabled={
-            submitDisabled ||
-            hasInvalidBaseURL ||
-            hasInvalidContextLength ||
-            isResolvingContextLength
-          }
-        >
-          <FormattedMessage
-            id={isEditing ? 'update' : 'add'}
-            defaultMessage={isEditing ? '更新' : '添加'}
-          />
-        </Button>
-      </ModalFooter>
-    </Modal>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

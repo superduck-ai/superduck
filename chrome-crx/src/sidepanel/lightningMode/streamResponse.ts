@@ -18,7 +18,6 @@ export interface StreamResponseParams {
   stream: Stream;
   allMessages: LightningMessage[];
   setLnMessages: (messages: LightningMessage[]) => void;
-  setLnLastStopReason: (reason: { reason: string; messageId?: string } | null) => void;
   cancelledRef: MutableRefObject<boolean>;
   span: Span;
   phases: Phases;
@@ -98,11 +97,6 @@ export async function streamResponse(
     lastAssistant.content[0].text = fullText || ' ';
   }
   params.setLnMessages([...allMessages]);
-
-  params.setLnLastStopReason({
-    reason: finalMessage.stop_reason || 'end_turn',
-    messageId: finalMessage.id
-  });
 
   if (cancelledRef.current) return null;
   return { fullText };

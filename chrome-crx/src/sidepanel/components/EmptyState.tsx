@@ -23,16 +23,16 @@ interface DomainPromptsProps {
 export function DomainPrompts({ domainConfig, onPromptClick }: DomainPromptsProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full px-4 py-8">
-      <div className="w-12 h-12 rounded-xl border-[0.5px] border-border-300 bg-always-white shadow-sm mb-4 overflow-hidden">
+      <div className="w-12 h-12 rounded-xl border-[0.5px] border-border bg-always-white shadow-sm mb-4 overflow-hidden">
         <img src={domainConfig.logo_url} alt="" className="w-full h-full object-cover" />
       </div>
-      <h2 className="font-ui-sm text-text-500 mb-[22px]">{domainConfig.header_text}</h2>
+      <h2 className="mb-[22px] text-sm text-muted-foreground">{domainConfig.header_text}</h2>
       <div className="flex flex-col items-center gap-2 w-full max-w-sm">
         {domainConfig.prompts.map((prompt, index) => (
           <button
             key={index}
             onClick={() => onPromptClick(prompt.prompt)}
-            className="min-w-[75px] min-h-8 px-[14px] py-[3px] font-base text-text-100 border-[0.5px] border-border-300 bg-bg-000/30 hover:bg-bg-200 transition-colors text-center line-clamp-2 break-words"
+            className="line-clamp-2 min-h-8 min-w-[75px] break-words border-[0.5px] border-border bg-background/30 px-[14px] py-[3px] text-center text-sm leading-[1.4] text-foreground transition-colors hover:bg-muted"
             style={{ borderRadius: '38px' }}
           >
             {prompt.prompt_title}
@@ -55,14 +55,37 @@ interface FeatureCardProps {
 }
 
 function useDarkMode(): boolean {
-  const [isDark, setIsDark] = useState(false);
-  useEffect(() => {
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    setIsDark(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
-    mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
+  const getIsDark = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    const mode = document.documentElement.dataset.mode;
+    if (mode === 'dark') return true;
+    if (mode === 'light') return false;
+    return (
+      document.documentElement.classList.contains('dark') ||
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+    );
   }, []);
+  const [isDark, setIsDark] = useState(getIsDark);
+
+  useEffect(() => {
+    const syncMode = () => setIsDark(getIsDark());
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    mql.addEventListener('change', syncMode);
+
+    const observer = new MutationObserver(syncMode);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-mode']
+    });
+
+    syncMode();
+
+    return () => {
+      mql.removeEventListener('change', syncMode);
+      observer.disconnect();
+    };
+  }, [getIsDark]);
+
   return isDark;
 }
 
@@ -73,11 +96,13 @@ export function FeatureCard({ lightImage, darkImage, title, subtitle }: FeatureC
       <img
         src={isDark ? darkImage : lightImage}
         alt={title}
-        className="w-[212px] h-[122px] rounded-[14px] border border-border-300 bg-bg-100 p-6 object-contain"
+        className="w-[212px] h-[122px] rounded-[14px] border border-border bg-muted p-6 object-contain"
       />
       <div className="mt-4 flex flex-col items-center gap-1 w-[188px]">
-        <p className="font-small-bold text-text-300 text-center">{title}</p>
-        <p className="font-small text-text-500 text-center">{subtitle}</p>
+        <p className="text-center text-xs font-semibold leading-[1.4] text-foreground/75">
+          {title}
+        </p>
+        <p className="text-center text-xs leading-[1.4] text-muted-foreground">{subtitle}</p>
       </div>
     </div>
   );
@@ -258,20 +283,34 @@ const HEADER_COLOR = 'rgb(156,156,156)';
 const HEADER_SKEW = 'skewX(-10deg)';
 // Sit slightly above vertical center so the header reads as "upper-middle"
 // across both tall windows and short ones (fixed bottom offsets don't scale).
-const HEADER_VERTICAL_BIAS = '-15%';
+const HEADER_VERTICAL_BIAS = '-12%';
 
 function SuperDuckHeader({ children }: { children?: React.ReactNode }) {
+  const intl = useIntl();
+
   return (
     <div
-      className="flex flex-col items-center justify-center gap-6 px-6 pointer-events-none"
+      className="pointer-events-none flex flex-col items-center justify-center px-6"
       style={{ position: 'absolute', inset: 0, transform: `translateY(${HEADER_VERTICAL_BIAS})` }}
     >
       <div
-        className="pointer-events-auto flex flex-col items-center gap-6 w-full"
-        style={{ transform: HEADER_SKEW }}
+        data-testid="empty-state-welcome"
+        className="pointer-events-auto flex w-full flex-col items-center gap-[10px]"
       >
-        <HandwritingAnimation text="SuperDuck" fontSize={88} speed={3} color={HEADER_COLOR} />
-        {children}
+        <div className="w-full" style={{ transform: HEADER_SKEW }}>
+          <HandwritingAnimation text="SuperDuck" fontSize={64} speed={3} color={HEADER_COLOR} />
+        </div>
+        <p
+          data-testid="empty-state-subtitle"
+          lang={intl.locale}
+          className="superduck-welcome-subtitle"
+        >
+          <FormattedMessage
+            defaultMessage="How can I help you today?"
+            id="how_can_i_help_you_today"
+          />
+        </p>
+        {children ? <div className="pt-3">{children}</div> : null}
       </div>
     </div>
   );
@@ -284,11 +323,11 @@ function SuperDuckHeader({ children }: { children?: React.ReactNode }) {
 export function CompactedDivider() {
   return (
     <div className="flex items-center gap-2 py-2 my-2">
-      <div className="flex-1 h-[0.5px] bg-border-300" />
-      <div className="text-xs text-text-400 px-2 bg-bg-100">
+      <div className="flex-1 h-[0.5px] bg-border" />
+      <div className="text-xs text-muted-foreground px-2 bg-muted">
         <FormattedMessage defaultMessage="Conversation compacted" id="conversation_compacted" />
       </div>
-      <div className="flex-1 h-[0.5px] bg-border-300" />
+      <div className="flex-1 h-[0.5px] bg-border" />
     </div>
   );
 }

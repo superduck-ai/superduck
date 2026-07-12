@@ -1,4 +1,3 @@
-import { LightningModeProvider } from './contexts/LightningModeContext';
 import { SidepanelViewStateProvider } from './contexts/SidepanelViewStateContext';
 import { SidepanelView } from './components/SidepanelView';
 import { GateRouter } from './components/GateRouter';
@@ -39,15 +38,8 @@ export default function SidepanelApp() {
 
   // ─── Main layout ──────────────────────────────────────────────────
   return (
-    <LightningModeProvider
-      value={{
-        isPurlMode: state.isPurlMode,
-        lightningResult: state.isPurlMode ? state.lightningResult : null
-      }}
-    >
-      <SidepanelViewStateProvider value={state}>
-        <SidepanelView />
-      </SidepanelViewStateProvider>
-    </LightningModeProvider>
+    <SidepanelViewStateProvider value={state}>
+      <SidepanelView />
+    </SidepanelViewStateProvider>
   );
 }

@@ -13,7 +13,6 @@ describe('useAttachmentStore', () => {
     useAttachmentStore.setState({
       pendingAttachments: [],
       previewAttachmentImage: null,
-      screenshotPreviewUrl: null,
       attachmentCount: 0
     });
   });

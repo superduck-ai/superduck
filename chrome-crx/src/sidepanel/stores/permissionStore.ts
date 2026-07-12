@@ -22,8 +22,6 @@ interface PermissionState {
   setPermissionMode: (mode: PermissionMode) => void;
   setPermissionPrompt: (prompt: PermissionPromptData | null) => void;
   setHasBrowserControlPermissionAccepted: (accepted: boolean | null) => void;
-  setHasApprovedPlan: (approved: boolean) => void;
-  clearPermissionPrompt: () => void;
 }
 
 export const usePermissionStore = create<PermissionState>((set) => ({
@@ -36,7 +34,5 @@ export const usePermissionStore = create<PermissionState>((set) => ({
   setPermissionMode: (permissionMode) => set({ permissionMode }),
   setPermissionPrompt: (permissionPrompt) => set({ permissionPrompt }),
   setHasBrowserControlPermissionAccepted: (hasBrowserControlPermissionAccepted) =>
-    set({ hasBrowserControlPermissionAccepted }),
-  setHasApprovedPlan: (hasApprovedPlan) => set({ hasApprovedPlan }),
-  clearPermissionPrompt: () => set({ permissionPrompt: null })
+    set({ hasBrowserControlPermissionAccepted })
 }));

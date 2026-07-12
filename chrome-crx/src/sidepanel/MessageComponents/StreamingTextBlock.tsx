@@ -36,7 +36,7 @@ export function StreamingTextBlock({ store }: { store: StreamingTextStore }) {
   return (
     <div className="flex items-start group">
       <div className="max-w-4xl superduck-response w-full break-words">
-        <div className="font-superduck-response text-sm leading-[1.65rem] text-text-100 break-words">
+        <div className="font-superduck-response text-sm leading-[1.65rem] text-foreground break-words">
           <div className={`standard-markdown streaming-markdown ${STANDARD_MARKDOWN_GRID_CLASS}`}>
             <ReactMarkdown
               remarkPlugins={remarkPlugins}

@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { ListChecks } from 'lucide-react';
 import { useIntlSafe } from '../../../index-react-dom-intl';
 import type { ApiToolResultBlock } from '../../../messageTypes';
 import { getTextFromBlockContent } from '../../sidepanelUtils';
 import type { PlanStructure } from '../../conversation/planMode';
 import { ToolUseRow } from '../../toolViews';
-import { ChecklistIcon } from '@/sidepanel/components/icons';
 import type { ToolInputRecord } from '../../types';
 import { PlanApprovalModal } from './PlanApprovalModal';
 
@@ -83,9 +83,12 @@ export const UpdatePlanCell = React.memo(function UpdatePlanCell({
   return (
     <>
       <ToolUseRow
-        icon={<ChecklistIcon size={12} className="text-text-500" />}
+        icon={<ListChecks size={14} className="text-muted-foreground" />}
         text={statusText}
         isStreaming={!!isStreaming}
+        tone={
+          planStatus === 'rejected' ? 'error' : planStatus === 'creating' ? 'active' : 'default'
+        }
         hideCaret
         renderMode={renderMode}
         isFirstBlockOfMessage={isFirstBlockOfMessage}

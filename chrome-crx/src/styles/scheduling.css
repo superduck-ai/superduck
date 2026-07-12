@@ -171,13 +171,13 @@
     height: auto;
     margin-bottom: 8px;
     padding-bottom: 8px;
-    border-bottom: 0.5px solid hsl(var(--border-300) / 15%);
+  border-bottom: 0.5px solid var(--border);
 }
 
 .datetime-input-calendar .react-calendar__navigation__label {
     flex-grow: 1;
     background: none !important;
-    color: hsl(var(--text-100));
+  color: var(--foreground);
     text-align: center;
     white-space: nowrap;
     pointer-events: none;
@@ -195,15 +195,15 @@
     background: none !important;
     border: none;
     border-radius: 8px;
-    color: hsl(var(--text-100));
+  color: var(--foreground);
 }
 
 .datetime-input-calendar .react-calendar__navigation__arrow:hover:enabled {
-    background: hsl(var(--bg-300)) !important;
+  background: var(--accent) !important;
 }
 
 .datetime-input-calendar .react-calendar__navigation button:disabled {
-    color: hsl(var(--text-500));
+  color: var(--muted-foreground);
     cursor: not-allowed;
     opacity: 0.4;
 }
@@ -213,7 +213,7 @@
     grid-template-columns: repeat(7, 32px);
     gap: 6px;
     justify-content: center;
-    color: hsl(var(--text-500));
+  color: var(--muted-foreground);
     text-align: center;
     text-transform: capitalize;
     font-size: 12px;
@@ -245,29 +245,29 @@
     width: 32px;
     height: 32px;
     border-radius: 8px;
-    color: hsl(var(--text-100));
+  color: var(--foreground);
 }
 
 .datetime-input-calendar .react-calendar__tile:hover:enabled {
-    background: hsl(var(--bg-400));
-    border: 0.5px solid hsl(var(--border-300) / 15%);
+  background: var(--accent);
+  border: 0.5px solid var(--border);
 }
 
 .datetime-input-calendar .react-calendar__tile--now:not(.react-calendar__tile--active) {
-    background: hsl(var(--bg-200));
+  background: var(--muted);
 }
 
 .datetime-input-calendar .react-calendar__tile--active {
-    background: hsl(var(--text-000)) !important;
-    color: hsl(var(--bg-100));
+  background: var(--foreground) !important;
+  color: var(--background);
 }
 
 .datetime-input-calendar .react-calendar__month-view__days__day--neighboringMonth {
-    color: hsl(var(--text-500));
+  color: var(--muted-foreground);
 }
 
 .datetime-input-calendar .react-calendar__tile:disabled {
     background: none;
-    color: hsl(var(--text-500) / 50%);
+  color: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
     cursor: not-allowed;
 }

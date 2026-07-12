@@ -2,10 +2,9 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl';
 import { type SupportedLocale } from '../conversation/prompts';
 import { GlobeIcon } from '@/sidepanel/components/icons';
-import { Button, TextInput } from '../../components/ui';
+import { Button, Input, SimpleTooltip } from '../../components/ui';
 import { Trash2, Play, Pause, Mic, MicOff, X } from 'lucide-react';
 import { WorkflowStepsList, WorkflowStep } from './WorkflowStepsList';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
 import { generateWorkflowSummary, type ModelInvoker } from '../session';
 
 interface RecordingState {
@@ -198,7 +197,7 @@ export function WorkflowRecordingInterface({
   ]);
 
   return (
-    <div className="flex flex-col h-full bg-bg-100">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-3">
         <div className="flex items-center gap-2">
@@ -210,15 +209,16 @@ export function WorkflowRecordingInterface({
               onError={() => setFaviconError(true)}
             />
           ) : (
-            <GlobeIcon size={16} className="text-text-300" />
+            <GlobeIcon size={16} className="text-muted-foreground" />
           )}
           {isEditingTitle ? (
             <div className="min-w-0 flex-1 max-w-[240px]">
-              <TextInput
+              <Input
                 ref={titleInputRef}
-                size="sm"
                 value={workflowTitle}
-                onValueChange={setWorkflowTitle}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setWorkflowTitle(event.target.value)
+                }
                 onBlur={commitWorkflowTitle}
                 onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
                   if (event.nativeEvent.isComposing) return;
@@ -232,7 +232,7 @@ export function WorkflowRecordingInterface({
                     cancelWorkflowTitleEdit();
                   }
                 }}
-                className="!h-8 !rounded-md !border-border-300 !bg-bg-000 !px-2 !text-sm"
+                className="!h-8 !rounded-md !border-border !bg-background !px-2 !text-sm"
                 aria-label="Workflow title"
               />
             </div>
@@ -243,7 +243,7 @@ export function WorkflowRecordingInterface({
                 previousTitleRef.current = workflowTitle;
                 setIsEditingTitle(true);
               }}
-              className="min-w-0 max-w-[240px] rounded-md px-2 py-1 -mx-2 -my-1 text-left text-text-200 font-base-sm truncate transition-colors hover:bg-bg-300"
+              className="min-w-0 max-w-[240px] rounded-md px-2 py-1 -mx-2 -my-1 text-left text-muted-foreground text-xs truncate transition-colors hover:bg-secondary"
               aria-label="Edit workflow title"
             >
               {workflowTitle}
@@ -252,7 +252,7 @@ export function WorkflowRecordingInterface({
         </div>
         <button
           onClick={onStop}
-          className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+          className="p-1.5 rounded-md transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
           aria-label={intl.formatMessage({ defaultMessage: 'Close', id: 'close' })}
         >
           <X size={12} />
@@ -275,14 +275,14 @@ export function WorkflowRecordingInterface({
       {/* Control Buttons */}
       <div className="mx-auto mb-3 max-w-3xl w-full px-3">
         <div
-          className="bg-bg-000 border-[0.5px] border-border-300 hover:border-border-200 rounded-[14px] relative z-30 transition-colors focus-within:outline-none"
+          className="relative z-30 rounded-[14px] border-[0.5px] border-border bg-card transition-colors hover:border-input focus-within:outline-none"
           style={{ boxShadow: '0 4px 20px 0 rgba(0, 0, 0, 0.04)', outline: 'none' }}
         >
           <div className="flex flex-col gap-2 px-3 py-3">
             {/* Action buttons row */}
             <div className="grid grid-cols-3 gap-2">
               {/* Discard button */}
-              <Tooltip
+              <SimpleTooltip
                 tooltipContent={intl.formatMessage({ defaultMessage: 'Discard', id: 'discard' })}
                 side="top"
               >
@@ -295,10 +295,10 @@ export function WorkflowRecordingInterface({
                 >
                   <Trash2 size={20} />
                 </Button>
-              </Tooltip>
+              </SimpleTooltip>
 
               {/* Pause/Resume button */}
-              <Tooltip
+              <SimpleTooltip
                 tooltipContent={
                   recordingState.isPaused
                     ? intl.formatMessage({ defaultMessage: 'Resume', id: 'resume' })
@@ -319,11 +319,11 @@ export function WorkflowRecordingInterface({
                 >
                   {recordingState.isPaused ? <Play size={20} /> : <Pause size={20} />}
                 </Button>
-              </Tooltip>
+              </SimpleTooltip>
 
               {/* Voice narration toggle (if supported) */}
               {isSpeechSupported && (
-                <Tooltip
+                <SimpleTooltip
                   tooltipContent={
                     isSpeechRecording
                       ? intl.formatMessage({
@@ -352,20 +352,18 @@ export function WorkflowRecordingInterface({
                     })}
                     className={
                       'w-full px-0 min-w-0 ' +
-                      (isSpeechRecording
-                        ? 'bg-accent-main-100 text-oncolor-100 border-accent-main-100'
-                        : '')
+                      (isSpeechRecording ? 'bg-brand text-white border-brand' : '')
                     }
                   >
                     {isSpeechRecording ? <Mic size={20} /> : <MicOff size={20} />}
                   </Button>
-                </Tooltip>
+                </SimpleTooltip>
               )}
             </div>
 
             {/* Done button */}
             <Button
-              variant="primary"
+              variant="default"
               size="default"
               onClick={handleSave}
               disabled={isGeneratingSummary || recordingState.steps.length === 0}

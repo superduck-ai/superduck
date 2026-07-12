@@ -25,11 +25,9 @@ export interface ChatActions {
   effectiveClearError: Noop;
 }
 
-interface ChatActionsStore extends ChatActions {
-  setActions: (actions: Partial<ChatActions>) => void;
-}
+type ChatActionsStore = ChatActions;
 
-export const useChatActionsStore = create<ChatActionsStore>((set) => ({
+export const useChatActionsStore = create<ChatActionsStore>(() => ({
   // Default no-op implementations
   submit: noop,
   handlePaste: noop,
@@ -40,8 +38,5 @@ export const useChatActionsStore = create<ChatActionsStore>((set) => ({
   effectiveSendPrompt: noopAsync,
   insertShortcutChip: noop,
   navigateActiveTabToUrl: noopAsync,
-  effectiveClearError: noop,
-
-  // Update actions
-  setActions: (actions) => set(actions)
+  effectiveClearError: noop
 }));

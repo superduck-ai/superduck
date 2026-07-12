@@ -1,10 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { CircleHelp } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { CircleHelp, PlugZap } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui';
 import { getConfiguredModelMetadata } from '@/constants/models';
 import {
-  PROVIDER_CONFIG_BROADCAST,
   PROVIDER_KIND_LABEL,
   emptyConfigSnapshot,
   getModelMetadataCacheStorageKey,
@@ -15,22 +28,15 @@ import {
   type ProviderConfig,
   type ProviderModelMetadata
 } from '@/utils/providerStore';
+import { isProviderConfigUsable } from '@/utils/providerConfigStatus';
 import { lookupCachedModelMetadata, testProviderConnection } from '@/utils/providerModelCatalog';
-import {
-  isProviderConfigUsable,
-  isProviderReadyForSetup,
-  parseProviderConfigSnapshot
-} from '@/utils/providerConfigStatus';
 import { ProviderEditorModal, type ProviderEditorValue } from './ProviderEditorModal';
 import {
-  AlertCircleIcon,
-  CheckCircleIcon,
   PencilIcon,
   PlusIcon,
   SpinnerIcon,
   TrashIcon,
   INPUT_MODALITY_ICON,
-  PROVIDER_KIND_COLOR,
   type InputModalityItem
 } from './providerConfigSection/icons';
 import {
@@ -38,36 +44,37 @@ import {
   getInputModalitiesFromMetadata,
   getModelMetadata,
   hasInputModalityMetadata,
-  type ProviderStatusInfo,
-  type SaveNotice
+  type ProviderStatusInfo
 } from './providerConfigSection/metadata';
 import { ModelSetupGuide } from './providerConfigSection/ModelSetupGuide';
 import { ProviderStatusBadge } from './providerConfigSection/ProviderStatusBadge';
+import { SettingsSection } from './SettingsLayout';
+
+const hasSameProviderConnection = (
+  provider: AiProvider,
+  value: Pick<ProviderEditorValue, 'kind' | 'modelId' | 'apiKey' | 'baseURL'>
+) =>
+  provider.kind === value.kind &&
+  provider.modelId === value.modelId &&
+  provider.apiKey === value.apiKey &&
+  provider.baseURL === value.baseURL;
 
 const ProviderConfigSection: React.FC = () => {
   const intl = useIntl();
   const [config, setConfig] = useState<ProviderConfig>(() => emptyConfigSnapshot());
-  const [savedSnapshot, setSavedSnapshot] = useState<string>(() =>
-    JSON.stringify(emptyConfigSnapshot())
-  );
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
-  const [dirtyProviderIds, setDirtyProviderIds] = useState<Set<string>>(new Set());
   const [editingProvider, setEditingProvider] = useState<AiProvider | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [statusOverlay, setStatusOverlay] = useState<Record<string, ProviderStatusInfo>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [cachedModelMetadata, setCachedModelMetadata] = useState<
     Record<string, ProviderModelMetadata | null>
   >({});
 
-  const isDirty = useMemo(() => JSON.stringify(config) !== savedSnapshot, [config, savedSnapshot]);
-  const hasUsableSavedConfig = useMemo(() => {
-    const savedConfig = parseProviderConfigSnapshot(savedSnapshot);
-    return savedConfig ? isProviderConfigUsable(savedConfig) : false;
-  }, [savedSnapshot]);
-  const shouldShowSetupGuide = isConfigLoaded && !hasUsableSavedConfig;
+  const shouldShowSetupGuide = isConfigLoaded && !isProviderConfigUsable(config);
+  const hasSectionNotice = Boolean(saveError || shouldShowSetupGuide);
   const providerMetadataRequests = useMemo(
     () =>
       config.providers
@@ -101,7 +108,6 @@ const ProviderConfigSection: React.FC = () => {
     void (async () => {
       const loaded = await loadProviderConfig();
       setConfig(loaded);
-      setSavedSnapshot(JSON.stringify(loaded));
       setIsConfigLoaded(true);
     })();
   }, []);
@@ -141,36 +147,6 @@ const ProviderConfigSection: React.FC = () => {
     };
   }, [cachedModelMetadata, providerMetadataRequests]);
 
-  useEffect(() => {
-    if (!isDirty) return;
-    setSaveNotice(null);
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [isDirty]);
-
-  useEffect(() => {
-    if (!saveNotice) return;
-    const timer = window.setTimeout(
-      () => setSaveNotice((current) => (current?.id === saveNotice.id ? null : current)),
-      saveNotice.tone === 'warning' ? 5000 : 3000
-    );
-    return () => window.clearTimeout(timer);
-  }, [saveNotice]);
-
-  const markDirty = useCallback((providerId?: string) => {
-    if (providerId) {
-      setDirtyProviderIds((prev) => {
-        const next = new Set(prev);
-        next.add(providerId);
-        return next;
-      });
-    }
-  }, []);
-
   const openAddProvider = () => {
     setEditingProvider(null);
     setEditorOpen(true);
@@ -181,197 +157,110 @@ const ProviderConfigSection: React.FC = () => {
     setEditorOpen(true);
   };
 
-  const handleSaveProvider = (value: ProviderEditorValue) => {
-    setConfig((previous) => {
-      const existingIndex = previous.providers.findIndex((entry) => entry.id === value.id);
-      const nextProvider: AiProvider = {
-        id: value.id,
-        kind: value.kind,
-        name: value.name,
-        modelId: value.modelId,
-        apiKey: value.apiKey,
-        baseURL: value.baseURL,
-        contextLength: value.contextLength,
-        status:
-          existingIndex >= 0
-            ? previous.providers[existingIndex].apiKey === value.apiKey &&
-              previous.providers[existingIndex].baseURL === value.baseURL &&
-              previous.providers[existingIndex].kind === value.kind &&
-              previous.providers[existingIndex].modelId === value.modelId
-              ? previous.providers[existingIndex].status
-              : 'unknown'
-            : 'unknown',
-        lastTestedAt:
-          existingIndex >= 0 ? previous.providers[existingIndex].lastTestedAt : undefined,
-        errorMessage: undefined
-      };
-      const nextProviders =
-        existingIndex >= 0
-          ? previous.providers.map((entry, index) =>
-              index === existingIndex ? nextProvider : entry
-            )
-          : [...previous.providers, nextProvider];
-      return { ...previous, providers: nextProviders };
-    });
-    markDirty(value.id);
-    setEditorOpen(false);
-    setEditingProvider(null);
-  };
-
-  const handleDeleteProvider = (providerId: string) => {
-    setConfig((previous) => ({
-      ...previous,
-      providers: previous.providers.filter((entry) => entry.id !== providerId)
-    }));
-  };
-
-  const handleTestProvider = useCallback(
-    async (provider: AiProvider) => {
-      setStatusOverlay((prev) => ({ ...prev, [provider.id]: { status: 'testing' } }));
+  const handleTestProvider = useCallback(async (provider: AiProvider) => {
+    setStatusOverlay((prev) => ({ ...prev, [provider.id]: { status: 'testing' } }));
+    setSaveError(null);
+    try {
       const result = await testProviderConnection(provider);
-      const lastTestedAt = Date.now();
+      const latestConfig = await loadProviderConfig(true);
+      const latestProvider = latestConfig.providers.find((entry) => entry.id === provider.id);
+      if (!latestProvider || !hasSameProviderConnection(latestProvider, provider)) return;
 
-      const computeNextConfig = (previous: ProviderConfig): ProviderConfig => ({
-        ...previous,
-        providers: previous.providers.map((entry) =>
+      const nextConfig: ProviderConfig = {
+        ...latestConfig,
+        providers: latestConfig.providers.map((entry) =>
           entry.id === provider.id
             ? {
                 ...entry,
                 status: result.ok ? 'active' : 'error',
-                lastTestedAt,
+                lastTestedAt: Date.now(),
                 errorMessage: result.ok ? undefined : result.error
               }
             : entry
         )
-      });
-
-      let resolvedConfig: ProviderConfig | null = null;
-      setConfig((previous) => {
-        resolvedConfig = computeNextConfig(previous);
-        return resolvedConfig;
-      });
-
-      if (!isDirty && resolvedConfig) {
-        await saveProviderConfig(resolvedConfig);
-        setSavedSnapshot(JSON.stringify(resolvedConfig));
-      }
-
+      };
+      await saveProviderConfig(nextConfig);
+      setConfig(nextConfig);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaveError(message);
+      toast.error(message);
+    } finally {
       setStatusOverlay((prev) => {
         const next = { ...prev };
         delete next[provider.id];
         return next;
       });
-      setDirtyProviderIds((prev) => {
-        const next = new Set(prev);
-        next.delete(provider.id);
-        return next;
-      });
-    },
-    [isDirty]
-  );
-
-  const handleDiscard = useCallback(async () => {
-    try {
-      const loaded = await loadProviderConfig(true);
-      setConfig(loaded);
-      setSavedSnapshot(JSON.stringify(loaded));
-    } catch {
-      const empty = emptyConfigSnapshot();
-      setConfig(empty);
-      setSavedSnapshot(JSON.stringify(empty));
     }
-    setIsConfigLoaded(true);
-    setDirtyProviderIds(new Set());
-    setSaveError(null);
-    setSaveNotice(null);
   }, []);
 
-  const handleSave = useCallback(async () => {
+  const handleSaveProvider = async (value: ProviderEditorValue) => {
     setSaveError(null);
-    setSaveNotice(null);
-
-    const readyProviders = config.providers.filter(isProviderReadyForSetup);
-    if (readyProviders.length === 0) {
-      setSaveError(
-        intl.formatMessage({
-          id: 'save_validation_no_usable_provider',
-          defaultMessage: '保存前请至少添加一个可用的模型（含 API Key、模型 ID 且测试通过）'
-        })
-      );
-      return;
-    }
-
+    const existingProvider = config.providers.find((entry) => entry.id === value.id);
+    const shouldTestConnection =
+      !existingProvider || !hasSameProviderConnection(existingProvider, value);
+    const nextProvider: AiProvider = {
+      id: value.id,
+      kind: value.kind,
+      name: value.name,
+      modelId: value.modelId,
+      apiKey: value.apiKey,
+      baseURL: value.baseURL,
+      contextLength: value.contextLength,
+      status: existingProvider && !shouldTestConnection ? existingProvider.status : 'unknown',
+      lastTestedAt:
+        existingProvider && !shouldTestConnection ? existingProvider.lastTestedAt : undefined,
+      errorMessage:
+        existingProvider && !shouldTestConnection ? existingProvider.errorMessage : undefined
+    };
+    const nextConfig: ProviderConfig = {
+      ...config,
+      providers: existingProvider
+        ? config.providers.map((entry) => (entry.id === value.id ? nextProvider : entry))
+        : [...config.providers, nextProvider]
+    };
     setIsSaving(true);
     try {
-      setStatusOverlay((prev) => {
-        const next = { ...prev };
-        dirtyProviderIds.forEach((providerId) => {
-          delete next[providerId];
-        });
-        return next;
-      });
-      const updatedProviders = await Promise.all(
-        config.providers.map(async (provider) => {
-          if (!dirtyProviderIds.has(provider.id) || !isProviderComplete(provider)) return provider;
-          const result = await testProviderConnection(provider);
-          return result.ok
-            ? {
-                ...provider,
-                status: 'active' as const,
-                lastTestedAt: Date.now(),
-                errorMessage: undefined
-              }
-            : {
-                ...provider,
-                status: 'error' as const,
-                lastTestedAt: Date.now(),
-                errorMessage: result.error
-              };
-        })
-      );
-
-      const nextConfig: ProviderConfig = { ...config, providers: updatedProviders };
       await saveProviderConfig(nextConfig);
-
-      // Re-load to ensure we have the exact canonical state that was saved
-      const finalConfig = await loadProviderConfig(true);
-      setConfig(finalConfig);
-      setSavedSnapshot(JSON.stringify(finalConfig));
-
-      try {
-        await chrome.runtime.sendMessage({ type: PROVIDER_CONFIG_BROADCAST });
-      } catch {
-        // listeners also watch chrome.storage.onChanged directly
+      setConfig(nextConfig);
+      setEditorOpen(false);
+      setEditingProvider(null);
+      if (shouldTestConnection && isProviderComplete(nextProvider)) {
+        void handleTestProvider(nextProvider);
       }
-      setDirtyProviderIds(new Set());
-
-      const failed = updatedProviders.filter((provider) => provider.status === 'error');
-      setSaveNotice({
-        id: Date.now(),
-        tone: failed.length > 0 ? 'warning' : 'success',
-        message:
-          failed.length > 0
-            ? intl.formatMessage(
-                {
-                  id: 'saved_with_warnings',
-                  defaultMessage: '已保存。有 {count} 个供应商连接测试失败。'
-                },
-                { count: failed.length }
-              )
-            : intl.formatMessage({ id: 'saved_success', defaultMessage: '配置已保存并生效。' })
-      });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setSaveError(message);
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
-  }, [config, dirtyProviderIds, intl]);
+  };
+
+  const handleDeleteProvider = async (providerId: string) => {
+    setSaveError(null);
+    const nextConfig: ProviderConfig = {
+      ...config,
+      providers: config.providers.filter((entry) => entry.id !== providerId)
+    };
+    setIsSaving(true);
+    try {
+      await saveProviderConfig(nextConfig);
+      setConfig(nextConfig);
+      setDeleteConfirmId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSaveError(message);
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const renderProviderCard = (provider: AiProvider) => {
     const overlay = statusOverlay[provider.id];
     const effectiveStatus: AiProvider['status'] = overlay?.status ?? provider.status;
     const errorMessage = overlay?.message ?? provider.errorMessage;
-    const dirty = dirtyProviderIds.has(provider.id);
     const trimmedModelId = provider.modelId.trim();
     const cacheKey = `${getModelMetadataCacheStorageKey(provider)}:${trimmedModelId}`;
     const hasCachedMetadata = cacheKey in cachedModelMetadata;
@@ -407,182 +296,179 @@ const ProviderConfigSection: React.FC = () => {
       defaultMessage: '正在读取模型能力...'
     });
 
+    const testLabel = intl.formatMessage({ id: 'test', defaultMessage: '测试' });
+    const editLabel = intl.formatMessage({ id: 'edit_2', defaultMessage: 'Edit' });
+    const deleteLabel = intl.formatMessage({ id: 'delete', defaultMessage: 'Delete' });
+    const actionsLabel = intl.formatMessage({
+      id: 'provider_actions',
+      defaultMessage: 'Provider actions'
+    });
+
     return (
       <div
         key={provider.id}
-        className="flex flex-col gap-3 rounded-xl border border-border-300 bg-bg-000 p-4 transition-all hover:border-border-400"
+        className="group/row flex min-w-0 flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between border-b border-border/30 last:border-b-0 hover:bg-muted/10 transition-colors"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <span
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg font-base-bold text-sm ${PROVIDER_KIND_COLOR[provider.kind]}`}
-            >
-              {getProviderBadgeText(provider)}
-            </span>
-            <div className="min-w-0">
-              <div className="font-large text-text-100 truncate flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 font-mono text-[10px] font-medium text-muted-foreground">
+            {getProviderBadgeText(provider)}
+          </span>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="min-w-0 truncate text-sm font-semibold leading-5 text-foreground">
                 {provider.name}
-                <ProviderStatusBadge
-                  status={effectiveStatus}
-                  message={errorMessage}
-                  dirty={dirty}
-                />
-              </div>
-              <div className="mt-0.5 flex min-w-0 items-center gap-2 text-text-400 font-base-sm">
-                <span className="truncate">
-                  {PROVIDER_KIND_LABEL[provider.kind]}
-                  {provider.modelId ? ` · ${provider.modelId}` : ''}
+              </span>
+              <ProviderStatusBadge status={effectiveStatus} message={errorMessage} />
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs leading-5 text-muted-foreground/80">
+              <span className="min-w-0 truncate">
+                {PROVIDER_KIND_LABEL[provider.kind]}
+                {provider.modelId ? ` · ${provider.modelId}` : ''}
+              </span>
+              {trimmedModelId && (
+                <span
+                  className="flex shrink-0 items-center gap-0.5 text-muted-foreground/60"
+                  aria-label={inputModalitiesLabel}
+                >
+                  {isLoadingModalities ? (
+                    <span
+                      title={inputModalitiesDetectingLabel}
+                      aria-label={inputModalitiesDetectingLabel}
+                      className="inline-flex size-5 items-center justify-center rounded text-muted-foreground"
+                    >
+                      <SpinnerIcon aria-hidden size={13} className="animate-spin" />
+                    </span>
+                  ) : inputModalityItems.length > 0 ? (
+                    inputModalityItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <span
+                          key={item.key}
+                          title={item.title}
+                          aria-label={item.title}
+                          className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <Icon aria-hidden size={13} />
+                          <span className="sr-only">{item.label}</span>
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span
+                      title={unavailableLabel}
+                      aria-label={unavailableLabel}
+                      className="inline-flex size-5 items-center justify-center rounded text-muted-foreground"
+                    >
+                      <CircleHelp aria-hidden size={13} />
+                    </span>
+                  )}
                 </span>
-                {trimmedModelId && (
-                  <span
-                    className="flex shrink-0 items-center gap-1 text-text-300"
-                    aria-label={inputModalitiesLabel}
-                  >
-                    {isLoadingModalities ? (
-                      <span
-                        title={inputModalitiesDetectingLabel}
-                        aria-label={inputModalitiesDetectingLabel}
-                        className="inline-flex size-5 items-center justify-center rounded text-text-500"
-                      >
-                        <SpinnerIcon aria-hidden size={14} className="animate-spin" />
-                      </span>
-                    ) : inputModalityItems.length > 0 ? (
-                      inputModalityItems.map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <span
-                            key={item.key}
-                            title={item.title}
-                            aria-label={item.title}
-                            className="inline-flex size-5 items-center justify-center rounded text-text-300 transition-colors hover:bg-bg-100 hover:text-text-100"
-                          >
-                            <Icon aria-hidden size={15} />
-                            <span className="sr-only">{item.label}</span>
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span
-                        title={unavailableLabel}
-                        aria-label={unavailableLabel}
-                        className="inline-flex size-5 items-center justify-center rounded text-text-500"
-                      >
-                        <CircleHelp aria-hidden size={15} />
-                      </span>
-                    )}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
           </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void handleTestProvider(provider)}
-              disabled={!isProviderComplete(provider)}
-              className="text-text-300 hover:text-text-100"
+        </div>
+        <div
+          className="flex shrink-0 items-center gap-1.5 self-start sm:self-center"
+          aria-label={actionsLabel}
+        >
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => void handleTestProvider(provider)}
+                  disabled={!isProviderComplete(provider)}
+                  aria-label={testLabel}
+                  title={testLabel}
+                  className="text-muted-foreground/50 hover:text-foreground hover:bg-muted/80 rounded-md transition-colors"
+                />
+              }
             >
-              <FormattedMessage id="test" defaultMessage="测试" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon_sm"
-              onClick={() => openEditProvider(provider)}
-              className="text-text-300 hover:text-text-100"
+              {effectiveStatus === 'testing' ? (
+                <SpinnerIcon aria-hidden size={14} className="animate-spin" />
+              ) : (
+                <PlugZap aria-hidden size={14} />
+              )}
+            </TooltipTrigger>
+            <TooltipContent>{testLabel}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => openEditProvider(provider)}
+                  title={editLabel}
+                  aria-label={editLabel}
+                  className="text-muted-foreground/50 hover:text-foreground hover:bg-muted/80 rounded-md transition-colors"
+                />
+              }
             >
-              <PencilIcon size={16} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon_sm"
-              onClick={() => handleDeleteProvider(provider.id)}
-              className="text-text-300 hover:text-danger-000"
+              <PencilIcon size={14} />
+            </TooltipTrigger>
+            <TooltipContent>{editLabel}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDeleteConfirmId(provider.id)}
+                  className="text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive rounded-md transition-colors"
+                  title={deleteLabel}
+                  aria-label={deleteLabel}
+                />
+              }
             >
-              <TrashIcon size={16} />
-            </Button>
-          </div>
+              <TrashIcon size={14} />
+            </TooltipTrigger>
+            <TooltipContent>{deleteLabel}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="bg-bg-100 border border-border-300 rounded-xl px-6 pt-6 pb-6 md:px-8 md:pt-8 md:pb-8">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h3 className="text-text-100 font-xl-bold">
-            <FormattedMessage id="infrastructure_management" defaultMessage="模型配置" />
-          </h3>
-        </div>
-        {(isDirty || isSaving) && (
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleDiscard}
-              disabled={isSaving}
-              className="px-3 py-1.5 text-text-200 hover:text-text-100 font-base-sm rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <FormattedMessage id="discard" defaultMessage="丢弃" />
-            </button>
-            <button
-              onClick={() => void handleSave()}
-              disabled={isSaving}
-              className="px-4 py-1.5 bg-accent-main-100 text-oncolor-100 rounded-lg font-base-sm hover:bg-accent-main-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSaving ? (
-                <FormattedMessage id="saving" defaultMessage="保存中..." />
-              ) : (
-                <FormattedMessage id="save" defaultMessage="保存" />
-              )}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {saveError && (
-        <div className="mt-4 rounded-lg border border-danger-000/30 bg-danger-000/10 px-4 py-3 text-danger-000 font-base-sm">
-          {saveError}
-        </div>
-      )}
-      {saveNotice && !isDirty && <SaveNoticeToast notice={saveNotice} />}
-
-      {shouldShowSetupGuide && (
-        <ModelSetupGuide
-          config={config}
-          isDirty={isDirty}
-          isSaving={isSaving}
-          onAddProvider={openAddProvider}
-          onEditProvider={openEditProvider}
-          onSave={() => void handleSave()}
+    <SettingsSection
+      title={<FormattedMessage id="model_providers" defaultMessage="Model Providers" />}
+      description={
+        <FormattedMessage
+          id="model_config_description"
+          defaultMessage="Configure model providers used by SuperDuck browser automation."
         />
+      }
+      actions={
+        <Button variant="outline" size="sm" onClick={openAddProvider}>
+          <PlusIcon data-icon="inline-start" size={14} />
+          <FormattedMessage id="add" defaultMessage="添加" />
+        </Button>
+      }
+    >
+      {hasSectionNotice && (
+        <div className="px-6 pt-5">
+          {saveError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          )}
+
+          {shouldShowSetupGuide && <ModelSetupGuide onAddProvider={openAddProvider} />}
+        </div>
       )}
 
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h4 className="text-text-100 font-large mb-1">
-              <FormattedMessage id="custom_models" defaultMessage="模型" />
-            </h4>
+      {config.providers.length > 0 && (
+        <div className={hasSectionNotice ? 'mt-4' : ''}>
+          <div className="divide-y divide-border/30">
+            {config.providers.map((provider) => (
+              <React.Fragment key={provider.id}>{renderProviderCard(provider)}</React.Fragment>
+            ))}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            prepend={<PlusIcon size={14} />}
-            onClick={openAddProvider}
-          >
-            <FormattedMessage id="add" defaultMessage="添加" />
-          </Button>
         </div>
-
-        {config.providers.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border-300 bg-bg-50 px-6 py-10 text-center text-text-400 font-base-sm">
-            <FormattedMessage id="no_custom_models" defaultMessage="暂无模型" />
-          </div>
-        ) : (
-          <div className="space-y-3">{config.providers.map(renderProviderCard)}</div>
-        )}
-      </div>
+      )}
 
       <ProviderEditorModal
         isOpen={editorOpen}
@@ -593,21 +479,42 @@ const ProviderConfigSection: React.FC = () => {
         }}
         onSave={handleSaveProvider}
       />
-    </div>
-  );
-};
 
-const SaveNoticeToast: React.FC<{ notice: SaveNotice }> = ({ notice }) => {
-  const isWarning = notice.tone === 'warning';
-  return (
-    <div className="fixed right-6 top-6 z-toast flex max-w-sm items-center gap-2 rounded-lg border border-border-300 bg-bg-000 px-4 py-3 text-text-200 shadow-lg animate-toast-slide-in">
-      {isWarning ? (
-        <AlertCircleIcon size={16} className="text-danger-000" />
-      ) : (
-        <CheckCircleIcon size={16} className="text-success-100" />
-      )}
-      <span className="font-base-sm">{notice.message}</span>
-    </div>
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+        <DialogContent showCloseButton={false} className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>
+              <FormattedMessage defaultMessage="Delete model provider" id="delete_provider_title" />
+            </DialogTitle>
+            <DialogDescription>
+              <FormattedMessage
+                defaultMessage="Are you sure you want to delete this model provider? This action will remove the API key and endpoint configuration."
+                id="delete_provider_confirm_description"
+              />
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+              <FormattedMessage defaultMessage="Cancel" id="cancel" />
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isSaving}
+              onClick={() => {
+                if (deleteConfirmId) {
+                  void handleDeleteProvider(deleteConfirmId);
+                }
+              }}
+            >
+              {isSaving && (
+                <SpinnerIcon data-icon="inline-start" size={14} className="animate-spin" />
+              )}
+              <FormattedMessage defaultMessage="Delete" id="delete" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </SettingsSection>
   );
 };
 

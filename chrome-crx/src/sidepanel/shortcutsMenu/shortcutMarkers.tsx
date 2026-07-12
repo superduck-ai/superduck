@@ -1,7 +1,7 @@
 import React from 'react';
 import { PromptService, type SavedPrompt } from '../../extensionServices';
 import type { ApiConversationMessage } from '../../messageTypes';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+import { SimpleTooltip } from '@/components/ui';
 
 export const SHORTCUT_MARKER_RE = /\[\[shortcut:([^:]+):([^\]]+)\]\]/g;
 
@@ -34,9 +34,9 @@ function ShortcutChipInMessage({
   const chip = (
     <span
       onClick={onClick}
-      className="inline-flex relative group/chip text-accent-secondary-100 select-none mx-0.5 cursor-pointer"
+      className="inline-flex relative group/chip text-primary select-none mx-0.5 cursor-pointer"
     >
-      <span className="absolute -inset-y-0.5 -left-0.5 -right-1 rounded-md pointer-events-none opacity-0 group-hover/chip:opacity-100 bg-accent-secondary-900 transition-opacity duration-150" />
+      <span className="absolute -inset-y-0.5 -left-0.5 -right-1 rounded-md pointer-events-none opacity-0 group-hover/chip:opacity-100 bg-primary/10 transition-opacity duration-150" />
       <span className="relative pl-5 flex items-center">
         <span className="absolute top-1/2 -translate-y-1/2 left-0 w-4 h-4 flex items-center justify-center">
           <ShortcutChipIcon size={16} />
@@ -47,7 +47,7 @@ function ShortcutChipInMessage({
   );
 
   return content ? (
-    <Tooltip
+    <SimpleTooltip
       tooltipContent={
         <div className="max-w-[200px] max-h-[100px] overflow-hidden text-xs">
           {content.length > 150 ? `${content.slice(0, 150)}...` : content}
@@ -56,7 +56,7 @@ function ShortcutChipInMessage({
       side="top"
     >
       {chip}
-    </Tooltip>
+    </SimpleTooltip>
   ) : (
     chip
   );

@@ -424,7 +424,7 @@ export const PlatformModifierKey = (props: { className?: string }) => {
   return isMac ? (
     <CmdKeyIcon {...props} />
   ) : (
-    <span className="text-text-500 font-normal">Ctrl +</span>
+    <span className="text-muted-foreground font-normal">Ctrl +</span>
   );
 };
 

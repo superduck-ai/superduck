@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { MemoizedFormattedMessage, useIntlSafe } from '../../../index-react-dom-intl';
 import { getDomainDisplayName } from '../../conversation/planMode';
 import type { PlanStructure } from '../../conversation/planMode';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+import { SimpleTooltip } from '@/components/ui';
 import {
   ChecklistIcon,
   GlobeIcon,
@@ -79,19 +79,19 @@ export function PlanApprovalModal({
   const { domains = [], approach = [] } = planStructure;
 
   const modalContent = (
-    <div className="bg-bg-000 rounded-[14px]">
+    <div className="bg-popover rounded-[14px]">
       {/* Header */}
       <div className="flex items-center justify-between py-[10px] px-4">
         <div className="flex items-center gap-2">
-          <ChecklistIcon size={20} className="text-text-100" />
-          <h3 className="font-base text-text-100">
+          <ChecklistIcon size={20} className="text-foreground" />
+          <h3 className="text-sm leading-[1.4] text-foreground">
             <MemoizedFormattedMessage id="superducks_plan" defaultMessage="SuperDuck's plan" />
           </h3>
         </div>
         {isReadOnly && onClose && (
           <button
             onClick={onClose}
-            className="text-text-400 hover:text-text-200 transition-colors duration-200 p-1 rounded-md hover:bg-bg-200"
+            className="text-muted-foreground hover:text-foreground transition-colors duration-200 p-1 rounded-md hover:bg-muted"
           >
             <svg
               width="16"
@@ -113,14 +113,14 @@ export function PlanApprovalModal({
       </div>
 
       {/* Divider */}
-      <div className="border-t border-border-300" />
+      <div className="border-t border-border" />
 
       {/* Content */}
       <div className="px-4 py-3 space-y-4 max-h-[40vh] overflow-y-auto">
         {/* Domains section */}
         {domains.length > 0 && (
           <div>
-            <p className="font-small text-text-400 mb-2">
+            <p className="mb-2 text-xs leading-[1.4] text-muted-foreground">
               <MemoizedFormattedMessage
                 id="allow_actions_on_these_sites"
                 defaultMessage="Allow actions on these sites"
@@ -133,11 +133,11 @@ export function PlanApprovalModal({
                 return (
                   <div key={index} className="flex items-start gap-2">
                     <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-                      <GlobeIcon size={16} className="text-text-400" />
+                      <GlobeIcon size={16} className="text-muted-foreground" />
                     </span>
-                    <span className="font-base text-text-100">{name}</span>
+                    <span className="text-sm leading-[1.4] text-foreground">{name}</span>
                     {isForceAsk && (
-                      <Tooltip
+                      <SimpleTooltip
                         tooltipContent={intl.formatMessage({
                           id: 'you_must_approve_any_superduck_action_on_this',
                           defaultMessage: 'You must approve any SuperDuck action on this site'
@@ -145,9 +145,9 @@ export function PlanApprovalModal({
                         side="top"
                       >
                         <span className="flex-shrink-0 cursor-help">
-                          <InfoCircleIcon size={14} className="text-text-400" />
+                          <InfoCircleIcon size={14} className="text-muted-foreground" />
                         </span>
-                      </Tooltip>
+                      </SimpleTooltip>
                     )}
                   </div>
                 );
@@ -159,7 +159,7 @@ export function PlanApprovalModal({
         {/* Approach section */}
         {approach.length > 0 && (
           <div>
-            <p className="font-small text-text-400 mb-2">
+            <p className="mb-2 text-xs leading-[1.4] text-muted-foreground">
               <MemoizedFormattedMessage
                 id="approach_to_follow"
                 defaultMessage="Approach to follow"
@@ -168,10 +168,10 @@ export function PlanApprovalModal({
             <div className="space-y-2">
               {approach.map((step, index) => (
                 <div key={index} className="flex items-start gap-2">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full border-border-300 border-0.5 flex items-center justify-center text-xs text-text-400">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full border-border border-0.5 flex items-center justify-center text-xs text-muted-foreground">
                     {index + 1}
                   </span>
-                  <span className="font-base text-text-100">{step}</span>
+                  <span className="text-sm leading-[1.4] text-foreground">{step}</span>
                 </div>
               ))}
             </div>
@@ -190,18 +190,18 @@ export function PlanApprovalModal({
             <span>
               <MemoizedFormattedMessage id="approve_plan" defaultMessage="Approve plan" />
             </span>
-            <ReturnKeyIcon className="text-text-500" />
+            <ReturnKeyIcon className="text-muted-foreground" />
           </PermissionActionButton>
           <PermissionActionButton onClick={handleReject} isActive={activeButton === 'reject'}>
             <span>
               <MemoizedFormattedMessage id="make_changes" defaultMessage="Make changes" />
             </span>
             <span className="flex items-center gap-0.5">
-              <PlatformModifierKey className="text-text-500" />
-              <ReturnKeyIcon className="text-text-500" />
+              <PlatformModifierKey className="text-muted-foreground" />
+              <ReturnKeyIcon className="text-muted-foreground" />
             </span>
           </PermissionActionButton>
-          <p className="font-small text-text-500 pt-1 px-1">
+          <p className="px-1 pt-1 text-xs leading-[1.4] text-muted-foreground">
             <MemoizedFormattedMessage
               id="superduck_will_only_use_the_sites_listed_youll"
               defaultMessage="SuperDuck will only use the sites listed. You'll be asked before accessing anything else."

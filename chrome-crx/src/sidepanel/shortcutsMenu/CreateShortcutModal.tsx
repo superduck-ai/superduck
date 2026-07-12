@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { X, MoreHorizontal, Trash2 } from 'lucide-react';
-import { Button, ErrorMessage, Label, TextArea, TextInput } from '../../components/ui';
+import { Button, ErrorMessage, Input, Label, Textarea, Switch } from '../../components/ui';
 import { SchedulingFields } from '../../components/scheduling/SchedulingFields';
 import { getTodayLocalDateString } from '../../utils/date';
 import type { NewSavedPrompt, PromptType } from '../../extensionServices';
@@ -30,16 +30,11 @@ export function CreateShortcutModal({
   // Check if editing existing prompt
   const isEditing = !!(prompt && 'id' in prompt);
   const existingPrompt = isEditing ? (prompt as EditableSavedPrompt) : null;
+  const pendingPrompt = !isEditing && prompt ? (prompt as PromptToSave) : null;
 
   // Form state
-  const initialPromptText =
-    existingPrompt?.prompt ||
-    (prompt && !('id' in prompt) ? (prompt as PromptToSave).prompt : '') ||
-    '';
-  const initialCommand =
-    existingPrompt?.command ||
-    (prompt && !('id' in prompt) ? (prompt as PromptToSave).command : '') ||
-    '';
+  const initialPromptText = existingPrompt?.prompt || pendingPrompt?.prompt || '';
+  const initialCommand = existingPrompt?.command || pendingPrompt?.command || '';
 
   const [commandName, setCommandName] = useState(initialCommand);
   const [promptText, setPromptText] = useState(initialPromptText);
@@ -62,7 +57,7 @@ export function CreateShortcutModal({
 
   const initialSpecificDate = (() => {
     const date = existingPrompt?.specificDate;
-    if (!date) return '';
+    if (!date) return pendingPrompt?.scheduleEnabled ? getTodayLocalDateString() : '';
     return date >= getTodayLocalDateString() ? date : '';
   })();
   const {
@@ -90,7 +85,8 @@ export function CreateShortcutModal({
     buildConfig
   } = useScheduleConfig({
     initialSchedule: {
-      repeatType: existingPrompt?.repeatType,
+      repeatType:
+        existingPrompt?.repeatType || (pendingPrompt?.scheduleEnabled ? 'once' : undefined),
       specificTime: existingPrompt?.specificTime,
       dayOfWeek: existingPrompt?.dayOfWeek,
       dayOfMonth: existingPrompt?.dayOfMonth,
@@ -352,14 +348,14 @@ export function CreateShortcutModal({
 
       {/* Modal */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 bg-bg-000 border-t-[0.5px] border-border-300 rounded-t-2xl shadow-xl transition-transform duration-200 ease-out ${
+        className={`fixed right-0 bottom-0 left-0 z-50 rounded-t-2xl border-t border-border bg-popover text-popover-foreground shadow-xl transition-transform duration-200 ease-out ${
           isOpen && !isClosing ? 'translate-y-0' : 'translate-y-full'
         }`}
       >
         <div className="px-4 pb-4 pt-4">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-large-bold text-text-000">
+            <h3 className="text-lg font-bold text-foreground">
               {isEditing ? (
                 <FormattedMessage defaultMessage="Edit shortcut" id="edit_shortcut" />
               ) : (
@@ -373,17 +369,17 @@ export function CreateShortcutModal({
                 <div className="relative" ref={moreMenuRef}>
                   <button
                     onClick={() => setShowMoreMenu(!showMoreMenu)}
-                    className="p-1 hover:bg-bg-200 rounded transition-colors"
+                    className="p-1 hover:bg-secondary rounded transition-colors"
                     aria-label={intl.formatMessage({
                       defaultMessage: 'More options',
                       id: 'more_options'
                     })}
                   >
-                    <MoreHorizontal size={16} className="text-text-300" />
+                    <MoreHorizontal size={16} className="text-muted-foreground" />
                   </button>
 
                   {showMoreMenu && (
-                    <div className="absolute right-0 top-full mt-2 bg-bg-000 border-0.5 border-border-200 rounded-xl backdrop-blur-xl shadow-[0px_2px_8px_0px_hsl(var(--always-black)/8%)] p-1.5 min-w-[120px] z-dropdown">
+                    <div className="absolute top-full right-0 z-50 mt-2 min-w-[120px] rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-md backdrop-blur-xl">
                       <button
                         onClick={async () => {
                           setShowMoreMenu(false);
@@ -404,10 +400,10 @@ export function CreateShortcutModal({
                           }
                         }}
                         disabled={isDeleting}
-                        className="w-full px-2 py-2 text-left rounded-lg hover:bg-bg-200 flex items-center gap-2 text-danger-100 hover:text-danger-000 transition-colors"
+                        className="w-full px-2 py-2 text-left rounded-lg hover:bg-secondary flex items-center gap-2 text-destructive hover:text-destructive transition-colors"
                       >
                         {isDeleting ? (
-                          <div className="w-4 h-4 border-2 border-danger-100 border-t-transparent rounded-full animate-spin" />
+                          <div className="w-4 h-4 border-2 border-destructive border-t-transparent rounded-full animate-spin" />
                         ) : (
                           <Trash2 size={16} />
                         )}
@@ -423,10 +419,10 @@ export function CreateShortcutModal({
               {/* Close button */}
               <button
                 onClick={handleClose}
-                className="p-1 hover:bg-bg-200 rounded transition-colors"
+                className="p-1 hover:bg-secondary rounded transition-colors"
                 aria-label={intl.formatMessage({ defaultMessage: 'Close', id: 'close' })}
               >
-                <X size={16} className="text-text-300" />
+                <X size={16} className="text-muted-foreground" />
               </button>
             </div>
           </div>
@@ -435,33 +431,43 @@ export function CreateShortcutModal({
           <div className="space-y-4">
             {/* Name field */}
             <div className="relative">
-              <TextInput
-                ref={nameInputRef}
-                label={intl.formatMessage({ defaultMessage: 'Name', id: 'name' })}
-                type="text"
-                value={commandName}
-                onValueChange={(val: string) => {
-                  // Allow Chinese characters, letters, numbers, hyphens, and underscores
-                  // Replace spaces with hyphens
-                  const sanitized = val
-                    .replace(/\s/g, '-')
-                    .replace(/[^\u4e00-\u9fa5a-zA-Z0-9-_]/g, '');
-                  setCommandName(sanitized);
-                  if (errorMessage) setErrorMessage('');
-                }}
-                prepend={<span className="text-text-300">/</span>}
-                placeholder={
-                  isGeneratingName
-                    ? ''
-                    : intl.formatMessage({ defaultMessage: 'e.g., summarize', id: 'eg_summarize' })
-                }
-                disabled={isGeneratingName}
-                className="w-full text-sm"
-                error={
-                  (hasAttemptedSubmit && !commandName.trim()) ||
-                  errorMessage?.includes('already in use')
-                }
-              />
+              <Label htmlFor="shortcut-command-name" className="mb-1.5">
+                <FormattedMessage defaultMessage="Name" id="name" />
+              </Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  /
+                </span>
+                <Input
+                  ref={nameInputRef}
+                  id="shortcut-command-name"
+                  type="text"
+                  value={commandName}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                    // Allow Chinese characters, letters, numbers, hyphens, and underscores
+                    // Replace spaces with hyphens
+                    const sanitized = event.target.value
+                      .replace(/\s/g, '-')
+                      .replace(/[^\u4e00-\u9fa5a-zA-Z0-9-_]/g, '');
+                    setCommandName(sanitized);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                  placeholder={
+                    isGeneratingName
+                      ? ''
+                      : intl.formatMessage({
+                          defaultMessage: 'e.g., summarize',
+                          id: 'eg_summarize'
+                        })
+                  }
+                  disabled={isGeneratingName}
+                  className="w-full pl-7 text-sm"
+                  aria-invalid={
+                    (hasAttemptedSubmit && !commandName.trim()) ||
+                    errorMessage?.includes('already in use')
+                  }
+                />
+              </div>
 
               {/* Error message */}
               {((hasAttemptedSubmit && !commandName.trim()) ||
@@ -504,36 +510,42 @@ export function CreateShortcutModal({
             </div>
 
             {/* Prompt field */}
-            <TextArea
-              label={intl.formatMessage({ defaultMessage: 'Prompt', id: 'prompt' })}
+            <Label htmlFor="shortcut-prompt" className="mb-1.5">
+              <FormattedMessage defaultMessage="Prompt" id="prompt" />
+            </Label>
+            <Textarea
+              id="shortcut-prompt"
               required
               value={promptText}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                 setPromptText(e.target.value)
               }
-              className="min-h-32 max-h-64 overflow-y-auto font-large text-sm"
+              className="min-h-32 max-h-64 overflow-y-auto text-sm"
               placeholder={intl.formatMessage({
                 defaultMessage: 'Enter your prompt text...',
                 id: 'enter_your_prompt_text'
               })}
-              error={
-                hasAttemptedSubmit && !promptText.trim()
-                  ? intl.formatMessage({
-                      defaultMessage: 'Prompt is required',
-                      id: 'prompt_is_required'
-                    })
-                  : undefined
-              }
+              aria-invalid={hasAttemptedSubmit && !promptText.trim()}
             />
+            {hasAttemptedSubmit && !promptText.trim() && (
+              <ErrorMessage className="mt-1">
+                <FormattedMessage defaultMessage="Prompt is required" id="prompt_is_required" />
+              </ErrorMessage>
+            )}
             <div>
-              <TextInput
-                label={urlFieldLabel}
+              <Label htmlFor="shortcut-url" className="mb-1.5">
+                {urlFieldLabel}
+              </Label>
+              <Input
+                id="shortcut-url"
                 type="url"
                 value={url}
-                onValueChange={(value: string) => setUrl(value)}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setUrl(event.target.value)
+                }
                 placeholder="https://example.com"
                 className="w-full text-sm"
-                error={hasAttemptedSubmit && !!urlErrorMessage}
+                aria-invalid={hasAttemptedSubmit && !!urlErrorMessage}
               />
               {hasAttemptedSubmit && urlErrorMessage && (
                 <ErrorMessage className="mt-1">{urlErrorMessage}</ErrorMessage>
@@ -543,21 +555,14 @@ export function CreateShortcutModal({
             <div className="space-y-3">
               <div>
                 <div className="flex items-center justify-between gap-4">
-                  <Label
+                  <Label htmlFor="shortcut-schedule-toggle" className="mb-0 text-sm">
+                    <FormattedMessage defaultMessage="Schedule" id="schedule" />
+                  </Label>
+                  <Switch
                     id="shortcut-schedule-toggle"
-                    label={<FormattedMessage defaultMessage="Schedule" id="schedule" />}
-                    className="mb-0 text-sm"
+                    checked={scheduleEnabled}
+                    onCheckedChange={setScheduleEnabled}
                   />
-                  <label className="relative inline-flex shrink-0 items-center cursor-pointer scale-90 origin-right">
-                    <input
-                      id="shortcut-schedule-toggle"
-                      type="checkbox"
-                      className="sr-only peer"
-                      checked={scheduleEnabled}
-                      onChange={(event) => setScheduleEnabled(event.target.checked)}
-                    />
-                    <div className="w-11 h-6 bg-bg-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent-secondary-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-secondary-100" />
-                  </label>
                 </div>
               </div>
               {scheduleEnabled && (
@@ -597,7 +602,7 @@ export function CreateShortcutModal({
             <Button onClick={handleClose} variant="secondary">
               <FormattedMessage defaultMessage="Cancel" id="cancel" />
             </Button>
-            <Button onClick={handleSave} loading={isSaving}>
+            <Button onClick={handleSave} disabled={isSaving}>
               {isEditing ? (
                 <FormattedMessage defaultMessage="Save changes" id="save_changes" />
               ) : (

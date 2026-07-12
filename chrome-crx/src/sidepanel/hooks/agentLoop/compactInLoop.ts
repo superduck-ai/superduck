@@ -1,6 +1,6 @@
 import type { MutableRefObject } from 'react';
 import { ConversationCompactor } from '../../conversation/conversationCompaction';
-import { MAX_TOKENS, calculateMessageLimitFromUsage } from '../../conversation/messageLimits';
+import { calculateMessageLimitFromUsage } from '../../conversation/messageLimits';
 import type {
   ApiConversationMessage,
   ApiResponseMessage,
@@ -34,14 +34,9 @@ export async function compactInLoop(
       try {
         const compactor = new ConversationCompactor(
           async (p: CreateApiMessageParams) => params.createApiMessage(p),
-          params.locale,
-          params.serverContextLengthRef.current
+          params.locale
         );
-        const compactResult = await compactor.compactConversation(
-          workingMessages,
-          MAX_TOKENS,
-          true
-        );
+        const compactResult = await compactor.compactConversation(workingMessages, true);
         workingMessages = compactResult.messagesAfterCompacting;
         params.setApiMessages(workingMessages);
         params.pushMessage('system', 'Conversation compacted to save context.');

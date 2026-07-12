@@ -11,8 +11,8 @@ export function ErrorMessage({
 }) {
   return (
     <div className={cn('flex items-start gap-1', className)}>
-      <WarningIcon className="text-danger-000 mt-1 shrink-0" size={16} />
-      <p className="text-danger-000 text-sm">{children}</p>
+      <WarningIcon className="text-destructive mt-1 shrink-0" size={16} />
+      <p className="text-destructive text-sm">{children}</p>
     </div>
   );
 }

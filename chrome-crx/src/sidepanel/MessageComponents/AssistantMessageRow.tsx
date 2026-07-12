@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useIntlSafe } from '../../index-react-dom-intl';
 import { isTextContentBlock, isToolUseContentBlock } from '../../messageTypes';
 import type { ApiConversationMessage, ApiMessageBlock } from '../../messageTypes';
 import { trackEvent } from '../../mcpRuntime';
-import { Tooltip } from '@/sidepanel/components/Tooltip';
+import { Button, SimpleTooltip } from '@/components/ui';
 import { ContentBlocksRenderer } from './ContentBlocksRenderer';
 
 export function AssistantMessageRow({
@@ -17,8 +17,28 @@ export function AssistantMessageRow({
   allMessages: ApiConversationMessage[];
 }) {
   const [copied, setCopied] = useState(false);
+  const [copyTooltipOpen, setCopyTooltipOpen] = useState(false);
   const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
+  const copyFeedbackTimeoutRef = useRef<number | null>(null);
   const intl = useIntlSafe();
+
+  const closeCopyFeedback = () => {
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+      copyFeedbackTimeoutRef.current = null;
+    }
+    setCopied(false);
+    setCopyTooltipOpen(false);
+  };
+
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const processedBlocks = useMemo<ApiMessageBlock[]>(() => {
     return blocks.map((block) => {
@@ -49,8 +69,16 @@ export function AssistantMessageRow({
   const handleCopy = async () => {
     if (!finalAnswerText) return;
     await navigator.clipboard.writeText(finalAnswerText);
+    if (copyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current);
+    }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyTooltipOpen(true);
+    copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setCopied(false);
+      setCopyTooltipOpen(false);
+      copyFeedbackTimeoutRef.current = null;
+    }, 2000);
   };
 
   const turnIsOver = !isStreaming;
@@ -68,36 +96,43 @@ export function AssistantMessageRow({
           <div className="h-7 flex items-center">
             <div className="flex items-center gap-0.5 -ml-1.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
               {finalAnswerText && (
-                <Tooltip
+                <SimpleTooltip
                   tooltipContent={
                     copied
                       ? intl.formatMessage({ id: 'copied', defaultMessage: 'Copied' })
                       : intl.formatMessage({ id: 'copy', defaultMessage: 'Copy' })
                   }
                   side="bottom"
-                  open={copied || undefined}
+                  open={copyTooltipOpen}
+                  onOpenChange={setCopyTooltipOpen}
                   delayDuration={copied ? 0 : 200}
                 >
-                  <button
+                  <Button
                     onClick={handleCopy}
-                    className="p-1.5 rounded-md transition-colors text-text-300 hover:bg-bg-300 hover:text-text-100"
+                    onPointerLeave={(event) => {
+                      closeCopyFeedback();
+                      event.currentTarget.blur();
+                    }}
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-6 text-muted-foreground hover:text-foreground"
                     aria-label={intl.formatMessage({
                       id: 'copy_message',
                       defaultMessage: 'Copy message'
                     })}
                   >
                     {copied ? <Check size={12} /> : <Copy size={12} />}
-                  </button>
-                </Tooltip>
+                  </Button>
+                </SimpleTooltip>
               )}
-              <Tooltip
+              <SimpleTooltip
                 tooltipContent={intl.formatMessage({
                   id: 'give_positive_feedback',
                   defaultMessage: 'Give positive feedback'
                 })}
                 side="bottom"
               >
-                <button
+                <Button
                   onClick={() => {
                     const next = feedback === 'positive' ? null : 'positive';
                     setFeedback(next);
@@ -106,23 +141,25 @@ export function AssistantMessageRow({
                         sentiment: 'positive'
                       });
                   }}
-                  className={`p-1.5 rounded-md transition-colors ${feedback === 'positive' ? 'text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'}`}
+                  variant="ghost"
+                  size="icon-xs"
+                  className={`size-6 ${feedback === 'positive' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   aria-label={intl.formatMessage({
                     id: 'good_response',
                     defaultMessage: 'Good response'
                   })}
                 >
                   <ThumbsUp size={12} />
-                </button>
-              </Tooltip>
-              <Tooltip
+                </Button>
+              </SimpleTooltip>
+              <SimpleTooltip
                 tooltipContent={intl.formatMessage({
                   id: 'give_negative_feedback',
                   defaultMessage: 'Give negative feedback'
                 })}
                 side="bottom"
               >
-                <button
+                <Button
                   onClick={() => {
                     const next = feedback === 'negative' ? null : 'negative';
                     setFeedback(next);
@@ -131,15 +168,17 @@ export function AssistantMessageRow({
                         sentiment: 'negative'
                       });
                   }}
-                  className={`p-1.5 rounded-md transition-colors ${feedback === 'negative' ? 'text-text-100' : 'text-text-300 hover:bg-bg-300 hover:text-text-100'}`}
+                  variant="ghost"
+                  size="icon-xs"
+                  className={`size-6 ${feedback === 'negative' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   aria-label={intl.formatMessage({
                     id: 'bad_response',
                     defaultMessage: 'Bad response'
                   })}
                 >
                   <ThumbsDown size={12} />
-                </button>
-              </Tooltip>
+                </Button>
+              </SimpleTooltip>
             </div>
           </div>
         )}

@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useState,
   type Dispatch,
@@ -75,6 +76,7 @@ export function useContextLengthResolution({
   const [contextLengthSource, setContextLengthSource] = useState<ContextLengthSource>('none');
   const [contextLengthTouched, setContextLengthTouched] = useState(false);
   const [isResolvingContextLength, setIsResolvingContextLength] = useState(false);
+  const deferredModelId = useDeferredValue(modelId);
 
   const resetForOpen = useCallback((contextLength?: number) => {
     setContextLengthInput(formatContextLengthInput(contextLength));
@@ -96,7 +98,7 @@ export function useContextLengthResolution({
   useEffect(() => {
     if (!isOpen || contextLengthTouched) return;
 
-    const trimmedModelId = modelId.trim();
+    const trimmedModelId = deferredModelId.trim();
     if (!trimmedModelId) {
       setContextLengthInput('');
       setContextLengthSource('none');
@@ -195,7 +197,7 @@ export function useContextLengthResolution({
     isOpen,
     kind,
     modelMetadata,
-    modelId,
+    deferredModelId,
     provider?.baseURL,
     provider?.contextLength,
     provider?.kind,

@@ -588,20 +588,20 @@ export class CursorRenderer {
       position: 'fixed',
       left: `${x}px`,
       top: `${y}px`,
-      width: '30px',
-      height: '30px',
+      width: '40px',
+      height: '40px',
       borderRadius: '50%',
-      background:
-        'radial-gradient(circle, rgba(217,119,87,0.5) 0%, rgba(230,140,85,0.2) 50%, transparent 70%)',
+      border: '1.5px solid rgba(230, 140, 85, 0.85)',
+      background: 'radial-gradient(circle, rgba(230, 140, 85, 0.18) 0%, transparent 70%)',
       zIndex: '2147483646',
       pointerEvents: 'none',
-      animation: 'superduck-cursor-click-ripple 0.4s ease-out forwards',
+      animation: 'superduck-cursor-click-ripple 0.5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards',
       transform: 'translate(-50%, -50%)'
     });
     root.appendChild(ripple);
     setTimeout(() => {
       if (ripple.parentNode) ripple.remove();
-    }, 450);
+    }, 550);
   }
 
   // --- Helpers ---

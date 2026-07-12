@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { useIntlSafe } from '../../index-react-dom-intl';
+import { CircleAlert } from 'lucide-react';
 import { ExternalLinkIcon } from '@/sidepanel/components/icons';
 import { ToolUseRow } from './toolUseRow';
 import { Favicon } from './webSearch';
@@ -83,7 +84,7 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
           <span>
             {intl.formatMessage({ id: 'failed_to_fetch', defaultMessage: 'Failed to fetch' })}
           </span>{' '}
-          <span className="text-text-400">{pageInfo?.title || url}</span>
+          <span className="text-muted-foreground">{pageInfo?.title || url}</span>
         </>
       );
     } else {
@@ -113,9 +114,14 @@ export const WebFetchToolCell = React.memo(function WebFetchToolCell({
       text={displayText}
       secondaryText={secondaryTextValue}
       secondaryIcon={
-        isComplete && url ? <ExternalLinkIcon size={16} className="text-text-300" /> : undefined
+        isError ? (
+          <CircleAlert size={15} className="text-destructive" aria-hidden />
+        ) : isComplete && url ? (
+          <ExternalLinkIcon size={16} className="text-muted-foreground" />
+        ) : undefined
       }
       hideCaret
+      tone={isError ? 'error' : !isComplete ? 'active' : 'default'}
       isFirstBlockOfMessage={isFirstBlockOfMessage}
       isLastBlockOfMessage={isLastBlockOfMessage}
       renderMode={renderMode}

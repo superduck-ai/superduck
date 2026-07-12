@@ -12,11 +12,10 @@ export interface UseRotatingTipsProps {
 export function useRotatingTips({ intl }: UseRotatingTipsProps) {
   return useMemo(
     () => [
-      intl.formatMessage({ id: 'tip_type_message', defaultMessage: '输入消息开始对话...' }),
-      intl.formatMessage({ id: 'tip_slash_command', defaultMessage: '输入 / 调用快捷操作' }),
-      intl.formatMessage({ id: 'tip_workflow', defaultMessage: '输入 / 选择录制工作流' }),
-      intl.formatMessage({ id: 'tip_schedule', defaultMessage: '输入 / 选择创建定时任务' }),
-      intl.formatMessage({ id: 'tip_shortcut', defaultMessage: '输入 / 管理和使用快捷指令' })
+      intl.formatMessage({
+        id: 'tip_type_message_or_shortcut',
+        defaultMessage: '输入消息，或使用 / 快捷操作'
+      })
     ],
     [intl]
   );

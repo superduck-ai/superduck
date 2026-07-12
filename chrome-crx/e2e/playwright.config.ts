@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./specs",
   globalSetup: "./global-setup.ts",
-  timeout: 30_000,
+  timeout: 60_000,
   retries: process.env.CI ? 2 : 0,
   outputDir: "./test-results",
   reporter: [["html", { outputFolder: "./playwright-report", open: "never" }]],

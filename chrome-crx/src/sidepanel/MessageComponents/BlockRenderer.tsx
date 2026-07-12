@@ -87,11 +87,11 @@ export const BlockRenderer = React.memo(function BlockRenderer({
   if (isTextContentBlock(block)) {
     const text = block.text;
     if (!text) return null;
-    const textColor = renderMode === 'TimelineGroup' ? 'text-text-100' : undefined;
+    const textColor = renderMode === 'TimelineGroup' ? 'text-foreground' : undefined;
 
     return (
       <div
-        className={`font-superduck-response text-sm leading-[1.65rem] ${textColor || 'text-text-100'} break-words`}
+        className={`font-superduck-response text-sm leading-[1.65rem] ${textColor || 'text-foreground'} break-words`}
       >
         <div className={`standard-markdown ${STANDARD_MARKDOWN_GRID_CLASS}`}>
           <ReactMarkdown

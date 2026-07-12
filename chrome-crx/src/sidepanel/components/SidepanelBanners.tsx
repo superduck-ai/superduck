@@ -7,7 +7,6 @@ import { CompactBanner, SAFE_USE_TIPS_URL } from './SidepanelSupportViews';
 import { useUIStore } from '../stores/uiStore';
 import { useAgentStore } from '../stores/agentStore';
 import { useNotificationStore } from '../stores/notificationStore';
-import { usePermissionStore } from '../stores/permissionStore';
 import { useModelStore } from '../stores/modelStore';
 import { useChatActionsStore } from '../stores/chatActionsStore';
 import { useSidepanelViewState } from '../contexts/SidepanelViewStateContext';
@@ -27,15 +26,12 @@ export function SidepanelBanners() {
   const messageLimit = useNotificationStore((s) => s.messageLimit);
   const messageLimitDismissed = useUIStore((s) => s.isMessageLimitDismissed);
   const setMessageLimitDismissed = useUIStore((s) => s.setIsMessageLimitDismissed);
-  const skipWarningDismissed = useUIStore((s) => s.skipPermissionsWarningDismissed);
-  const setSkipWarningDismissed = useUIStore((s) => s.setSkipPermissionsWarningDismissed);
   const showNotificationBanner = useUIStore((s) => s.showNotificationBanner);
   const setShowNotificationBanner = useUIStore((s) => s.setShowNotificationBanner);
 
   const notificationsEnabled = useNotificationStore((s) => s.notificationsEnabled);
   const setNotificationsEnabled = useNotificationStore((s) => s.setNotificationsEnabled);
 
-  const permissionMode = usePermissionStore((s) => s.permissionMode);
   const selectedModel = useModelStore((s) => s.selectedModel);
 
   // ─── Compute banner state ──────────────────────────────────────────────
@@ -55,9 +51,6 @@ export function SidepanelBanners() {
     if (messageLimitBanner && !messageLimitDismissed) {
       return 'messageLimit' as const;
     }
-    if (permissionMode === 'skip_all_permission_checks' && !skipWarningDismissed) {
-      return 'highRisk' as const;
-    }
     if (showNotificationBanner && notificationsEnabled === undefined) {
       return 'notification' as const;
     }
@@ -68,8 +61,6 @@ export function SidepanelBanners() {
     lastStopReason,
     messageLimitBanner,
     messageLimitDismissed,
-    permissionMode,
-    skipWarningDismissed,
     showNotificationBanner,
     notificationsEnabled
   ]);
@@ -80,7 +71,7 @@ export function SidepanelBanners() {
   return (
     <>
       {/* Banner area — matches bundle placement inside input area */}
-      <div className="px-3 md:px-2">
+      <div className={activeBanner ? 'px-3 pb-1.5 md:px-2' : 'px-3 md:px-2'}>
         <AnimatePresence mode="wait">
           {(() => {
             if (activeBanner === 'error') {
@@ -116,7 +107,7 @@ export function SidepanelBanners() {
             if (activeBanner === 'refusal') {
               return (
                 <CompactBanner key="refusal" type="refusal">
-                  <span className="font-small">
+                  <span className="text-xs leading-[1.4]">
                     <MemoizedFormattedMessage
                       defaultMessage="SuperDuck is unable to respond to this request, which appears to violate our <usagePolicyLink>Usage Policy</usagePolicyLink>. Please start a new chat."
                       id="superduck_is_unable_to_respond_to_this_request"
@@ -156,21 +147,6 @@ export function SidepanelBanners() {
                   }
                 >
                   {messageLimitBanner.text}
-                </CompactBanner>
-              );
-            }
-            if (activeBanner === 'highRisk') {
-              return (
-                <CompactBanner
-                  key="highRisk"
-                  type="high-risk"
-                  onDismiss={() => setSkipWarningDismissed(true)}
-                  dismissWithGradient
-                >
-                  <MemoizedFormattedMessage
-                    defaultMessage="High-risk mode: all permission checks disabled."
-                    id="high_risk_banner_message"
-                  />
                 </CompactBanner>
               );
             }

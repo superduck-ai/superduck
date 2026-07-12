@@ -19,7 +19,7 @@ export function ImageShowButton({ src, ...props }: React.ImgHTMLAttributes<HTMLI
             setShowConfirm(true);
           }
         }}
-        className="bg-bg-300 border-border-300 font-ui text-text-300 inline-block grid h-32 w-40 items-center justify-items-center rounded-xl border p-4"
+        className="bg-muted border-border font-ui text-muted-foreground inline-block grid h-32 w-40 items-center justify-items-center rounded-xl border p-4"
       >
         Show Image
       </button>
@@ -52,21 +52,21 @@ function LinkConfirmationModal({
       onClick={onClose}
     >
       <div
-        className="bg-bg-100 rounded-lg p-6 max-w-md mx-4 shadow-xl border border-border-300"
+        className="bg-popover rounded-lg p-6 max-w-md mx-4 shadow-xl border border-border"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-text-100 font-bold mb-2">Open external link?</h3>
-        <p className="text-text-300 text-sm mb-4 break-all">{url}</p>
+        <h3 className="text-foreground font-bold mb-2">Open external link?</h3>
+        <p className="text-muted-foreground text-sm mb-4 break-all">{url}</p>
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded-md bg-bg-300 text-text-100 hover:bg-bg-200"
+            className="px-4 py-2 text-sm rounded-md bg-muted text-foreground hover:bg-accent"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-md bg-accent-main-100 text-white hover:bg-accent-main-200"
+            className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
           >
             Open
           </button>

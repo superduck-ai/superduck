@@ -10,6 +10,7 @@ export type EditableSavedPrompt = StoredSavedPrompt & {
 export interface PromptToSave {
   prompt: string;
   command?: string;
+  scheduleEnabled?: boolean;
 }
 
 export interface ScheduleConfig {

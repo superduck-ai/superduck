@@ -18,9 +18,9 @@ describe('native host status view', () => {
     expect(getStatusKind(status, false, false, false)).toBe('connected');
     expect(getStatusView(intl, 'connected')).toMatchObject({
       label: 'Connected',
-      dotClassName: 'bg-success-100',
-      iconClassName: 'bg-success-900/40 text-success-100',
-      pillClassName: 'bg-success-900/40 text-success-100'
+      dotClassName: 'bg-success',
+      iconClassName: 'bg-success/10 text-success',
+      pillClassName: 'bg-success/10 text-success'
     });
   });
 

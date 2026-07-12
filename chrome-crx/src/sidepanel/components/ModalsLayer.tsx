@@ -1,4 +1,5 @@
 import React from 'react';
+import { FormattedMessage } from 'react-intl';
 import { MemoizedFormattedMessage } from '../../index-react-dom-intl';
 import type { SupportedLocale } from '../../index-react-dom-intl';
 import { useUIStore } from '../stores/uiStore';
@@ -10,6 +11,16 @@ import { CreateShortcutModal } from '../shortcutsMenu/CreateShortcutModal';
 import { generateShortcutName } from '../session';
 import { ImagePreviewModal, ScreenshotLightbox } from '@/sidepanel/components/MessageViews';
 import { WorkflowModeSelectionModal } from '../workflowRecording/WorkflowModeSelectionModal';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Button,
+  Input
+} from '@/components/ui';
 
 import type { ModelRequest } from '../session';
 
@@ -81,60 +92,67 @@ export function ModalsLayer({
       )}
 
       {/* Pending Locale confirmation dialog */}
-      {pendingLocale ? (
-        <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
-          <div className="w-full max-w-sm rounded-2xl border border-border-300 bg-bg-100 p-4">
-            <h3 className="text-base font-medium text-text-100">
+      <Dialog open={!!pendingLocale} onOpenChange={(open) => !open && setPendingLocale(null)}>
+        <DialogContent showCloseButton={false} className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>
               <MemoizedFormattedMessage defaultMessage="Change language" id="change_language" />
-            </h3>
-            <p className="text-sm text-text-300 mt-4">
+            </DialogTitle>
+            <DialogDescription>
               <MemoizedFormattedMessage
                 defaultMessage="Changing the language will start a new chat."
                 id="changing_the_language_will_start_a_new_chat"
               />
-            </p>
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                type="button"
-                className="px-3 py-2 rounded-lg border border-border-300 text-sm text-text-200 hover:bg-bg-200 transition-colors"
-                onClick={() => setPendingLocale(null)}
-              >
-                <MemoizedFormattedMessage defaultMessage="Cancel" id="cancel" />
-              </button>
-              <button
-                type="button"
-                className="px-3 py-2 rounded-lg bg-text-100 text-bg-100 text-sm hover:bg-text-200 transition-colors"
-                onClick={confirmLocaleChange}
-              >
-                <MemoizedFormattedMessage defaultMessage="Continue" id="continue" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPendingLocale(null)}>
+              <MemoizedFormattedMessage defaultMessage="Cancel" id="cancel" />
+            </Button>
+            <Button variant="default" size="sm" onClick={confirmLocaleChange}>
+              <MemoizedFormattedMessage defaultMessage="Continue" id="continue" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Pairing prompt overlay */}
-      {pairingPrompt ? (
-        <div className="fixed inset-0 bg-black/40 p-4 flex items-center justify-center">
-          <div className="w-full max-w-md rounded-xl border border-border-300 bg-bg-000 p-4">
-            <h3 className="text-base font-medium text-text-100 mb-2">
-              <MemoizedFormattedMessage
+      <Dialog
+        open={!!pairingPrompt}
+        onOpenChange={async (open) => {
+          if (!open && pairingPrompt) {
+            await chrome.runtime.sendMessage({
+              type: 'pairing_dismissed',
+              request_id: pairingPrompt.requestId
+            });
+            void trackEvent('superduck.sidebar.pairing_dismissed', {});
+            setPairingPrompt(null);
+            setPairingName('');
+          }
+        }}
+      >
+        <DialogContent showCloseButton={false} className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>
+              <FormattedMessage
                 id="wants_to_connect"
                 defaultMessage="{clientLabel} wants to connect"
                 values={{
-                  clientLabel: pairingPrompt.clientType.toLowerCase().includes('code')
+                  clientLabel: pairingPrompt?.clientType.toLowerCase().includes('code')
                     ? 'Code Client'
                     : 'Desktop Client'
                 }}
               />
-            </h3>
-            <p className="text-sm text-text-300 mb-3">
+            </DialogTitle>
+            <DialogDescription>
               <MemoizedFormattedMessage
                 id="name_this_browser_so_you_can_identify_it"
                 defaultMessage="Name this browser so you can identify it later."
               />
-            </p>
-            <input
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
               type="text"
               value={pairingName}
               onChange={(event) => setPairingName(event.target.value)}
@@ -142,12 +160,15 @@ export function ModalsLayer({
                 id: 'eg_work_laptop_personal_chrome',
                 defaultMessage: 'e.g., "Work laptop", "Personal Chrome"'
               })}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-border-300 bg-bg-100 text-text-100"
+              className="w-full"
             />
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                type="button"
-                onClick={async () => {
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (pairingPrompt) {
                   await chrome.runtime.sendMessage({
                     type: 'pairing_dismissed',
                     request_id: pairingPrompt.requestId
@@ -155,15 +176,17 @@ export function ModalsLayer({
                   void trackEvent('superduck.sidebar.pairing_dismissed', {});
                   setPairingPrompt(null);
                   setPairingName('');
-                }}
-                className="px-3 py-2 text-sm rounded-lg border border-border-300 text-text-200"
-              >
-                <MemoizedFormattedMessage id="ignore" defaultMessage="Ignore" />
-              </button>
-              <button
-                type="button"
-                disabled={!pairingName.trim()}
-                onClick={async () => {
+                }
+              }}
+            >
+              <MemoizedFormattedMessage id="ignore" defaultMessage="Ignore" />
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={!pairingName.trim()}
+              onClick={async () => {
+                if (pairingPrompt) {
                   await chrome.runtime.sendMessage({
                     type: 'pairing_confirmed',
                     request_id: pairingPrompt.requestId,
@@ -172,15 +195,14 @@ export function ModalsLayer({
                   void trackEvent('superduck.sidebar.pairing_confirmed', {});
                   setPairingPrompt(null);
                   setPairingName('');
-                }}
-                className="px-3 py-2 text-sm rounded-lg bg-accent-main-100 text-oncolor-100 disabled:opacity-50"
-              >
-                <MemoizedFormattedMessage id="connect" defaultMessage="Connect" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                }
+              }}
+            >
+              <MemoizedFormattedMessage id="connect" defaultMessage="Connect" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Shortcut Modal */}
       {(promptToSave !== null || promptToEdit !== null) && (

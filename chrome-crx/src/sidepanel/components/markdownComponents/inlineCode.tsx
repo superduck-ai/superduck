@@ -21,7 +21,7 @@ export function InlineCode({
     return (
       <code
         {...props}
-        className={`bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem] inline-flex items-center h-5 ${className || ''}`}
+        className={`inline-flex h-5 items-center whitespace-pre-wrap rounded-md border border-border bg-muted px-1 py-px text-[0.9rem] text-foreground ${className || ''}`}
       >
         <ColorSwatch color={firstChild} />
         {firstChild}
@@ -32,7 +32,7 @@ export function InlineCode({
   return (
     <code
       {...props}
-      className={`bg-text-200/5 border border-0.5 border-border-300 text-danger-000 whitespace-pre-wrap rounded-[0.4rem] px-1 py-px text-[0.9rem] ${className || ''}`}
+      className={`whitespace-pre-wrap rounded-md border border-border bg-muted px-1 py-px text-[0.9rem] text-foreground ${className || ''}`}
     >
       {children}
     </code>

@@ -1,24 +1,18 @@
-import React, { forwardRef, useMemo } from 'react';
-import _ from 'lodash';
+import * as React from 'react';
+
 import { cn } from '@/lib/utils';
 
-export const Label = forwardRef<
-  HTMLLabelElement,
-  { label?: React.ReactNode; id?: string; className?: string }
->(({ label, id, className }, ref) =>
-  label ? (
-    <label htmlFor={id} className={cn('text-text-200 mb-1 block font-base', className)} ref={ref}>
-      {label}
-    </label>
-  ) : null
-);
-Label.displayName = 'Label';
-
-export function useGeneratedId({ id, label }: { id?: string; label?: React.ReactNode }) {
-  return useMemo(
-    () =>
-      id ||
-      (label && typeof label === 'string' ? _.uniqueId(`${_.camelCase(label)}_`) : _.uniqueId()),
-    [label, id]
+function Label({ className, ...props }: React.ComponentProps<'label'>) {
+  return (
+    <label
+      data-slot="label"
+      className={cn(
+        'flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50',
+        className
+      )}
+      {...props}
+    />
   );
 }
+
+export { Label };

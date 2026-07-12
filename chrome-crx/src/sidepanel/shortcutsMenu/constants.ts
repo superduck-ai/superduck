@@ -10,4 +10,4 @@ export const SUBMENU_INNER_PAD_PX = 6;
 
 /** 更扁平的面板质感：轻阴影 + 细边框 */
 export const PALETTE_SURFACE =
-  'rounded-[12px] border border-border-300/55 bg-bg-000 shadow-[0_1px_4px_hsl(var(--always-black)/2.6%)]';
+  'rounded-xl border border-border/40 bg-popover/95 backdrop-blur-md shadow-lg shadow-black/5 dark:shadow-black/25';

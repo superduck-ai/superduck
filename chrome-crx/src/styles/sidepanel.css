@@ -15,6 +15,208 @@
     }
 }
 
+.superduck-welcome-subtitle {
+  max-width: min(22rem, calc(100vw - 3rem));
+  color: color-mix(in oklab, var(--foreground) 58%, transparent);
+  font-style: normal;
+  font-weight: 400;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.superduck-welcome-subtitle:lang(zh) {
+  font-family:
+    'Songti SC', STSong, 'Noto Serif CJK SC', 'Source Han Serif SC', SimSun, serif;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+}
+
+.superduck-welcome-subtitle:lang(en) {
+  font-family:
+    'Iowan Old Style', Baskerville, 'Palatino Linotype', Palatino, Georgia, serif;
+  font-size: 15px;
+  line-height: 21px;
+  letter-spacing: 0.005em;
+}
+
+[data-mode='dark'] .superduck-welcome-subtitle {
+  color: color-mix(in oklab, var(--foreground) 68%, transparent);
+}
+
+.superduck-premium-sidebar {
+  --composer-surface-radius: 1.5rem;
+  --composer-surface-border: color-mix(in oklab, var(--border) 46%, transparent);
+  --composer-surface-background: color-mix(in oklab, var(--card) 94%, transparent);
+  --composer-surface-elevation:
+    0 1px 2px rgb(0 0 0 / 4%),
+    0 7px 24px rgb(0 0 0 / 6%);
+  --composer-surface-focused-elevation:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 5%, transparent),
+    0 9px 28px rgb(0 0 0 / 8%);
+  --composer-placeholder: color-mix(in oklab, var(--foreground) 52%, transparent);
+  --composer-dock-background: color-mix(in oklab, var(--background) 78%, transparent);
+  --composer-control-size: 2rem;
+  --composer-icon-size: 1rem;
+  --composer-indicator-size: 0.875rem;
+  --composer-control-gap: 0.25rem;
+  --composer-group-gap: 0.5rem;
+  --composer-control-foreground: color-mix(in oklab, var(--foreground) 58%, transparent);
+  --composer-control-hover-foreground: var(--foreground);
+  --composer-control-hover-background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+.superduck-composer-dock {
+  background: var(--composer-dock-background);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.superduck-empty-state-layer {
+  /* Keep the welcome copy anchored to the resting composer instead of the
+     dynamically shrinking message viewport when attachments expand upward. */
+  bottom: 8.25rem;
+}
+
+.superduck-composer-surface {
+  border: 1px solid var(--composer-surface-border);
+  border-radius: var(--composer-surface-radius);
+  background: var(--composer-surface-background);
+  box-shadow: var(--composer-surface-elevation);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.superduck-composer-surface:hover {
+  border-color: color-mix(in oklab, var(--border) 62%, transparent);
+}
+
+.superduck-composer-placeholder {
+  color: var(--composer-placeholder);
+}
+
+.superduck-composer-icon-button,
+.superduck-composer-primary-button {
+  width: var(--composer-control-size);
+  height: var(--composer-control-size);
+  border-radius: 9999px;
+}
+
+.superduck-composer-control-group {
+  gap: var(--composer-control-gap);
+}
+
+.superduck-composer-primary-actions {
+  gap: var(--composer-group-gap);
+}
+
+.superduck-composer-footer {
+  column-gap: var(--composer-group-gap);
+  padding-inline: 0.5rem;
+}
+
+.superduck-composer-standard-icon {
+  width: var(--composer-icon-size) !important;
+  height: var(--composer-icon-size) !important;
+}
+
+.superduck-composer-indicator-icon {
+  width: var(--composer-indicator-size) !important;
+  height: var(--composer-indicator-size) !important;
+}
+
+.superduck-composer-icon-button {
+  color: var(--composer-control-foreground);
+  opacity: 1;
+}
+
+.superduck-composer-icon-button:hover {
+  color: var(--composer-control-hover-foreground);
+  background: var(--composer-control-hover-background);
+}
+
+.superduck-composer-icon-button:focus-visible,
+.superduck-composer-primary-button:focus-visible,
+.superduck-composer-permission-button:focus-visible {
+  border-color: transparent !important;
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 18%, transparent) !important;
+}
+
+.superduck-composer-permission-button {
+  height: var(--composer-control-size);
+  gap: var(--composer-control-gap);
+  padding-inline: 0.5rem;
+  border-radius: 9999px;
+}
+
+[data-mode='dark'] .superduck-composer-surface {
+  --composer-surface-border: color-mix(in oklab, var(--border) 62%, transparent);
+  --composer-surface-background: color-mix(in oklab, var(--card) 92%, transparent);
+  --composer-surface-elevation:
+    inset 0 1px 0 rgb(255 255 255 / 4%),
+    0 2px 8px rgb(0 0 0 / 20%),
+    0 10px 24px rgb(0 0 0 / 12%);
+}
+
+.superduck-composer-surface:focus-within {
+  border-color: color-mix(in oklch, var(--foreground) 12%, var(--border)) !important;
+  background-color: color-mix(in oklab, var(--card) 96%, var(--background)) !important;
+  box-shadow: var(--composer-surface-focused-elevation) !important;
+}
+
+[data-mode='dark'] .superduck-composer-surface:focus-within {
+  --composer-surface-focused-elevation:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 8%, transparent),
+    0 2px 8px rgb(0 0 0 / 22%),
+    0 10px 26px rgb(0 0 0 / 14%);
+  border-color: color-mix(in oklch, var(--foreground) 20%, var(--border)) !important;
+  background-color: color-mix(in oklab, var(--card) 97%, var(--background)) !important;
+  box-shadow: var(--composer-surface-focused-elevation) !important;
+}
+
+.superduck-tool-surface {
+  border-color: color-mix(in oklab, var(--border) 75%, transparent);
+  background-color: var(--card);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.02);
+}
+
+[data-mode='dark'] .superduck-tool-surface {
+  border-color: color-mix(in oklab, var(--border) 60%, transparent);
+  background-color: color-mix(in oklab, var(--card) 85%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--foreground) 3%, transparent);
+}
+
+.superduck-tool-surface:hover {
+  border-color: var(--border);
+  background-color: color-mix(in oklab, var(--muted) 12%, var(--card));
+}
+
+[data-mode='dark'] .superduck-tool-surface:hover {
+  border-color: color-mix(in oklab, var(--border) 90%, transparent);
+  background-color: color-mix(in oklab, var(--muted) 15%, var(--card));
+}
+
+.superduck-tool-danger-surface {
+  border-color: color-mix(in oklab, var(--destructive) 45%, var(--border) 60%);
+  background-color: color-mix(in oklab, var(--destructive) 5%, transparent);
+}
+
+[data-mode='dark'] .superduck-tool-danger-surface {
+  border-color: color-mix(in oklab, var(--destructive) 40%, var(--border) 55%);
+  background-color: color-mix(in oklab, var(--destructive) 7%, transparent);
+}
+
+.superduck-tool-danger-surface:hover {
+  border-color: color-mix(in oklab, var(--destructive) 55%, var(--border) 45%);
+  background-color: color-mix(in oklab, var(--destructive) 8%, transparent);
+}
+
+[data-mode='dark'] .superduck-tool-danger-surface:hover {
+  border-color: color-mix(in oklab, var(--destructive) 50%, var(--border) 50%);
+  background-color: color-mix(in oklab, var(--destructive) 10%, transparent);
+}
+
 /*
  * Render the streaming caret via CSS so it does not pollute markdown text or
  * become part of copied code content.
@@ -37,4 +239,20 @@
     .streaming-markdown > .code-block-root:last-child .code-block__code::after {
         animation: none;
     }
+}
+
+/* 高级毛玻璃磨砂效果底色（亮色/暗色及 console 主题兼容） */
+.superduck-premium-sidebar {
+  background: color-mix(in oklch, var(--background) 78%, transparent) !important;
+  backdrop-filter: blur(20px) saturate(110%);
+  -webkit-backdrop-filter: blur(20px) saturate(110%);
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease;
+}
+
+[data-mode='dark'] .superduck-premium-sidebar {
+  background: color-mix(in oklch, var(--background) 74%, transparent) !important;
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
 }

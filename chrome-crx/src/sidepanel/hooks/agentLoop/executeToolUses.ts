@@ -121,7 +121,6 @@ export interface ExecuteToolUsesParams {
   executeToolUse: (toolUse: ToolUseBlock) => Promise<ApiToolResultBlock>;
   getPermissionManager: () => PermissionManager;
   pushMessage: (role: ChatRole | VisibleChatRole, text: string) => void;
-  setHasInteractiveTools: (v: boolean) => void;
   setCurrentStatus: (v: string) => void;
   generateStatusSummary: (text: string) => Promise<void>;
   setApiMessages: (messages: ApiConversationMessage[]) => void;
@@ -147,11 +146,6 @@ export async function executeToolUses(
   }
 
   if (realToolUses.length > 0) {
-    const readonlyTools = ['read_page', 'get_page_text', 'find', 'turn_answer_start'];
-    if (realToolUses.some((t) => !readonlyTools.includes(t.name))) {
-      params.setHasInteractiveTools(true);
-    }
-
     const toolNames = realToolUses.map((t) => t.name).join(', ');
     params.pushMessage('system', `🔧 ${toolNames}`);
 

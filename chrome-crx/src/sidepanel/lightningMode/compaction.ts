@@ -36,11 +36,10 @@ export async function compactLightningMessagesIfNeeded({
           messages: params.messages as LightningMessage[],
           system: (params.system ?? '') as LightningCreateApiMessageParams['system']
         }),
-      locale,
-      contextWindow
+      locale
     );
     const compactInput = filterSyntheticMessages(messages);
-    const result = await compactor.compactConversation(compactInput, MAX_TOKENS, true);
+    const result = await compactor.compactConversation(compactInput, true);
     return result.messagesAfterCompacting as LightningMessage[];
   } catch (error) {
     console.warn('[Lightning] Conversation compaction failed:', error);

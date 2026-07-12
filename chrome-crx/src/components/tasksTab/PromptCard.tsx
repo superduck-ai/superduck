@@ -1,7 +1,20 @@
-import { FormattedMessage } from 'react-intl';
-import { DropdownMenu, DropdownMenuItem, PenIcon, TrashIcon, VerticalDotsIcon } from '../ui';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { MoreVertical, Pencil, Slash, Trash2 } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle
+} from '../ui';
 import type { SavedPrompt } from '../../extensionServices';
-import { getRunShortcutSvgMarkup } from './icons';
 
 export function PromptCard({
   prompt,
@@ -14,57 +27,67 @@ export function PromptCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const intl = useIntl();
+  const actionsLabel = intl.formatMessage({
+    defaultMessage: 'Shortcut actions',
+    id: 'shortcut_actions'
+  });
+
   return (
-    <div
-      onClick={onEdit}
-      className="relative group bg-bg-000 border-[0.5px] border-border-300 rounded-2xl p-4 hover:border-border-200 transition-all shadow-[0_2px_4px_0_rgba(0,0,0,0.04)] hover:shadow-[0_4px_20px_0_rgba(0,0,0,0.08)] w-full cursor-pointer"
-    >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0 text-left">
-          {prompt.command && (
-            <div className="font-large-bold text-text-200 relative overflow-hidden">
-              <div className="whitespace-nowrap flex min-h-6 min-w-0 items-center gap-1 leading-tight">
-                <span
-                  aria-hidden="true"
-                  className="inline-flex h-[14px] w-[14px] items-center justify-center shrink-0 text-text-500/50"
-                  dangerouslySetInnerHTML={{ __html: getRunShortcutSvgMarkup(14) }}
-                />
-                <span className="block min-w-0">{prompt.command}</span>
-              </div>
-              <div className="absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-bg-000 to-transparent pointer-events-none" />
-            </div>
+    <Item className="rounded-none border-0 px-4 py-3.5 sm:flex-nowrap">
+      <ItemMedia>
+        <span className="flex size-8 items-center justify-center rounded-md border border-border bg-muted/40 text-muted-foreground">
+          <Slash aria-hidden className="size-4" />
+        </span>
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle className="max-w-full text-sm font-medium leading-5">
+          <span className="truncate">/{prompt.command}</span>
+          {scheduleText && (
+            <Badge
+              variant="outline"
+              className="shrink-0 border-border bg-muted/60 text-muted-foreground"
+            >
+              <FormattedMessage defaultMessage="Scheduled" id="scheduled" />
+            </Badge>
           )}
-        </div>
-        <div onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu
-            unstyledTrigger
-            trigger={
-              <button className="hide-focus-ring p-1 hover:bg-bg-200 rounded transition-colors relative z-10 opacity-0 group-hover:opacity-100">
-                <VerticalDotsIcon size={16} className="text-text-300" />
-              </button>
+        </ItemTitle>
+        <ItemDescription className="max-w-full text-sm leading-5">
+          <span className="line-clamp-2 whitespace-pre-wrap break-words">{prompt.prompt}</span>
+        </ItemDescription>
+        {scheduleText && (
+          <ItemDescription className="max-w-full text-xs">
+            <span className="truncate">{scheduleText}</span>
+          </ItemDescription>
+        )}
+      </ItemContent>
+      <ItemActions className="ml-auto">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={actionsLabel}
+                title={actionsLabel}
+                className="text-muted-foreground hover:text-foreground"
+              />
             }
           >
-            <DropdownMenuItem icon={<PenIcon size={14} />} onSelect={() => onEdit()}>
+            <MoreVertical aria-hidden className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil aria-hidden className="size-4" />
               <FormattedMessage defaultMessage="Edit" id="edit_2" />
             </DropdownMenuItem>
-            <DropdownMenuItem icon={<TrashIcon size={14} />} danger onSelect={() => onDelete()}>
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 aria-hidden className="size-4" />
               <FormattedMessage defaultMessage="Delete" id="delete" />
             </DropdownMenuItem>
-          </DropdownMenu>
-        </div>
-      </div>
-      <div className="bg-bg-100 rounded-lg p-3 w-full text-left">
-        <div className="text-sm text-text-300 h-24 overflow-y-auto whitespace-pre-wrap">
-          {prompt.prompt}
-        </div>
-      </div>
-      {scheduleText && (
-        <div className="mt-3">
-          <div className="text-text-300">
-            <span className="text-xs">{scheduleText}</span>
-          </div>
-        </div>
-      )}
-    </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ItemActions>
+    </Item>
   );
 }
