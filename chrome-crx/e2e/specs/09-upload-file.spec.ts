@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../fixtures/extension';
-import { getDefaultProviderConfig, seedStorage } from '../fixtures/storage';
+import { getDefaultProviderConfig, isRealLlmMode, seedStorage } from '../fixtures/storage';
 import {
   activateChromeTab,
   getChromeTabIdFor,
@@ -218,6 +218,10 @@ async function withUploadFixture(
 }
 
 test.describe('upload_file tool', () => {
+  // These cases inject precise tool_use blocks via a mocked fetch — they are
+  // unit-level coverage of every resolver branch and must stay deterministic.
+  // Real-LLM end-to-end coverage lives in 10-upload-file-real-llm.spec.ts.
+  test.skip(isRealLlmMode(), 'mock-only suite; real-LLM coverage is in spec 10');
   test.setTimeout(120_000);
 
   let fixtureServer: Server;
