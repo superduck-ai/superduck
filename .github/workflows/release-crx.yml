@@ -1,0 +1,84 @@
+name: Release (Chrome CRX)
+
+on:
+  push:
+    tags:
+      - 'crx-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'CRX tag to build, such as crx-v1.0.3'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Chrome extension release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Validate tag and manifest version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^crx-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid CRX release tag: $RELEASE_TAG"
+            exit 1
+          fi
+          VERSION="${RELEASE_TAG#crx-v}"
+          MANIFEST_VERSION=$(node -p "require('./chrome-crx/manifest.json').version")
+          if [[ "$VERSION" != "$MANIFEST_VERSION" ]]; then
+            echo "::error::Tag version $VERSION does not match manifest version $MANIFEST_VERSION"
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Chrome extension
+        working-directory: chrome-crx
+        run: bun run build
+
+      - name: Package extension
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ARCHIVE="superduck-chrome-${VERSION}.zip"
+          (cd chrome-crx/dist && zip -r -q "../${ARCHIVE}" .)
+          test "$(unzip -p "chrome-crx/${ARCHIVE}" manifest.json | node -e 'let data=""; process.stdin.on("data", chunk => data += chunk).on("end", () => process.stdout.write(JSON.parse(data).version))')" = "$VERSION"
+          if unzip -Z1 "chrome-crx/${ARCHIVE}" | grep -q '^dist/'; then
+            echo "::error::Archive contains an unexpected dist/ wrapper directory"
+            exit 1
+          fi
+          (cd chrome-crx && sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256")
+          unzip -tq "chrome-crx/${ARCHIVE}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: superduck-crx-${{ steps.version.outputs.version }}
+          path: |
+            chrome-crx/superduck-chrome-${{ steps.version.outputs.version }}.zip
+            chrome-crx/superduck-chrome-${{ steps.version.outputs.version }}.zip.sha256
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: |
+            chrome-crx/superduck-chrome-${{ steps.version.outputs.version }}.zip
+            chrome-crx/superduck-chrome-${{ steps.version.outputs.version }}.zip.sha256
+          generate_release_notes: true
