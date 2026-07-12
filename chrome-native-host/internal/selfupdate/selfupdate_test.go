@@ -74,6 +74,16 @@ func TestUpdateHint(t *testing.T) {
 	}
 }
 
+func TestReleaseURLsUseCLITagPrefix(t *testing.T) {
+	const version = "0.2.7"
+	if got, want := releaseURL(version, "darwin", "arm64"), "https://github.com/superduck-ai/superduck/releases/download/cli-v0.2.7/superduck-darwin-arm64.tar.gz"; got != want {
+		t.Errorf("releaseURL() = %q, want %q", got, want)
+	}
+	if got, want := checksumURL(version, "linux", "x64"), "https://github.com/superduck-ai/superduck/releases/download/cli-v0.2.7/superduck-linux-x64.tar.gz.sha256"; got != want {
+		t.Errorf("checksumURL() = %q, want %q", got, want)
+	}
+}
+
 func TestReadWriteCache(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

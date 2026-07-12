@@ -104,12 +104,12 @@ func platformPair() (string, string, error) {
 }
 
 func releaseURL(version, os, arch string) string {
-	return fmt.Sprintf("https://github.com/%s/releases/download/v%s/superduck-%s-%s.tar.gz",
+	return fmt.Sprintf("https://github.com/%s/releases/download/cli-v%s/superduck-%s-%s.tar.gz",
 		gitHubRepo, version, os, arch)
 }
 
 func checksumURL(version, os, arch string) string {
-	return fmt.Sprintf("https://github.com/%s/releases/download/v%s/superduck-%s-%s.tar.gz.sha256",
+	return fmt.Sprintf("https://github.com/%s/releases/download/cli-v%s/superduck-%s-%s.tar.gz.sha256",
 		gitHubRepo, version, os, arch)
 }
 

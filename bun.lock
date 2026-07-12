@@ -11,7 +11,7 @@
     },
     "chrome-crx": {
       "name": "superduck-chrome-crx",
-      "version": "0.1.0",
+      "version": "1.0.3",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.95.1",
         "@base-ui/react": "^1.6.0",

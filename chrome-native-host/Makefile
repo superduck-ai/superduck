@@ -16,7 +16,7 @@ BUILD_DIR := build
 POSTHOG_KEY ?=
 
 # VERSION is injected into the binary via -ldflags. For release builds it comes
-# from the git tag (e.g. make release-binaries VERSION=0.2.5). For local builds
+# from the CLI git tag (e.g. cli-v0.2.7). For local builds
 # it reads the default value compiled into main.go.
 VERSION ?=
 

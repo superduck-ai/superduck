@@ -8,17 +8,17 @@ name: Release (superduck CLI)
 # from the POSTHOG_KEY repository secret. If the secret is unset the build
 # still succeeds but the resulting binaries ship without product analytics.
 #
-# Trigger: pushing a tag like `v0.2.3` (semver) or running the workflow
+# Trigger: pushing a CLI tag like `cli-v0.2.3` or running the workflow
 # manually from the Actions tab.
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'cli-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (defaults to current ref)'
+        description: 'CLI tag to build, such as cli-v0.2.7 (defaults to current ref)'
         required: false
 
 permissions:
@@ -44,9 +44,9 @@ jobs:
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
         run: |
-          # Extract version from git tag (v0.2.5 → 0.2.5) or fall back to package.json
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
+          # Extract version from git tag (cli-v0.2.7 → 0.2.7) or fall back to package.json
+          if [[ "${GITHUB_REF}" == refs/tags/cli-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/cli-v}"
           else
             VERSION=$(node -p "require('../npm/package.json').version")
           fi
