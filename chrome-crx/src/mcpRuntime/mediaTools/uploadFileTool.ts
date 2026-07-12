@@ -6,7 +6,6 @@ import type { UploadFileToolInput } from './types';
 import {
   markUploadFileAtCoordinateInPage,
   markUploadFileRefInPage,
-  resolveUploadFileRefTargetSource,
   type UploadFileRefMarkResult
 } from './uploadFileRefTarget';
 import { validateUploadPaths } from './uploadFileValidation';
@@ -297,7 +296,7 @@ async function uploadViaRef(
   const markResult = await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     func: markUploadFileRefInPage,
-    args: [ref, uploadAttr, clickAttr, paths.length, resolveUploadFileRefTargetSource]
+    args: [ref, uploadAttr, clickAttr, paths.length]
   });
 
   const markOutput = pickUploadMarkResult(markResult ?? []);
@@ -336,14 +335,7 @@ async function uploadViaFileChooser(
   const markResult = await chrome.scripting.executeScript({
     target: { tabId },
     func: markUploadFileAtCoordinateInPage,
-    args: [
-      coordinate[0],
-      coordinate[1],
-      uploadAttr,
-      clickAttr,
-      paths.length,
-      resolveUploadFileRefTargetSource
-    ]
+    args: [coordinate[0], coordinate[1], uploadAttr, clickAttr, paths.length]
   });
 
   const markOutput = pickUploadMarkResult(markResult ?? []);

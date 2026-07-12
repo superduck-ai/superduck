@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  __resolveFileInputTargetForTest,
   markUploadFileAtCoordinateInPage,
   markUploadFileRefInPage,
-  resolveUploadFileRefTarget,
-  resolveUploadFileRefTargetSource
+  resolveUploadFileRefTarget
 } from './uploadFileRefTarget';
 
 type MockInput = {
@@ -163,18 +163,13 @@ describe('resolveUploadFileRefTarget', () => {
     });
   });
 
-  // Regression guard: the page-injected helpers rebuild this function from its
-  // serialized source. If the source ever fails to round-trip (e.g. captures a
-  // module closure, or a refactor breaks .toString()), the page path silently
-  // diverges. This asserts the rebuilt function matches the original across
-  // every input shape we care about.
-  it('round-trips through its serialized source for every input shape', () => {
-    const rebuilt = (
-      new Function(
-        `return (${resolveUploadFileRefTargetSource})`
-      ) as () => typeof resolveUploadFileRefTarget
-    )();
-
+  // Regression guard: markUploadFileRefInPage / markUploadFileAtCoordinateInPage
+  // each carry an inlined resolver copy (chrome.scripting.executeScript strips
+  // module closures, and `new Function` is blocked by page CSP). If either
+  // copy drifts from the canonical resolver, uploads silently break in
+  // production. This asserts the shared resolver matches the canonical impl
+  // across every input shape — drift fails CI here, not in the field.
+  it('canonical resolver matches the shared resolver for every input shape', () => {
     const cases: { name: string; build: () => Element; count: number }[] = [
       {
         name: 'direct file input',
@@ -201,13 +196,12 @@ describe('resolveUploadFileRefTarget', () => {
     ];
 
     for (const c of cases) {
-      const original = resolveUploadFileRefTarget(c.build(), c.count);
-      const rebuiltResult = rebuilt(c.build(), c.count);
-      // Compare the result shape, not element identity (each build() yields a new mock).
-      if ('error' in original) {
-        expect(rebuiltResult).toMatchObject({ error: original.error });
+      const canonical = resolveUploadFileRefTarget(c.build(), c.count);
+      const shared = __resolveFileInputTargetForTest(c.build(), c.count);
+      if ('error' in canonical) {
+        expect(shared).toMatchObject({ error: canonical.error });
       } else {
-        expect(rebuiltResult).not.toHaveProperty('error');
+        expect(shared).not.toHaveProperty('error');
       }
     }
   });
@@ -217,13 +211,7 @@ describe('markUploadFileRefInPage', () => {
   it('marks a direct file input ref for CDP selectors', () => {
     const input = asElement({ tagName: 'INPUT', type: 'file' });
     withElementMap('ref_1', input, () => {
-      const result = markUploadFileRefInPage(
-        'ref_1',
-        'data-upload',
-        'data-click',
-        1,
-        resolveUploadFileRefTargetSource
-      );
+      const result = markUploadFileRefInPage('ref_1', 'data-upload', 'data-click', 1);
       expect(result).toEqual({ success: true, separateClickTarget: false });
       expect(input.getAttribute('data-upload')).toBe('1');
     });
@@ -232,13 +220,7 @@ describe('markUploadFileRefInPage', () => {
   it('matches resolveUploadFileRefTarget for the same element', () => {
     const input = asElement({ tagName: 'INPUT', type: 'file' });
     withElementMap('ref_1', input, () => {
-      markUploadFileRefInPage(
-        'ref_1',
-        'data-upload',
-        'data-click',
-        1,
-        resolveUploadFileRefTargetSource
-      );
+      markUploadFileRefInPage('ref_1', 'data-upload', 'data-click', 1);
       const resolved = resolveUploadFileRefTarget(input, 1);
       expect(resolved).toEqual({ fileInput: input, clickTarget: input });
     });
@@ -268,14 +250,7 @@ describe('markUploadFileAtCoordinateInPage', () => {
       getElementById: () => null
     } as unknown as Document;
     try {
-      const result = markUploadFileAtCoordinateInPage(
-        10,
-        1046,
-        'data-upload',
-        'data-click',
-        1,
-        resolveUploadFileRefTargetSource
-      );
+      const result = markUploadFileAtCoordinateInPage(10, 1046, 'data-upload', 'data-click', 1);
       expect(result).toEqual({ success: true, separateClickTarget: true });
       expect(input.getAttribute('data-upload')).toBe('1');
       expect((label as unknown as Record<string, string>)['data-click']).toBe('1');
