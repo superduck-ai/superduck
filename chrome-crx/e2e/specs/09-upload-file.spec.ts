@@ -294,6 +294,66 @@ test.describe('upload_file tool', () => {
     });
   });
 
+  test('uploads multiple local files whose names contain commas', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    const commaFile = path.join(TEST_FILE_DIR, 'report,v2.txt');
+    await writeFile(commaFile, 'comma in name\n', 'utf8');
+
+    await withUploadFixture(context, extensionId, serviceWorker, fixtureBaseUrl, async ({
+      targetPage,
+      sidepanel,
+      tabId
+    }) => {
+      await registerRef(serviceWorker, tabId, 'explicit-input', 'ref_1');
+
+      await mockUploadFileLLM(sidepanel, {
+        type: 'tool_use',
+        id: 'tool_upload_file_comma',
+        name: 'upload_file',
+        input: { paths: [TEST_FILE_PATH, commaFile], ref: 'ref_1' }
+      });
+
+      await sendMessage(sidepanel, 'Upload both local files');
+      await waitForReplyDone(sidepanel, 60_000);
+
+      const names = await targetPage.evaluate(() => (window as any).__getFileNames().explicitNames);
+      expect(names).toEqual(expect.arrayContaining(['report.txt', 'report,v2.txt']));
+      expect(names.length).toBe(2);
+    });
+  });
+
+  test('uploads nothing when one of multiple paths is relative', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }) => {
+    await withUploadFixture(context, extensionId, serviceWorker, fixtureBaseUrl, async ({
+      targetPage,
+      sidepanel,
+      tabId
+    }) => {
+      await registerRef(serviceWorker, tabId, 'explicit-input', 'ref_1');
+
+      await mockUploadFileLLM(sidepanel, {
+        type: 'tool_use',
+        id: 'tool_upload_file_mixed_relative',
+        name: 'upload_file',
+        input: { paths: [TEST_FILE_PATH, 'relative.txt'], ref: 'ref_1' }
+      });
+
+      await sendMessage(sidepanel, 'Upload both local files');
+      await waitForReplyDone(sidepanel, 60_000);
+
+      const state = await getFileState(targetPage);
+      expect(state.explicitCount).toBe(0);
+      const toolResults = await getCapturedToolResults(sidepanel);
+      expect(toolResults.join(' ')).toMatch(/absolute/i);
+    });
+  });
+
   test('surfaces an error when the ref points at a non-file element', async ({
     context,
     extensionId,

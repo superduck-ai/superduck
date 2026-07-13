@@ -38,34 +38,12 @@ func TestValidateUploadFilePaths(t *testing.T) {
 	}
 }
 
-func TestCmdUploadFileRejectsMixedPathFlags(t *testing.T) {
-	dir := t.TempDir()
-	existing := filepath.Join(dir, "report.txt")
-	if err := os.WriteFile(existing, []byte("ok"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	err := cmdUploadFile([]string{"--path", existing, "--paths", existing, "--ref", "ref_1"})
+func TestCmdUploadFileRequiresPath(t *testing.T) {
+	err := cmdUploadFile([]string{"--ref", "ref_1"})
 	if err == nil {
-		t.Fatal("expected error when both --path and --paths are provided")
+		t.Fatal("expected error when no --path is provided")
 	}
-	if !strings.Contains(err.Error(), "not both") {
+	if !strings.Contains(err.Error(), "at least one --path") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestParsePathsCSV(t *testing.T) {
-	dir := t.TempDir()
-	withComma := filepath.Join(dir, "a,b.txt")
-	if err := os.WriteFile(withComma, []byte("ok"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	paths, err := parsePathsCSV(`"` + withComma + `"`)
-	if err != nil {
-		t.Fatalf("expected quoted comma path to parse: %v", err)
-	}
-	if len(paths) != 1 || paths[0] != withComma {
-		t.Fatalf("unexpected paths: %#v", paths)
 	}
 }

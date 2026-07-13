@@ -107,7 +107,7 @@ var knownValueFlags = map[string]bool{
 	"--image-id":  true, "--filename": true,
 	"--coord": true, "--command": true, "--id": true,
 	"--quality": true,
-	"--path":    true, "--paths": true,
+	"--path":    true,
 }
 
 func reorderFlagsFirst(in []string) []string {

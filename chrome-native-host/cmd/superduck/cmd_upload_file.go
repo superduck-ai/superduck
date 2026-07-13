@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/csv"
 	"flag"
 	"fmt"
 	"os"
@@ -19,25 +18,10 @@ func (p *pathListValue) Set(s string) error {
 	return nil
 }
 
-func parsePathsCSV(csvStr string) ([]string, error) {
-	r := csv.NewReader(strings.NewReader(csvStr))
-	r.TrimLeadingSpace = true
-	records, err := r.Read()
-	if err != nil {
-		return nil, fmt.Errorf("invalid --paths CSV: %w", err)
-	}
-	out := make([]string, 0, len(records))
-	for _, p := range records {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out, nil
-}
-
 func validateUploadFilePaths(paths []string) error {
-	for _, p := range paths {
-		p = filepath.Clean(p)
+	for i := range paths {
+		p := filepath.Clean(paths[i])
+		paths[i] = p
 		if !filepath.IsAbs(p) {
 			return fmt.Errorf("path must be absolute: %s", p)
 		}
@@ -70,8 +54,7 @@ func validateUploadFilePaths(paths []string) error {
 func cmdUploadFile(argv []string) error {
 	fs := flag.NewFlagSet("upload_file", flag.ContinueOnError)
 	var paths pathListValue
-	fs.Var(&paths, "path", "Absolute local file path to upload (repeatable; mutually exclusive with --paths)")
-	pathsCSV := fs.String("paths", "", "Comma-separated absolute file paths (CSV quoting supported; mutually exclusive with --path)")
+	fs.Var(&paths, "path", "Absolute local file path to upload (repeatable)")
 	ref := fs.String("ref", "", "Element reference from read_page/find (mode 1): <input type=file>, or a <label>/<button> that controls or contains one. Mutually exclusive with --coord")
 	coord := fs.String("coord", "", "Viewport x,y of a button/label that opens the native file picker (mode 2). Mutually exclusive with --ref")
 	if err := fs.Parse(reorderFlagsFirst(argv)); err != nil {
@@ -79,18 +62,8 @@ func cmdUploadFile(argv []string) error {
 	}
 
 	allPaths := []string(paths)
-	if *pathsCSV != "" {
-		if len(paths) > 0 {
-			return fmt.Errorf("use either --path (repeatable) or --paths (CSV), not both")
-		}
-		csvPaths, err := parsePathsCSV(*pathsCSV)
-		if err != nil {
-			return err
-		}
-		allPaths = append(allPaths, csvPaths...)
-	}
 	if len(allPaths) == 0 {
-		return fmt.Errorf("at least one --path (or --paths) is required")
+		return fmt.Errorf("at least one --path is required")
 	}
 	if err := validateUploadFilePaths(allPaths); err != nil {
 		return err
