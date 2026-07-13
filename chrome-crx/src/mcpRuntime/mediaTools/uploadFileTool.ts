@@ -170,6 +170,12 @@ async function interceptAndSetFiles(
     if (!chooser.backendNodeId) {
       return { error: 'file chooser opened but no backendNodeId was provided' };
     }
+    // Mirror ref mode's multiple-file check: if the native picker reports a
+    // single-file input but the caller supplied several paths, refuse instead
+    // of letting setFileInputFiles silently accept/trim them.
+    if (paths.length > 1 && chooser.mode === 'selectSingle') {
+      return { error: 'Target file input does not accept multiple files' };
+    }
     await sendCdp(tabId, 'DOM.enable');
     await sendCdp(tabId, 'DOM.setFileInputFiles', {
       files: paths,
@@ -435,6 +441,12 @@ export const uploadFileTool: ToolDefinition<UploadFileToolInput> = {
 
       const securityCheck = await checkUrlSecurity(activeTabId, tabUrl, 'file upload action');
       if (securityCheck) return securityCheck;
+      // file: is upload_file-specific (not in the shared blockedProtocols, so
+      // JS/form/upload_image/GIF still work on file:// pages); local-path
+      // uploads against a file:// page are ambiguous and risky.
+      if (tabUrl.startsWith('file:')) {
+        return { error: 'Cannot perform file upload action on file: URLs' };
+      }
 
       const outcome = hasRef
         ? await uploadViaRef(activeTabId, params.ref!, params.paths)
