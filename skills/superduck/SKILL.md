@@ -234,30 +234,36 @@ superduck --session "$SID" --tab "$TAB" network --url-pattern /api/ --limit 20
 Network tracking starts when `network` is first called. Call it once, trigger
 the request or refresh the page, then call it again to inspect captured entries.
 
-## Image Uploads, Shortcuts, and GIFs
+## Uploads: Images vs. Local Files
 
-`upload` is image-oriented: it drops a previously captured/generated image onto
-a file input or coordinate target. For arbitrary local filesystem paths (PDFs,
-spreadsheets, etc.), use `upload_file` instead.
+Two distinct commands — pick by **source**, not by target:
+
+- **`upload`** — source is an **image already in this session** (a prior
+  `screenshot`, or an image the user dropped into chat). Pass its `--image-id`.
+  The image is dropped onto a file input (`--ref`) or a visible drag target
+  (`--coord`). `--filename` is optional, default `image.png`.
+- **`upload_file`** — source is a **file on the local disk** (PDF, spreadsheet,
+  photo, …). Pass repeatable `--path` with absolute paths. The browser reads
+  the file directly; its contents are not transferred through the CLI.
+
+Both commands target the page the same way: provide exactly one of `--ref`
+(an element reference from `read_page`/`find` — works for hidden
+`<input type=file>`, and for `<label>`/`<button>` that controls or contains
+one) or `--coord x,y` (a visible button/label that opens the native file
+picker, which is intercepted automatically).
 
 ```bash
-superduck --session "$SID" --tab "$TAB" upload --image-id <id> --ref ref_9 --filename image.png
-superduck --session "$SID" --tab "$TAB" upload --image-id <id> --coord 500,400
-```
+# Upload a previously captured image by its image-id
+superduck --session "$SID" --tab "$TAB" upload --image-id <id> --ref ref_9
+superduck --session "$SID" --tab "$TAB" upload --image-id <id> --coord 500,400 --filename photo.png
 
-Upload local files from disk (the browser reads them directly — no content is transferred). Paths must be absolute local filesystem paths.
-
-```bash
-# Target a file input via ref (also accepts <label>/<button> that controls or contains one)
+# Upload one or more local files (repeat --path; the input needs multiple for >1)
 superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/report.pdf --ref ref_9
-
-# Click a button/label that opens the native file picker (intercepted automatically)
-superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/photo.png --coord 500,400
-
-# Multiple files (input must have multiple attribute)
 superduck --session "$SID" --tab "$TAB" upload_file --path /abs/a.pdf --path /abs/b.pdf --ref ref_9
+superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/photo.png --coord 500,400
 ```
 
+## Shortcuts and GIFs
 
 Shortcuts are saved prompts, not directly executed workflows:
 
