@@ -131,4 +131,58 @@ test.describe('upload_file tool (real LLM)', () => {
       await targetPage.close();
     }
   });
+
+  test('uploads a local file via coordinate using a real LLM provider', async ({
+    context,
+    extensionId,
+    serviceWorker
+  }: {
+    context: BrowserContext;
+    extensionId: string;
+    serviceWorker: Worker;
+  }) => {
+    await seedStorage(serviceWorker, { ...getDefaultProviderConfig() });
+
+    const targetPage = await context.newPage();
+    try {
+      await targetPage.goto(`${fixtureBaseUrl}/file-upload.html`);
+      await targetPage.bringToFront();
+      const tabId = await getChromeTabIdFor(serviceWorker, targetPage);
+      await activateChromeTab(serviceWorker, tabId);
+
+      const sidepanel = await openSidepanel(context, extensionId, {
+        initialTabId: tabId,
+        skipPermissions: true
+      });
+      try {
+        await expect(sidepanel.locator('#root')).toBeVisible();
+        await sidepanel.locator('.ProseMirror').waitFor({ state: 'visible', timeout: 10_000 });
+
+        // Measure the real viewport center of #picker-trigger now, after the
+        // page has laid out, then feed it to the model so it doesn't have to
+        // read the page (which would add a CDP round-trip and nondeterminism).
+        const center = await targetPage.evaluate(() => {
+          const el = document.getElementById('picker-trigger');
+          if (!el) throw new Error('#picker-trigger not found');
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        });
+
+        await sendMessage(
+          sidepanel,
+          `Use the upload_file tool to upload the local file at ${TEST_FILE_PATH} by clicking the "Choose file to upload" control. Call the tool exactly once with coordinate=[${center.x}, ${center.y}] and paths=["${TEST_FILE_PATH}"]. Do not read the page first.`
+        );
+        await waitForReplyDone(sidepanel, 150_000);
+
+        const names = await targetPage.evaluate(() =>
+          (window as any).__getFileNames?.().hiddenNames ?? []
+        );
+        expect(names).toContain('report.txt');
+      } finally {
+        await sidepanel.close();
+      }
+    } finally {
+      await targetPage.close();
+    }
+  });
 });

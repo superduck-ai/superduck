@@ -128,7 +128,7 @@ SHOT_FILE=$(ls "$OUT"/*.jpg "$OUT"/*.png 2>/dev/null | head -1)
 IMG_ID=""
 [ -n "$SHOT_FILE" ] && IMG_ID=$(basename "$SHOT_FILE" | sed -E 's/\.(jpg|jpeg|png)$//')
 if [ -n "$REF" ] && [ -n "$IMG_ID" ]; then
-  run_tab "upload"            upload --ref "$REF" --image-id "$IMG_ID" --filename "smoke.png"
+  run_tab "upload_image"      upload_image --ref "$REF" --image-id "$IMG_ID" --filename "smoke.png"
 fi
 
 # ---- observability ----------------------------------------------------------
