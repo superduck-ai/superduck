@@ -238,7 +238,7 @@ the request or refresh the page, then call it again to inspect captured entries.
 
 Two distinct commands — pick by **source**, not by target:
 
-- **`upload`** — source is an **image already in this session** (a prior
+- **`upload_image`** — source is an **image already in this session** (a prior
   `screenshot`, or an image the user dropped into chat). Pass its `--image-id`.
   The image is dropped onto a file input (`--ref`) or a visible drag target
   (`--coord`). `--filename` is optional, default `image.png`.
@@ -254,8 +254,8 @@ picker, which is intercepted automatically).
 
 ```bash
 # Upload a previously captured image by its image-id
-superduck --session "$SID" --tab "$TAB" upload --image-id <id> --ref ref_9
-superduck --session "$SID" --tab "$TAB" upload --image-id <id> --coord 500,400 --filename photo.png
+superduck --session "$SID" --tab "$TAB" upload_image --image-id <id> --ref ref_9
+superduck --session "$SID" --tab "$TAB" upload_image --image-id <id> --coord 500,400 --filename photo.png
 
 # Upload one or more local files (repeat --path; the input needs multiple for >1)
 superduck --session "$SID" --tab "$TAB" upload_file --path /abs/path/report.pdf --ref ref_9

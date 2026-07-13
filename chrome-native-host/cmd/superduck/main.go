@@ -125,8 +125,8 @@ WINDOW / NAV (require --tab <id>):
                              'tab_group list --create-if-empty' unless you explicitly
                              need a fresh group from 'tab_group new'.
 
-UPLOAD / SHORTCUTS / GIF (require --tab <id>):
-  upload --image-id <id> (--ref R | --coord x,y) [--filename N]
+UPLOAD_IMAGE / SHORTCUTS / GIF (require --tab <id>):
+  upload_image --image-id <id> (--ref R | --coord x,y) [--filename N]
                              Drop a previously captured image onto a file input or drag target
                              (works for hidden <input type=file>).
   upload_file --path <p1> [--path <p2> ...] (--ref R | --coord x,y)
@@ -297,7 +297,7 @@ func main() {
 		err = cmdResize(rest)
 	case "navigate":
 		err = cmdNavigate(rest)
-	case "upload":
+	case "upload_image":
 		err = cmdUpload(rest)
 	case "upload_file":
 		err = cmdUploadFile(rest)
