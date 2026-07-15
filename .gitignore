@@ -64,6 +64,7 @@ yarn-error.log*
 
 # Misc
 .claude/
+AGENTS.local.md
 *.pem
 
 # Test reports (timing/JUnit artifacts uploaded by CI)

@@ -1,5 +1,12 @@
 import { isRecord } from '../../messageTypes';
 
+export interface UploadFileToolInput {
+  paths: string[];
+  ref?: string;
+  coordinate?: [number, number];
+  tabId?: number;
+}
+
 export interface UploadImageToolInput {
   imageId: string;
   ref?: string;

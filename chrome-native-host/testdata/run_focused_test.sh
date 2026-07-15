@@ -135,7 +135,7 @@ IMG_ID=""
 echo "    upload ref=$UPLOAD_REF, shot=$SHOT_FILE, image-id=$IMG_ID"
 
 if [ -n "$UPLOAD_REF" ] && [ -n "$IMG_ID" ]; then
-  "$SD" --tab "$TAB" upload --ref "$UPLOAD_REF" --image-id "$IMG_ID" --filename "smoke.png" >"$OUT/upload.txt" 2>&1 || true
+  "$SD" --tab "$TAB" upload_image --ref "$UPLOAD_REF" --image-id "$IMG_ID" --filename "smoke.png" >"$OUT/upload.txt" 2>&1 || true
   UPLOAD_DOM=$(read_dom 'document.getElementById("uploadStatus").textContent')
   echo "    DOM uploadStatus: $UPLOAD_DOM"
   assert "upload --ref attaches file" \

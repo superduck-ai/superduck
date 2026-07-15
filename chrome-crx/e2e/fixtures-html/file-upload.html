@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>File Upload Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    .section { margin-bottom: 32px; padding: 16px; border: 1px solid #ddd; border-radius: 8px; }
+    h2 { margin-top: 0; }
+    #explicit-input { display: block; margin: 8px 0; }
+    #picker-status, #explicit-status, #label-status, #nested-status, #single-status { min-height: 20px; color: #555; font-size: 14px; }
+    .picked { color: #16a34a; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>File Upload Fixture</h1>
+
+  <div class="section">
+    <h2>Explicit file input</h2>
+    <input id="explicit-input" type="file" multiple />
+    <div id="explicit-status">No file selected yet</div>
+  </div>
+
+  <div class="section">
+    <h2>Single-file input (no multiple)</h2>
+    <input id="single-input" type="file" />
+    <div id="single-status">No file selected yet</div>
+  </div>
+
+  <div class="section">
+    <h2>Label wrapping file input (no for)</h2>
+    <label id="wrap-label">
+      Select wrapped file
+      <input id="wrap-input" type="file" />
+    </label>
+    <div id="wrap-status">No file selected yet</div>
+  </div>
+
+  <div class="section">
+    <h2>Label-wrapped file input</h2>
+    <label id="file-label" for="label-input">Select via label</label>
+    <input id="label-input" type="file" />
+    <div id="label-status">No file selected yet</div>
+  </div>
+
+  <div class="section">
+    <h2>Button with nested hidden input</h2>
+    <button id="nested-upload-btn" type="button" style="padding:8px 16px;">
+      Upload nested
+      <input id="nested-input" type="file" style="display:none" />
+    </button>
+    <div id="nested-status">No file selected yet</div>
+  </div>
+
+  <div class="section">
+    <h2>Hidden input triggered by label (picker)</h2>
+    <label id="picker-trigger" style="display:inline-block;padding:8px 16px;border:1px solid #ccc;cursor:pointer;">
+      Choose file to upload
+      <input id="picker-hidden-input" type="file" style="position:absolute;width:0;height:0;opacity:0;" />
+    </label>
+    <div id="picker-status">No file selected yet</div>
+  </div>
+
+  <script>
+    function bindInput(input, statusEl) {
+      input.addEventListener('change', () => {
+        const name = input.files && input.files[0] ? input.files[0].name : '(none)';
+        statusEl.textContent = 'Selected: ' + name;
+        statusEl.classList.add('picked');
+      });
+    }
+
+    const explicit = document.getElementById('explicit-input');
+    bindInput(explicit, document.getElementById('explicit-status'));
+
+    const single = document.getElementById('single-input');
+    bindInput(single, document.getElementById('single-status'));
+
+    const labelInput = document.getElementById('label-input');
+    bindInput(labelInput, document.getElementById('label-status'));
+
+    const wrapInput = document.getElementById('wrap-input');
+    bindInput(wrapInput, document.getElementById('wrap-status'));
+
+    const nestedInput = document.getElementById('nested-input');
+    bindInput(nestedInput, document.getElementById('nested-status'));
+    document.getElementById('nested-upload-btn').addEventListener('click', () => { nestedInput.click(); });
+
+    const pickerInput = document.getElementById('picker-hidden-input');
+    bindInput(pickerInput, document.getElementById('picker-status'));
+
+    window.__getFileNames = function () {
+      function fileNames(input) {
+        if (!input.files) return [];
+        const out = [];
+        for (const f of input.files) out.push(f.name);
+        return out;
+      }
+      return {
+        explicit: explicit.files && explicit.files[0] ? explicit.files[0].name : null,
+        explicitNames: fileNames(explicit),
+        single: single.files && single.files[0] ? single.files[0].name : null,
+        singleNames: fileNames(single),
+        label: labelInput.files && labelInput.files[0] ? labelInput.files[0].name : null,
+        labelNames: fileNames(labelInput),
+        wrap: wrapInput.files && wrapInput.files[0] ? wrapInput.files[0].name : null,
+        wrapNames: fileNames(wrapInput),
+        nested: nestedInput.files && nestedInput.files[0] ? nestedInput.files[0].name : null,
+        nestedNames: fileNames(nestedInput),
+        hidden: pickerInput.files && pickerInput.files[0] ? pickerInput.files[0].name : null,
+        hiddenNames: fileNames(pickerInput),
+        explicitCount: explicit.files ? explicit.files.length : 0,
+        singleCount: single.files ? single.files.length : 0,
+        labelCount: labelInput.files ? labelInput.files.length : 0,
+        wrapCount: wrapInput.files ? wrapInput.files.length : 0,
+        nestedCount: nestedInput.files ? nestedInput.files.length : 0,
+        hiddenCount: pickerInput.files ? pickerInput.files.length : 0
+      };
+    };
+  </script>
+</body>
+</html>

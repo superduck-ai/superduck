@@ -25,5 +25,6 @@ export type { ToolContext, ToolResult, ToolDefinition, ToolTabAccess } from './p
 export { computerTool } from './inputTools/computerTool';
 export { formInputTool } from './inputTools/formInputTool';
 export { uploadImageTool } from './mediaTools/uploadImageTool';
+export { uploadFileTool } from './mediaTools/uploadFileTool';
 export { gifCreatorTool } from './mediaTools/gifCreatorTool';
 export { batchTool } from './batchTool';

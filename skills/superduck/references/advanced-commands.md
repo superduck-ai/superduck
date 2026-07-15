@@ -93,17 +93,21 @@ For screenshot output, a directory path ending in `/` auto-generates a filename;
 a file path uses that basename but may be extension-aligned to the real image
 format, commonly `.jpg`.
 
-## File Upload
+## Uploads
 
-Current upload support drops a captured/generated image into a file input or
-coordinate target.
+Two commands, picked by source — both target the page via `--ref` or `--coord`:
+
+- `upload_image` drops an image already in the session (prior `screenshot` or
+  user-uploaded image, referenced by `--image-id`) onto a file input or drag
+  target. `--filename` defaults to `image.png`.
+- `upload_file` uploads one or more local files from disk via repeatable
+  `--path` (absolute paths; the input needs `multiple` for more than one).
 
 ```bash
-superduck --session "$SID" --tab "$TAB" upload --image-id <id> --ref ref_9 --filename image.png
-superduck --session "$SID" --tab "$TAB" upload --image-id <id> --coord 500,400
+superduck --session "$SID" --tab "$TAB" upload_image --image-id <id> --ref ref_9 --filename image.png
+superduck --session "$SID" --tab "$TAB" upload_image --image-id <id> --coord 500,400
+superduck --session "$SID" --tab "$TAB" upload_file --path /abs/report.pdf --ref ref_9
 ```
-
-It does not upload arbitrary local file paths such as PDFs.
 
 ## Shortcuts
 

@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// cmdUpload: superduck upload --tab <id> --image-id <id> (--ref R | --coord x,y) [--filename N]
+// cmdUpload: superduck upload_image --tab <id> --image-id <id> (--ref R | --coord x,y) [--filename N]
 func cmdUpload(argv []string) error {
-	fs := flag.NewFlagSet("upload", flag.ContinueOnError)
+	fs := flag.NewFlagSet("upload_image", flag.ContinueOnError)
 	imageID := fs.String("image-id", "", "Screenshot/image ID returned by `screenshot`")
 	ref := fs.String("ref", "", "Element reference ID (e.g. file input)")
 	coord := fs.String("coord", "", "Drop target coordinates as x,y")

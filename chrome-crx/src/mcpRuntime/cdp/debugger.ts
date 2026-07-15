@@ -205,6 +205,40 @@ class ChromeDebuggerProtocol {
     });
   }
 
+  private isNotAttachedError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg.toLowerCase().includes('debugger is not attached');
+  }
+
+  private sendCommandNoRetry<TResult extends object | undefined = object | undefined>(
+    tabId: number,
+    method: string,
+    params?: Record<string, unknown>
+  ): Promise<TResult> {
+    return new Promise((resolve, reject) => {
+      chrome.debugger.sendCommand({ tabId }, method, params ?? {}, (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(result as TResult);
+        }
+      });
+    });
+  }
+
+  private async enableAttachedDomains(
+    tabId: number,
+    options: { console?: boolean; network?: boolean }
+  ): Promise<void> {
+    await this.sendCommandNoRetry(tabId, 'DOM.enable');
+    if (options.console) {
+      await this.sendCommandNoRetry(tabId, 'Runtime.enable');
+    }
+    if (options.network) {
+      await this.sendCommandNoRetry(tabId, 'Network.enable', { maxPostDataSize: 65536 });
+    }
+  }
+
   private async attachDebuggerInner(tabId: number): Promise<void> {
     const target: chrome.debugger.Debuggee = { tabId };
     const wasNetworkTracking = ChromeDebuggerProtocol.networkTrackingEnabled.has(tabId);
@@ -218,29 +252,16 @@ class ChromeDebuggerProtocol {
     if (wasAttached) {
       this.registerDebuggerEventHandlers();
 
-      // Ensure DOM domain is enabled for subsequent operations
       try {
-        await this.sendCommandInner(tabId, 'DOM.enable');
-      } catch (_err) {
-        // ignore
+        await this.enableAttachedDomains(tabId, {
+          console: wasConsoleTracking,
+          network: wasNetworkTracking
+        });
+        return;
+      } catch (err) {
+        if (!this.isNotAttachedError(err)) throw err;
+        await this.detachDebugger(tabId);
       }
-
-      if (wasConsoleTracking) {
-        try {
-          await this.sendCommandInner(tabId, 'Runtime.enable');
-        } catch (_err) {
-          // ignore
-        }
-      }
-
-      if (wasNetworkTracking) {
-        try {
-          await this.sendCommandInner(tabId, 'Network.enable', { maxPostDataSize: 65536 });
-        } catch (_err) {
-          // ignore
-        }
-      }
-      return;
     }
 
     // NOTE: Do NOT call detachDebugger before attach. If isDebuggerAttached
@@ -281,27 +302,13 @@ class ChromeDebuggerProtocol {
 
     this.registerDebuggerEventHandlers();
 
-    // 预启用 DOM domain，为后续 DOM.resolveNode 等调用做准备
     try {
-      await this.sendCommandInner(tabId, 'DOM.enable');
+      await this.enableAttachedDomains(tabId, {
+        console: wasConsoleTracking,
+        network: wasNetworkTracking
+      });
     } catch (_err) {
       // ignore
-    }
-
-    if (wasConsoleTracking) {
-      try {
-        await this.sendCommandInner(tabId, 'Runtime.enable');
-      } catch (_err) {
-        // ignore
-      }
-    }
-
-    if (wasNetworkTracking) {
-      try {
-        await this.sendCommandInner(tabId, 'Network.enable', { maxPostDataSize: 65536 });
-      } catch (_err) {
-        // ignore
-      }
     }
   }
 

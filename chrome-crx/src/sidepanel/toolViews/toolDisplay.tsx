@@ -332,6 +332,8 @@ export function getToolDisplayInfo(
       return { text: t('get_tabs', 'Get tabs'), icon: 'tabs' };
     case 'upload_image':
       return { text: t('upload_image', 'Upload image'), icon: 'upload' };
+    case 'upload_file':
+      return { text: t('upload_files', 'Upload files'), icon: 'upload' };
     case 'javascript_tool':
     case 'execute_js':
     case 'execute_javascript':
@@ -435,6 +437,7 @@ export const BROWSER_TOOLS = new Set([
   'tabs_context',
   'tabs_context_mcp',
   'upload_image',
+  'upload_file',
   'read_console_messages',
   'read_network_requests',
   'resize_window',

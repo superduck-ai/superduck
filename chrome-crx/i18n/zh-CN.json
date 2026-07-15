@@ -917,6 +917,7 @@
   "action_click_on": "点击",
   "action_type_text_into": "输入文本到",
   "action_upload_an_image_to": "上传图片到",
+  "action_upload_a_file_to": "上传文件到",
   "action_navigate_from": "从此导航",
   "action_execute_javascript_on": "执行 JavaScript",
   "superduck_wants_to_use_an_mcp_tool": "SuperDuck 想要使用 MCP 工具",
