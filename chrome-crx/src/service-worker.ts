@@ -43,6 +43,15 @@ const downloadTracker = createDownloadTracker({
 
 let serviceWorkerBootPromise: Promise<void> | null = null;
 
+// Boot diagnostics: timestamped + persisted counter so the SW panel shows
+// how often the SW is re-created. Frequent repeats while the panel is open
+// indicate a crash or reload loop, not the normal 30s idle recycling.
+void getStorageValue<number>("swBootCount").then((count) => {
+  const bootCount = typeof count === 'number' && count >= 0 ? count + 1 : 1;
+  void setStorageValue("swBootCount", bootCount);
+  console.log(`[superduck] service worker boot #${bootCount} at ${new Date().toISOString()}`);
+});
+
 async function runBootStep(label: string, step: () => unknown | Promise<unknown>): Promise<void> {
   try {
     await step();
