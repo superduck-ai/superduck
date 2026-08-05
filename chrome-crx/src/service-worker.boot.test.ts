@@ -498,36 +498,6 @@ describe('service worker cold-start boot', () => {
       expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
     });
 
-    it('RACE: idle reload must not be followed by a stale marker write', async () => {
-      fixtures.isAgentActive.mockReturnValue(true);
-      await import('./service-worker');
-
-      // Slow the storage writes so the closure is mid-flight when idle fires.
-      let releaseWrite!: () => void;
-      const slowSet = vi.fn(async () => {
-        await new Promise<void>((resolve) => {
-          releaseWrite = resolve;
-        });
-      });
-      const svMock = await import('./extensionServices');
-      (svMock as any).setStorageValue = slowSet;
-
-      fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
-
-      // Agent goes idle while the closure is still awaiting the first write.
-      fixtures.isAgentActive.mockReturnValue(false);
-      const idleCallback = fixtures.setOnAgentBecameIdle.mock.calls[0]?.[0];
-      idleCallback!();
-      await vi.waitFor(() => {
-        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
-      });
-
-      // Now release the closure's write — it must NOT persist a stale marker.
-      releaseWrite!();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(storageLocalMock._store['pendingUpdateVersion']).toBeUndefined();
-    });
-
     it('does not persist the marker after an idle reload already fired', async () => {
       fixtures.isAgentActive.mockReturnValue(true);
       await import('./service-worker');
@@ -564,6 +534,13 @@ describe('service worker cold-start boot', () => {
       releaseWrite!();
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(storageLocalMock._store['pendingUpdateVersion']).toBeUndefined();
+
+      // Full closure: a simulated SW restart must not re-fire reload, because
+      // the stale write was stopped before it could land.
+      await vi.resetModules();
+      await import('./service-worker');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
     });
 
     it('recovers when clearing the marker fails, so a later update still applies', async () => {
