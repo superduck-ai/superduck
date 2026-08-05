@@ -72,16 +72,14 @@ const fixtures = vi.hoisted(() => {
  */
 function createStorageLocalMock() {
   const store: Record<string, unknown> = {};
-  return {
-    set: vi.fn(async (values: Record<string, unknown>) => {
-      Object.assign(store, values);
-    }),
-    remove: vi.fn(async (keys: string | string[]) => {
-      const arr = Array.isArray(keys) ? keys : [keys];
-      for (const k of arr) delete store[k];
-    }),
-    _store: store
-  };
+  const set = vi.fn(async (values: Record<string, unknown>) => {
+    Object.assign(store, values);
+  });
+  const remove = vi.fn(async (keys: string | string[]) => {
+    const arr = Array.isArray(keys) ? keys : [keys];
+    for (const k of arr) delete store[k];
+  });
+  return { set, remove, _store: store };
 }
 
 vi.mock('./extensionServices', () => ({
@@ -280,6 +278,16 @@ describe('service worker cold-start boot', () => {
     fixtures.isAgentActive.mockReturnValue(false);
     // storage survives across simulated SW restarts, but must start clean
     for (const k of Object.keys(storageLocalMock._store)) delete storageLocalMock._store[k];
+    // Restore the plain set/remove implementations (a gated variant may have
+    // been installed by a race test) and let any queued update operations
+    // settle before the next test re-imports the module.
+    storageLocalMock.set.mockImplementation(async (values: Record<string, unknown>) => {
+      Object.assign(storageLocalMock._store, values);
+    });
+    storageLocalMock.remove.mockImplementation(async (keys: string | string[]) => {
+      const arr = Array.isArray(keys) ? keys : [keys];
+      for (const k of arr) delete storageLocalMock._store[k];
+    });
   });
 
   it('rehydrates runtime state on ordinary service-worker wake without waiting for onStartup', async () => {
@@ -498,12 +506,13 @@ describe('service worker cold-start boot', () => {
       expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
     });
 
-    it('does not persist the marker after an idle reload already fired', async () => {
+    it('serializes the marker write before an idle reload (no stale marker)', async () => {
       fixtures.isAgentActive.mockReturnValue(true);
       await import('./service-worker');
 
-      // Gate the marker write so the onUpdateAvailable closure is mid-flight
-      // when the agent goes idle.
+      // Track the ordering of marker writes vs. clear, and gate the marker
+      // write so the onUpdateAvailable closure is mid-flight when the agent
+      // goes idle.
       let releaseWrite!: () => void;
       const writeGate = new Promise<void>((resolve) => {
         releaseWrite = resolve;
@@ -517,26 +526,29 @@ describe('service worker cold-start boot', () => {
       }) as unknown as typeof storageLocalMock.set;
 
       fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
+      // Yield so the closure advances past UPDATE_AVAILABLE and blocks on the
+      // gated PENDING_UPDATE_VERSION write.
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-      // Agent goes idle while the closure is still awaiting the marker write.
+      // Agent goes idle while the marker write is in flight. The update
+      // queue serializes this: the write completes first, then the reload.
       fixtures.isAgentActive.mockReturnValue(false);
       const idleCallback = fixtures.setOnAgentBecameIdle.mock.calls[0]?.[0];
       idleCallback!();
 
+      // The closure is still blocked on the gated write — no reload yet.
+      expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
+
+      // Release the write: it lands BEFORE any reload, so nothing stale is
+      // left behind, and reload happens exactly once.
+      releaseWrite!();
       await vi.waitFor(() => {
         expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
       });
-      // The clear ran; the marker must be gone at this point.
+      // The clear ran after the write, so the marker is gone.
       expect(storageLocalMock._store['pendingUpdateVersion']).toBeUndefined();
 
-      // Release the closure's write. It must NOT resurrect the marker after
-      // the reload decision — otherwise the next boot re-reloads.
-      releaseWrite!();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(storageLocalMock._store['pendingUpdateVersion']).toBeUndefined();
-
-      // Full closure: a simulated SW restart must not re-fire reload, because
-      // the stale write was stopped before it could land.
+      // Full closure: a simulated SW restart must not re-fire reload.
       await vi.resetModules();
       await import('./service-worker');
       await new Promise((resolve) => setTimeout(resolve, 20));

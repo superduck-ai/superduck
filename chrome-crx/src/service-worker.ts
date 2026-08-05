@@ -196,6 +196,18 @@ chrome.commands.onCommand.addListener((command) => {
 let pendingUpdateVersion: string | null = null;
 /** True while a reload is being applied — guards against double-trigger. */
 let updateReloadInFlight = false;
+/**
+ * Serializes marker writes/clears: an onUpdateAvailable write must never
+ * interleave with a tryApplyUpdate clear+reload, or the write can land after
+ * the clear and resurrect the marker on the next boot.
+ */
+let updateOperationChain: Promise<void> = Promise.resolve();
+
+function enqueueUpdateOperation(op: () => Promise<void>): void {
+  updateOperationChain = updateOperationChain.then(op).catch((err) => {
+    console.warn('[superduck] update operation failed', err);
+  });
+}
 
 /**
  * Consume the pending update marker right before reload, so a subsequent SW
@@ -247,7 +259,9 @@ async function replayPendingUpdateIfAny(): Promise<void> {
 }
 
 setOnAgentBecameIdle(() => {
-  void tryApplyUpdate();
+  enqueueUpdateOperation(async () => {
+    await tryApplyUpdate();
+  });
 });
 
 chrome.runtime.onUpdateAvailable.addListener((details) => {
@@ -256,12 +270,12 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
     current_version: chrome.runtime.getManifest().version,
     new_version: details.version,
   });
-  void (async () => {
+  enqueueUpdateOperation(async () => {
     // Persist the marker before consuming it: tryApplyUpdate clears storage,
     // so an un-awaited write could land after the clear and survive the
-    // reload, re-firing the loop on the next boot. Guard each write: if a
-    // reload already fired (e.g. idle retry raced ahead while we were
-    // awaiting), stop — a late write would resurrect the cleared marker.
+    // reload, re-firing the loop on the next boot. The queue serializes this
+    // against tryApplyUpdate, and the in-flight guard bails if a reload was
+    // already applied while we were queued.
     // UPDATE_AVAILABLE is intentionally preserved (PRESERVED_KEYS): it is a
     // UI flag cleared by onInstalled after the reload.
     if (updateReloadInFlight) return;
@@ -269,8 +283,6 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
     if (updateReloadInFlight) return;
     await setStorageValue(StorageKeys.PENDING_UPDATE_VERSION, details.version);
     await tryApplyUpdate();
-  })().catch((err) => {
-    console.warn('[superduck] failed to persist pending update', err);
   });
 });
 
