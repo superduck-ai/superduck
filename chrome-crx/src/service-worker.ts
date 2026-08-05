@@ -269,7 +269,9 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
     if (updateReloadInFlight) return;
     await setStorageValue(StorageKeys.PENDING_UPDATE_VERSION, details.version);
     await tryApplyUpdate();
-  })();
+  })().catch((err) => {
+    console.warn('[superduck] failed to persist pending update', err);
+  });
 });
 
 registerRuntimeMessageListener({
