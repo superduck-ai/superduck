@@ -62,7 +62,6 @@ const fixtures = vi.hoisted(() => {
     downloadChanged: vi.fn(),
     trackEvent: vi.fn(),
     setOnAgentBecameIdle: vi.fn(),
-    setStorageValue: vi.fn(),
     isAgentActive: vi.fn(() => false)
   };
 });
@@ -90,10 +89,16 @@ vi.mock('./extensionServices', () => ({
     PENDING_UPDATE_VERSION: 'pendingUpdateVersion',
     UPDATE_AVAILABLE: 'updateAvailable'
   },
-  // Route reads through the storage fake so cold-boot replay sees whatever
-  // `onUpdateAvailable` (or a simulated previous SW instance) persisted.
+  // Route reads/writes through the storage fake so onUpdateAvailable
+  // persistence and cold-boot replay see the same store, exercising the real
+  // write-then-consume ordering.
   getStorageValue: vi.fn(async (key: string) => storageLocalMock._store[key]),
-  setStorageValue: fixtures.setStorageValue
+  setStorageValue: vi.fn(async (key: string, value: unknown) => {
+    await storageLocalMock.set({ [key]: value });
+  }),
+  removeStorageValues: vi.fn(async (keys: string | string[]) => {
+    await storageLocalMock.remove(keys);
+  })
 }));
 
 vi.mock('./mcpRuntime', () => ({
@@ -476,6 +481,10 @@ describe('service worker cold-start boot', () => {
       fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
       expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
 
+      // onUpdateAvailable now persists the marker before consuming it (async
+      // closure), so the idle callback and the closure can both reach
+      // tryApplyUpdate. Exactly one reload must happen — a second would mean
+      // the marker was not atomically consumed.
       fixtures.isAgentActive.mockReturnValue(false);
       const idleCallback = fixtures.setOnAgentBecameIdle.mock.calls[0]?.[0];
       expect(idleCallback).toBeTypeOf('function');
@@ -484,6 +493,9 @@ describe('service worker cold-start boot', () => {
       await vi.waitFor(() => {
         expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
       });
+      // Give the async closure time to settle; it must not re-fire reload.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
     });
 
     it('onInstalled clears stale update state from previous versions', async () => {

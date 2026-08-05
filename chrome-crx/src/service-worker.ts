@@ -1,4 +1,4 @@
-import { getStorageValue, setStorageValue, StorageKeys } from "./extensionServices";
+import { getStorageValue, removeStorageValues, setStorageValue, StorageKeys } from "./extensionServices";
 import {
   connectBridge,
   initializeExtensionPermissions,
@@ -131,8 +131,9 @@ async function handleNotificationClick(notificationId: string) {
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // Clear both markers; a stale pendingUpdateVersion re-reloads forever.
-  chrome.storage.local.remove(["updateAvailable", StorageKeys.PENDING_UPDATE_VERSION as string]);
+  // Clear both markers before boot: a stale pendingUpdateVersion re-reloads
+  // forever, and replayPendingUpdateIfAny reads it during boot.
+  await removeStorageValues([StorageKeys.UPDATE_AVAILABLE, StorageKeys.PENDING_UPDATE_VERSION]);
 
   try {
     chrome.runtime.setUninstallURL("", () => {
@@ -193,6 +194,8 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 let pendingUpdateVersion: string | null = null;
+/** True while a reload is being applied — guards against double-trigger. */
+let updateReloadInFlight = false;
 
 /**
  * Consume the pending update marker right before reload, so a subsequent SW
@@ -201,12 +204,13 @@ let pendingUpdateVersion: string | null = null;
  */
 async function clearPendingUpdate(): Promise<void> {
   pendingUpdateVersion = null;
-  await chrome.storage.local.remove(StorageKeys.PENDING_UPDATE_VERSION as string);
+  await removeStorageValues(StorageKeys.PENDING_UPDATE_VERSION);
 }
 
 async function tryApplyUpdate(): Promise<void> {
-  if (!pendingUpdateVersion) return;
+  if (!pendingUpdateVersion || updateReloadInFlight) return;
   if (isAgentActive()) return;
+  updateReloadInFlight = true;
   await clearPendingUpdate();
   chrome.runtime.reload();
 }
@@ -236,13 +240,18 @@ setOnAgentBecameIdle(() => {
 
 chrome.runtime.onUpdateAvailable.addListener((details) => {
   pendingUpdateVersion = details.version;
-  void setStorageValue(StorageKeys.UPDATE_AVAILABLE, true);
-  void setStorageValue(StorageKeys.PENDING_UPDATE_VERSION, details.version);
   void trackEvent("superduck.extension.update_available", {
     current_version: chrome.runtime.getManifest().version,
     new_version: details.version,
   });
-  void tryApplyUpdate();
+  void (async () => {
+    // Persist the marker before consuming it: tryApplyUpdate clears storage,
+    // so an un-awaited write could land after the clear and survive the
+    // reload, re-firing the loop on the next boot.
+    await setStorageValue(StorageKeys.UPDATE_AVAILABLE, true);
+    await setStorageValue(StorageKeys.PENDING_UPDATE_VERSION, details.version);
+    await tryApplyUpdate();
+  })();
 });
 
 registerRuntimeMessageListener({
