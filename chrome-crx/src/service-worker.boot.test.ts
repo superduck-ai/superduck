@@ -498,6 +498,26 @@ describe('service worker cold-start boot', () => {
       expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
     });
 
+    it('recovers when clearing the marker fails, so a later update still applies', async () => {
+      // First update: clearing storage rejects → reload must not happen and
+      // the in-flight guard must reset.
+      storageLocalMock.remove.mockRejectedValueOnce(new Error('storage boom'));
+      await import('./service-worker');
+
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
+      await vi.waitFor(() => {
+        expect(storageLocalMock.remove).toHaveBeenCalled();
+      });
+      expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
+
+      // Second update: storage healthy again → reload happens, proving the
+      // guard was not left stuck.
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.2.0' });
+      await vi.waitFor(() => {
+        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('onInstalled clears stale update state from previous versions', async () => {
       storageLocalMock._store['pendingUpdateVersion'] = '9.9.9';
       storageLocalMock._store['updateAvailable'] = true;

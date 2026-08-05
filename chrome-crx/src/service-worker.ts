@@ -211,8 +211,14 @@ async function tryApplyUpdate(): Promise<void> {
   if (!pendingUpdateVersion || updateReloadInFlight) return;
   if (isAgentActive()) return;
   updateReloadInFlight = true;
-  await clearPendingUpdate();
-  chrome.runtime.reload();
+  try {
+    await clearPendingUpdate();
+    chrome.runtime.reload();
+  } catch (err) {
+    // Clear failed — reset the guard so a later update can still be applied.
+    updateReloadInFlight = false;
+    console.warn('[superduck] failed to apply pending update', err);
+  }
 }
 
 /**
