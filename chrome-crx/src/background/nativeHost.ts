@@ -510,7 +510,7 @@ export function createNativeHostManager(options: NativeHostManagerOptions = {}):
             nativePort = port;
             nativeHostInstalled = true;
             reconnectScheduler.reset();
-            console.warn('[nativeHost] connected', { host: hostName });
+            console.log('[nativeHost] connected', { host: hostName });
 
             // Re-establish the MCP bridge after native host reconnection.
             // The bridge is independent of the native host, but reconnectMcp()

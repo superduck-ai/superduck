@@ -62,7 +62,6 @@ const fixtures = vi.hoisted(() => {
     downloadChanged: vi.fn(),
     trackEvent: vi.fn(),
     setOnAgentBecameIdle: vi.fn(),
-    setStorageValue: vi.fn(),
     isAgentActive: vi.fn(() => false)
   };
 });
@@ -73,16 +72,14 @@ const fixtures = vi.hoisted(() => {
  */
 function createStorageLocalMock() {
   const store: Record<string, unknown> = {};
-  return {
-    set: vi.fn(async (values: Record<string, unknown>) => {
-      Object.assign(store, values);
-    }),
-    remove: vi.fn(async (keys: string | string[]) => {
-      const arr = Array.isArray(keys) ? keys : [keys];
-      for (const k of arr) delete store[k];
-    }),
-    _store: store
-  };
+  const set = vi.fn(async (values: Record<string, unknown>) => {
+    Object.assign(store, values);
+  });
+  const remove = vi.fn(async (keys: string | string[]) => {
+    const arr = Array.isArray(keys) ? keys : [keys];
+    for (const k of arr) delete store[k];
+  });
+  return { set, remove, _store: store };
 }
 
 vi.mock('./extensionServices', () => ({
@@ -90,10 +87,16 @@ vi.mock('./extensionServices', () => ({
     PENDING_UPDATE_VERSION: 'pendingUpdateVersion',
     UPDATE_AVAILABLE: 'updateAvailable'
   },
-  // Route reads through the storage fake so cold-boot replay sees whatever
-  // `onUpdateAvailable` (or a simulated previous SW instance) persisted.
+  // Route reads/writes through the storage fake so onUpdateAvailable
+  // persistence and cold-boot replay see the same store, exercising the real
+  // write-then-consume ordering.
   getStorageValue: vi.fn(async (key: string) => storageLocalMock._store[key]),
-  setStorageValue: fixtures.setStorageValue
+  setStorageValue: vi.fn(async (key: string, value: unknown) => {
+    await storageLocalMock.set({ [key]: value });
+  }),
+  removeStorageValues: vi.fn(async (keys: string | string[]) => {
+    await storageLocalMock.remove(keys);
+  })
 }));
 
 vi.mock('./mcpRuntime', () => ({
@@ -275,6 +278,16 @@ describe('service worker cold-start boot', () => {
     fixtures.isAgentActive.mockReturnValue(false);
     // storage survives across simulated SW restarts, but must start clean
     for (const k of Object.keys(storageLocalMock._store)) delete storageLocalMock._store[k];
+    // Restore the plain set/remove implementations (a gated variant may have
+    // been installed by a race test) and let any queued update operations
+    // settle before the next test re-imports the module.
+    storageLocalMock.set.mockImplementation(async (values: Record<string, unknown>) => {
+      Object.assign(storageLocalMock._store, values);
+    });
+    storageLocalMock.remove.mockImplementation(async (keys: string | string[]) => {
+      const arr = Array.isArray(keys) ? keys : [keys];
+      for (const k of arr) delete storageLocalMock._store[k];
+    });
   });
 
   it('rehydrates runtime state on ordinary service-worker wake without waiting for onStartup', async () => {
@@ -476,11 +489,87 @@ describe('service worker cold-start boot', () => {
       fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
       expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
 
+      // onUpdateAvailable now persists the marker before consuming it (async
+      // closure), so the idle callback and the closure can both reach
+      // tryApplyUpdate. Exactly one reload must happen — a second would mean
+      // the marker was not atomically consumed.
       fixtures.isAgentActive.mockReturnValue(false);
       const idleCallback = fixtures.setOnAgentBecameIdle.mock.calls[0]?.[0];
       expect(idleCallback).toBeTypeOf('function');
       idleCallback!();
 
+      await vi.waitFor(() => {
+        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+      });
+      // Give the async closure time to settle; it must not re-fire reload.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('serializes the marker write before an idle reload (no stale marker)', async () => {
+      fixtures.isAgentActive.mockReturnValue(true);
+      await import('./service-worker');
+
+      // Track the ordering of marker writes vs. clear, and gate the marker
+      // write so the onUpdateAvailable closure is mid-flight when the agent
+      // goes idle.
+      let releaseWrite!: () => void;
+      const writeGate = new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      const realSet = storageLocalMock.set;
+      storageLocalMock.set = vi.fn(async (values: Record<string, unknown>) => {
+        if (values['pendingUpdateVersion'] !== undefined) {
+          await writeGate;
+        }
+        await realSet(values);
+      }) as unknown as typeof storageLocalMock.set;
+
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
+      // Yield so the closure advances past UPDATE_AVAILABLE and blocks on the
+      // gated PENDING_UPDATE_VERSION write.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Agent goes idle while the marker write is in flight. The update
+      // queue serializes this: the write completes first, then the reload.
+      fixtures.isAgentActive.mockReturnValue(false);
+      const idleCallback = fixtures.setOnAgentBecameIdle.mock.calls[0]?.[0];
+      idleCallback!();
+
+      // The closure is still blocked on the gated write — no reload yet.
+      expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
+
+      // Release the write: it lands BEFORE any reload, so nothing stale is
+      // left behind, and reload happens exactly once.
+      releaseWrite!();
+      await vi.waitFor(() => {
+        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+      });
+      // The clear ran after the write, so the marker is gone.
+      expect(storageLocalMock._store['pendingUpdateVersion']).toBeUndefined();
+
+      // Full closure: a simulated SW restart must not re-fire reload.
+      await vi.resetModules();
+      await import('./service-worker');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('recovers when clearing the marker fails, so a later update still applies', async () => {
+      // First update: clearing storage rejects → reload must not happen and
+      // the in-flight guard must reset.
+      storageLocalMock.remove.mockRejectedValueOnce(new Error('storage boom'));
+      await import('./service-worker');
+
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
+      await vi.waitFor(() => {
+        expect(storageLocalMock.remove).toHaveBeenCalled();
+      });
+      expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
+
+      // Second update: storage healthy again → reload happens, proving the
+      // guard was not left stuck.
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.2.0' });
       await vi.waitFor(() => {
         expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
       });
