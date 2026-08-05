@@ -262,6 +262,8 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
     // reload, re-firing the loop on the next boot. Guard each write: if a
     // reload already fired (e.g. idle retry raced ahead while we were
     // awaiting), stop — a late write would resurrect the cleared marker.
+    // UPDATE_AVAILABLE is intentionally preserved (PRESERVED_KEYS): it is a
+    // UI flag cleared by onInstalled after the reload.
     if (updateReloadInFlight) return;
     await setStorageValue(StorageKeys.UPDATE_AVAILABLE, true);
     if (updateReloadInFlight) return;
