@@ -131,7 +131,8 @@ async function handleNotificationClick(notificationId: string) {
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  chrome.storage.local.remove(["updateAvailable"]);
+  // Clear both markers; a stale pendingUpdateVersion re-reloads forever.
+  chrome.storage.local.remove(["updateAvailable", StorageKeys.PENDING_UPDATE_VERSION as string]);
 
   try {
     chrome.runtime.setUninstallURL("", () => {
@@ -193,9 +194,20 @@ chrome.commands.onCommand.addListener((command) => {
 
 let pendingUpdateVersion: string | null = null;
 
-function tryApplyUpdate() {
+/**
+ * Consume the pending update marker right before reload, so a subsequent SW
+ * boot replay is a no-op (pre-fix this re-reloaded forever). Skipped while
+ * an agent is active — the marker must survive for the idle retry.
+ */
+async function clearPendingUpdate(): Promise<void> {
+  pendingUpdateVersion = null;
+  await chrome.storage.local.remove(StorageKeys.PENDING_UPDATE_VERSION as string);
+}
+
+async function tryApplyUpdate(): Promise<void> {
   if (!pendingUpdateVersion) return;
   if (isAgentActive()) return;
+  await clearPendingUpdate();
   chrome.runtime.reload();
 }
 
@@ -208,17 +220,19 @@ function tryApplyUpdate() {
  */
 async function replayPendingUpdateIfAny(): Promise<void> {
   if (pendingUpdateVersion) {
-    tryApplyUpdate();
+    await tryApplyUpdate();
     return;
   }
   const stored = await getStorageValue<string | null>(StorageKeys.PENDING_UPDATE_VERSION);
   if (typeof stored === 'string' && stored.length > 0) {
     pendingUpdateVersion = stored;
-    tryApplyUpdate();
+    await tryApplyUpdate();
   }
 }
 
-setOnAgentBecameIdle(() => tryApplyUpdate());
+setOnAgentBecameIdle(() => {
+  void tryApplyUpdate();
+});
 
 chrome.runtime.onUpdateAvailable.addListener((details) => {
   pendingUpdateVersion = details.version;
@@ -228,7 +242,7 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
     current_version: chrome.runtime.getManifest().version,
     new_version: details.version,
   });
-  tryApplyUpdate();
+  void tryApplyUpdate();
 });
 
 registerRuntimeMessageListener({

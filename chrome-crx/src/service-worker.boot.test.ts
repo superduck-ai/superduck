@@ -37,7 +37,6 @@ const fixtures = vi.hoisted(() => {
     restoreActiveToolContextsFromStorage: vi.fn(),
     restoreActiveToolCountFromStorage: vi.fn(),
     restoreGifFrameStorageFromStorage: vi.fn(),
-    replayStorageGet: vi.fn(),
     tabGroupInitialize: vi.fn(),
     startTabGroupChangeListener: vi.fn(),
     tabBadgeInitialize: vi.fn(),
@@ -49,7 +48,7 @@ const fixtures = vi.hoisted(() => {
     handleToolContextAlarm: vi.fn(),
     registerRuntimeMessageListener: vi.fn(),
     registerExternalMessageListener: vi.fn(),
-    openOptionsForSetup: vi.fn(),
+    openOptionsForSetup: vi.fn(async () => {}),
     sidePanelAction: vi.fn(),
     sidePanelActivated: vi.fn(),
     handleStaticHeartbeat: vi.fn(),
@@ -62,17 +61,39 @@ const fixtures = vi.hoisted(() => {
     downloadCreated: vi.fn(),
     downloadChanged: vi.fn(),
     trackEvent: vi.fn(),
-    setOnAgentBecameIdle: vi.fn()
+    setOnAgentBecameIdle: vi.fn(),
+    setStorageValue: vi.fn(),
+    isAgentActive: vi.fn(() => false)
   };
 });
+
+/**
+ * Minimal fake of chrome.storage.local for simulating SW restart cycles:
+ * storage survives, in-memory state does not.
+ */
+function createStorageLocalMock() {
+  const store: Record<string, unknown> = {};
+  return {
+    set: vi.fn(async (values: Record<string, unknown>) => {
+      Object.assign(store, values);
+    }),
+    remove: vi.fn(async (keys: string | string[]) => {
+      const arr = Array.isArray(keys) ? keys : [keys];
+      for (const k of arr) delete store[k];
+    }),
+    _store: store
+  };
+}
 
 vi.mock('./extensionServices', () => ({
   StorageKeys: {
     PENDING_UPDATE_VERSION: 'pendingUpdateVersion',
     UPDATE_AVAILABLE: 'updateAvailable'
   },
-  getStorageValue: fixtures.replayStorageGet,
-  setStorageValue: vi.fn()
+  // Route reads through the storage fake so cold-boot replay sees whatever
+  // `onUpdateAvailable` (or a simulated previous SW instance) persisted.
+  getStorageValue: vi.fn(async (key: string) => storageLocalMock._store[key]),
+  setStorageValue: fixtures.setStorageValue
 }));
 
 vi.mock('./mcpRuntime', () => ({
@@ -80,7 +101,7 @@ vi.mock('./mcpRuntime', () => ({
   setBridgeToolCallBootWaiter: fixtures.setBridgeToolCallBootWaiter,
   setNavigationGuardBootWaiter: fixtures.setNavigationGuardBootWaiter,
   initializeExtensionPermissions: fixtures.initializeExtensionPermissions,
-  isAgentActive: vi.fn(() => false),
+  isAgentActive: fixtures.isAgentActive,
   setOnAgentBecameIdle: fixtures.setOnAgentBecameIdle,
   tabBadgeManager: {
     initialize: fixtures.tabBadgeInitialize
@@ -163,11 +184,11 @@ vi.mock('./background/downloadTracker', () => ({
   }))
 }));
 
+const storageLocalMock = createStorageLocalMock();
+
 const chromeMock = {
   storage: {
-    local: {
-      remove: vi.fn()
-    }
+    local: storageLocalMock
   },
   runtime: {
     OnInstalledReason: { INSTALL: 'install' },
@@ -244,7 +265,6 @@ describe('service worker cold-start boot', () => {
     fixtures.restoreActiveToolContextsFromStorage.mockResolvedValue(undefined);
     fixtures.restoreActiveToolCountFromStorage.mockResolvedValue(undefined);
     fixtures.restoreGifFrameStorageFromStorage.mockResolvedValue(undefined);
-    fixtures.replayStorageGet.mockResolvedValue(undefined);
     fixtures.tabGroupInitialize.mockResolvedValue(undefined);
     fixtures.tabBadgeInitialize.mockResolvedValue(undefined);
     fixtures.nativeConnect.mockResolvedValue(undefined);
@@ -252,6 +272,9 @@ describe('service worker cold-start boot', () => {
     fixtures.handleToolContextAlarm.mockResolvedValue(false);
     fixtures.restoreTurnActiveDeadlines.mockResolvedValue(undefined);
     fixtures.handleStaticIndicatorAlarm.mockResolvedValue(false);
+    fixtures.isAgentActive.mockReturnValue(false);
+    // storage survives across simulated SW restarts, but must start clean
+    for (const k of Object.keys(storageLocalMock._store)) delete storageLocalMock._store[k];
   });
 
   it('rehydrates runtime state on ordinary service-worker wake without waiting for onStartup', async () => {
@@ -415,5 +438,66 @@ describe('service worker cold-start boot', () => {
       expect(fixtures.handleStaticIndicatorAlarm).toHaveBeenCalledWith('superduck.turnActive.7');
     });
     expect(fixtures.scheduledTaskHandleAlarm).not.toHaveBeenCalled();
+  });
+
+  describe('update reload guard', () => {
+    /**
+     * Full update lifecycle: onUpdateAvailable fires → reload → SW restarts
+     * → boot replays the persisted marker. Pre-fix, the marker was never
+     * consumed, so every SW wake re-fired reload() — the "reloads itself too
+     * frequently" loop. The fix must consume it before reloading so a
+     * subsequent boot replay is a no-op.
+     */
+    it('clears the persisted pending update version before reloading', async () => {
+      await import('./service-worker');
+
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
+
+      await vi.waitFor(() => {
+        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+      });
+
+      // SW restart: storage survives, in-memory pendingUpdateVersion is gone.
+      await vi.resetModules();
+      await import('./service-worker');
+
+      await vi.waitFor(() => {
+        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+      });
+      // The marker was consumed (cleared) by the first reload — the replay
+      // must not re-fire reload.
+      expect(storageLocalMock._store['pendingUpdateVersion']).toBeUndefined();
+    });
+
+    it('does not reload while an agent is active, and applies once it becomes idle', async () => {
+      fixtures.isAgentActive.mockReturnValue(true);
+      await import('./service-worker');
+
+      fixtures.onUpdateAvailable.listeners[0]({ version: '1.1.0' });
+      expect(chromeMock.runtime.reload).not.toHaveBeenCalled();
+
+      fixtures.isAgentActive.mockReturnValue(false);
+      const idleCallback = fixtures.setOnAgentBecameIdle.mock.calls[0]?.[0];
+      expect(idleCallback).toBeTypeOf('function');
+      idleCallback!();
+
+      await vi.waitFor(() => {
+        expect(chromeMock.runtime.reload).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('onInstalled clears stale update state from previous versions', async () => {
+      storageLocalMock._store['pendingUpdateVersion'] = '9.9.9';
+      storageLocalMock._store['updateAvailable'] = true;
+      await import('./service-worker');
+
+      fixtures.onInstalled.listeners[0]({ reason: chromeMock.runtime.OnInstalledReason.INSTALL });
+
+      await vi.waitFor(() => {
+        expect(storageLocalMock.remove).toHaveBeenCalledWith(
+          expect.arrayContaining(['updateAvailable', 'pendingUpdateVersion'])
+        );
+      });
+    });
   });
 });
