@@ -214,6 +214,12 @@ async function tryApplyUpdate(): Promise<void> {
   try {
     await clearPendingUpdate();
     chrome.runtime.reload();
+    // reload() is fire-and-forget; if the SW survives (reload didn't take
+    // effect), the guard would stick and block all future updates. Reset it
+    // after a grace period so a later onUpdateAvailable can retry.
+    setTimeout(() => {
+      updateReloadInFlight = false;
+    }, 5000);
   } catch (err) {
     // Clear failed — reset the guard so a later update can still be applied.
     updateReloadInFlight = false;
@@ -253,8 +259,12 @@ chrome.runtime.onUpdateAvailable.addListener((details) => {
   void (async () => {
     // Persist the marker before consuming it: tryApplyUpdate clears storage,
     // so an un-awaited write could land after the clear and survive the
-    // reload, re-firing the loop on the next boot.
+    // reload, re-firing the loop on the next boot. Guard each write: if a
+    // reload already fired (e.g. idle retry raced ahead while we were
+    // awaiting), stop — a late write would resurrect the cleared marker.
+    if (updateReloadInFlight) return;
     await setStorageValue(StorageKeys.UPDATE_AVAILABLE, true);
+    if (updateReloadInFlight) return;
     await setStorageValue(StorageKeys.PENDING_UPDATE_VERSION, details.version);
     await tryApplyUpdate();
   })();
