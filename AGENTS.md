@@ -248,3 +248,18 @@ go run ./testdata/server -addr :8765 &    # 本地测试服
 - Label 命名使用 `<group>: <slug>`,例如 `type: bug`、`area: chrome-crx`、`priority: P1`、`status: ready`。
 - 新建 issue 至少添加一个 `type:` 和一个 `area:`;bug / agent-task 还应添加 `priority:`。
 - 代理挑任务时优先看 `agent: ready` + `status: ready`,再按 `priority:` 和 `area:` 过滤。
+
+## Cursor Cloud specific instructions
+
+面向后续 Cloud Agent 的持久化、非显而易见的环境说明(依赖已由 update script 装好:根 `bun install` + `chrome-native-host` 的 `go mod download`)。标准构建/测试命令见上文各"构建命令"小节,这里只记录容易踩坑的点。
+
+- **Bun 版本**:根 `bun.lock` 是 lockfileVersion 1,需 **Bun ≥ 1.2**(本环境用 1.3.14)。`.devcontainer/post-create.sh` 里 pin 的 Bun 1.1.42 **读不了**该 lockfile(会把它降级重写成 version 0、污染工作区),不要用它。根目录 `bun install` 已通过 workspaces 覆盖 `chrome-crx` 等所有子包(hoist 到根 `node_modules/`),无需再单独进 `chrome-crx` 安装。
+- **加载扩展**:系统自带 `google-chrome`(148 stable)会**静默忽略** `--load-extension`(企业策略 `DisableLoadExtensionCommandLineSwitch`),`chrome://extensions` 里看不到扩展,也没有报错——不要用它做扩展相关测试。请用 Playwright 自带的 Chromium(首次 `cd chrome-crx && bun x playwright install chromium`,这也是 e2e 用的浏览器)。
+- **E2E**:无显示环境下用 `cd chrome-crx && xvfb-run -a bun run test:e2e`。个别 `06-browser-batch` 用例在并发下偶发失败,但单独重跑必过,属并发抖动而非环境问题。
+- **CLI ↔ 扩展联调(`superduck` 驱动实时浏览器,旗舰功能)**:
+  1. `cd chrome-native-host && make && bash scripts/install.sh` 构建三件套并注册 native messaging manifest(写入 `~/.config/google-chrome/NativeMessagingHosts/`)。
+  2. 用 Playwright 的 Chromium 时,还要把同一 manifest 复制到 **`~/.config/chromium/NativeMessagingHosts/`** 才能被找到(否则扩展报 "Specified native messaging host not found")。
+  3. **直接**启动 Playwright 的 chromium 二进制(`~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`),**不要**经 Playwright 的 CDP 连接启动:Playwright 占用 CDP 会让扩展的 `chrome.debugger.attach` 超时,导致 `screenshot`/`context`/`read_page` 失败。启动参数:`--user-data-dir=<dir> --load-extension=<dist> --disable-extensions-except=<dist> --silent-debugger-extension-api --disable-gpu --no-sandbox`(软件 GPU 在重页面(如 Wikipedia)会整个浏览器崩溃,务必 `--disable-gpu`)。
+  4. 扩展 MV3 service worker 启动时会自动 `connectNative`(见 `chrome-crx/src/service-worker.ts`);SW 被挂起后 native host 进程退出、`/tmp/chrome-native-host.sock` 随之消失,需再次触发扩展活动重连。
+  5. 连上后 `./superduck status` 应显示 `ok: true` / `chromeReady: true`;再用 `./superduck tab_group new`、`./superduck --tab <id> navigate <url>`、`./superduck --tab <id> screenshot --output /tmp/` 驱动。
+- 扩展 ID 固定为 `komnjkkihimgafgblijcchlgeiogpjgi`(manifest 内置 `key`),`scripts/install.sh` 默认 origin 与之一致。
