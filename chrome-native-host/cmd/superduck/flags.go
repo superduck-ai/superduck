@@ -103,6 +103,7 @@ var knownValueFlags = map[string]bool{
 	"--url-pattern": true, "--filter": true,
 	"--depth":     true,
 	"--max-chars": true,
+	"--format":    true,
 	"--value":     true,
 	"--image-id":  true, "--filename": true,
 	"--coord": true, "--command": true, "--id": true,

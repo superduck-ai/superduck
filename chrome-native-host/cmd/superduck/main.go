@@ -102,7 +102,9 @@ PAGE / DOM (usually require --tab <id>):
   batch --file PATH | --stdin
                              Execute browser_batch JSON. Input can be either an actions array
                              or {"actions":[...]}; global --tab writes outer tabId.
-  page_text                  Extract the main article text (skips chrome/nav, like Reader Mode).
+  page_text [--format text|html|markdown]
+                             Extract the main article text (skips chrome/nav, like Reader Mode).
+                             --format: text (default), html (raw innerHTML), markdown (structured).
   read_page [--filter interactive|all] [--depth N] [--ref R] [--max-chars N]
                              Accessibility-tree snapshot with stable ref ids. Filter to
                              'interactive' for buttons/links/inputs only.
