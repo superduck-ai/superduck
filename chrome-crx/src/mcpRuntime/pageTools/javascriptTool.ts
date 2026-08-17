@@ -132,29 +132,41 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       let isError = false;
       let errorMessage = '';
 
+      // Rule scoping matters here: the cookie/query-string rule is a
+      // contains-check ('=' + ';'/'&') that false-positives on long rich-text
+      // (e.g. style="color:red;..."), so it only applies to short strings —
+      // real credentials are short — and only AFTER truncation. The
+      // JWT/base64/hex rules are anchored full-string matches, so long prose
+      // can never collide with them; they run on the FULL value so truncation
+      // can't destroy the signature of an oversized credential.
+      const sensitivePatterns = [
+        /password/i,
+        /token/i,
+        /secret/i,
+        /api[_-]?key/i,
+        /auth/i,
+        /credential/i,
+        /private[_-]?key/i,
+        /access[_-]?key/i,
+        /bearer/i,
+        /oauth/i,
+        /session/i
+      ];
       const sanitizeValue = (value: unknown, depth: number = 0): unknown => {
         if (depth > 5) return '[TRUNCATED: Max depth exceeded]';
-        const sensitivePatterns = [
-          /password/i,
-          /token/i,
-          /secret/i,
-          /api[_-]?key/i,
-          /auth/i,
-          /credential/i,
-          /private[_-]?key/i,
-          /access[_-]?key/i,
-          /bearer/i,
-          /oauth/i,
-          /session/i
-        ];
         if ('string' === typeof value) {
-          if (value.includes('=') && (value.includes(';') || value.includes('&')))
-            return '[BLOCKED: Cookie/query string data]';
           if (value.match(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/))
             return '[BLOCKED: JWT token]';
           if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(value)) return '[BLOCKED: Base64 encoded data]';
           if (/^[a-f0-9]{32,}$/i.test(value)) return '[BLOCKED: Hex credential]';
-          if (value.length > 1000) return value.substring(0, 1000) + '[TRUNCATED]';
+          const truncated = value.length > 1000 ? value.substring(0, 1000) + '[TRUNCATED]' : value;
+          if (
+            truncated.length <= 512 &&
+            truncated.includes('=') &&
+            (truncated.includes(';') || truncated.includes('&'))
+          )
+            return '[BLOCKED: Cookie/query string data]';
+          return truncated;
         }
         if (value && 'object' === typeof value && !Array.isArray(value)) {
           const sanitized: Record<string, unknown> = {};
