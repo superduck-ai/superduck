@@ -78,16 +78,16 @@ vi.mock('./axSnapshot', () => ({
   withSnapshotLock: vi.fn(async (_tabId: number, fn: () => Promise<unknown>) => fn())
 }));
 
-vi.mock('./refBridge', () => ({
+vi.mock('./screenshot/refBridge', () => ({
   registerRefsInPage: vi.fn(),
   pruneStaleRefs: vi.fn()
 }));
 
-vi.mock('./shared', () => ({
+vi.mock('./domainPermissions', () => ({
   PermissionTools: {
     EXECUTE_JAVASCRIPT: 'execute_javascript'
   },
-  checkUrlSecurity: vi.fn()
+  checkUrlSecurity: vi.fn(() => null)
 }));
 
 const chromeMock = vi.hoisted(() => ({
@@ -212,6 +212,39 @@ describe('javascript_tool sanitizeValue: truncation before credential detection'
     expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
   });
 
+  it('still blocks LONG cookie/query strings (>512 chars, no length exemption)', async () => {
+    // Aggregated document.cookie or query strings can exceed 512 chars; they
+    // must NOT bypass the shape check just because they are long.
+    const longCookie = 'session_id=' + 'a'.repeat(600) + '; theme=dark';
+    stubEvalValue(longCookie, 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'document.cookie', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
+  it('still blocks cookie-wrapped JWTs over 512 chars (no length exemption)', async () => {
+    // A JWT wrapped in a cookie ("session=<700-char JWT>; theme=dark") does not
+    // match the anchored full-string JWT rule, so the cookie/query rule is the
+    // only defense — it must fire regardless of length.
+    const header = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9';
+    const longPayload = Buffer.from('a'.repeat(700), 'utf8').toString('base64url');
+    const signature = 's852-RscV2afMwhvV-QC2sBkVAqcbtDEkCr79A6cgXy';
+    const cookieWrappedJwt = `session=${header}.${longPayload}.${signature}; theme=dark`;
+    expect(cookieWrappedJwt.length).toBeGreaterThan(512);
+    stubEvalValue(cookieWrappedJwt, 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'document.cookie', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
   it('still blocks short JWT tokens (security unchanged)', async () => {
     stubEvalValue(
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
@@ -257,7 +290,8 @@ describe('javascript_tool sanitizeValue: truncation before credential detection'
   });
 
   it('returns long non-credential strings truncated with marker instead of blocked', async () => {
-    const longText = 'plain text without = ; & ' + 'x'.repeat(3000);
+    // No '=' + ';'/'&' combination — plain prose, not a credential shape.
+    const longText = 'plain prose text without any credential shape ' + 'x'.repeat(3000);
     stubEvalValue(longText, 'string');
 
     const result = await javascriptTool.execute(
