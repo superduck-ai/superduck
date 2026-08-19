@@ -70,8 +70,8 @@ export type EmptyToolInput = Record<string, never>;
 
 export interface MainTextScriptResult {
   text: string;
-  /** The format the result was extracted in: 'text' | 'html' | 'markdown'. */
-  format: 'text' | 'html' | 'markdown';
+  /** The format the result was extracted in: 'text' | 'html' | 'markdown'. Optional for backward compatibility (old scripts omit it). */
+  format?: 'text' | 'html' | 'markdown';
   source: string;
   title: string;
   url: string;

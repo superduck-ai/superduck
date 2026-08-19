@@ -22,7 +22,8 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
     format: {
       type: 'string',
       description:
-        "Output format: 'text' (plain text, default), 'html' (raw innerHTML of the content area, preserves all markup), 'markdown' (structured markdown with headings, bold/italic, links, lists, code blocks)."
+        "Output format: 'text' (plain text, default), 'html' (raw innerHTML of the content area, preserves all markup), 'markdown' (structured markdown with headings, bold/italic, links, lists, code blocks).",
+      enum: ['text', 'html', 'markdown']
     }
   },
   execute: async (input, context): Promise<ToolResult> => {
@@ -101,126 +102,103 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
           }
 
           // Minimal HTML -> Markdown converter covering the structures agents
-          // actually need (headings, bold/italic, links, lists, code, hr). It is
-          // intentionally small: no external dependency, no DOM traversal beyond
-          // the content element. Converters are NOT recursive beyond these
-          // blocks; text content is escaped and appended.
+          // actually need (headings, bold/italic, links, lists, code, tables,
+          // images, hr). Recursive walk over text + element nodes preserves
+          // inline formatting inside blocks and keeps word boundaries intact.
           const htmlToMarkdown = (root: Element): string => {
-            const BLOCK_TAGS = new Set([
-              'DIV',
-              'P',
-              'H1',
-              'H2',
-              'H3',
-              'H4',
-              'H5',
-              'H6',
-              'UL',
-              'OL',
-              'LI',
-              'BLOCKQUOTE',
-              'PRE',
-              'TABLE',
-              'TR',
-              'TD',
-              'TH',
-              'HR',
-              'BR',
-              'SECTION',
-              'ARTICLE',
-              'FIGURE'
-            ]);
-            const textContentOf = (el: Element): string => el.textContent || '';
-            const escapeText = (s: string): string => s.replace(/\s+/g, ' ').trim();
-            const inline = (el: Element): string => {
+            const walk = (node: Node, inPre = false): string => {
+              if (node.nodeType === Node.TEXT_NODE) {
+                const text = node.textContent || '';
+                return inPre ? text : text.replace(/\s+/g, ' ');
+              }
+              if (node.nodeType !== Node.ELEMENT_NODE) return '';
+              const el = node as Element;
               const tag = el.tagName;
-              const children = Array.from(el.childNodes)
-                .map((node) => {
-                  if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
-                  if (node.nodeType === Node.ELEMENT_NODE) return inline(node as Element);
-                  return '';
-                })
+              const isPre = tag === 'PRE' || inPre;
+
+              if (tag === 'PRE') {
+                const code = el.querySelector('code');
+                const codeText = code ? code.textContent : el.textContent;
+                return `\n\`\`\`\n${codeText || ''}\n\`\`\`\n`;
+              }
+
+              const childrenMarkdown = Array.from(node.childNodes)
+                .map((child) => walk(child, isPre))
                 .join('');
-              const inner = escapeText(children);
+
               switch (tag) {
                 case 'A':
-                  return `[${inner}](${(el as HTMLAnchorElement).href || ''})`;
+                  return `[${childrenMarkdown.trim()}](${(el as HTMLAnchorElement).href || ''})`;
                 case 'B':
                 case 'STRONG':
-                  return `**${inner}**`;
+                  return childrenMarkdown.trim() ? `**${childrenMarkdown.trim()}**` : '';
                 case 'I':
                 case 'EM':
-                  return `*${inner}*`;
+                  return childrenMarkdown.trim() ? `*${childrenMarkdown.trim()}*` : '';
                 case 'CODE':
-                  return '`' + inner + '`';
+                  return childrenMarkdown.trim() ? '`' + childrenMarkdown.trim() + '`' : '';
                 case 'BR':
-                  return '  \n';
+                  return '\n';
                 case 'IMG': {
                   const src = (el as HTMLImageElement).src;
                   return src ? `![${(el as HTMLImageElement).alt || ''}](${src})` : '';
                 }
+                case 'H1':
+                  return `\n# ${childrenMarkdown.trim()}\n`;
+                case 'H2':
+                  return `\n## ${childrenMarkdown.trim()}\n`;
+                case 'H3':
+                  return `\n### ${childrenMarkdown.trim()}\n`;
+                case 'H4':
+                  return `\n#### ${childrenMarkdown.trim()}\n`;
+                case 'H5':
+                  return `\n##### ${childrenMarkdown.trim()}\n`;
+                case 'H6':
+                  return `\n###### ${childrenMarkdown.trim()}\n`;
+                case 'HR':
+                  return '\n---\n';
+                case 'P':
+                case 'DIV':
+                case 'SECTION':
+                case 'ARTICLE':
+                case 'FIGURE':
+                  return `\n${childrenMarkdown.trim()}\n`;
+                case 'BLOCKQUOTE':
+                  return `\n> ${childrenMarkdown.trim().replace(/\n/g, '\n> ')}\n`;
+                case 'UL':
+                case 'OL':
+                  return `\n${childrenMarkdown.trim()}\n`;
+                case 'LI':
+                  return `\n- ${childrenMarkdown.trim()}`;
+                case 'TABLE': {
+                  // Emit a GFM header separator row after the first row so
+                  // common renderers treat it as a real table.
+                  const rows = childrenMarkdown.trim().split('\n').filter(Boolean);
+                  if (rows.length > 1) {
+                    const headerCells = rows[0].split('|').filter((c) => c.trim()).length;
+                    const separator =
+                      '| ' + Array.from({ length: headerCells }, () => '---').join(' | ') + ' |';
+                    return `\n${rows[0]}\n${separator}\n${rows.slice(1).join('\n')}\n`;
+                  }
+                  return `\n${rows.join('\n')}\n`;
+                }
+                case 'TR': {
+                  const cells = Array.from(el.children)
+                    .filter((c) => c.tagName === 'TD' || c.tagName === 'TH')
+                    .map((c) => walk(c, isPre).trim())
+                    .join(' | ');
+                  return `| ${cells} |\n`;
+                }
+                case 'TD':
+                case 'TH':
+                  return childrenMarkdown.trim();
                 default:
-                  return inner;
+                  return childrenMarkdown;
               }
             };
-            const block = (el: Element, indent: number): string => {
-              const tag = el.tagName;
-              if (tag === 'H1') return `# ${escapeText(textContentOf(el))}`;
-              if (tag === 'H2') return `## ${escapeText(textContentOf(el))}`;
-              if (tag === 'H3') return `### ${escapeText(textContentOf(el))}`;
-              if (tag === 'H4') return `#### ${escapeText(textContentOf(el))}`;
-              if (tag === 'H5') return `##### ${escapeText(textContentOf(el))}`;
-              if (tag === 'H6') return `###### ${escapeText(textContentOf(el))}`;
-              if (tag === 'HR') return '---';
-              if (tag === 'BR') return '  ';
-              if (tag === 'P' || tag === 'DIV' || tag === 'SECTION' || tag === 'ARTICLE') {
-                const text = Array.from(el.childNodes)
-                  .map((node) =>
-                    node.nodeType === Node.TEXT_NODE
-                      ? escapeText(node.textContent || '')
-                      : node.nodeType === Node.ELEMENT_NODE
-                        ? inline(node as Element)
-                        : ''
-                  )
-                  .join('');
-                return text ? text : '';
-              }
-              if (tag === 'UL' || tag === 'OL') {
-                const items = Array.from(el.children)
-                  .filter((c) => c.tagName === 'LI')
-                  .map((li) => `${'  '.repeat(indent)}- ${escapeText(textContentOf(li))}`)
-                  .join('\n');
-                return items;
-              }
-              if (tag === 'BLOCKQUOTE')
-                return Array.from(el.children)
-                  .map((c) => `> ${escapeText(textContentOf(c))}`)
-                  .join('\n');
-              if (tag === 'PRE') {
-                const code = el.querySelector('code');
-                return '```\n' + (code ? textContentOf(code) : textContentOf(el)) + '\n```';
-              }
-              if (tag === 'TABLE') {
-                const rows = Array.from(el.querySelectorAll('tr'))
-                  .map((tr) => {
-                    const cells = Array.from(tr.children)
-                      .map((td) => escapeText(textContentOf(td)))
-                      .join(' | ');
-                    return '| ' + cells + ' |';
-                  })
-                  .join('\n');
-                return rows;
-              }
-              if (tag === 'LI') return escapeText(textContentOf(el));
-              // Generic block container: recurse into children.
-              const parts: string[] = [];
-              for (const child of Array.from(el.children)) {
-                if (BLOCK_TAGS.has(child.tagName)) parts.push(block(child, indent));
-                else parts.push(inline(child));
-              }
-              return parts.filter((p) => p).join('\n');
-            };
-            return block(root, 0);
+            return walk(root)
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
           };
 
           const text = (contentElement.textContent || '')
@@ -339,7 +317,8 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
         format: {
           type: 'string',
           description:
-            "Output format: 'text' (plain text, default), 'html' (raw innerHTML of the content area, preserves all markup), 'markdown' (structured markdown with headings, bold/italic, links, lists, code blocks)."
+            "Output format: 'text' (plain text, default), 'html' (raw innerHTML of the content area, preserves all markup), 'markdown' (structured markdown with headings, bold/italic, links, lists, code blocks).",
+          enum: ['text', 'html', 'markdown']
         }
       },
       required: ['tabId']

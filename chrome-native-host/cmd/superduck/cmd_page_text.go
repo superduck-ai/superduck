@@ -1,6 +1,9 @@
 package main
 
-import "flag"
+import (
+	"flag"
+	"fmt"
+)
 
 // cmdPageText: superduck page_text --tab <id> [--format text|html|markdown] [--max-chars N]
 func cmdPageText(argv []string) error {
@@ -10,6 +13,16 @@ func cmdPageText(argv []string) error {
 	if err := fs.Parse(reorderFlagsFirst(argv)); err != nil {
 		return err
 	}
+
+	// Validate format enum locally so an invalid value fails fast with a clear
+	// message instead of surfacing a confusing "unexpected result" from the
+	// extension.
+	switch *format {
+	case "text", "html", "markdown":
+	default:
+		return fmt.Errorf("invalid --format %q: must be 'text', 'html', or 'markdown'", *format)
+	}
+
 	args := map[string]any{}
 	if *format != "text" {
 		args["format"] = *format
