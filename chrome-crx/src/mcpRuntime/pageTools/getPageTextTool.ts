@@ -74,17 +74,22 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
           for (const selector of selectors) {
             const elements = document.querySelectorAll(selector);
             if (elements.length > 0) {
-              let best = elements[0];
+              let best: Element | null = null;
               let bestLength = 0;
               elements.forEach((el) => {
+                // Skip empty editable containers (comment boxes, chat inputs):
+                // they exist but hold no content, so picking them would return
+                // "no content" instead of falling through to the page body.
                 const len = el.textContent?.length || 0;
-                if (len > bestLength) {
+                if (len > 0 && len > bestLength) {
                   bestLength = len;
                   best = el;
                 }
               });
-              contentElement = best;
-              break;
+              if (best) {
+                contentElement = best;
+                break;
+              }
             }
           }
           if (!contentElement) {
@@ -120,7 +125,13 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
                 'No text content found. Page may contain only images, videos, or canvas-based content.'
             };
           }
-          if (output.length > charLimit) {
+          // Native messaging rejects messages over 1 MiB and the native host
+          // drops the connection. Cap output by BYTES (not chars — HTML and
+          // multibyte text inflate the serialized size) with a safety margin,
+          // so callers get a guidance error instead of a dead channel.
+          const MAX_NATIVE_BYTES = 900 * 1024;
+          const outputBytes = new TextEncoder().encode(output).length;
+          if (output.length > charLimit || outputBytes > MAX_NATIVE_BYTES) {
             return {
               text: '',
               format: outFormat as 'text' | 'html',
@@ -130,9 +141,13 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
               error:
                 'Output exceeds ' +
                 charLimit +
-                ' character limit (' +
+                ' character limit / ' +
+                Math.round(MAX_NATIVE_BYTES / 1024) +
+                'KB native-messaging limit (' +
                 output.length +
-                ' characters). Try using read_page with a specific ref_id to focus on a smaller section, or increase max_chars if your client can handle larger outputs.'
+                ' chars, ' +
+                Math.round(outputBytes / 1024) +
+                'KB). Try using read_page with a specific ref_id to focus on a smaller section, or increase max_chars if your client can handle larger outputs.'
             };
           }
           return {
