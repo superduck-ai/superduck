@@ -313,6 +313,30 @@ describe('javascript_tool sanitizeValue: truncation before credential detection'
     expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
   });
 
+  it('still blocks JSON.stringify(document.cookie) — prefixed with quotes', async () => {
+    // JSON.stringify wraps the cookie string in quotes, so the key=value
+    // sequence is NOT at the start — detection must find it anywhere.
+    stubEvalValue('"session_id=abc123; theme=dark"', 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'JSON.stringify(document.cookie)', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
+  it('still blocks template-literal-prefixed cookies — "Cookies: ..."', async () => {
+    stubEvalValue('Cookies: session_id=abc123; theme=dark', 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: '`Cookies: ${document.cookie}`', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
   it('still blocks short JWT tokens (security unchanged)', async () => {
     stubEvalValue(
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',

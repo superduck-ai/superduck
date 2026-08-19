@@ -154,15 +154,15 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         /oauth/i,
         /session/i
       ];
-      // Anchored key=value grammar: optional leading whitespace and an optional
-      // '?' (location.search), then key=value, then zero or more `;`/`&`-
-      // separated key=value pairs (trailing whitespace allowed). Values may
-      // contain additional '=' (e.g. base64 padding `session=YWJjZA==`) and
-      // may be followed by arbitrary non-`;`/`&` characters (e.g. an HTML
-      // suffix), but the string must START with a key=value pair. Rich-text
-      // HTML never starts this way (it begins with `<tag ...>`).
+      // Cookie/query detection: find a key=value pair sequence ANYWHERE in the
+      // string (not just at the start), so prefixed output like
+      // `JSON.stringify(document.cookie)` ("session=abc; theme=dark") or
+      // `Cookies: ${document.cookie}` is still caught. To avoid false
+      // positives on rich-text HTML, exclude positions inside a tag: HTML
+      // attributes (style="...", data-x="...") always follow `<tag`, so the
+      // lookbehind rejects any key=value whose prefix sits inside `<...>`.
       const cookieQueryPattern =
-        /^\s*\??[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*(?:[;&]\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*)*\s*$/;
+        /(?<!<[^>]*)(?:^|[;&\s])(?:[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*(?:[;&]\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*)*)/;
       const sanitizeValue = (value: unknown, depth: number = 0): unknown => {
         if (depth > 5) return '[TRUNCATED: Max depth exceeded]';
         if ('string' === typeof value) {
