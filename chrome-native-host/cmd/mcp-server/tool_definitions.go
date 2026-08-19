@@ -190,10 +190,11 @@ var toolDefinitions = []toolDefinition{
 	},
 	{
 		name:        "get_page_text",
-		description: "Extract raw text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting. If you don't have a valid tab ID, use tabs_context_mcp first to get available tabs. Output is limited to 50000 characters by default.",
+		description: "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw innerHTML of the content area, preserving all markup for the agent to interpret. If you don't have a valid tab ID, use tabs_context_mcp first to get available tabs. Output is limited to 50000 characters by default.",
 		inputSchema: objectSchema(map[string]any{
 			"tabId":     numberSchema("Tab ID to extract text from. Must be a tab in the current MCP tab group. Use tabs_context_mcp first if needed."),
 			"max_chars": numberSchema("Maximum characters for output. Defaults to 50000."),
+			"format":    stringSchema("Output format: 'text' (plain text, default) or 'html' (raw innerHTML of the content area).", withEnum("text", "html")),
 		}, "tabId"),
 	},
 	{

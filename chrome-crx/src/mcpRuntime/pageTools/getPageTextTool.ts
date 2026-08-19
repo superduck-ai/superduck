@@ -6,7 +6,7 @@ import { type GetPageTextToolInput, getScriptErrorMessage, isMainTextScriptResul
 export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
   name: 'get_page_text',
   description:
-    "Extract raw text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default.",
+    "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw innerHTML of the content area, preserving all markup for the agent to interpret. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default.",
   tabAccess: 'read',
   parameters: {
     tabId: {
@@ -18,10 +18,16 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
       type: 'number',
       description:
         'Maximum characters for output (default: 50000). Set to a higher value if your client can handle large outputs.'
+    },
+    format: {
+      type: 'string',
+      description:
+        "Output format: 'text' (plain text, default) or 'html' (raw innerHTML of the content area, preserves all markup).",
+      enum: ['text', 'html']
     }
   },
   execute: async (input, context): Promise<ToolResult> => {
-    const { tabId, max_chars: maxChars } = input || {};
+    const { tabId, max_chars: maxChars, format = 'text' } = input || {};
     if (!context?.tabId) throw new Error('No active tab found');
 
     const effectiveTabId = await context.resolveTabId(tabId);
@@ -47,7 +53,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
     try {
       const scriptResult = await chrome.scripting.executeScript({
         target: { tabId: effectiveTabId },
-        func: (charLimit: number) => {
+        func: (charLimit: number, outFormat: string) => {
           const selectors = [
             'article',
             'main',
@@ -58,29 +64,39 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
             '[class*="content-body"]',
             '[role="main"]',
             '.content',
-            '#content'
+            '#content',
+            '[contenteditable="true"]',
+            '[contenteditable=""]',
+            '[contenteditable="plaintext-only"]',
+            '#baidu_realtime_editor_f'
           ];
           let contentElement: Element | null = null;
           for (const selector of selectors) {
             const elements = document.querySelectorAll(selector);
             if (elements.length > 0) {
-              let best = elements[0];
+              let best: Element | null = null;
               let bestLength = 0;
               elements.forEach((el) => {
+                // Skip empty editable containers (comment boxes, chat inputs):
+                // they exist but hold no content, so picking them would return
+                // "no content" instead of falling through to the page body.
                 const len = el.textContent?.length || 0;
-                if (len > bestLength) {
+                if (len > 0 && len > bestLength) {
                   bestLength = len;
                   best = el;
                 }
               });
-              contentElement = best;
-              break;
+              if (best) {
+                contentElement = best;
+                break;
+              }
             }
           }
           if (!contentElement) {
             if ((document.body.textContent || '').length > charLimit) {
               return {
                 text: '',
+                format: outFormat as 'text' | 'html',
                 source: 'none',
                 title: document.title,
                 url: window.location.href,
@@ -90,13 +106,18 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
             }
             contentElement = document.body;
           }
+
+          // 'html' returns the raw innerHTML of the content area (preserves all
+          // markup); 'text' (default) returns flattened textContent.
           const text = (contentElement.textContent || '')
             .replace(/\s+/g, ' ')
             .replace(/\n{3,}/g, '\n\n')
             .trim();
-          if (!text || text.length < 10) {
+          const output: string = outFormat === 'html' ? contentElement.innerHTML : text;
+          if (!output || output.length < 10) {
             return {
               text: '',
+              format: outFormat as 'text' | 'html',
               source: 'none',
               title: document.title,
               url: window.location.href,
@@ -104,28 +125,40 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
                 'No text content found. Page may contain only images, videos, or canvas-based content.'
             };
           }
-          if (text.length > charLimit) {
+          // Native messaging rejects messages over 1 MiB and the native host
+          // drops the connection. Cap output by BYTES (not chars — HTML and
+          // multibyte text inflate the serialized size) with a safety margin,
+          // so callers get a guidance error instead of a dead channel.
+          const MAX_NATIVE_BYTES = 900 * 1024;
+          const outputBytes = new TextEncoder().encode(output).length;
+          if (output.length > charLimit || outputBytes > MAX_NATIVE_BYTES) {
             return {
               text: '',
+              format: outFormat as 'text' | 'html',
               source: contentElement.tagName.toLowerCase(),
               title: document.title,
               url: window.location.href,
               error:
                 'Output exceeds ' +
                 charLimit +
-                ' character limit (' +
-                text.length +
-                ' characters). Try using read_page with a specific ref_id to focus on a smaller section, or increase max_chars if your client can handle larger outputs.'
+                ' character limit / ' +
+                Math.round(MAX_NATIVE_BYTES / 1024) +
+                'KB native-messaging limit (' +
+                output.length +
+                ' chars, ' +
+                Math.round(outputBytes / 1024) +
+                'KB). Try using read_page with a specific ref_id to focus on a smaller section, or increase max_chars if your client can handle larger outputs.'
             };
           }
           return {
-            text,
+            text: output,
+            format: outFormat as 'text' | 'html',
             source: contentElement.tagName.toLowerCase(),
             title: document.title,
             url: window.location.href
           };
         },
-        args: [maxChars ?? 50000]
+        args: [maxChars ?? 50000, format]
       });
 
       if (!scriptResult || 0 === scriptResult.length)
@@ -138,6 +171,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
 
       const result = scriptResult[0].result;
       if (!isMainTextScriptResult(result)) {
+        console.error('[get_page_text] unexpected result:', JSON.stringify(result).slice(0, 500));
         throw new Error('Page script returned unexpected result');
       }
       const validTabs = await tabGroupManager.getValidTabsWithMetadataForContext(
@@ -158,7 +192,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
       }
 
       return {
-        output: `Title: ${result.title}\nURL: ${result.url}\nSource element: <${result.source}>\n---\n${result.text}`,
+        output: `Title: ${result.title}\nURL: ${result.url}\nSource element: <${result.source}> (format: ${result.format})\n---\n${result.text}`,
         tabContext: {
           currentTabId: context.tabId,
           executedOnTabId: effectiveTabId,
@@ -177,7 +211,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
   toProviderSchema: async () => ({
     name: 'get_page_text',
     description:
-      "Extract raw text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default. If the output exceeds this limit, you will receive an error suggesting alternatives.",
+      "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw innerHTML of the content area, preserving all markup for the agent to interpret. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default. If the output exceeds this limit, you will receive an error suggesting alternatives.",
     input_schema: {
       type: 'object',
       properties: {
@@ -190,6 +224,12 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
           type: 'number',
           description:
             'Maximum characters for output (default: 50000). Set to a higher value if your client can handle large outputs.'
+        },
+        format: {
+          type: 'string',
+          description:
+            "Output format: 'text' (plain text, default) or 'html' (raw innerHTML of the content area, preserves all markup).",
+          enum: ['text', 'html']
         }
       },
       required: ['tabId']
