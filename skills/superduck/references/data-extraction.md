@@ -392,3 +392,36 @@ async function extractMyData(url) {
    ```javascript
    JSON.stringify(data);
    ```
+
+## Rich-Text Editors (Knowledge Bases / Wiki / Online Docs)
+
+Pages with rich-text editors (百度知识库, Feishu/Lark docs, Wiki, Notion-like
+editors) render their content in `contenteditable` containers. The default
+`page_text` selectors (`article`, `main`, ...) never match these containers,
+so plain extraction returns navigation/UI junk or nothing.
+
+**Use `page_text --format html` to get the raw content area innerHTML:**
+
+```bash
+superduck --session "$SID" --tab "$TAB" page_text --format html
+```
+
+- Returns the raw innerHTML of the content area (preserves headings,
+  bold/italic, links, lists — the agent interprets the markup itself).
+- Default limit is 50000 chars; raise with `--max-chars N` for long documents.
+  Note native messaging caps a single message near ~1MB — for very large
+  documents, extract in sections (e.g. via `exec` on a narrower container) or
+  raise `--max-chars` only as far as the channel allows.
+- The tool auto-selects `[contenteditable="true"]` /
+  `[contenteditable="plaintext-only"]` containers when no semantic element
+  matches, and prefers the largest matching container.
+
+### Example: Extract a knowledge-base article body
+
+```bash
+# Raw HTML of the article body (preserves structure)
+superduck --session "$SID" --tab "$TAB" page_text --format html
+
+# Same content as plain text if you only need the words
+superduck --session "$SID" --tab "$TAB" page_text
+```

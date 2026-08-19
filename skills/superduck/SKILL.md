@@ -143,12 +143,21 @@ Use `context` to verify load. If using `wait`, the unit is seconds:
 ```bash
 superduck --session "$SID" --tab "$TAB" read_page --filter interactive
 superduck --session "$SID" --tab "$TAB" page_text
+superduck --session "$SID" --tab "$TAB" page_text --format html
 superduck --session "$SID" --tab "$TAB" exec 'JSON.stringify({title: document.title, url: location.href})'
 ```
 
 `page_text` is quick but may compress whitespace. Use `exec` for structured
 data. The helper `scripts/extract-data.mjs` strips the trailing `Tab Context`
 from `exec` output and is safer for repeated scraping tasks.
+
+**Rich-text editors (knowledge bases, Wiki, Feishu/Lark docs, online docs):
+use `page_text --format html`.** Their content lives in contenteditable
+containers that the default selectors miss, so plain `page_text` returns
+nothing useful; `--format html` returns the raw innerHTML of the content area
+(preserving headings, bold/italic, links, lists) for the agent to interpret.
+Note the output is limited to 50000 chars by default — pass `--max-chars N`
+for large documents (native messaging caps single messages near ~1MB).
 
 ## Interaction
 
