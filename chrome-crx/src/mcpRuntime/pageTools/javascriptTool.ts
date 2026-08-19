@@ -132,29 +132,49 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       let isError = false;
       let errorMessage = '';
 
+      // Rule scoping matters here. The cookie/query-string rule is an anchored
+      // key=value grammar check, not a raw contains-check: it matches when the
+      // string STARTS with `key=value` and continues with `;`/`&`-separated
+      // key=value pairs (real cookie/query syntax). Rich-text HTML never starts
+      // this way (it begins with `<tag ...>`), so no HTML-tag exemption is
+      // needed and a credential string with an HTML suffix (e.g.
+      // `session=...; theme=dark<span></span>`) is still caught. All checks run
+      // on the FULL value BEFORE truncation so truncation can't destroy the
+      // credential shape; the result (blocked or truncated) is returned.
+      const sensitivePatterns = [
+        /password/i,
+        /token/i,
+        /secret/i,
+        /api[_-]?key/i,
+        /auth/i,
+        /credential/i,
+        /private[_-]?key/i,
+        /access[_-]?key/i,
+        /bearer/i,
+        /oauth/i,
+        /session/i
+      ];
+      // Cookie/query detection: find a key=value pair sequence ANYWHERE in the
+      // string (not just at the start), so prefixed output like
+      // `JSON.stringify(document.cookie)` ("session=abc; theme=dark") or
+      // `Cookies: ${document.cookie}` is still caught. To avoid false
+      // positives on rich-text HTML, exclude positions inside a tag: HTML
+      // attributes (style="...", data-x="...") always follow `<tag`, so the
+      // lookbehind rejects any key=value whose prefix sits inside `<...>`.
+      const cookieQueryPattern =
+        /(?<!<[^>]*)(?:^|[;&\s])(?:[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*(?:[;&]\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*)*)/;
       const sanitizeValue = (value: unknown, depth: number = 0): unknown => {
         if (depth > 5) return '[TRUNCATED: Max depth exceeded]';
-        const sensitivePatterns = [
-          /password/i,
-          /token/i,
-          /secret/i,
-          /api[_-]?key/i,
-          /auth/i,
-          /credential/i,
-          /private[_-]?key/i,
-          /access[_-]?key/i,
-          /bearer/i,
-          /oauth/i,
-          /session/i
-        ];
         if ('string' === typeof value) {
-          if (value.includes('=') && (value.includes(';') || value.includes('&')))
-            return '[BLOCKED: Cookie/query string data]';
           if (value.match(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/))
             return '[BLOCKED: JWT token]';
           if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(value)) return '[BLOCKED: Base64 encoded data]';
           if (/^[a-f0-9]{32,}$/i.test(value)) return '[BLOCKED: Hex credential]';
-          if (value.length > 1000) return value.substring(0, 1000) + '[TRUNCATED]';
+          // Normalize HTML entities that act as separators (&amp; -> &) so a
+          // credential string followed by entity-encoded HTML is still caught.
+          const normalized = value.replace(/&amp;/g, '&');
+          if (cookieQueryPattern.test(normalized)) return '[BLOCKED: Cookie/query string data]';
+          return value.length > 1000 ? value.substring(0, 1000) + '[TRUNCATED]' : value;
         }
         if (value && 'object' === typeof value && !Array.isArray(value)) {
           const sanitized: Record<string, unknown> = {};
