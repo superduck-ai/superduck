@@ -276,6 +276,43 @@ describe('javascript_tool sanitizeValue: truncation before credential detection'
     expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
   });
 
+  it('still blocks location.search values with a leading "?"', async () => {
+    // location.search returns "?token=secret&theme=dark" — the query grammar
+    // must accept the optional leading "?".
+    stubEvalValue('?token=secret&theme=dark', 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'location.search', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
+  it('still blocks cookie values containing "=" (base64 padding)', async () => {
+    // document.cookie values can contain '=' (base64 padding):
+    // session=YWJjZA==; theme=dark — the value part must allow '='.
+    stubEvalValue('session=YWJjZA==; theme=dark', 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'document.cookie', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
+  it('still blocks credentials followed by &amp;-encoded HTML', async () => {
+    stubEvalValue('token=secret&amp;theme=dark', 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'location.search.replace(/&/g, "&amp;")', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
   it('still blocks short JWT tokens (security unchanged)', async () => {
     stubEvalValue(
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',

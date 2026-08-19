@@ -154,12 +154,15 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         /oauth/i,
         /session/i
       ];
-      // Anchored key=value grammar: optional leading whitespace, then
-      // key=value, then zero or more `;`/`&`-separated key=value pairs
-      // (trailing whitespace allowed). Covers aggregated document.cookie and
-      // query strings of any length.
+      // Anchored key=value grammar: optional leading whitespace and an optional
+      // '?' (location.search), then key=value, then zero or more `;`/`&`-
+      // separated key=value pairs (trailing whitespace allowed). Values may
+      // contain additional '=' (e.g. base64 padding `session=YWJjZA==`) and
+      // may be followed by arbitrary non-`;`/`&` characters (e.g. an HTML
+      // suffix), but the string must START with a key=value pair. Rich-text
+      // HTML never starts this way (it begins with `<tag ...>`).
       const cookieQueryPattern =
-        /^\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;=&]*(?:[;&]\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;=&]*)*\s*$/;
+        /^\s*\??[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*(?:[;&]\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;&]*)*\s*$/;
       const sanitizeValue = (value: unknown, depth: number = 0): unknown => {
         if (depth > 5) return '[TRUNCATED: Max depth exceeded]';
         if ('string' === typeof value) {
@@ -167,7 +170,10 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
             return '[BLOCKED: JWT token]';
           if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(value)) return '[BLOCKED: Base64 encoded data]';
           if (/^[a-f0-9]{32,}$/i.test(value)) return '[BLOCKED: Hex credential]';
-          if (cookieQueryPattern.test(value)) return '[BLOCKED: Cookie/query string data]';
+          // Normalize HTML entities that act as separators (&amp; -> &) so a
+          // credential string followed by entity-encoded HTML is still caught.
+          const normalized = value.replace(/&amp;/g, '&');
+          if (cookieQueryPattern.test(normalized)) return '[BLOCKED: Cookie/query string data]';
           return value.length > 1000 ? value.substring(0, 1000) + '[TRUNCATED]' : value;
         }
         if (value && 'object' === typeof value && !Array.isArray(value)) {
