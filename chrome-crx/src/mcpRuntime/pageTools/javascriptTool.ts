@@ -132,14 +132,14 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
       let isError = false;
       let errorMessage = '';
 
-      // Rule scoping matters here. The cookie/query-string rule is a
-      // contains-check ('=' + ';'/'&') that false-positives on long rich-text
-      // (e.g. style="color:red;..."), so it only applies to strings that do
-      // NOT look like HTML markup — rich text always contains tags, real
-      // cookie/query values never do. This distinguishes the two without a
-      // length threshold, so oversized cookies (aggregated document.cookie or
-      // cookie-wrapped JWTs > 512 chars) are still blocked. All checks run on
-      // the FULL value BEFORE truncation so truncation can't destroy the
+      // Rule scoping matters here. The cookie/query-string rule is an anchored
+      // key=value grammar check, not a raw contains-check: it matches when the
+      // string STARTS with `key=value` and continues with `;`/`&`-separated
+      // key=value pairs (real cookie/query syntax). Rich-text HTML never starts
+      // this way (it begins with `<tag ...>`), so no HTML-tag exemption is
+      // needed and a credential string with an HTML suffix (e.g.
+      // `session=...; theme=dark<span></span>`) is still caught. All checks run
+      // on the FULL value BEFORE truncation so truncation can't destroy the
       // credential shape; the result (blocked or truncated) is returned.
       const sensitivePatterns = [
         /password/i,
@@ -154,6 +154,12 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
         /oauth/i,
         /session/i
       ];
+      // Anchored key=value grammar: optional leading whitespace, then
+      // key=value, then zero or more `;`/`&`-separated key=value pairs
+      // (trailing whitespace allowed). Covers aggregated document.cookie and
+      // query strings of any length.
+      const cookieQueryPattern =
+        /^\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;=&]*(?:[;&]\s*[A-Za-z_][A-Za-z0-9_.-]*=[^;=&]*)*\s*$/;
       const sanitizeValue = (value: unknown, depth: number = 0): unknown => {
         if (depth > 5) return '[TRUNCATED: Max depth exceeded]';
         if ('string' === typeof value) {
@@ -161,9 +167,7 @@ export const javascriptTool: ToolDefinition<JavaScriptToolInput> = {
             return '[BLOCKED: JWT token]';
           if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(value)) return '[BLOCKED: Base64 encoded data]';
           if (/^[a-f0-9]{32,}$/i.test(value)) return '[BLOCKED: Hex credential]';
-          const looksLikeHtml = /<[a-zA-Z/][^>]*>/.test(value);
-          if (!looksLikeHtml && value.includes('=') && (value.includes(';') || value.includes('&')))
-            return '[BLOCKED: Cookie/query string data]';
+          if (cookieQueryPattern.test(value)) return '[BLOCKED: Cookie/query string data]';
           return value.length > 1000 ? value.substring(0, 1000) + '[TRUNCATED]' : value;
         }
         if (value && 'object' === typeof value && !Array.isArray(value)) {

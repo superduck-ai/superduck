@@ -245,6 +245,37 @@ describe('javascript_tool sanitizeValue: truncation before credential detection'
     expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
   });
 
+  it('still blocks credential strings with an HTML suffix (no HTML exemption)', async () => {
+    // A cookie/query string concatenated with HTML (e.g. page code doing
+    // `document.cookie + "<span></span>"`) must NOT skip the check just
+    // because the value contains a tag. The anchored key=value grammar matches
+    // from the start, so the HTML suffix does not defeat it.
+    const cookieWithHtmlSuffix = 'session_id=abc123; theme=dark<span></span>';
+    stubEvalValue(cookieWithHtmlSuffix, 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'document.cookie + "<span></span>"', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
+  it('still blocks long cookie-wrapped JWTs with an HTML suffix', async () => {
+    const header = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9';
+    const longPayload = Buffer.from('b'.repeat(700), 'utf8').toString('base64url');
+    const signature = 's852-RscV2afMwhvV-QC2sBkVAqcbtDEkCr79A6cgXy';
+    const value = `session=${header}.${longPayload}.${signature}<div>leak</div>`;
+    stubEvalValue(value, 'string');
+
+    const result = await javascriptTool.execute(
+      { action: 'javascript_exec', text: 'document.cookie + "<div>leak</div>"', tabId: 10 },
+      context
+    );
+
+    expect((result as { output: string }).output).toBe('[BLOCKED: Cookie/query string data]');
+  });
+
   it('still blocks short JWT tokens (security unchanged)', async () => {
     stubEvalValue(
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
