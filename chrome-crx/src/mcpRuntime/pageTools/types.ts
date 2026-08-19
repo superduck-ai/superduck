@@ -25,8 +25,8 @@ export interface FindToolInput {
 export interface GetPageTextToolInput {
   tabId?: number;
   max_chars?: number;
-  /** Output format: 'text' (plain textContent, default), 'html' (innerHTML), 'markdown' (converted). */
-  format?: 'text' | 'html' | 'markdown';
+  /** Output format: 'text' (plain textContent, default) or 'html' (raw innerHTML). */
+  format?: 'text' | 'html';
 }
 
 export interface ReadPageToolInput {
@@ -70,8 +70,8 @@ export type EmptyToolInput = Record<string, never>;
 
 export interface MainTextScriptResult {
   text: string;
-  /** The format the result was extracted in: 'text' | 'html' | 'markdown'. Optional for backward compatibility (old scripts omit it). */
-  format?: 'text' | 'html' | 'markdown';
+  /** The format the result was extracted in: 'text' | 'html'. Optional for backward compatibility (old scripts omit it). */
+  format?: 'text' | 'html';
   source: string;
   title: string;
   url: string;
@@ -103,10 +103,7 @@ export function isMainTextScriptResult(value: unknown): value is MainTextScriptR
   return (
     isRecord(value) &&
     typeof value.text === 'string' &&
-    (value.format === undefined ||
-      value.format === 'text' ||
-      value.format === 'html' ||
-      value.format === 'markdown') &&
+    (value.format === undefined || value.format === 'text' || value.format === 'html') &&
     typeof value.source === 'string' &&
     typeof value.title === 'string' &&
     typeof value.url === 'string' &&

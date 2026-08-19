@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-// cmdPageText: superduck page_text --tab <id> [--format text|html|markdown] [--max-chars N]
+// cmdPageText: superduck page_text --tab <id> [--format text|html] [--max-chars N]
 func cmdPageText(argv []string) error {
 	fs := flag.NewFlagSet("page_text", flag.ContinueOnError)
-	format := fs.String("format", "text", "Output format: text (default), html, or markdown")
+	format := fs.String("format", "text", "Output format: text (default) or html (raw innerHTML)")
 	maxChars := fs.Int("max-chars", 0, "Max output characters (default 50000)")
 	if err := fs.Parse(reorderFlagsFirst(argv)); err != nil {
 		return err
@@ -18,9 +18,9 @@ func cmdPageText(argv []string) error {
 	// message instead of surfacing a confusing "unexpected result" from the
 	// extension.
 	switch *format {
-	case "text", "html", "markdown":
+	case "text", "html":
 	default:
-		return fmt.Errorf("invalid --format %q: must be 'text', 'html', or 'markdown'", *format)
+		return fmt.Errorf("invalid --format %q: must be 'text' or 'html'", *format)
 	}
 
 	args := map[string]any{}

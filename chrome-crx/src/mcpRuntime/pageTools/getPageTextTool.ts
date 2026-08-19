@@ -6,7 +6,7 @@ import { type GetPageTextToolInput, getScriptErrorMessage, isMainTextScriptResul
 export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
   name: 'get_page_text',
   description:
-    "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw HTML of the content area, or format='markdown' to get structured markdown (headings, bold/italic, links, lists, code blocks). If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default.",
+    "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw innerHTML of the content area, preserving all markup for the agent to interpret. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default.",
   tabAccess: 'read',
   parameters: {
     tabId: {
@@ -22,8 +22,8 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
     format: {
       type: 'string',
       description:
-        "Output format: 'text' (plain text, default), 'html' (raw innerHTML of the content area, preserves all markup), 'markdown' (structured markdown with headings, bold/italic, links, lists, code blocks).",
-      enum: ['text', 'html', 'markdown']
+        "Output format: 'text' (plain text, default) or 'html' (raw innerHTML of the content area, preserves all markup).",
+      enum: ['text', 'html']
     }
   },
   execute: async (input, context): Promise<ToolResult> => {
@@ -91,7 +91,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
             if ((document.body.textContent || '').length > charLimit) {
               return {
                 text: '',
-                format: outFormat as 'text' | 'html' | 'markdown',
+                format: outFormat as 'text' | 'html',
                 source: 'none',
                 title: document.title,
                 url: window.location.href,
@@ -102,138 +102,17 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
             contentElement = document.body;
           }
 
-          // Minimal HTML -> Markdown converter covering the structures agents
-          // actually need (headings, bold/italic, links, lists, code, tables,
-          // images, hr). Recursive walk over text + element nodes preserves
-          // inline formatting inside blocks and keeps word boundaries intact.
-          const htmlToMarkdown = (root: Element): string => {
-            const walk = (
-              node: Node,
-              inPre = false,
-              listType: 'ul' | 'ol' | null = null
-            ): string => {
-              if (node.nodeType === Node.TEXT_NODE) {
-                const text = node.textContent || '';
-                return inPre ? text : text.replace(/\s+/g, ' ');
-              }
-              if (node.nodeType !== Node.ELEMENT_NODE) return '';
-              const el = node as Element;
-              const tag = el.tagName;
-              const isPre = tag === 'PRE' || inPre;
-
-              if (tag === 'PRE') {
-                const code = el.querySelector('code');
-                const codeText = code ? code.textContent : el.textContent;
-                return `\n\`\`\`\n${codeText || ''}\n\`\`\`\n`;
-              }
-
-              const childrenMarkdown = Array.from(node.childNodes)
-                .map((child) => walk(child, isPre, listType))
-                .join('');
-
-              switch (tag) {
-                case 'A':
-                  return `[${childrenMarkdown.trim()}](${(el as HTMLAnchorElement).href || ''})`;
-                case 'B':
-                case 'STRONG':
-                  return childrenMarkdown.trim() ? `**${childrenMarkdown.trim()}**` : '';
-                case 'I':
-                case 'EM':
-                  return childrenMarkdown.trim() ? `*${childrenMarkdown.trim()}*` : '';
-                case 'CODE':
-                  return childrenMarkdown.trim() ? '`' + childrenMarkdown.trim() + '`' : '';
-                case 'BR':
-                  return '\n';
-                case 'IMG': {
-                  const src = (el as HTMLImageElement).src;
-                  return src ? `![${(el as HTMLImageElement).alt || ''}](${src})` : '';
-                }
-                case 'H1':
-                  return `\n# ${childrenMarkdown.trim()}\n`;
-                case 'H2':
-                  return `\n## ${childrenMarkdown.trim()}\n`;
-                case 'H3':
-                  return `\n### ${childrenMarkdown.trim()}\n`;
-                case 'H4':
-                  return `\n#### ${childrenMarkdown.trim()}\n`;
-                case 'H5':
-                  return `\n##### ${childrenMarkdown.trim()}\n`;
-                case 'H6':
-                  return `\n###### ${childrenMarkdown.trim()}\n`;
-                case 'HR':
-                  return '\n---\n';
-                case 'P':
-                case 'DIV':
-                case 'SECTION':
-                case 'ARTICLE':
-                case 'FIGURE':
-                  return `\n${childrenMarkdown.trim()}\n`;
-                case 'BLOCKQUOTE':
-                  return `\n> ${childrenMarkdown.trim().replace(/\n/g, '\n> ')}\n`;
-                case 'UL':
-                case 'OL': {
-                  const childListType = tag === 'OL' ? 'ol' : 'ul';
-                  const children = Array.from(node.childNodes)
-                    .map((child) => walk(child, isPre, childListType))
-                    .join('');
-                  return `\n${children.trim()}\n`;
-                }
-                case 'LI': {
-                  const content = childrenMarkdown.trim();
-                  if (listType === 'ol') {
-                    const siblings = Array.from(el.parentElement?.children ?? []);
-                    const index = siblings.indexOf(el) + 1;
-                    return `\n${index}. ${content}`;
-                  }
-                  return `\n- ${content}`;
-                }
-                case 'TABLE': {
-                  // Emit a GFM header separator row after the first row so
-                  // common renderers treat it as a real table.
-                  const rows = childrenMarkdown.trim().split('\n').filter(Boolean);
-                  if (rows.length > 1) {
-                    const headerCells = rows[0].split('|').filter((c) => c.trim()).length;
-                    const separator =
-                      '| ' + Array.from({ length: headerCells }, () => '---').join(' | ') + ' |';
-                    return `\n${rows[0]}\n${separator}\n${rows.slice(1).join('\n')}\n`;
-                  }
-                  return `\n${rows.join('\n')}\n`;
-                }
-                case 'TR': {
-                  const cells = Array.from(el.children)
-                    .filter((c) => c.tagName === 'TD' || c.tagName === 'TH')
-                    .map((c) => walk(c, isPre).trim())
-                    .join(' | ');
-                  return `| ${cells} |\n`;
-                }
-                case 'TD':
-                case 'TH':
-                  return childrenMarkdown.trim();
-                default:
-                  return childrenMarkdown;
-              }
-            };
-            return walk(root)
-              .replace(/\n{3,}/g, '\n\n')
-              .trim();
-          };
-
+          // 'html' returns the raw innerHTML of the content area (preserves all
+          // markup); 'text' (default) returns flattened textContent.
           const text = (contentElement.textContent || '')
             .replace(/\s+/g, ' ')
             .replace(/\n{3,}/g, '\n\n')
             .trim();
-          let output: string;
-          if (outFormat === 'html') {
-            output = contentElement.innerHTML;
-          } else if (outFormat === 'markdown') {
-            output = htmlToMarkdown(contentElement);
-          } else {
-            output = text;
-          }
+          const output: string = outFormat === 'html' ? contentElement.innerHTML : text;
           if (!output || output.length < 10) {
             return {
               text: '',
-              format: outFormat as 'text' | 'html' | 'markdown',
+              format: outFormat as 'text' | 'html',
               source: 'none',
               title: document.title,
               url: window.location.href,
@@ -244,7 +123,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
           if (output.length > charLimit) {
             return {
               text: '',
-              format: outFormat as 'text' | 'html' | 'markdown',
+              format: outFormat as 'text' | 'html',
               source: contentElement.tagName.toLowerCase(),
               title: document.title,
               url: window.location.href,
@@ -258,7 +137,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
           }
           return {
             text: output,
-            format: outFormat as 'text' | 'html' | 'markdown',
+            format: outFormat as 'text' | 'html',
             source: contentElement.tagName.toLowerCase(),
             title: document.title,
             url: window.location.href
@@ -317,7 +196,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
   toProviderSchema: async () => ({
     name: 'get_page_text',
     description:
-      "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw HTML of the content area, or format='markdown' to get structured markdown (headings, bold/italic, links, lists, code blocks). If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default. If the output exceeds this limit, you will receive an error suggesting alternatives.",
+      "Extract text content from the page, prioritizing article content. Ideal for reading articles, blog posts, or other text-heavy pages. Returns plain text without HTML formatting by default; use format='html' to get the raw innerHTML of the content area, preserving all markup for the agent to interpret. If you don't have a valid tab ID, use tabs_context first to get available tabs. Output is limited to 50000 characters by default. If the output exceeds this limit, you will receive an error suggesting alternatives.",
     input_schema: {
       type: 'object',
       properties: {
@@ -334,8 +213,8 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
         format: {
           type: 'string',
           description:
-            "Output format: 'text' (plain text, default), 'html' (raw innerHTML of the content area, preserves all markup), 'markdown' (structured markdown with headings, bold/italic, links, lists, code blocks).",
-          enum: ['text', 'html', 'markdown']
+            "Output format: 'text' (plain text, default) or 'html' (raw innerHTML of the content area, preserves all markup).",
+          enum: ['text', 'html']
         }
       },
       required: ['tabId']
