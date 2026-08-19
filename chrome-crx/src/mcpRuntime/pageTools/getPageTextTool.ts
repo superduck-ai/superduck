@@ -66,6 +66,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
             '.content',
             '#content',
             '[contenteditable="true"]',
+            '[contenteditable=""]',
             '[contenteditable="plaintext-only"]',
             '#baidu_realtime_editor_f'
           ];
@@ -106,7 +107,11 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
           // images, hr). Recursive walk over text + element nodes preserves
           // inline formatting inside blocks and keeps word boundaries intact.
           const htmlToMarkdown = (root: Element): string => {
-            const walk = (node: Node, inPre = false): string => {
+            const walk = (
+              node: Node,
+              inPre = false,
+              listType: 'ul' | 'ol' | null = null
+            ): string => {
               if (node.nodeType === Node.TEXT_NODE) {
                 const text = node.textContent || '';
                 return inPre ? text : text.replace(/\s+/g, ' ');
@@ -123,7 +128,7 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
               }
 
               const childrenMarkdown = Array.from(node.childNodes)
-                .map((child) => walk(child, isPre))
+                .map((child) => walk(child, isPre, listType))
                 .join('');
 
               switch (tag) {
@@ -166,10 +171,22 @@ export const getPageTextTool: ToolDefinition<GetPageTextToolInput> = {
                 case 'BLOCKQUOTE':
                   return `\n> ${childrenMarkdown.trim().replace(/\n/g, '\n> ')}\n`;
                 case 'UL':
-                case 'OL':
-                  return `\n${childrenMarkdown.trim()}\n`;
-                case 'LI':
-                  return `\n- ${childrenMarkdown.trim()}`;
+                case 'OL': {
+                  const childListType = tag === 'OL' ? 'ol' : 'ul';
+                  const children = Array.from(node.childNodes)
+                    .map((child) => walk(child, isPre, childListType))
+                    .join('');
+                  return `\n${children.trim()}\n`;
+                }
+                case 'LI': {
+                  const content = childrenMarkdown.trim();
+                  if (listType === 'ol') {
+                    const siblings = Array.from(el.parentElement?.children ?? []);
+                    const index = siblings.indexOf(el) + 1;
+                    return `\n${index}. ${content}`;
+                  }
+                  return `\n- ${content}`;
+                }
                 case 'TABLE': {
                   // Emit a GFM header separator row after the first row so
                   // common renderers treat it as a real table.
