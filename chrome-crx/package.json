@@ -28,7 +28,7 @@
     "docs:check": "typedoc --options typedoc.json --emit none"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.1",
+    "@anthropic-ai/sdk": "^0.122.0",
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/noto-sans": "^5.2.10",
     "@honeycombio/opentelemetry-web": "^1.1.0",
@@ -45,7 +45,7 @@
     "cmdk": "^1.1.1",
     "diff": "^9.0.0",
     "framer-motion": "^12.38.0",
-    "katex": "^0.16.33",
+    "katex": "^0.18.4",
     "lucide-react": "^1.17.0",
     "openai": "6.38.0",
     "react": "^19.2.4",
